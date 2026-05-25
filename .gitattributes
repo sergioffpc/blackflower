@@ -1,0 +1,140 @@
+# .gitattributes
+# Repository-wide attributes for git. Affects line endings, diff behavior,
+# language detection on GitHub, and Git LFS routing.
+
+# ---------- Line endings ----------
+
+# Auto-detect text files and normalize line endings to LF in the repo.
+# Files checked out on Windows still get CRLF in the working tree if the
+# user has core.autocrlf=true, but the repo always stores LF.
+* text=auto eol=lf
+
+# Source code — explicit LF (defense in depth against editor misbehavior).
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.md       text eol=lf
+*.json     text eol=lf
+*.lock     text eol=lf
+*.sh       text eol=lf
+*.fish     text eol=lf
+*.zsh      text eol=lf
+*.bash     text eol=lf
+
+# Shader sources — text but kept as LF.
+*.wgsl     text eol=lf
+*.hlsl     text eol=lf
+*.glsl     text eol=lf
+*.vert     text eol=lf
+*.frag     text eol=lf
+*.comp     text eol=lf
+*.spv      binary
+
+# Windows-specific text files — keep CRLF if anyone adds them.
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# ---------- Binary files ----------
+# Explicitly marked binary so git does not try to diff or normalize them.
+
+# Images
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.webp     binary
+*.tga      binary
+*.bmp      binary
+*.psd      binary
+*.exr      binary
+*.hdr      binary
+*.ktx      binary
+*.ktx2     binary
+*.dds      binary
+*.svg      text eol=lf
+
+# 3D models
+*.fbx      binary
+*.gltf     text eol=lf
+*.glb      binary
+*.obj      text eol=lf
+*.mtl      text eol=lf
+*.blend    binary
+*.blend1   binary
+*.dae      text eol=lf
+*.stl      binary
+
+# Audio
+*.wav      binary
+*.ogg      binary
+*.mp3      binary
+*.flac     binary
+*.opus     binary
+
+# Video (rarely versioned, but just in case)
+*.mp4      binary
+*.mov      binary
+*.webm     binary
+
+# Fonts
+*.ttf      binary
+*.otf      binary
+*.woff     binary
+*.woff2    binary
+
+# Archives
+*.zip      binary
+*.tar.gz   binary
+*.tgz      binary
+*.7z       binary
+
+# Other binaries
+*.bin      binary
+*.dat      binary
+*.pdb      binary
+*.exe      binary
+*.dll      binary
+*.so       binary
+*.dylib    binary
+*.a        binary
+*.lib      binary
+
+# ---------- Git LFS ----------
+# Track large binary assets via Git LFS. Requires `git lfs install` once
+# per machine. Add other patterns here as the project grows.
+
+# Textures and image masters
+*.psd     filter=lfs diff=lfs merge=lfs -text
+*.exr     filter=lfs diff=lfs merge=lfs -text
+*.hdr     filter=lfs diff=lfs merge=lfs -text
+*.tga     filter=lfs diff=lfs merge=lfs -text
+*.ktx     filter=lfs diff=lfs merge=lfs -text
+*.ktx2    filter=lfs diff=lfs merge=lfs -text
+
+# 3D model masters
+*.fbx     filter=lfs diff=lfs merge=lfs -text
+*.blend   filter=lfs diff=lfs merge=lfs -text
+*.blend1  filter=lfs diff=lfs merge=lfs -text
+
+# Audio masters (raw, uncompressed)
+*.wav     filter=lfs diff=lfs merge=lfs -text
+*.flac    filter=lfs diff=lfs merge=lfs -text
+
+# ---------- GitHub linguist hints ----------
+# Improves language detection on GitHub. Tells linguist what to count and
+# what to ignore for the "Languages" bar on the repo page.
+
+# Treat vendored/generated content as not part of the language stats.
+docs/diagrams/*.svg  linguist-generated=true
+*.lock               linguist-generated=true
+
+# Mark game content as "assets", not as code.
+assets/**  linguist-vendored=true
+
+# ---------- Diff hints ----------
+# Help git understand specific file types for nicer diffs.
+
+# Cargo.lock can have huge diffs; mark for compact display.
+Cargo.lock           diff=cargo

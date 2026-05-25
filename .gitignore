@@ -1,0 +1,175 @@
+# .gitignore
+# Files and directories never tracked by git.
+
+# ---------- Rust / Cargo ----------
+
+# Cargo build artifacts. The most important entry.
+/target/
+**/target/
+
+# Cargo.lock — KEEP THIS COMMITTED for binaries/applications.
+# (do NOT add Cargo.lock here — we want it tracked for reproducible builds)
+
+# Cargo's per-user output.
+.cargo/
+
+# Rust analyzer cache (occasionally written to a `.cache/` next to projects).
+**/*.rs.bk
+
+# Compiled WASM (if we ever target wasm32).
+*.wasm
+!docs/**/*.wasm
+
+# Profiling data
+*.profraw
+*.profdata
+
+# ---------- IDE / editor ----------
+
+# VS Code: keep workspace settings, ignore user-specific state.
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+
+# JetBrains (CLion / RustRover / IntelliJ)
+.idea/
+*.iml
+*.iws
+
+# Helix
+.helix/
+
+# Emacs
+*~
+\#*\#
+.\#*
+.dir-locals.el
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+Session.vim
+.netrwhist
+tags
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Zed
+.zed/
+
+# ---------- OS-specific cruft ----------
+
+# macOS (Sergio's dev machine, judging by the toolchain log)
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+
+# ---------- Tooling ----------
+
+# direnv local overrides (if used)
+.envrc.local
+.direnv/
+
+# Local environment variables
+.env
+.env.local
+.env.*.local
+
+# Just / make scratch files
+*.tmp
+*.bak
+*.orig
+
+# Coverage tools
+/coverage/
+*.gcov
+*.gcno
+*.gcda
+
+# Benchmark outputs
+/criterion/
+**/criterion/
+
+# Flamegraph outputs
+flamegraph.svg
+perf.data
+perf.data.old
+
+# Tracy profiler captures
+*.tracy
+
+# ---------- Containers / deployment ----------
+
+# Local Docker overrides
+docker-compose.override.yml
+
+# Kubernetes secrets (NEVER commit)
+*-secret.yaml
+*-secrets.yaml
+secrets/
+
+# Helm
+charts/*/charts/
+charts/*/Chart.lock
+
+# Terraform / OpenTofu local state
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# ---------- Local development scratch ----------
+
+# Personal notes/scratch files. Use .local suffix for any throwaway file.
+*.local
+/scratch/
+/tmp/
+/.tmp/
+
+# Local CI testing (act, etc.)
+.act/
+.actrc
+
+# ---------- Logs ----------
+
+*.log
+logs/
+
+# ---------- Editor backups / swap ----------
+
+*.swp
+*.swo
+*~
+.~lock.*
+
+# ---------- Generated documentation ----------
+
+# `cargo doc` output (regenerable, never committed).
+/doc/
+/docs/api/

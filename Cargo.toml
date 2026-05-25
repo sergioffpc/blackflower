@@ -1,0 +1,132 @@
+[workspace]
+resolver = "3"
+members = ["bins/blackflowerc", "bins/blackflowerd", "crates/blackflower-core"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+authors = ["Sérgio Carvalho sergioffpc@gmail.com"]
+rust-version = "1.95"
+repository = "https://github.com/sergioffpc/blackflower"
+homepage = "https://github.com/sergioffpc/blackflower"
+description = "Multiplayer arena game engine."
+readme = "README.md"
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[workspace.lints.rust]
+# Compiler (rustc) lints — not clippy.
+
+# Warnings that should always be errors.
+unsafe_code = "warn" # requires explicit justification per crate
+# missing_docs = "warn"
+unreachable_pub = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
+
+# Future-proofing.
+rust_2018_idioms = { level = "warn", priority = -1 }
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+# Explicitly allowed where it makes sense.
+async_fn_in_trait = "allow" # we will use this deliberately
+
+[workspace.lints.clippy]
+# Clippy lints, grouped by clippy's "lint groups".
+
+# Already at "warn" by default; we raise to "deny" to force resolution.
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+
+# Pedantic: tightens many quality concerns.
+pedantic = { level = "warn", priority = -1 }
+# Nursery: recent lints, may have false positives. Warn (not deny).
+nursery = { level = "warn", priority = -1 }
+# Restriction: individual opinionated lints. Do NOT enable the whole group
+# (it conflicts with itself). We pick manually below.
+
+# Pedantic enables A LOT. Some lints are pure noise in an engine.
+# Here we disable the noisiest ones. Add/remove as you see fit.
+module_name_repetitions = "allow"  # engine_core::core_thing is fine
+missing_errors_doc = "allow"       # docs come later
+missing_panics_doc = "allow"       # ditto
+must_use_candidate = "allow"       # excessive noise
+return_self_not_must_use = "allow"
+similar_names = "allow"            # e.g. `pos` and `pose`
+cast_precision_loss = "allow"      # f32 -> f64 etc, common in math
+cast_possible_truncation = "allow" # audited case by case
+cast_sign_loss = "allow"           # ditto
+cast_lossless = "allow"
+struct_excessive_bools = "warn"    # respects max-struct-bools in clippy.toml
+too_many_lines = "warn"
+
+# Discipline for unwrap/expect — forbid blind `.unwrap()`.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
+# Force `#[must_use]` on constructors.
+# must_use_candidate        = "warn"
+
+# Ban `as` conversions in favor of TryFrom/From.
+as_conversions = "warn"
+
+# Float comparison via == is a red flag.
+float_cmp = "warn"
+float_cmp_const = "warn"
+
+# Discipline for sync I/O in async code.
+# disallowed_methods       — managed via clippy.toml
+
+# Ban `dbg!`, `print!`, `todo!` (already covered in clippy.toml via
+# disallowed_macros, but also through lints):
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "warn"
+unimplemented = "warn" # forces explicit #[allow] where acceptable
+
+# Direct indexing (a[i]) can panic — force explicit .get().
+indexing_slicing = "warn"
+
+# Integer handling.
+integer_division = "warn"         # integer divisions can be bugs
+modulo_arithmetic = "warn"
+arithmetic_side_effects = "allow" # noisy in math-heavy code
+
+# Style restrictions useful in large codebases.
+empty_structs_with_brackets = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_drop = "warn"
+exit = "warn"                              # std::process::exit should be rare
+filetype_is_file = "warn"
+get_unwrap = "warn"
+infinite_loop = "warn"                     # require explicit `loop {}`
+let_underscore_must_use = "warn"
+mem_forget = "warn"
+missing_assert_message = "warn"
+mixed_read_write_in_expression = "warn"
+multiple_inherent_impl = "warn"
+mutex_atomic = "warn"                      # use Atomic* instead of Mutex<u32>
+needless_raw_strings = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+same_name_method = "warn"
+self_named_module_files = "warn"           # foo/mod.rs instead of mod.rs inside
+str_to_string = "warn"                     # .to_string() on &str → .to_owned()
+suspicious_xor_used_as_pow = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unseparated_literal_suffix = "warn"        # 1_u32 instead of 1u32
+verbose_file_reads = "warn"

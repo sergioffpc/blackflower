@@ -1,0 +1,50 @@
+# rustfmt.toml
+# Formatting rules for `cargo fmt`. Only stable rustfmt options.
+# Anything that requires nightly has been deliberately excluded.
+
+# ---------- Edition ----------
+
+# Must match Cargo.toml [workspace.package].edition.
+edition = "2024"
+
+# ---------- Line width ----------
+
+# Maximum line width. The Rust community default.
+max_width = 100
+
+# Breaking points for various constructs. Defaults are sensible; declared
+# here to document intent and lock the values explicitly.
+chain_width = 60
+array_width = 60
+fn_call_width = 60
+struct_lit_width = 18
+
+# ---------- Indentation ----------
+
+hard_tabs = false
+tab_spaces = 4
+
+# ---------- Newlines ----------
+
+# Force LF across platforms to avoid CRLF/LF issues on Windows machines.
+# Pair this with `* text=auto eol=lf` in .gitattributes.
+newline_style = "Unix"
+
+# ---------- Imports ----------
+
+# Reorder imports alphabetically. Default true; declared for clarity.
+reorder_imports = true
+
+# Reorder modules alphabetically. Default true; declared for clarity.
+reorder_modules = true
+
+# ---------- Misc ----------
+
+# Use field init shorthand: `Foo { x }` instead of `Foo { x: x }`.
+use_field_init_shorthand = true
+
+# Replace legacy `try!()` with `?`. Default true; declared for clarity.
+use_try_shorthand = true
+
+# Add trailing comma in vertical match arms only.
+match_block_trailing_comma = false

@@ -1,0 +1,96 @@
+# clippy.toml — fine-tuning of parameters for specific clippy lints.
+# Lint ON/OFF lives in Cargo.toml [workspace.lints]. Here we only adjust thresholds.
+
+# ---------- Complexity limits ----------
+
+# Cognitive complexity per function. Default: 25. We tighten this to encourage
+# decomposition into smaller functions.
+cognitive-complexity-threshold = 15
+
+# Maximum number of lines for a function body. Default: 100.
+too-many-lines-threshold = 80
+
+# Maximum number of arguments a function can have. Default: 7.
+too-many-arguments-threshold = 6
+
+# Maximum nesting depth for `if/match/for/while`. Default: 5.
+excessive-nesting-threshold = 4
+
+# Maximum number of single-character bindings allowed in a scope. Default: 4.
+# Helps avoid 'a', 'b', 'c', 'd' in complex loops.
+single-char-binding-names-threshold = 3
+
+# Maximum number of bool fields in a struct before clippy suggests an enum.
+# Default: 3. Encourages encapsulating flags in enums.
+max-struct-bools = 2
+
+# Maximum number of bool function arguments before suggesting refactor. Default: 3.
+max-fn-params-bools = 2
+
+# ---------- Type sizes ----------
+
+# Type size threshold for `clippy::large_types_passed_by_value`. Default: 256 bytes.
+# In ECS hot paths we want to force passing large types by reference.
+pass-by-value-size-limit = 128
+
+# Type size threshold for `clippy::large_enum_variant`. Default: 200 bytes.
+# Unbalanced large variants waste memory in archetypes.
+enum-variant-size-threshold = 128
+
+# Type size threshold for `clippy::result_large_err`. Default: 128 bytes.
+large-error-threshold = 64
+
+# Threshold for `clippy::large_stack_arrays`. Default: 512000.
+# Tightened: large stack arrays are a red flag in hot paths.
+array-size-threshold = 65536
+
+# ---------- Behavior ----------
+
+# Treat MSRV from Cargo.toml as enforced (deny lints requiring newer features).
+msrv = "1.95"
+
+# Types whose construction/use we want to explicitly forbid.
+disallowed-types = [
+  # Force the use of a faster HashMap instead of the std default (which has
+  # anti-DoS protection unnecessary for internal use).
+  { path = "std::collections::HashMap", reason = "use hashbrown::HashMap or engine_core::HashMap" },
+  { path = "std::collections::HashSet", reason = "use hashbrown::HashSet or engine_core::HashSet" },
+]
+
+# Methods whose invocation we want to forbid.
+disallowed-methods = [
+  # Implicit panic on float-to-int casts.
+  { path = "f32::to_int_unchecked", reason = "audit conversion; use saturating cast" },
+  { path = "f64::to_int_unchecked", reason = "audit conversion; use saturating cast" },
+]
+
+# Macros whose invocation we want to forbid.
+disallowed-macros = [
+  { path = "std::dbg", reason = "remove debug print before commit" },
+  { path = "std::todo", reason = "convert to explicit unimplemented! or open issue" },
+  # Direct print pollutes structured logs. Force the use of tracing.
+  { path = "std::print", reason = "use tracing::info!/debug! instead" },
+  { path = "std::println", reason = "use tracing::info!/debug! instead" },
+  { path = "std::eprint", reason = "use tracing::warn!/error! instead" },
+  { path = "std::eprintln", reason = "use tracing::warn!/error! instead" },
+]
+
+# ---------- Documentation ----------
+
+# List of known terms that clippy::doc_markdown should not treat as typos.
+# Add domain-specific terms here.
+doc-valid-idents = []
+
+# ---------- Other useful restrictions ----------
+
+# Avoid huge tuples (use structs instead).
+type-complexity-threshold = 150
+
+# Disallow mixed inline/non-inline format args for consistency.
+allow-mixed-uninlined-format-args = false
+
+# Force consistent trailing semicolons.
+semicolon-inside-block-ignore-singleline = false
+
+# Stack size threshold for thread-local detection.
+stack-size-threshold = 524288

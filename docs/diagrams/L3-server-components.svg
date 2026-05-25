@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 510" role="img">
+<title>Dedicated server components</title>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#666" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect width="680" height="510" fill="white"/>
+<rect x="25" y="70" width="630" height="420" rx="14" fill="none" stroke="#888" stroke-width="0.5" stroke-dasharray="6 4" opacity="0.5"/>
+<text x="45" y="92" font-family="sans-serif" font-size="11" fill="#555">Dedicated server process</text>
+<g><rect x="220" y="110" width="240" height="50" rx="8" fill="#d4ebe5" stroke="#3a7a6a" stroke-width="0.5"/><text x="340" y="128" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#1d3b35">Tick scheduler</text><text x="340" y="146" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#1d3b35">60Hz fixed-step driver</text></g>
+<g><rect x="40" y="200" width="180" height="70" rx="8" fill="#e9d5f2" stroke="#8b5fa6" stroke-width="0.5"/><text x="130" y="225" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#3b1d4f">Net &amp; session</text><text x="130" y="247" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#3b1d4f">UDP/QUIC and sessions</text></g>
+<g><rect x="240" y="200" width="180" height="70" rx="8" fill="#d4ebe5" stroke="#3a7a6a" stroke-width="0.5"/><text x="330" y="225" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#1d3b35">World ECS</text><text x="330" y="247" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#1d3b35">Authoritative state</text></g>
+<g><rect x="440" y="200" width="180" height="70" rx="8" fill="#e9d5f2" stroke="#8b5fa6" stroke-width="0.5"/><text x="530" y="225" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#3b1d4f">Snapshot builder</text><text x="530" y="247" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#3b1d4f">Delta per client</text></g>
+<g><rect x="40" y="300" width="180" height="70" rx="8" fill="#e9d5f2" stroke="#8b5fa6" stroke-width="0.5"/><text x="130" y="325" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#3b1d4f">Command pipeline</text><text x="130" y="347" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#3b1d4f">Validates and enqueues</text></g>
+<g><rect x="240" y="300" width="180" height="70" rx="8" fill="#d4ebe5" stroke="#3a7a6a" stroke-width="0.5"/><text x="330" y="325" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#1d3b35">Simulation systems</text><text x="330" y="347" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#1d3b35">Physics, combat, AI</text></g>
+<g><rect x="440" y="300" width="180" height="70" rx="8" fill="#d4ebe5" stroke="#3a7a6a" stroke-width="0.5"/><text x="530" y="325" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#1d3b35">History buffer</text><text x="530" y="347" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#1d3b35">States for rewind</text></g>
+<g><rect x="240" y="400" width="180" height="60" rx="8" fill="#fad8d2" stroke="#a85948" stroke-width="0.5"/><text x="330" y="422" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="600" fill="#5a2418">Game module</text><text x="330" y="442" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="11" fill="#5a2418">Hot-loadable logic</text></g>
+<line x1="12" y1="235" x2="40" y2="235" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<text x="14" y="225" text-anchor="start" font-family="sans-serif" font-size="11" fill="#555">commands</text>
+<line x1="620" y1="235" x2="668" y2="235" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<text x="666" y="225" text-anchor="end" font-family="sans-serif" font-size="11" fill="#555">snapshots</text>
+<line x1="130" y1="270" x2="130" y2="300" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="220" y1="335" x2="240" y2="335" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="310" y1="270" x2="310" y2="300" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="350" y1="300" x2="350" y2="270" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="330" y1="400" x2="330" y2="370" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="420" y1="235" x2="440" y2="235" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="420" y1="335" x2="440" y2="335" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="530" y1="300" x2="530" y2="270" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+</svg>
