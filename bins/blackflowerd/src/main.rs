@@ -1,5 +1,6 @@
-use std::time::Instant;
+use std::{net::SocketAddr, time::Instant};
 
+use anyhow::Context;
 use blackflower_core::{
     ecs::{
         World,
@@ -8,21 +9,28 @@ use blackflower_core::{
     math::Vec3,
     time::{TICK_DT_SECS, TICK_DURATION, TICK_HZ, Tick},
 };
+use blackflower_net::server;
 use clap::Parser;
 use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
-struct Args;
+struct Args {
+    /// Address the server binds to.
+    #[arg(long, default_value = "0.0.0.0:3512")]
+    bind_addr: SocketAddr,
+}
 
 fn main() -> anyhow::Result<()> {
-    let _args = Args::parse();
+    let args = Args::parse();
 
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
+
+    let _handle = server::start(args.bind_addr).context("starting server")?;
 
     info!(
         tick_hz = TICK_HZ,
@@ -42,15 +50,6 @@ fn main() -> anyhow::Result<()> {
         let current_tick_instant = Instant::now();
 
         blackflower_core::ecs::systems::integrate_movement(&mut world, TICK_DT_SECS);
-        for transform in &mut world.query::<&Transform>() {
-            info!(
-                tick = %current_tick,
-                x = transform.translation.x,
-                y = transform.translation.y,
-                z = transform.translation.z,
-                "snapshot"
-            );
-        }
 
         let now = Instant::now();
         if now < next_tick_instant {

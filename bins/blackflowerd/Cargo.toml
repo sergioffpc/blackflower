@@ -12,6 +12,7 @@ readme.workspace = true
 
 [dependencies]
 blackflower-core.workspace = true
+blackflower-net.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
