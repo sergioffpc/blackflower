@@ -3,8 +3,18 @@ name = "blackflower-core"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
+readme.workspace = true
 
 [dependencies]
+glam = { version = "0.33.0", features = ["serde"] }
+hecs = "0.11.0"
+postcard = "1.1.3"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [lints]
 workspace = true

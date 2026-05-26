@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["bins/blackflowerc", "bins/blackflowerd", "crates/blackflower-core"]
+members = [
+  "bins/blackflowerc",
+  "bins/blackflowerd",
+  "crates/blackflower-core",
+  "crates/blackflower-net",
+  "crates/blackflower-render",
+]
 
 [workspace.package]
 edition = "2024"
@@ -13,6 +19,10 @@ description = "Multiplayer arena game engine."
 readme = "README.md"
 
 [workspace.dependencies]
+blackflower-core = { path = "crates/blackflower-core" }
+blackflower-net = { path = "crates/blackflower-net" }
+blackflower-render = { path = "crates/blackflower-render" }
+
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
 tracing = "0.1.44"
