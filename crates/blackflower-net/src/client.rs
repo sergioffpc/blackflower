@@ -2,26 +2,81 @@
 //!
 //! Synchronous public API; internally drives a single-threaded tokio runtime.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, thread::JoinHandle};
 
 use anyhow::Context;
-use quinn::{ClientConfig, Endpoint};
-use tracing::info;
+use blackflower_core::ecs::Snapshot;
+use quinn::{ClientConfig, Connection, ConnectionError, Endpoint};
+use tokio::sync::oneshot;
+use tracing::{error, info, warn};
 
 use crate::{
     cert::SkipServerVerification,
     messages::{ClientToServer, ServerToClient, decode, encode},
 };
 
-pub fn connect(server_addr: SocketAddr) -> anyhow::Result<()> {
+pub struct ClientHandle {
+    snapshot_rx: crossbeam_channel::Receiver<Snapshot>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    join_handle: Option<JoinHandle<()>>,
+}
+
+impl ClientHandle {
+    pub fn drain_snapshots(&self) -> Box<[Snapshot]> {
+        let mut snapshots = vec![];
+        while let Ok(snapshot) = self.snapshot_rx.try_recv() {
+            snapshots.push(snapshot);
+        }
+        snapshots.into_boxed_slice()
+    }
+}
+
+impl Drop for ClientHandle {
+    fn drop(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            tx.send(()).ok();
+        }
+        if let Some(handle) = self.join_handle.take()
+            && let Err(err) = handle.join()
+        {
+            error!(error = ?err, "network client thread");
+        }
+    }
+}
+
+pub fn connect(server_addr: SocketAddr) -> anyhow::Result<ClientHandle> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .ok();
 
+    let (snapshot_tx, snapshot_rx) = crossbeam_channel::bounded::<Snapshot>(64);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let join_handle = std::thread::Builder::new()
+        .name("blackflower-net::client".to_owned())
+        .spawn(move || {
+            if let Err(e) = subscribe(server_addr, snapshot_tx, shutdown_rx) {
+                error!(error = %e, "subscribe snapshots failed");
+            }
+        })
+        .context("spawning network client thread")?;
+
+    Ok(ClientHandle {
+        snapshot_rx,
+        shutdown_tx: Some(shutdown_tx),
+        join_handle: Some(join_handle),
+    })
+}
+
+fn subscribe(
+    server_addr: SocketAddr,
+    snapshot_tx: crossbeam_channel::Sender<Snapshot>,
+    shutdown_rx: oneshot::Receiver<()>,
+) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .context("building async runtime")?;
+        .context("building client async runtime")?;
 
     runtime.block_on(async move {
         let mut rustls_config = rustls::ClientConfig::builder()
@@ -50,26 +105,59 @@ pub fn connect(server_addr: SocketAddr) -> anyhow::Result<()> {
             .context("connection handshake failed")?;
         info!(server = %server_addr, "connected");
 
-        let (mut send, mut recv) = connection
+        let (mut send, _recv) = connection
             .open_bi()
             .await
             .context("opening bidirectional stream")?;
 
-        let msg = encode(&ClientToServer::Hello).context("encoding HELLO")?;
-        send.write_all(&msg).await.context("sending HELLO")?;
-        send.finish().context("finishing stream")?;
-        info!("HELLO sent");
-
-        let response = recv
-            .read_to_end(1024)
+        let msg = encode(&ClientToServer::Subscribe).context("encoding subscription message")?;
+        send.write_all(&msg)
             .await
-            .context("reading ack payload")?;
-        let msg: ServerToClient = decode(&response).context("decoding ack")?;
-        info!(?msg, "received from server");
+            .context("sending subscription message")?;
+        send.finish().context("finishing subscription stream")?;
+        info!("subscribed for snapshots");
+
+        tokio::select! {
+            biased;
+
+            _ = shutdown_rx => {
+                info!("client received shutdown signal");
+            }
+
+            () = recv_loop(&connection, &snapshot_tx) => {}
+        }
 
         connection.close(0_u32.into(), b"client done");
         endpoint.wait_idle().await;
 
         Ok(())
     })
+}
+
+async fn recv_loop(connection: &Connection, snapshot_tx: &crossbeam_channel::Sender<Snapshot>) {
+    loop {
+        let bytes = match connection.read_datagram().await {
+            Ok(bytes) => bytes,
+            Err(ConnectionError::ApplicationClosed(_) | ConnectionError::ConnectionClosed(_)) => {
+                info!("server closed connection");
+                break;
+            }
+            Err(e) => {
+                warn!(error = %e, "reading datagram failed");
+                break;
+            }
+        };
+
+        match decode::<ServerToClient>(&bytes) {
+            Ok(ServerToClient::Snapshot(snapshot)) => {
+                if snapshot_tx.send(snapshot).is_err() {
+                    info!("snapshot receiver dropped; exiting receive loop");
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "decoding datagram failed");
+            }
+        }
+    }
 }

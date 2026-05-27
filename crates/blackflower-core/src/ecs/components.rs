@@ -6,8 +6,10 @@
 //! Components are intentionally `#[repr(C)]` and `Copy` where possible to
 //! make them friendly to bulk iteration and snapshot serialization.
 
+use serde::{Deserialize, Serialize};
+
 /// Spatial transform of an entity in world space.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Transform {
     pub translation: glam::Vec3,
@@ -32,6 +34,10 @@ impl Default for Transform {
 }
 
 /// Linear velocity of an entity in world space, in units per second.
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Velocity(pub glam::Vec3);
+
+impl Velocity {
+    pub const ZERO: Self = Self(glam::Vec3::ZERO);
+}

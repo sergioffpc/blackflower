@@ -19,8 +19,7 @@ anyhow.workspace = true
 clap.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-
-winit = "0.30.13"
+winit.workspace = true
 
 [lints]
 workspace = true

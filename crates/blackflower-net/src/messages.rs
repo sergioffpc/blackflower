@@ -1,23 +1,21 @@
 //! Wire message types exchanged between client and server.
-//!
-//! Serialized with [`postcard`]. Format is binary, length-prefixed
-//! (when sent over QUIC streams) or raw (when sent over QUIC datagrams).
 
+use blackflower_core::ecs::Snapshot;
 use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 
 /// Messages sent from the client to the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientToServer {
-    /// Initial handshake message sent after connection is established.
-    Hello,
+    /// Tell the server we are ready to receive snapshots.
+    Subscribe,
 }
 
 /// Messages sent from the server to the client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerToClient {
-    /// Acknowledgment of a `Hello`.
-    Ack,
+    /// State of the simulation at a specific tick.
+    Snapshot(Snapshot),
 }
 
 /// Errors raised by the wire encoding/decoding layer.

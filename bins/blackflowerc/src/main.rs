@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use blackflower_core::ecs::PresentationWorld;
 use blackflower_net::client;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -21,7 +22,13 @@ fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    client::connect(args.server_addr).context("connecting to server")?;
+    let client_handle = client::connect(args.server_addr).context("connecting to server")?;
 
-    Ok(())
+    let mut world = PresentationWorld::default();
+    #[allow(clippy::infinite_loop)]
+    loop {
+        for snapshot in &client_handle.drain_snapshots() {
+            world.apply(snapshot);
+        }
+    }
 }

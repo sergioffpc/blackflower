@@ -7,6 +7,8 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 /// Simulation tick rate, in Hertz.
 pub const TICK_HZ: u32 = 60;
 
@@ -23,7 +25,9 @@ pub const TICK_DURATION: Duration = Duration::from_micros(16_667);
 pub const TICK_DT_SECS: f32 = 1.0 / TICK_HZ as f32;
 
 /// Identifier of a single simulation step.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[repr(transparent)]
 pub struct Tick(u64);
 

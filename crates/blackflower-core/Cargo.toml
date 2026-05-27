@@ -11,8 +11,11 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-glam = { version = "0.33.0", features = ["serde"] }
-hecs = "0.11.0"
+glam.workspace = true
+hashbrown.workspace = true
+hecs.workspace = true
+serde.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

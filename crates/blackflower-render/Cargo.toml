@@ -11,8 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-wgpu = "29.0.3"
-pollster = "0.4.0"
+pollster.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@ use std::{net::SocketAddr, time::Instant};
 use anyhow::Context;
 use blackflower_core::{
     ecs::{
-        World,
+        SimulationWorld,
         components::{Transform, Velocity},
     },
     math::Vec3,
@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let _handle = server::start(args.bind_addr).context("starting server")?;
+    let server_handle = server::start(args.bind_addr).context("starting server")?;
 
     info!(
         tick_hz = TICK_HZ,
@@ -39,8 +39,8 @@ fn main() -> anyhow::Result<()> {
         "ticker"
     );
 
-    let mut world = World::new();
-    let _entity = world.spawn((Transform::identity(), Velocity(Vec3::new(1.0, 0.0, 0.0))));
+    let mut world = SimulationWorld::default();
+    world.spawn((Transform::identity(), Velocity(Vec3::new(1.0, 0.0, 0.0))));
 
     let mut current_tick = Tick::ZERO;
     let mut next_tick_instant = Instant::now() + TICK_DURATION;
@@ -50,6 +50,9 @@ fn main() -> anyhow::Result<()> {
         let current_tick_instant = Instant::now();
 
         blackflower_core::ecs::systems::integrate_movement(&mut world, TICK_DT_SECS);
+
+        let snapshot = world.snapshot(current_tick);
+        server_handle.send_snapshot(snapshot);
 
         let now = Instant::now();
         if now < next_tick_instant {
