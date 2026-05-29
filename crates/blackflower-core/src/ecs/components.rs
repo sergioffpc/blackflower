@@ -9,8 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Spatial transform of an entity in world space.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Transform {
     pub translation: glam::Vec3,
     pub rotation: glam::Quat,
@@ -34,8 +34,8 @@ impl Default for Transform {
 }
 
 /// Linear velocity of an entity in world space, in units per second.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Velocity(pub glam::Vec3);
 
 impl Velocity {

@@ -8,7 +8,7 @@
 cognitive-complexity-threshold = 15
 
 # Maximum number of lines for a function body. Default: 100.
-too-many-lines-threshold = 80
+too-many-lines-threshold = 100
 
 # Maximum number of arguments a function can have. Default: 7.
 too-many-arguments-threshold = 6

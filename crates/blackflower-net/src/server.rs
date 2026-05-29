@@ -190,9 +190,9 @@ async fn accept_loop(
                     info!("endpoint closed; exiting accept loop");
                     break;
                 };
-                let subs = Arc::clone(&subscribers);
+                let subscribers_clone = Arc::clone(&subscribers);
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(incoming, subs).await {
+                    if let Err(e) = handle_connection(incoming, subscribers_clone).await {
                         error!(error = %e, "connection closed");
                     }
                 });

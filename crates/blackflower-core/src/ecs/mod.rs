@@ -15,8 +15,8 @@ use crate::{ecs::components::Transform, time::Tick};
 ///
 /// Internally a `u64`. Value `0` is reserved for "no entity" and is never
 /// allocated by [`EntityIdAllocator`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EntityId(u64);
 
 impl EntityId {
@@ -33,7 +33,7 @@ impl EntityId {
 
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "entity id {}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 

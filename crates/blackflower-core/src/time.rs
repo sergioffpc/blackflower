@@ -25,10 +25,10 @@ pub const TICK_DURATION: Duration = Duration::from_micros(16_667);
 pub const TICK_DT_SECS: f32 = 1.0 / TICK_HZ as f32;
 
 /// Identifier of a single simulation step.
+#[repr(transparent)]
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-#[repr(transparent)]
 pub struct Tick(u64);
 
 impl Tick {
@@ -42,6 +42,6 @@ impl Tick {
 
 impl std::fmt::Display for Tick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "tick {}", self.0)
+        write!(f, "{}", self.0)
     }
 }

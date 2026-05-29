@@ -314,7 +314,12 @@ dependencies = [
 name = "blackflower-render"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "blackflower-core",
+ "bytemuck",
  "pollster",
+ "raw-window-handle",
+ "tracing",
  "wgpu",
 ]
 
