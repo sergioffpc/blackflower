@@ -69,10 +69,8 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ED25519,
-        ]
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }

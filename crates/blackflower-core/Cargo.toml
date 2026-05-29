@@ -11,6 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+bitflags.workspace = true
 glam.workspace = true
 hashbrown.workspace = true
 hecs.workspace = true

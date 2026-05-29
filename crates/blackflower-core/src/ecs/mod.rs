@@ -4,7 +4,7 @@ pub mod systems;
 use hashbrown::HashMap;
 use hecs::{DynamicBundle, Entity, World};
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{error, info, warn};
 
 use crate::{ecs::components::Transform, time::Tick};
 
@@ -65,6 +65,7 @@ impl EntityIdAllocator {
 pub struct Snapshot {
     pub tick: Tick,
     pub entities: Box<[EntitySnapshot]>,
+    pub events: Box<[EventSnapshot]>,
 }
 
 /// Replicated state of a single entity.
@@ -74,24 +75,37 @@ pub struct EntitySnapshot {
     pub transform: Transform,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum EventSnapshot {
+    Despawn(EntityId),
+}
+
 #[derive(Default)]
 pub struct SimulationWorld {
     entities: World,
     entity_id_allocator: EntityIdAllocator,
-    entity_id_mapping: HashMap<Entity, EntityId>,
+    entity_lookup: HashMap<Entity, EntityId>,
 }
 
 impl SimulationWorld {
+    pub fn query<Q: hecs::Query>(&self) -> hecs::QueryBorrow<'_, Q> {
+        self.entities.query::<Q>()
+    }
+
+    pub fn query_mut<Q: hecs::Query>(&mut self) -> hecs::QueryMut<'_, Q> {
+        self.entities.query_mut::<Q>()
+    }
+
     pub fn spawn(&mut self, components: impl DynamicBundle) -> EntityId {
         let entity = self.entities.spawn(components);
         let entity_id = self.entity_id_allocator.allocate();
-        self.entity_id_mapping.insert(entity, entity_id);
+        self.entity_lookup.insert(entity, entity_id);
         entity_id
     }
 
     pub fn snapshot(&self, tick: Tick) -> Snapshot {
         let entities = self
-            .entity_id_mapping
+            .entity_lookup
             .iter()
             .filter_map(|(&entity, &id)| {
                 self.entities
@@ -103,39 +117,76 @@ impl SimulationWorld {
                     })
             })
             .collect();
-        Snapshot { tick, entities }
+        let events = vec![].into_boxed_slice();
+
+        Snapshot {
+            tick,
+            entities,
+            events,
+        }
     }
 }
 
 #[derive(Default)]
 pub struct PresentationWorld {
     entities: World,
-    entity_id_mapping: HashMap<EntityId, Entity>,
+    entity_lookup: HashMap<EntityId, Entity>,
 }
 
 impl PresentationWorld {
-    pub fn apply(&mut self, snapshot: &Snapshot) {
-        if let Some(first) = snapshot.entities.first() {
-            info!(
-                tick = %snapshot.tick,
-                entities = snapshot.entities.len(),
-                id = %first.id,
-                x = first.transform.translation.x,
-                y = first.transform.translation.y,
-                z = first.transform.translation.z,
-                "received snapshot"
-            );
-        }
+    pub fn query<Q: hecs::Query>(&self) -> hecs::QueryBorrow<'_, Q> {
+        self.entities.query::<Q>()
+    }
 
-        for entity_snapshot in &snapshot.entities {
-            if let Some(entity) = self.entity_id_mapping.get(&entity_snapshot.id).copied() {
-                self.entities
-                    .insert(entity, (entity_snapshot.transform,))
-                    .ok();
-            } else {
-                let entity = self.entities.spawn((entity_snapshot.transform,));
-                self.entity_id_mapping.insert(entity_snapshot.id, entity);
-            }
+    pub fn query_mut<Q: hecs::Query>(&mut self) -> hecs::QueryMut<'_, Q> {
+        self.entities.query_mut::<Q>()
+    }
+
+    pub fn apply(&mut self, snapshot: &Snapshot) {
+        for ent in &snapshot.entities {
+            self.upsert_entity(ent.id, ent.transform);
+        }
+        // TODO despawn entities
+    }
+
+    fn upsert_entity(&mut self, id: EntityId, transform: Transform) {
+        if self.entity_lookup.contains_key(&id) {
+            self.update_entity(id, transform);
+        } else {
+            self.spawn_entity(id, transform);
+        }
+    }
+
+    fn spawn_entity(&mut self, id: EntityId, transform: Transform) -> Entity {
+        let entity = self.entities.spawn((transform,));
+        self.entity_lookup.insert(id, entity);
+        info!(id = %id, transform = ?transform, "entity spawned");
+        entity
+    }
+
+    fn despawn_entity(&mut self, id: EntityId) {
+        let Some(entity) = self.entity_lookup.remove(&id) else {
+            warn!(id = %id, "despawn requested for unknown entity");
+            return;
+        };
+        match self.entities.despawn(entity) {
+            Ok(()) => info!(id = %id, "entity despawned"),
+            Err(e) => warn!(error = %e, id = %id, "failed to despawn entity"),
+        }
+    }
+
+    fn update_entity(&mut self, id: EntityId, transform: Transform) {
+        let Some(&entity) = self.entity_lookup.get(&id) else {
+            warn!(id = %id, "update requested for unknown entity");
+            return;
+        };
+        if let Ok(mut t) = self.entities.get::<&mut Transform>(entity) {
+            *t = transform;
+            info!(id = %id, transform = ?transform, "entity transform updated");
+        } else if let Err(e) = self.entities.insert_one(entity, transform) {
+            error!(error = %e, id = %id, "failed to insert transform");
+        } else {
+            info!(id = %id, transform = ?transform, "entity transform inserted");
         }
     }
 }

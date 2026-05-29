@@ -1,3 +1,4 @@
+use blackflower_core::{ecs::components::Transform, math::Mat4};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
@@ -22,6 +23,23 @@ impl Vertex {
             array_stride: size_of::<Self>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+/// GPU-side per-entity uniform: model matrix only.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct ModelUniform {
+    model: [[f32; 4]; 4],
+}
+
+impl From<&Transform> for ModelUniform {
+    fn from(value: &Transform) -> Self {
+        let m =
+            Mat4::from_scale_rotation_translation(value.scale, value.rotation, value.translation);
+        Self {
+            model: m.to_cols_array_2d(),
         }
     }
 }

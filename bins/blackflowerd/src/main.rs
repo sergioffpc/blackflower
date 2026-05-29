@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Instant};
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use blackflower_core::{
@@ -7,11 +7,10 @@ use blackflower_core::{
         components::{Transform, Velocity},
     },
     math::Vec3,
-    time::{TICK_DT_SECS, TICK_DURATION, TICK_HZ, Tick},
+    time::TickScheduler,
 };
 use blackflower_net::server;
 use clap::Parser;
-use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -32,41 +31,13 @@ fn main() -> anyhow::Result<()> {
 
     let server_handle = server::start(args.bind_addr).context("starting server")?;
 
-    info!(
-        tick_hz = TICK_HZ,
-        tick_dt_secs = TICK_DT_SECS,
-        tick_duration_us = u64::try_from(TICK_DURATION.as_micros())?,
-        "ticker"
-    );
-
     let mut world = SimulationWorld::default();
     world.spawn((Transform::identity(), Velocity(Vec3::new(1.0, 0.0, 0.0))));
 
-    let mut current_tick = Tick::ZERO;
-    let mut next_tick_instant = Instant::now() + TICK_DURATION;
+    TickScheduler::new(60).start(|tick| {
+        blackflower_core::ecs::systems::integrate_movement(&mut world, 0.001);
 
-    #[allow(clippy::infinite_loop, reason = "server runs until SIGTERM")]
-    loop {
-        let current_tick_instant = Instant::now();
-
-        blackflower_core::ecs::systems::integrate_movement(&mut world, TICK_DT_SECS);
-
-        let snapshot = world.snapshot(current_tick);
+        let snapshot = world.snapshot(tick);
         server_handle.send_snapshot(snapshot);
-
-        let now = Instant::now();
-        if now < next_tick_instant {
-            std::thread::sleep(next_tick_instant - now);
-        } else {
-            let overrun = now - current_tick_instant;
-            warn!(
-                tick = %current_tick,
-                overrun_us = u64::try_from(overrun.as_micros())?,
-                "ticker overran"
-            );
-        }
-
-        current_tick = current_tick.next();
-        next_tick_instant += TICK_DURATION;
-    }
+    })
 }

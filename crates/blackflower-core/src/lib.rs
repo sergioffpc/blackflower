@@ -4,5 +4,6 @@
 //! to be deterministic where applicable.
 
 pub mod ecs;
+pub mod input;
 pub mod math;
 pub mod time;

@@ -22,7 +22,7 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
-    pub fn drain_snapshots(&self) -> Box<[Snapshot]> {
+    pub fn try_recv_snapshots(&self) -> Box<[Snapshot]> {
         let mut snapshots = vec![];
         while let Ok(snapshot) = self.snapshot_rx.try_recv() {
             snapshots.push(snapshot);
@@ -55,7 +55,7 @@ pub fn connect(server_addr: SocketAddr) -> anyhow::Result<ClientHandle> {
     let join_handle = std::thread::Builder::new()
         .name("blackflower-net::client".to_owned())
         .spawn(move || {
-            if let Err(e) = subscribe(server_addr, snapshot_tx, shutdown_rx) {
+            if let Err(e) = start(server_addr, snapshot_tx, shutdown_rx) {
                 error!(error = %e, "subscribe snapshots failed");
             }
         })
@@ -68,7 +68,7 @@ pub fn connect(server_addr: SocketAddr) -> anyhow::Result<ClientHandle> {
     })
 }
 
-fn subscribe(
+fn start(
     server_addr: SocketAddr,
     snapshot_tx: crossbeam_channel::Sender<Snapshot>,
     shutdown_rx: oneshot::Receiver<()>,
@@ -150,7 +150,7 @@ async fn recv_loop(connection: &Connection, snapshot_tx: &crossbeam_channel::Sen
 
         match decode::<ServerToClient>(&bytes) {
             Ok(ServerToClient::Snapshot(snapshot)) => {
-                if snapshot_tx.send(snapshot).is_err() {
+                if snapshot_tx.try_send(snapshot).is_err() {
                     info!("snapshot receiver dropped; exiting receive loop");
                     break;
                 }

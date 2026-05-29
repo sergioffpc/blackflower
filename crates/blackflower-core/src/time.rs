@@ -5,24 +5,10 @@
 //! between ticks; `TICK_DT_SECS` is the floating-point delta passed to
 //! systems that integrate over time.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-
-/// Simulation tick rate, in Hertz.
-pub const TICK_HZ: u32 = 60;
-
-/// Duration of a single simulation tick.
-///
-/// `1 / 60 s = 16_666.666... µs`. We round to the nearest microsecond.
-pub const TICK_DURATION: Duration = Duration::from_micros(16_667);
-
-/// Delta time passed to simulation systems, in seconds.
-///
-/// Equals `1.0 / TICK_HZ as f32`. Stored as a constant rather than computed
-/// to avoid floating-point drift and to allow use in `const` contexts.
-#[allow(clippy::as_conversions)]
-pub const TICK_DT_SECS: f32 = 1.0 / TICK_HZ as f32;
+use tracing::{info, warn};
 
 /// Identifier of a single simulation step.
 #[repr(transparent)]
@@ -43,5 +29,54 @@ impl Tick {
 impl std::fmt::Display for Tick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+pub struct TickScheduler {
+    tick_hz: u64,
+    tick_duration: Duration,
+}
+
+impl TickScheduler {
+    pub fn new(tick_hz: u64) -> Self {
+        Self {
+            tick_hz,
+            tick_duration: Duration::from_secs_f64(1.0 / tick_hz as f64),
+        }
+    }
+
+    pub fn start<F>(&self, mut do_tick: F) -> anyhow::Result<()>
+    where
+        F: FnMut(Tick),
+    {
+        info!(
+            tick_hz = self.tick_hz,
+            tick_duration_ms = self.tick_duration.as_millis(),
+            "tick scheduler"
+        );
+
+        let mut current_tick = Tick::ZERO;
+        let mut next_tick_instant = Instant::now() + self.tick_duration;
+
+        loop {
+            let current_tick_instant = Instant::now();
+
+            do_tick(current_tick);
+
+            let now = Instant::now();
+            if now < next_tick_instant {
+                std::thread::sleep(next_tick_instant - now);
+            } else {
+                let overrun = now - current_tick_instant;
+                warn!(
+                    tick = %current_tick,
+                    overrun_us = u64::try_from(overrun.as_micros())?,
+                    "tick scheduler overran"
+                );
+            }
+
+            current_tick = current_tick.next();
+            next_tick_instant += self.tick_duration;
+        }
     }
 }
