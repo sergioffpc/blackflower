@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use blackflower_core::math::Vec3;
+use blackflower_core::{
+    ecs::{PresentationWorld, components::Transform},
+    math::Vec3,
+};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
-    camera::CameraResources,
-    geometry::{CUBE_INDICES, CUBE_VERTICES, GeometryResources, Vertex},
+    camera::Camera,
+    geometry::{CUBE_INDICES, CUBE_VERTICES, GeometryResources},
+    pipelines::DefaultPipeline,
 };
 
 pub struct Renderer {
@@ -16,10 +20,9 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    pipeline: wgpu::RenderPipeline,
-    depth_view: wgpu::TextureView,
+    pipeline: DefaultPipeline,
 
-    camera_resources: CameraResources,
+    camera: Camera,
     geometry_resources: GeometryResources,
 }
 
@@ -95,17 +98,15 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
-        let aspect = width as f32 / height as f32;
-        let camera_resources =
-            CameraResources::new(&device, aspect, 60_f32.to_radians(), 0.1, 100.0);
-        let geometry_resources = GeometryResources::new(&device, CUBE_VERTICES, CUBE_INDICES);
+        let pipeline = DefaultPipeline::new(&device, &config);
 
-        let pipeline = Self::create_render_pipeline(
-            &device,
-            &config,
-            &[Some(&camera_resources.bind_group_layout)],
-        );
-        let depth_view = Self::create_depth_view(&device, &config);
+        let aspect = width as f32 / height as f32;
+        let mut camera = Camera::new(aspect, 60_f32.to_radians(), 0.1, 100.0);
+        camera.eye = Vec3::new(3.0, 2.0, 3.0);
+        camera.target = Vec3::ZERO;
+        camera.up = Vec3::Y;
+
+        let geometry_resources = GeometryResources::new(&device, CUBE_VERTICES, CUBE_INDICES);
 
         Ok(Self {
             surface,
@@ -113,110 +114,38 @@ impl Renderer {
             device,
             queue,
             pipeline,
-            depth_view,
-            camera_resources,
+
+            camera,
             geometry_resources,
         })
     }
 
-    pub fn render(&mut self) {
-        self.camera_resources.camera.eye = Vec3::new(3.0, 2.0, 3.0);
-        self.camera_resources.camera.target = Vec3::ZERO;
-        self.camera_resources.camera.up = Vec3::Y;
-        self.camera_resources.update_buffer(&self.queue);
-
+    pub fn render(&mut self, world: &PresentationWorld) {
         match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(surface_texture) => self.present(surface_texture),
+            wgpu::CurrentSurfaceTexture::Success(surface_texture) => {
+                self.present(surface_texture, world);
+            }
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => {
-                warn!("suboptimal surface texture; still rendering");
-                self.present(surface_texture);
+                debug!("suboptimal surface texture; still rendering");
+                self.present(surface_texture, world);
+                self.surface.configure(&self.device, &self.config);
             }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                warn!("skipping frame");
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                debug!("surface outdated; reconfiguring");
+                self.surface.configure(&self.device, &self.config);
             }
-            wgpu::CurrentSurfaceTexture::Outdated
-            | wgpu::CurrentSurfaceTexture::Lost
-            | wgpu::CurrentSurfaceTexture::Validation => {
-                panic!("wgpu surface fatal error");
+            wgpu::CurrentSurfaceTexture::Lost => {
+                warn!("surface lost; reconfiguring");
+                self.surface.configure(&self.device, &self.config);
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                error!("wgpu validation error; skipping frame");
             }
         }
     }
 
-    fn create_render_pipeline(
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
-    ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Default render pipeline layout"),
-            bind_group_layouts,
-            immediate_size: 0,
-        });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Default render pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::desc()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-    }
-
-    fn create_depth_view(
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-    ) -> wgpu::TextureView {
-        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Depth texture"),
-            size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
-    }
-
-    fn present(&self, surface_texture: wgpu::SurfaceTexture) {
+    fn present(&mut self, surface_texture: wgpu::SurfaceTexture, world: &PresentationWorld) {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -239,7 +168,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: &self.pipeline.depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -251,14 +180,21 @@ impl Renderer {
                 multiview_mask: None,
             });
 
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.camera_resources.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.geometry_resources.vertex_buffer.slice(..));
-            pass.set_index_buffer(
-                self.geometry_resources.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint32,
-            );
-            pass.draw_indexed(0..self.geometry_resources.index_count, 0, 0..1);
+            pass.set_pipeline(&self.pipeline.pipeline);
+            pass.set_bind_group(0, &self.pipeline.camera_bind_group, &[]);
+            self.pipeline
+                .update_camera_uniform(&self.queue, &self.camera);
+
+            for transform in &mut world.query::<&Transform>() {
+                pass.set_bind_group(1, &self.pipeline.model_bind_group, &[]);
+                self.pipeline.update_model_uniform(&self.queue, transform);
+                pass.set_vertex_buffer(0, self.geometry_resources.vertex_buffer.slice(..));
+                pass.set_index_buffer(
+                    self.geometry_resources.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                pass.draw_indexed(0..self.geometry_resources.index_count, 0, 0..1);
+            }
         }
 
         self.queue.submit(std::iter::once(command_encoder.finish()));

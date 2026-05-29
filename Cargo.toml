@@ -28,7 +28,7 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 bytes = "1.11.1"
 clap = { version = "4.6.1", features = ["derive"] }
 crossbeam-channel = "0.5.15"
-glam = { version = "0.33.0", features = ["serde"] }
+glam = { version = "0.33.0", features = ["serde", "bytemuck"] }
 hashbrown = "0.17.1"
 hecs = "0.11.0"
 quinn = "0.11.9"

@@ -1,13 +1,16 @@
-// blackflower cube shader.
-//
-// Minimal pipeline: project a vertex with the camera's view-projection
-// matrix and forward its per-face color to the fragment stage.
+// Vertex stage applies model * view_proj to transform vertex positions.
+// Fragment stage outputs the per-face color.
 
 struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
 
+struct ModelUniform {
+    model: mat4x4<f32>,
+};
+
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(1) @binding(0) var<uniform> entity: ModelUniform;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -23,7 +26,8 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
+    let world_pos = entity.model * vec4<f32>(in.position, 1.0);
+    out.clip_position = camera.view_proj * world_pos;
     out.color = in.color;
     return out;
 }

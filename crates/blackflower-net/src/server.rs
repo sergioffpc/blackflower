@@ -2,7 +2,7 @@
 //!
 //! Spawns a tokio runtime on a dedicated background thread, binds a QUIC
 //! endpoint, and accepts incoming connections. Each connection, after a
-//! `Hello`, receives every snapshot the tick thread produces as a QUIC
+//! `Subscribe`, receives every snapshot the tick thread produces as a QUIC
 //! datagram.
 //!
 //! ## Broadcast architecture
@@ -181,7 +181,7 @@ async fn accept_loop(
 
             _ = &mut shutdown_rx => {
                 info!("shutdown signal received; closing endpoint");
-                endpoint.close(0_u32.into(), b"server shutted down");
+                endpoint.close(0_u32.into(), b"shut down");
                 break;
             }
 

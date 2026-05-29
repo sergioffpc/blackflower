@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     loop {
         let current_tick_instant = Instant::now();
 
-        blackflower_core::ecs::systems::integrate_movement(&mut world, TICK_DT_SECS);
+        blackflower_core::ecs::systems::integrate_movement(&mut world, 0.001);
 
         let snapshot = world.snapshot(current_tick);
         server_handle.send_snapshot(snapshot);
