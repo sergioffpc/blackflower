@@ -285,24 +285,49 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-core"
+name = "blackflower-entity"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "bitflags 2.11.1",
- "glam",
- "hashbrown 0.17.1",
- "hecs",
  "serde",
- "tracing",
 ]
 
 [[package]]
-name = "blackflower-net"
+name = "blackflower-graphics"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-core",
+ "blackflower-math",
+ "blackflower-world",
+ "bytemuck",
+ "pollster",
+ "raw-window-handle",
+ "tracing",
+ "wgpu",
+]
+
+[[package]]
+name = "blackflower-input"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "blackflower-math",
+ "blackflower-tick",
+ "serde",
+]
+
+[[package]]
+name = "blackflower-math"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde",
+]
+
+[[package]]
+name = "blackflower-network"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "bytes",
  "crossbeam-channel",
  "postcard",
@@ -316,16 +341,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-render"
+name = "blackflower-physics"
+version = "0.1.0"
+dependencies = [
+ "blackflower-math",
+ "blackflower-world",
+ "serde",
+]
+
+[[package]]
+name = "blackflower-tick"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-core",
- "bytemuck",
- "pollster",
- "raw-window-handle",
+ "serde",
  "tracing",
- "wgpu",
+]
+
+[[package]]
+name = "blackflower-world"
+version = "0.1.0"
+dependencies = [
+ "blackflower-entity",
+ "blackflower-math",
+ "blackflower-tick",
+ "hashbrown 0.17.1",
+ "hecs",
+ "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -333,9 +376,11 @@ name = "blackflowerc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-core",
- "blackflower-net",
- "blackflower-render",
+ "blackflower-graphics",
+ "blackflower-input",
+ "blackflower-network",
+ "blackflower-tick",
+ "blackflower-world",
  "clap",
  "tracing",
  "tracing-subscriber",
@@ -347,8 +392,12 @@ name = "blackflowerd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-core",
- "blackflower-net",
+ "blackflower-input",
+ "blackflower-math",
+ "blackflower-network",
+ "blackflower-physics",
+ "blackflower-tick",
+ "blackflower-world",
  "clap",
  "tracing",
  "tracing-subscriber",

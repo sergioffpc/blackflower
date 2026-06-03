@@ -1,5 +1,5 @@
 [package]
-name = "blackflowerd"
+name = "blackflower-tick"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,17 +11,9 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-blackflower-input.workspace = true
-blackflower-math.workspace = true
-blackflower-network.workspace = true
-blackflower-physics.workspace = true
-blackflower-tick.workspace = true
-blackflower-world.workspace = true
-
 anyhow.workspace = true
-clap.workspace = true
+serde.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

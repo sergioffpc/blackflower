@@ -3,9 +3,15 @@ resolver = "3"
 members = [
   "bins/blackflowerc",
   "bins/blackflowerd",
-  "crates/blackflower-core",
-  "crates/blackflower-net",
-  "crates/blackflower-render",
+  "crates/blackflower-audio",
+  "crates/blackflower-entity",
+  "crates/blackflower-graphics",
+  "crates/blackflower-input",
+  "crates/blackflower-math",
+  "crates/blackflower-network",
+  "crates/blackflower-physics",
+  "crates/blackflower-tick",
+  "crates/blackflower-world",
 ]
 
 [workspace.package]
@@ -19,9 +25,15 @@ description = "Multiplayer arena game engine."
 readme = "README.md"
 
 [workspace.dependencies]
-blackflower-core = { path = "crates/blackflower-core" }
-blackflower-net = { path = "crates/blackflower-net" }
-blackflower-render = { path = "crates/blackflower-render" }
+blackflower-audio = { path = "crates/blackflower-audio" }
+blackflower-entity = { path = "crates/blackflower-entity" }
+blackflower-graphics = { path = "crates/blackflower-graphics" }
+blackflower-input = { path = "crates/blackflower-input" }
+blackflower-math = { path = "crates/blackflower-math" }
+blackflower-network = { path = "crates/blackflower-network" }
+blackflower-physics = { path = "crates/blackflower-physics" }
+blackflower-tick = { path = "crates/blackflower-tick" }
+blackflower-world = { path = "crates/blackflower-world" }
 
 anyhow = "1.0.102"
 bitflags = { version = "2.11.1", features = ["serde"] }
@@ -32,9 +44,11 @@ crossbeam-channel = "0.5.15"
 glam = { version = "0.33.0", features = ["serde", "bytemuck"] }
 hashbrown = "0.17.1"
 hecs = "0.11.0"
+kira = "0.12.1"
 quinn = "0.11.9"
 pollster = "0.4.0"
 postcard = { version = "1.1.3", features = ["use-std"] }
+rapier3d = { version = "0.33.0", features = ["simd-stable"] }
 raw-window-handle = "0.6.2"
 rcgen = "0.14.8"
 rustls = "0.23.40"

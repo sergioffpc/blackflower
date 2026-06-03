@@ -11,9 +11,12 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-blackflower-core.workspace = true
-blackflower-net.workspace = true
-blackflower-render.workspace = true
+blackflower-audio.workspace = true
+blackflower-graphics.workspace = true
+blackflower-input.workspace = true
+blackflower-network.workspace = true
+blackflower-tick.workspace = true
+blackflower-world.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
