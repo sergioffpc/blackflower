@@ -6,7 +6,7 @@
 //! Components are intentionally `#[repr(C)]` and `Copy` where possible to
 //! make them friendly to bulk iteration and snapshot serialization.
 
-use blackflower_math::{Quat, Vec3};
+use blackflower_math::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Linear velocity of an entity in world space, in units per second.

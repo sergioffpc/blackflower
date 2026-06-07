@@ -26,6 +26,18 @@ impl std::ops::Rem<u64> for Tick {
     }
 }
 
+impl From<u64> for Tick {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Tick> for u64 {
+    fn from(value: Tick) -> Self {
+        value.0
+    }
+}
+
 impl std::fmt::Display for Tick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -45,6 +57,7 @@ impl TickScheduler {
         }
     }
 
+    #[allow(clippy::infinite_loop, reason = "tick scheduler runs until SIGTERM")]
     pub fn start<F>(&self, mut do_tick: F) -> anyhow::Result<()>
     where
         F: FnMut(Tick, Duration),

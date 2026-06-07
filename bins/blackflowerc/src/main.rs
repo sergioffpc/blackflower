@@ -1,22 +1,19 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Context;
 use blackflower_graphics::renderer::Renderer;
-use blackflower_input::{InputHandle, InputSnapshot, components::InputButtons};
-use blackflower_network::client::{self, ClientHandle};
+use blackflower_input::{InputHandle, components::InputButtons};
+use blackflower_network::client::ClientHandle;
+use blackflower_protocol::{Command, Event, Request, Snapshot};
 use blackflower_tick::TickScheduler;
-use blackflower_world::{PresentationWorld, WorldSnapshot};
+use blackflower_window::WindowHandler;
+use blackflower_world::PresentationWorld;
 use clap::Parser;
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-use winit::{
-    application::ApplicationHandler,
-    dpi::PhysicalSize,
-    event::{ElementState, KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowAttributes, WindowId},
-};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -43,8 +40,12 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let input_handle = Arc::new(InputHandle::default());
-    let network_handle =
-        Arc::new(client::connect(args.server_addr).context("connecting to server")?);
+    let network_handle = Arc::new(
+        blackflower_network::client::connect(args.server_addr).context("connecting to server")?,
+    );
+
+    // Initiate the application-level handshake.
+    network_handle.try_send_request(Request::Hello);
 
     let network_handle_clone = network_handle.clone();
     let input_handle_clone = input_handle.clone();
@@ -52,133 +53,111 @@ fn main() -> anyhow::Result<()> {
         .name("blackflowerc::input".to_owned())
         .spawn(move || {
             TickScheduler::new(args.tick_rate_hz).start(|tick, _elapsed| {
-                let snapshot = input_handle_clone.snapshot(tick);
-                if tick % args.tick_rate_hz == 0 {
-                    info!(tick = %tick, input = ?snapshot, "input snapshot");
+                for event in network_handle_clone.try_recv_events() {
+                    #[allow(clippy::excessive_nesting)]
+                    match event {
+                        Event::Welcome { assigned_entity } => {
+                            info!(entity = %assigned_entity, "received welcome");
+                        }
+                    }
                 }
 
-                network_handle_clone.try_send_input_snapshot(snapshot);
+                let command = input_handle_clone.command(tick);
+                if tick % args.tick_rate_hz == 0 {
+                    info!(tick = %tick, input = ?command, "input command");
+                }
+
+                network_handle_clone.try_send_command(command);
             })
         })?;
 
-    let event_loop = EventLoop::new()?;
-    event_loop.set_control_flow(ControlFlow::Poll);
-
-    let mut app = App::new(input_handle, network_handle);
-    event_loop.run_app(&mut app).map_err(Into::into)
+    let app = Arc::new(Mutex::new(App::new(network_handle, input_handle)));
+    blackflower_window::start(args.width, args.height, app)
 }
 
 struct App {
-    window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-
+    network_handle: Arc<ClientHandle<Command, Snapshot, Request, Event>>,
     input_handle: Arc<InputHandle>,
-    network_handle: Arc<ClientHandle<InputSnapshot, WorldSnapshot>>,
-
     world: PresentationWorld,
 }
 
 impl App {
     fn new(
+        network_handle: Arc<ClientHandle<Command, Snapshot, Request, Event>>,
         input_handle: Arc<InputHandle>,
-        network_handle: Arc<ClientHandle<InputSnapshot, WorldSnapshot>>,
     ) -> Self {
         Self {
-            window: None,
             renderer: None,
-
-            input_handle,
             network_handle,
-
+            input_handle,
             world: PresentationWorld::default(),
         }
     }
 }
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
-        }
-
-        let args = Args::parse();
-        let window_attributes = WindowAttributes::default()
-            .with_resizable(false)
-            .with_decorations(false)
-            .with_inner_size(PhysicalSize::new(args.width, args.height));
-
-        let window = match event_loop.create_window(window_attributes) {
-            Ok(w) => Arc::new(w),
-            Err(e) => {
-                error!(error = %e, "failed to create window");
-                event_loop.exit();
-                return;
-            }
-        };
-
-        let renderer = match Renderer::new_blocking(Arc::clone(&window), args.width, args.height) {
+impl WindowHandler for App {
+    fn on_create(
+        &mut self,
+        target: Arc<dyn blackflower_window::SurfaceHandle>,
+        width: u32,
+        height: u32,
+    ) {
+        let renderer = match Renderer::new_blocking(target, width, height) {
             Ok(r) => r,
             Err(e) => {
                 error!(error = %e, "failed to create renderer");
-                event_loop.exit();
                 return;
             }
         };
 
-        self.window = Some(window);
         self.renderer = Some(renderer);
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        let Some(window) = self.window.as_ref() else {
-            return;
-        };
-        let Some(renderer) = self.renderer.as_mut() else {
-            return;
-        };
+    fn on_destroy(&mut self) {}
 
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.input_handle.clear(),
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(key),
-                        state,
-                        repeat: false,
-                        ..
-                    },
-                ..
-            } => {
-                let button = match key {
-                    KeyCode::KeyW => Some(InputButtons::FORWARD),
-                    KeyCode::KeyS => Some(InputButtons::BACKWARD),
-                    KeyCode::KeyA => Some(InputButtons::LEFT),
-                    KeyCode::KeyD => Some(InputButtons::RIGHT),
-                    _ => None,
-                };
-                if let Some(button) = button {
-                    match state {
-                        ElementState::Pressed => self.input_handle.press(button),
-                        ElementState::Released => self.input_handle.release(button),
-                    }
-                }
-            }
-            WindowEvent::RedrawRequested => {
-                self.network_handle
-                    .try_recv_world_snapshots()
-                    .iter()
-                    .for_each(|snapshot| self.world.apply(snapshot));
-                renderer.render(&self.world);
-
-                window.request_redraw();
-            }
-            _ => {}
+    fn on_resize(&mut self, width: u32, height: u32) {
+        if let Some(renderer) = &mut self.renderer {
+            renderer.resize(width, height);
         }
+    }
+
+    fn on_gained_focus(&mut self) {}
+
+    fn on_lost_focus(&mut self) {
+        self.input_handle.clear();
+    }
+
+    fn on_draw(&mut self) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        self.network_handle
+            .try_recv_snapshots()
+            .for_each(|snapshot| self.world.apply(&snapshot));
+        renderer.render(&self.world);
+    }
+
+    fn on_key_down(&mut self, key: &str) {
+        let button = match key {
+            "W" => InputButtons::FORWARD,
+            "S" => InputButtons::BACKWARD,
+            "A" => InputButtons::LEFT,
+            "D" => InputButtons::RIGHT,
+            _ => return,
+        };
+        self.input_handle.press(button);
+    }
+
+    fn on_key_up(&mut self, key: &str) {
+        let button = match key {
+            "W" => InputButtons::FORWARD,
+            "S" => InputButtons::BACKWARD,
+            "A" => InputButtons::LEFT,
+            "D" => InputButtons::RIGHT,
+            _ => return,
+        };
+        self.input_handle.release(button);
     }
 }

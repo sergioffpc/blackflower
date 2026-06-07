@@ -16,6 +16,18 @@ impl EntityId {
     }
 }
 
+impl From<u64> for EntityId {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<EntityId> for u64 {
+    fn from(value: EntityId) -> Self {
+        value.0
+    }
+}
+
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)

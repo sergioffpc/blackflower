@@ -11,10 +11,12 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-gameplay.workspace = true
 blackflower-input.workspace = true
 blackflower-math.workspace = true
 blackflower-network.workspace = true
 blackflower-physics.workspace = true
+blackflower-protocol.workspace = true
 blackflower-tick.workspace = true
 blackflower-world.workspace = true
 

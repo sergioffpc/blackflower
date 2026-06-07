@@ -6,11 +6,10 @@ pub struct Camera {
     pub eye: Vec3,
     pub target: Vec3,
     pub up: Vec3,
-
-    aspect: f32,
-    yfov: f32,
-    znear: f32,
-    zfar: f32,
+    pub aspect: f32,
+    pub yfov: f32,
+    pub znear: f32,
+    pub zfar: f32,
 }
 
 impl Camera {

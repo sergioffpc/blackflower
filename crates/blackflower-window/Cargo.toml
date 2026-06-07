@@ -1,5 +1,5 @@
 [package]
-name = "blackflower-physics"
+name = "blackflower-window"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,9 +11,10 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-blackflower-math.workspace = true
-
-serde.workspace = true
+anyhow.workspace = true
+raw-window-handle.workspace = true
+tracing.workspace = true
+winit.workspace = true
 
 [lints]
 workspace = true

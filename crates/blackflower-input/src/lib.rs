@@ -11,18 +11,12 @@
 
 use std::sync::{Arc, Mutex};
 
+use blackflower_protocol::Command;
 use blackflower_tick::Tick;
-use serde::{Deserialize, Serialize};
 
 use crate::components::InputButtons;
 
 pub mod components;
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct InputSnapshot {
-    pub tick: Tick,
-    pub buttons: InputButtons,
-}
 
 #[derive(Debug, Default)]
 pub struct InputHandle {
@@ -30,13 +24,16 @@ pub struct InputHandle {
 }
 
 impl InputHandle {
-    pub fn snapshot(&self, tick: Tick) -> InputSnapshot {
+    pub fn command(&self, tick: Tick) -> Command {
         let buttons = match self.inner.lock() {
             Ok(g) => *g,
             Err(poisoned) => *poisoned.into_inner(),
         };
 
-        InputSnapshot { tick, buttons }
+        Command {
+            tick: tick.into(),
+            buttons: buttons.bits(),
+        }
     }
 
     pub fn press(&self, button: InputButtons) {

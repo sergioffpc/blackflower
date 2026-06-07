@@ -1,24 +1,10 @@
 use blackflower_entity::{EntityId, EntityIdAllocator};
-use blackflower_math::components::Transform;
+use blackflower_math::{Quat, components::Transform};
+use blackflower_protocol::{EntitySnapshot, Snapshot};
 use blackflower_tick::Tick;
 use hashbrown::HashMap;
 use hecs::{DynamicBundle, Entity, World};
-use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace, warn};
-
-/// A snapshot of the entire simulation state at a specific tick.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WorldSnapshot {
-    pub tick: Tick,
-    pub entities: Box<[EntitySnapshot]>,
-}
-
-/// Replicated state of a single entity.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct EntitySnapshot {
-    pub id: EntityId,
-    pub transform: Transform,
-}
 
 #[derive(Default)]
 pub struct SimulationWorld {
@@ -43,7 +29,7 @@ impl SimulationWorld {
         entity_id
     }
 
-    pub fn snapshot(&self, tick: Tick) -> WorldSnapshot {
+    pub fn snapshot(&self, tick: Tick) -> Snapshot {
         let entities = self
             .entity_lookup
             .iter()
@@ -52,13 +38,17 @@ impl SimulationWorld {
                     .get::<&Transform>(entity)
                     .ok()
                     .map(|transform| EntitySnapshot {
-                        id,
-                        transform: *transform,
+                        id: id.into(),
+                        translation: transform.translation.into(),
+                        rotation: transform.rotation.into(),
                     })
             })
             .collect();
 
-        WorldSnapshot { tick, entities }
+        Snapshot {
+            tick: tick.into(),
+            entities,
+        }
     }
 }
 
@@ -77,11 +67,31 @@ impl PresentationWorld {
         self.entities.query_mut::<Q>()
     }
 
-    pub fn apply(&mut self, snapshot: &WorldSnapshot) {
-        for ent in &snapshot.entities {
-            self.upsert_entity(ent.id, ent.transform);
+    pub fn apply(&mut self, snapshot: &Snapshot) {
+        let present: hashbrown::HashSet<EntityId> =
+            snapshot.entities.iter().map(|e| e.id.into()).collect();
+
+        // Despawn entities no longer present in the snapshot.
+        self.entity_lookup.retain(|id, entity| {
+            if present.contains(id) {
+                true
+            } else {
+                #[allow(clippy::excessive_nesting)]
+                if let Err(e) = self.entities.despawn(*entity) {
+                    warn!(error = %e, id = %id, "failed to despawn entity");
+                }
+                false
+            }
+        });
+
+        // Upsert remaining entities.
+        for entity in &snapshot.entities {
+            let transform = Transform {
+                translation: entity.translation.into(),
+                rotation: Quat::from_array(entity.rotation),
+            };
+            self.upsert_entity(entity.id.into(), transform);
         }
-        // TODO despawn entities
     }
 
     fn upsert_entity(&mut self, id: EntityId, transform: Transform) {
@@ -97,17 +107,6 @@ impl PresentationWorld {
         self.entity_lookup.insert(id, entity);
         info!(id = %id, transform = ?transform, "entity spawned");
         entity
-    }
-
-    fn despawn_entity(&mut self, id: EntityId) {
-        let Some(entity) = self.entity_lookup.remove(&id) else {
-            warn!(id = %id, "despawn requested for unknown entity");
-            return;
-        };
-        match self.entities.despawn(entity) {
-            Ok(()) => info!(id = %id, "entity despawned"),
-            Err(e) => warn!(error = %e, id = %id, "failed to despawn entity"),
-        }
     }
 
     fn update_entity(&mut self, id: EntityId, transform: Transform) {

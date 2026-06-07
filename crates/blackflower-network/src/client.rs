@@ -5,55 +5,69 @@
 use std::{net::SocketAddr, sync::Arc, thread::JoinHandle};
 
 use anyhow::Context;
-use quinn::{ClientConfig, Connection, ConnectionError, Endpoint};
+use crossbeam_channel::TrySendError;
+use quinn::{ClientConfig, Connection, ConnectionError, Endpoint, RecvStream, SendStream};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
-use crate::{
-    cert::SkipServerVerification,
-    messages::{Control, decode, encode},
-};
+use crate::{cert::SkipServerVerification, decode, decode_framed, encode, encode_framed};
 
-/// Bounded capacity of the command queue from the caller to the network.
-const INPUT_QUEUE_CAPACITY: usize = 16;
+const COMMAND_QUEUE_CAPACITY: usize = 8;
+const SNAPSHOT_QUEUE_CAPACITY: usize = 8;
+const REQUEST_QUEUE_CAPACITY: usize = 32;
+const EVENT_QUEUE_CAPACITY: usize = 32;
 
-/// Bounded capacity of the tick → network snapshot queue.
-const WORLD_QUEUE_CAPACITY: usize = 8;
-
-pub struct ClientHandle<I, W> {
-    input_tx: mpsc::Sender<I>,
-    world_rx: crossbeam_channel::Receiver<W>,
+pub struct ClientHandle<C, S, R, E> {
+    command_tx: mpsc::Sender<C>,
+    snapshot_rx: crossbeam_channel::Receiver<S>,
+    request_tx: mpsc::Sender<R>,
+    event_rx: crossbeam_channel::Receiver<E>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
-impl<I, W> ClientHandle<I, W> {
-    pub fn try_recv_world_snapshots(&self) -> Box<[W]> {
-        let mut snapshots = vec![];
-        while let Ok(snapshot) = self.world_rx.try_recv() {
-            snapshots.push(snapshot);
-        }
-        snapshots.into_boxed_slice()
+impl<C, S, R, E> ClientHandle<C, S, R, E> {
+    pub fn try_recv_snapshots(&self) -> impl Iterator<Item = S> + '_ {
+        self.snapshot_rx.try_iter()
     }
 
-    pub fn try_send_input_snapshot(&self, input: I)
+    pub fn try_send_command(&self, command: C)
     where
-        I: Send + Sync + 'static,
+        C: Send + Sync + 'static,
     {
-        match self.input_tx.try_send(input) {
+        match self.command_tx.try_send(command) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                warn!("input queue full; dropping input");
+                warn!("command queue full; dropping input");
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                warn!("input channel closed");
+                warn!("command channel closed");
+            }
+        }
+    }
+
+    pub fn try_recv_events(&self) -> impl Iterator<Item = E> + '_ {
+        self.event_rx.try_iter()
+    }
+
+    pub fn try_send_request(&self, request: R)
+    where
+        R: Send + Sync + 'static,
+    {
+        match self.request_tx.try_send(request) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!("request queue full; dropping request");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                warn!("request channel closed");
             }
         }
     }
 }
 
-impl<I, W> Drop for ClientHandle<I, W> {
+impl<C, S, R, E> Drop for ClientHandle<C, S, R, E> {
     fn drop(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             tx.send(()).ok();
@@ -66,45 +80,62 @@ impl<I, W> Drop for ClientHandle<I, W> {
     }
 }
 
-pub fn connect<I, W>(server_addr: SocketAddr) -> anyhow::Result<ClientHandle<I, W>>
+pub fn connect<C, S, R, E>(server_addr: SocketAddr) -> anyhow::Result<ClientHandle<C, S, R, E>>
 where
-    I: Serialize + Send + 'static,
-    W: DeserializeOwned + Send + 'static,
+    C: Serialize + Send + 'static,
+    S: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static,
+    E: DeserializeOwned + Send + 'static,
 {
     rustls::crypto::ring::default_provider()
         .install_default()
         .ok();
 
-    let (input_tx, input_rx) = mpsc::channel::<I>(INPUT_QUEUE_CAPACITY);
-    let (world_tx, world_rx) = crossbeam_channel::bounded::<W>(WORLD_QUEUE_CAPACITY);
+    let (command_tx, command_rx) = mpsc::channel::<C>(COMMAND_QUEUE_CAPACITY);
+    let (snapshot_tx, snapshot_rx) = crossbeam_channel::bounded::<S>(SNAPSHOT_QUEUE_CAPACITY);
+    let (request_tx, request_rx) = mpsc::channel::<R>(REQUEST_QUEUE_CAPACITY);
+    let (event_tx, event_rx) = crossbeam_channel::bounded::<E>(EVENT_QUEUE_CAPACITY);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let join_handle = std::thread::Builder::new()
         .name("blackflower-net::client".to_owned())
         .spawn(move || {
-            if let Err(e) = start(server_addr, input_rx, world_tx, shutdown_rx) {
-                error!(error = %e, "subscribe snapshots failed");
+            if let Err(e) = start(
+                server_addr,
+                command_rx,
+                snapshot_tx,
+                request_rx,
+                event_tx,
+                shutdown_rx,
+            ) {
+                error!(error = %e, "connection failed");
             }
         })
         .context("spawning network client thread")?;
 
     Ok(ClientHandle {
-        input_tx,
-        world_rx,
+        command_tx,
+        snapshot_rx,
+        request_tx,
+        event_rx,
         shutdown_tx: Some(shutdown_tx),
         join_handle: Some(join_handle),
     })
 }
 
-fn start<I, W>(
+fn start<C, S, R, E>(
     server_addr: SocketAddr,
-    mut input_rx: mpsc::Receiver<I>,
-    world_tx: crossbeam_channel::Sender<W>,
+    mut command_rx: mpsc::Receiver<C>,
+    snapshot_tx: crossbeam_channel::Sender<S>,
+    mut request_rx: mpsc::Receiver<R>,
+    event_tx: crossbeam_channel::Sender<E>,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()>
 where
-    I: Serialize,
-    W: DeserializeOwned,
+    C: Serialize,
+    S: DeserializeOwned,
+    R: Serialize,
+    E: DeserializeOwned,
 {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -138,16 +169,10 @@ where
             .context("connection handshake failed")?;
         info!(server = %server_addr, "connected");
 
-        let (mut send, _recv) = connection
+        let (send, recv) = connection
             .open_bi()
             .await
-            .context("opening bidirectional stream")?;
-
-        let msg = encode(&Control::Connect).context("encoding subscription message")?;
-        send.write_all(&msg)
-            .await
-            .context("sending connection message")?;
-        send.finish().context("finishing connection stream")?;
+            .context("opening control stream")?;
 
         tokio::select! {
             biased;
@@ -155,8 +180,10 @@ where
             _ = shutdown_rx => {
                 info!("client received shutdown signal");
             }
-            () = send_input_snapshots(&connection, &mut input_rx) => {}
-            () = recv_world_snapshots(&connection, &world_tx) => {}
+            () = send_commands(&connection, &mut command_rx) => {}
+            () = recv_snapshots(&connection, &snapshot_tx) => {}
+            () = send_requests(send, &mut request_rx) => {}
+            () = recv_events(recv, &event_tx) => {}
         }
 
         connection.close(0_u32.into(), b"client done");
@@ -166,35 +193,26 @@ where
     })
 }
 
-async fn send_input_snapshots<I>(connection: &Connection, input_rx: &mut mpsc::Receiver<I>)
+async fn send_commands<C>(connection: &Connection, command_rx: &mut mpsc::Receiver<C>)
 where
-    I: Serialize,
+    C: Serialize,
 {
-    while let Some(input) = input_rx.recv().await {
-        match connection.open_uni().await {
-            Ok(mut send) => match encode::<I>(&input) {
-                Ok(bytes) => {
-                    if let Err(e) = send.write_all(&bytes).await {
-                        warn!(error = %e, "sending input stream");
-                        continue;
-                    }
-                    if let Err(e) = send.finish() {
-                        warn!(error = %e, "finishing input stream");
-                    }
+    while let Some(command) = command_rx.recv().await {
+        match encode::<C>(&command) {
+            Ok(bytes) => {
+                if let Err(e) = connection.send_datagram(bytes) {
+                    error!(error = %e, "sending command datagram");
+                    break;
                 }
-                Err(e) => warn!(error = %e, "encoding input failed"),
-            },
-            Err(e) => {
-                warn!(error = %e, "opening input stream");
-                break;
             }
+            Err(e) => warn!(error = %e, "encoding command failed"),
         }
     }
 }
 
-async fn recv_world_snapshots<W>(connection: &Connection, world_tx: &crossbeam_channel::Sender<W>)
+async fn recv_snapshots<S>(connection: &Connection, snapshot_tx: &crossbeam_channel::Sender<S>)
 where
-    W: DeserializeOwned,
+    S: DeserializeOwned,
 {
     loop {
         let bytes = match connection.read_datagram().await {
@@ -209,15 +227,85 @@ where
             }
         };
 
-        match decode::<W>(&bytes) {
-            Ok(world) => {
-                if let Err(e) = world_tx.try_send(world) {
-                    error!(error = %e,"snapshot receiver dropped; exiting receive loop");
+        match decode::<S>(&bytes) {
+            Ok(snapshot) => match snapshot_tx.try_send(snapshot) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    warn!("snapshot queue full; dropping snapshot");
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    error!("snapshot receiver dropped; exiting receive loop");
+                    break;
+                }
+            },
+            Err(e) => {
+                warn!(error = %e, "decoding datagram failed");
+            }
+        }
+    }
+}
+
+async fn send_requests<R>(mut send: SendStream, request_rx: &mut mpsc::Receiver<R>)
+where
+    R: Serialize,
+{
+    while let Some(request) = request_rx.recv().await {
+        match encode_framed::<R>(&request) {
+            Ok(bytes) => {
+                if let Err(e) = send.write_all(&bytes).await {
+                    error!(error = %e, "writing request to control stream");
                     break;
                 }
             }
+            Err(e) => warn!(error = %e, "encoding request failed"),
+        }
+    }
+    send.finish().ok();
+}
+
+async fn recv_events<E>(mut recv: RecvStream, event_tx: &crossbeam_channel::Sender<E>)
+where
+    E: DeserializeOwned,
+{
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut chunk = [0_u8; 1024];
+
+    loop {
+        match recv.read(&mut chunk).await {
+            Ok(Some(n)) => {
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            Ok(None) => {
+                info!("control stream closed by server");
+                break;
+            }
             Err(e) => {
-                warn!(error = %e, "decoding datagram failed");
+                warn!(error = %e, "reading control stream failed");
+                break;
+            }
+        }
+
+        loop {
+            let (event, consumed) = match decode_framed::<E>(&mut buf) {
+                Ok(Some((event, consumed))) => (event, consumed),
+                Ok(None) => break,
+                Err(e) => {
+                    warn!(error = %e, "decoding event failed; dropping buffer");
+                    buf.clear();
+                    break;
+                }
+            };
+            buf.drain(..consumed);
+
+            match event_tx.try_send(event) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    warn!("event drain queue full; dropping event");
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    debug!("event receiver dropped; exiting");
+                    return;
+                }
             }
         }
     }

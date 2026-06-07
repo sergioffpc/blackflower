@@ -27,14 +27,14 @@ pub struct Renderer {
 impl Renderer {
     pub fn new_blocking<T>(target: Arc<T>, width: u32, height: u32) -> anyhow::Result<Self>
     where
-        T: HasDisplayHandle + HasWindowHandle + Send + Sync + 'static,
+        T: HasDisplayHandle + HasWindowHandle + Send + Sync + ?Sized + 'static,
     {
         pollster::block_on(Self::new(target, width, height))
     }
 
     pub async fn new<T>(target: Arc<T>, width: u32, height: u32) -> anyhow::Result<Self>
     where
-        T: HasDisplayHandle + HasWindowHandle + Send + Sync + 'static,
+        T: HasDisplayHandle + HasWindowHandle + Send + Sync + ?Sized + 'static,
     {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
@@ -111,11 +111,23 @@ impl Renderer {
             config,
             device,
             queue,
+
             pipeline,
 
             camera,
             geometry_resources,
         })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+        self.pipeline = DefaultPipeline::new(&self.device, &self.config);
+        self.camera.aspect = width as f32 / height as f32;
     }
 
     pub fn render(&mut self, world: &PresentationWorld) {

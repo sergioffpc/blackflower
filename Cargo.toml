@@ -5,12 +5,16 @@ members = [
   "bins/blackflowerd",
   "crates/blackflower-audio",
   "crates/blackflower-entity",
+  "crates/blackflower-gameplay",
   "crates/blackflower-graphics",
   "crates/blackflower-input",
   "crates/blackflower-math",
   "crates/blackflower-network",
   "crates/blackflower-physics",
+  "crates/blackflower-prediction",
+  "crates/blackflower-protocol",
   "crates/blackflower-tick",
+  "crates/blackflower-window",
   "crates/blackflower-world",
 ]
 
@@ -27,12 +31,16 @@ readme = "README.md"
 [workspace.dependencies]
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-entity = { path = "crates/blackflower-entity" }
+blackflower-gameplay = { path = "crates/blackflower-gameplay" }
 blackflower-graphics = { path = "crates/blackflower-graphics" }
 blackflower-input = { path = "crates/blackflower-input" }
 blackflower-math = { path = "crates/blackflower-math" }
 blackflower-network = { path = "crates/blackflower-network" }
 blackflower-physics = { path = "crates/blackflower-physics" }
+blackflower-prediction = { path = "crates/blackflower-prediction" }
+blackflower-protocol = { path = "crates/blackflower-protocol" }
 blackflower-tick = { path = "crates/blackflower-tick" }
+blackflower-window = { path = "crates/blackflower-window" }
 blackflower-world = { path = "crates/blackflower-world" }
 
 anyhow = "1.0.102"
@@ -51,7 +59,7 @@ postcard = { version = "1.1.3", features = ["use-std"] }
 rapier3d = { version = "0.33.0", features = ["simd-stable"] }
 raw-window-handle = "0.6.2"
 rcgen = "0.14.8"
-rustls = "0.23.40"
+rustls = { version = "0.23.40", features = ["ring"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }

@@ -1,4 +1,4 @@
-use blackflower_math::{Mat4, components::Transform};
+use blackflower_math::{Mat4, Vec3, components::Transform};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
@@ -36,8 +36,7 @@ pub struct ModelUniform {
 
 impl From<&Transform> for ModelUniform {
     fn from(value: &Transform) -> Self {
-        let m =
-            Mat4::from_scale_rotation_translation(value.scale, value.rotation, value.translation);
+        let m = Mat4::from_scale_rotation_translation(Vec3::ONE, value.rotation, value.translation);
         Self {
             model: m.to_cols_array_2d(),
         }

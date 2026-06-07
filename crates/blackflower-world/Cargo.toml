@@ -13,6 +13,7 @@ readme.workspace = true
 [dependencies]
 blackflower-entity.workspace = true
 blackflower-math.workspace = true
+blackflower-protocol.workspace = true
 blackflower-tick.workspace = true
 
 hashbrown.workspace = true

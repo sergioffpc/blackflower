@@ -7,9 +7,8 @@ bitflags! {
     ///
     /// Each variant corresponds to one digital input. Multiple may be set
     /// simultaneously (e.g. `FORWARD | RIGHT` for diagonal movement).
-    /// Encoded over the wire as a single `u8`.
     #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct InputButtons: u8 {
+    pub struct InputButtons: u64 {
         const FORWARD  = 1 << 0;
         const BACKWARD = 1 << 1;
         const LEFT     = 1 << 2;
