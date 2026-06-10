@@ -10,8 +10,8 @@ use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
 use blackflower_prediction::PredictionState;
-use blackflower_protocol::{Event, Request, Snapshot};
-use blackflower_tick::TickScheduler;
+use blackflower_protocol::{Event, Request};
+use blackflower_tick::{Tick, TickScheduler};
 use blackflower_window::WindowHandler;
 use blackflower_world::PresentationWorld;
 use clap::Parser;
@@ -88,15 +88,12 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                network_handle
-                    .try_recv_snapshots()
-                    .for_each(|snapshot: Snapshot| {
-                        if tick % args.tick_rate_hz == 0 {
-                            info!(ack = snapshot.last_processed_client_tick, "snapshot ack");
-                        }
-
-                        world.apply(&snapshot);
-                    });
+                let mut latest_ack: Option<Tick> = None;
+                network_handle.try_recv_snapshots().for_each(|snapshot| {
+                    world.apply(&snapshot);
+                    let ack = Tick::from(snapshot.last_processed_client_tick);
+                    latest_ack = Some(latest_ack.map_or(ack, |cur| cur.max(ack)));
+                });
 
                 let command = input_handle_clone.command(tick);
                 if tick % args.tick_rate_hz == 0 {
@@ -104,6 +101,12 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 if let Some(local) = prediction.local_player() {
+                    if let (Some(ack), Some(authoritative)) =
+                        (latest_ack, world.transform_of(local))
+                    {
+                        prediction.reconcile(authoritative, ack, dt);
+                    }
+
                     let buttons = InputButtons::from_bits(command.buttons).unwrap_or_default();
                     let seed = world.transform_of(local);
                     if let Some(predicted) = prediction.predict(tick, buttons, seed, dt) {
