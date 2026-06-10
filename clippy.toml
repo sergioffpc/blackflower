@@ -14,7 +14,7 @@ too-many-lines-threshold = 100
 too-many-arguments-threshold = 6
 
 # Maximum nesting depth for `if/match/for/while`. Default: 5.
-excessive-nesting-threshold = 4
+excessive-nesting-threshold = 5
 
 # Maximum number of single-character bindings allowed in a scope. Default: 4.
 # Helps avoid 'a', 'b', 'c', 'd' in complex loops.

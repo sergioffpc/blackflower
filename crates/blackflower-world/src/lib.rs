@@ -113,6 +113,27 @@ impl PresentationWorld {
             .collect()
     }
 
+    /// Read the transform of a specific entity, if present.
+    #[must_use]
+    pub fn transform_of(&self, id: EntityId) -> Option<Transform> {
+        let entity = *self.entity_lookup.get(&id)?;
+        self.entities.get::<&Transform>(entity).ok().map(|t| *t)
+    }
+
+    /// Overwrite the transform of a specific entity, if present.
+    ///
+    /// Used by the prediction layer to replace the local player's
+    /// authoritative pose with the locally-predicted one before
+    /// extraction. A no-op if the entity is unknown.
+    pub fn set_transform(&mut self, id: EntityId, transform: Transform) {
+        let Some(&entity) = self.entity_lookup.get(&id) else {
+            return;
+        };
+        if let Ok(mut t) = self.entities.get::<&mut Transform>(entity) {
+            *t = transform;
+        }
+    }
+
     fn upsert_entity(&mut self, id: EntityId, transform: Transform) {
         if self.entity_lookup.contains_key(&id) {
             self.update_entity(id, transform);

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Command {
     pub tick: u64,
     pub buttons: u64,
@@ -24,14 +24,14 @@ pub struct EntitySnapshot {
 }
 
 /// Messages sent from the client to the server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
     /// Tell the server we are ready to receive snapshots.
     Hello,
 }
 
 /// Messages sent from the server to the client over the control stream.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
     /// Confirms connection and assigns the client's avatar.
     Welcome { assigned_entity: u64 },

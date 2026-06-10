@@ -9,6 +9,7 @@ use blackflower_entity::EntityId;
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
+use blackflower_prediction::PredictionState;
 use blackflower_protocol::{Event, Request};
 use blackflower_tick::TickScheduler;
 use blackflower_window::WindowHandler;
@@ -67,6 +68,16 @@ fn main() -> anyhow::Result<()> {
             // thread. The render thread never touches it.
             let mut world = PresentationWorld::default();
 
+            // Prediction is an optional pipeline step: it overwrites the
+            // local player's authoritative pose with a locally-predicted
+            // one before extraction. Remove this and the world shows only
+            // authoritative state.
+            let mut prediction = PredictionState::new();
+
+            // The simulation step prediction must match the server's, so
+            // that identical inputs produce identical transforms.
+            let dt = 1.0 / args.tick_rate_hz as f32;
+
             TickScheduler::new(args.tick_rate_hz).start(|tick, _elapsed| {
                 for event in network_handle.try_recv_events() {
                     #[allow(clippy::excessive_nesting)]
@@ -81,14 +92,23 @@ fn main() -> anyhow::Result<()> {
                     .try_recv_snapshots()
                     .for_each(|snapshot| world.apply(&snapshot));
 
-                // Publish a render-ready extract.
-                framebuffer_clone.store(Arc::new(world.extract()));
-
                 let command = input_handle_clone.command(tick);
                 if tick % args.tick_rate_hz == 0 {
                     info!(tick = %tick, input = ?command, "input command");
                 }
+
+                if let Some(local) = prediction.local_player() {
+                    let buttons = InputButtons::from_bits(command.buttons).unwrap_or_default();
+                    let seed = world.transform_of(local);
+                    if let Some(predicted) = prediction.predict(tick, buttons, seed, dt) {
+                        world.set_transform(local, predicted);
+                    }
+                }
+
                 network_handle.try_send_command(command);
+
+                // Publish a render-ready extract.
+                framebuffer_clone.store(Arc::new(world.extract()));
             })
         })?;
 

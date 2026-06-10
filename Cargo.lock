@@ -465,6 +465,7 @@ dependencies = [
  "blackflower-input",
  "blackflower-math",
  "blackflower-network",
+ "blackflower-prediction",
  "blackflower-protocol",
  "blackflower-tick",
  "blackflower-window",
