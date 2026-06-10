@@ -12,6 +12,7 @@ pub struct Command {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub tick: u64,
+    pub last_processed_client_tick: u64,
     pub entities: Box<[EntitySnapshot]>,
 }
 

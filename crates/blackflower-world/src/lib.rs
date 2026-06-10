@@ -29,7 +29,7 @@ impl SimulationWorld {
         entity_id
     }
 
-    pub fn snapshot(&self, tick: Tick) -> Snapshot {
+    pub fn snapshot(&self, tick: Tick, last_processed_client_tick: Tick) -> Snapshot {
         let entities = self
             .entity_lookup
             .iter()
@@ -47,6 +47,7 @@ impl SimulationWorld {
 
         Snapshot {
             tick: tick.into(),
+            last_processed_client_tick: last_processed_client_tick.into(),
             entities,
         }
     }

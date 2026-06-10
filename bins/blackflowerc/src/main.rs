@@ -10,7 +10,7 @@ use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
 use blackflower_prediction::PredictionState;
-use blackflower_protocol::{Event, Request};
+use blackflower_protocol::{Event, Request, Snapshot};
 use blackflower_tick::TickScheduler;
 use blackflower_window::WindowHandler;
 use blackflower_world::PresentationWorld;
@@ -90,7 +90,13 @@ fn main() -> anyhow::Result<()> {
 
                 network_handle
                     .try_recv_snapshots()
-                    .for_each(|snapshot| world.apply(&snapshot));
+                    .for_each(|snapshot: Snapshot| {
+                        if tick % args.tick_rate_hz == 0 {
+                            info!(ack = snapshot.last_processed_client_tick, "snapshot ack");
+                        }
+
+                        world.apply(&snapshot);
+                    });
 
                 let command = input_handle_clone.command(tick);
                 if tick % args.tick_rate_hz == 0 {

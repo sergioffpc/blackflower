@@ -6,7 +6,7 @@ use blackflower_math::components::Transform;
 use blackflower_network::server::{self, ServerHandle};
 use blackflower_physics::components::Velocity;
 use blackflower_protocol::{Command, Event, Request, Snapshot};
-use blackflower_tick::TickScheduler;
+use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::SimulationWorld;
 use clap::Parser;
 use tracing::info;
@@ -36,6 +36,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut world = SimulationWorld::default();
 
+    // M2: single client, so a single value suffices. In M3 this becomes
+    // a HashMap<ClientId, u64> — each client receives a snapshot carrying
+    // its own ack — which also requires per-client snapshots (addressed,
+    // not broadcast) and per-client entity tracking. Deferred with the
+    // rest of M3's multi-client work.
+    let mut last_processed_client_tick = Tick::ZERO;
+
     TickScheduler::new(args.tick_rate_hz).start(|tick, elapsed| {
         let dt = elapsed.as_secs_f32();
 
@@ -56,6 +63,8 @@ fn main() -> anyhow::Result<()> {
         }
 
         for (_client_id, command) in server_handle.try_recv_commands() {
+            last_processed_client_tick = last_processed_client_tick.max(command.tick.into());
+
             if let Some(transform) = world.query::<&mut Transform>().iter().next() {
                 blackflower_gameplay::systems::apply_player_movement(
                     transform,
@@ -70,7 +79,7 @@ fn main() -> anyhow::Result<()> {
             dt,
         );
 
-        let snapshot = world.snapshot(tick);
+        let snapshot = world.snapshot(tick, last_processed_client_tick);
         if tick % args.tick_rate_hz == 0 {
             info!(tick = %tick, world = ?snapshot, "world snapshot");
         }
