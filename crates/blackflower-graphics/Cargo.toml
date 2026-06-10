@@ -11,8 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-entity.workspace = true
 blackflower-math.workspace = true
-blackflower-world.workspace = true
 
 anyhow.workspace = true
 bytemuck.workspace = true

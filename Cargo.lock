@@ -339,8 +339,8 @@ name = "blackflower-graphics"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackflower-entity",
  "blackflower-math",
- "blackflower-world",
  "bytemuck",
  "pollster",
  "raw-window-handle",
@@ -396,6 +396,13 @@ dependencies = [
 [[package]]
 name = "blackflower-prediction"
 version = "0.1.0"
+dependencies = [
+ "blackflower-entity",
+ "blackflower-gameplay",
+ "blackflower-input",
+ "blackflower-math",
+ "blackflower-tick",
+]
 
 [[package]]
 name = "blackflower-protocol"

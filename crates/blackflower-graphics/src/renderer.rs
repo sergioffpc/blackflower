@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use blackflower_entity::EntityId;
 use blackflower_math::{Vec3, components::Transform};
-use blackflower_world::PresentationWorld;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use tracing::{debug, error, info, warn};
 
@@ -130,14 +130,14 @@ impl Renderer {
         self.camera.aspect = width as f32 / height as f32;
     }
 
-    pub fn render(&mut self, world: &PresentationWorld) {
+    pub fn render(&mut self, instances: &[(EntityId, Transform)]) {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => {
-                self.present(surface_texture, world);
+                self.present(surface_texture, instances);
             }
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => {
                 debug!("suboptimal surface texture; still rendering");
-                self.present(surface_texture, world);
+                self.present(surface_texture, instances);
                 self.surface.configure(&self.device, &self.config);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
@@ -155,7 +155,11 @@ impl Renderer {
         }
     }
 
-    fn present(&mut self, surface_texture: wgpu::SurfaceTexture, world: &PresentationWorld) {
+    fn present(
+        &mut self,
+        surface_texture: wgpu::SurfaceTexture,
+        instances: &[(EntityId, Transform)],
+    ) {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -200,7 +204,7 @@ impl Renderer {
             self.pipeline
                 .update_camera_uniform(&self.queue, &self.camera);
 
-            for transform in &mut world.query::<&Transform>() {
+            for (_entity_id, transform) in instances {
                 pass.set_bind_group(1, &self.pipeline.model_bind_group, &[]);
                 self.pipeline.update_model_uniform(&self.queue, transform);
                 pass.set_vertex_buffer(0, self.geometry_resources.vertex_buffer.slice(..));

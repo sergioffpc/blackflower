@@ -44,6 +44,7 @@ blackflower-window = { path = "crates/blackflower-window" }
 blackflower-world = { path = "crates/blackflower-world" }
 
 anyhow = "1.0.102"
+arc-swap = "1.9.1"
 bitflags = { version = "2.11.1", features = ["serde"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 bytes = "1.11.1"
