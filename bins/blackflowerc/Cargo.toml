@@ -12,9 +12,10 @@ readme.workspace = true
 
 [dependencies]
 blackflower-audio.workspace = true
-blackflower-gameplay.workspace = true
+blackflower-entity.workspace = true
 blackflower-graphics.workspace = true
 blackflower-input.workspace = true
+blackflower-math.workspace = true
 blackflower-network.workspace = true
 blackflower-protocol.workspace = true
 blackflower-tick.workspace = true
@@ -22,6 +23,7 @@ blackflower-window.workspace = true
 blackflower-world.workspace = true
 
 anyhow.workspace = true
+arc-swap.workspace = true
 clap.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

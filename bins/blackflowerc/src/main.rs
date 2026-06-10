@@ -4,10 +4,12 @@ use std::{
 };
 
 use anyhow::Context;
+use arc_swap::ArcSwap;
+use blackflower_entity::EntityId;
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
-use blackflower_network::client::ClientHandle;
-use blackflower_protocol::{Command, Event, Request, Snapshot};
+use blackflower_math::components::Transform;
+use blackflower_protocol::{Event, Request};
 use blackflower_tick::TickScheduler;
 use blackflower_window::WindowHandler;
 use blackflower_world::PresentationWorld;
@@ -31,6 +33,10 @@ struct Args {
     server_addr: SocketAddr,
 }
 
+/// Render-ready, owned snapshot published from the tick thread to the
+/// render thread. Order is unspecified; key by `EntityId`.
+type FrameBuffer = Arc<ArcSwap<Box<[(EntityId, Transform)]>>>;
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -40,20 +46,29 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let input_handle = Arc::new(InputHandle::default());
-    let network_handle = Arc::new(
-        blackflower_network::client::connect(args.server_addr).context("connecting to server")?,
-    );
 
-    // Initiate the application-level handshake.
-    network_handle.try_send_request(Request::Hello);
+    // Shared, lock-free frame buffer: tick thread publishes, render reads.
+    let framebuffer: FrameBuffer = Arc::new(ArcSwap::from_pointee(Box::from([])));
 
-    let network_handle_clone = network_handle.clone();
     let input_handle_clone = input_handle.clone();
+    let framebuffer_clone = framebuffer.clone();
     std::thread::Builder::new()
-        .name("blackflowerc::input".to_owned())
+        .name("blackflowerc::tick".to_owned())
         .spawn(move || {
+            let network_handle = Arc::new(
+                blackflower_network::client::connect(args.server_addr)
+                    .context("connecting to server")?,
+            );
+
+            // Initiate the application-level handshake.
+            network_handle.try_send_request(Request::Hello);
+
+            // The presentation world lives here, owned solely by the tick
+            // thread. The render thread never touches it.
+            let mut world = PresentationWorld::default();
+
             TickScheduler::new(args.tick_rate_hz).start(|tick, _elapsed| {
-                for event in network_handle_clone.try_recv_events() {
+                for event in network_handle.try_recv_events() {
                     #[allow(clippy::excessive_nesting)]
                     match event {
                         Event::Welcome { assigned_entity } => {
@@ -62,36 +77,37 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
+                network_handle
+                    .try_recv_snapshots()
+                    .for_each(|snapshot| world.apply(&snapshot));
+
+                // Publish a render-ready extract.
+                framebuffer_clone.store(Arc::new(world.extract()));
+
                 let command = input_handle_clone.command(tick);
                 if tick % args.tick_rate_hz == 0 {
                     info!(tick = %tick, input = ?command, "input command");
                 }
-
-                network_handle_clone.try_send_command(command);
+                network_handle.try_send_command(command);
             })
         })?;
 
-    let app = Arc::new(Mutex::new(App::new(network_handle, input_handle)));
+    let app = Arc::new(Mutex::new(App::new(framebuffer, input_handle)));
     blackflower_window::start(args.width, args.height, app)
 }
 
 struct App {
     renderer: Option<Renderer>,
-    network_handle: Arc<ClientHandle<Command, Snapshot, Request, Event>>,
+    framebuffer: FrameBuffer,
     input_handle: Arc<InputHandle>,
-    world: PresentationWorld,
 }
 
 impl App {
-    fn new(
-        network_handle: Arc<ClientHandle<Command, Snapshot, Request, Event>>,
-        input_handle: Arc<InputHandle>,
-    ) -> Self {
+    const fn new(framebuffer: FrameBuffer, input_handle: Arc<InputHandle>) -> Self {
         Self {
             renderer: None,
-            network_handle,
+            framebuffer,
             input_handle,
-            world: PresentationWorld::default(),
         }
     }
 }
@@ -129,14 +145,9 @@ impl WindowHandler for App {
     }
 
     fn on_draw(&mut self) {
-        let Some(renderer) = &mut self.renderer else {
-            return;
-        };
-
-        self.network_handle
-            .try_recv_snapshots()
-            .for_each(|snapshot| self.world.apply(&snapshot));
-        renderer.render(&self.world);
+        if let Some(renderer) = &mut self.renderer {
+            renderer.render(&self.framebuffer.load());
+        }
     }
 
     fn on_key_down(&mut self, key: &str) {

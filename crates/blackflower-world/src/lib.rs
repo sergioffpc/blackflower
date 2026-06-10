@@ -94,6 +94,25 @@ impl PresentationWorld {
         }
     }
 
+    /// Extract a flat, render-ready snapshot of all entities.
+    ///
+    /// Produces an owned slice of `(EntityId, Transform)` decoupled from
+    /// the ECS, suitable for publishing to the render thread. Order is
+    /// unspecified (hecs iteration order); consumers must key by
+    /// `EntityId`, not by position.
+    #[must_use]
+    pub fn extract(&self) -> Box<[(EntityId, Transform)]> {
+        self.entity_lookup
+            .iter()
+            .filter_map(|(&id, &entity)| {
+                self.entities
+                    .get::<&Transform>(entity)
+                    .ok()
+                    .map(|t| (id, *t))
+            })
+            .collect()
+    }
+
     fn upsert_entity(&mut self, id: EntityId, transform: Transform) {
         if self.entity_lookup.contains_key(&id) {
             self.update_entity(id, transform);

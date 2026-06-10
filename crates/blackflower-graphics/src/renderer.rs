@@ -130,14 +130,14 @@ impl Renderer {
         self.camera.aspect = width as f32 / height as f32;
     }
 
-    pub fn render(&mut self, instances: &[(EntityId, Transform)]) {
+    pub fn render(&mut self, entities: &[(EntityId, Transform)]) {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => {
-                self.present(surface_texture, instances);
+                self.present(surface_texture, entities);
             }
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => {
                 debug!("suboptimal surface texture; still rendering");
-                self.present(surface_texture, instances);
+                self.present(surface_texture, entities);
                 self.surface.configure(&self.device, &self.config);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {}
@@ -158,7 +158,7 @@ impl Renderer {
     fn present(
         &mut self,
         surface_texture: wgpu::SurfaceTexture,
-        instances: &[(EntityId, Transform)],
+        entities: &[(EntityId, Transform)],
     ) {
         let surface_view = surface_texture
             .texture
@@ -204,7 +204,7 @@ impl Renderer {
             self.pipeline
                 .update_camera_uniform(&self.queue, &self.camera);
 
-            for (_entity_id, transform) in instances {
+            for (_entity_id, transform) in entities {
                 pass.set_bind_group(1, &self.pipeline.model_bind_group, &[]);
                 self.pipeline.update_model_uniform(&self.queue, transform);
                 pass.set_vertex_buffer(0, self.geometry_resources.vertex_buffer.slice(..));
