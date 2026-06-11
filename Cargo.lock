@@ -481,6 +481,7 @@ name = "blackflowerd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackflower-entity",
  "blackflower-gameplay",
  "blackflower-input",
  "blackflower-math",
@@ -490,6 +491,7 @@ dependencies = [
  "blackflower-tick",
  "blackflower-world",
  "clap",
+ "hashbrown 0.17.1",
  "tracing",
  "tracing-subscriber",
 ]

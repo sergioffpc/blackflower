@@ -11,6 +11,7 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-entity.workspace = true
 blackflower-gameplay.workspace = true
 blackflower-input.workspace = true
 blackflower-math.workspace = true
@@ -22,6 +23,7 @@ blackflower-world.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+hashbrown.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

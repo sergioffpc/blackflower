@@ -1,9 +1,11 @@
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use blackflower_entity::EntityId;
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
 use blackflower_network::{
+    ClientId,
     delay::DelayConfig,
     server::{self, ServerHandle},
 };
@@ -12,7 +14,7 @@ use blackflower_protocol::{Command, Event, Request, Snapshot};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::SimulationWorld;
 use clap::Parser;
-use tracing::info;
+use hashbrown::HashMap;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -52,12 +54,16 @@ fn main() -> anyhow::Result<()> {
 
     let mut world = SimulationWorld::default();
 
-    // M2: single client, so a single value suffices. In M3 this becomes
-    // a HashMap<ClientId, u64> — each client receives a snapshot carrying
-    // its own ack — which also requires per-client snapshots (addressed,
-    // not broadcast) and per-client entity tracking. Deferred with the
-    // rest of M3's multi-client work.
-    let mut last_processed_client_tick = Tick::ZERO;
+    // M3: maps each connected client to the entity it controls. The map
+    // grows on Hello (idempotently) and shrinks on disconnect. Entity ids
+    // are monotonic and never reused, so a despawned avatar's id can never
+    // be inherited by a later client.
+    let mut client_entities: HashMap<ClientId, EntityId> = HashMap::new();
+
+    // M3: per-client ack — the highest client command tick processed for
+    // each client, echoed in that client's snapshots for reconciliation.
+    // Replaces the single global u64 of M2.
+    let mut last_processed: HashMap<ClientId, Tick> = HashMap::new();
 
     TickScheduler::new(args.tick_rate_hz).start(|tick, elapsed| {
         let dt = elapsed.as_secs_f32();
@@ -65,9 +71,9 @@ fn main() -> anyhow::Result<()> {
         for (client_id, request) in server_handle.try_recv_requests() {
             match request {
                 Request::Hello => {
-                    // TODO: Se o cliente reenviar Hello (reconexão, ou bug), o servidor cria uma segunda entidade. Não há idempotência.
-                    // Considera rastrear se o client_id já tem entidade atribuída.
-                    let assigned_entity = world.spawn((Transform::identity(),));
+                    let assigned_entity = *client_entities
+                        .entry(client_id)
+                        .or_insert_with(|| world.spawn((Transform::identity(),)));
                     server_handle.try_send_event_to(
                         client_id,
                         Event::Welcome {
@@ -78,15 +84,32 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        for (_client_id, command) in server_handle.try_recv_commands() {
-            last_processed_client_tick = last_processed_client_tick.max(command.tick.into());
+        for (client_id, command) in server_handle.try_recv_commands() {
+            // Record the highest client tick processed for this client.
+            last_processed
+                .entry(client_id)
+                .and_modify(|t| *t = (*t).max(command.tick.into()))
+                .or_insert(command.tick.into());
 
-            if let Some(transform) = world.query::<&mut Transform>().iter().next() {
+            // Apply to the entity this client controls. A command from a
+            // client with no avatar (e.g. arrived before Hello, or after
+            // disconnect cleanup) is dropped.
+            let Some(&entity) = client_entities.get(&client_id) else {
+                continue;
+            };
+            if let Ok(mut transform) = world.transform_mut(entity) {
                 blackflower_gameplay::systems::apply_player_movement(
-                    transform,
+                    &mut transform,
                     InputButtons::from_bits(command.buttons).unwrap_or_default(),
                     dt,
                 );
+            }
+        }
+
+        for client_id in server_handle.try_recv_disconnects() {
+            last_processed.remove(&client_id);
+            if let Some(entity) = client_entities.remove(&client_id) {
+                world.despawn(entity);
             }
         }
 
@@ -95,11 +118,10 @@ fn main() -> anyhow::Result<()> {
             dt,
         );
 
-        let snapshot = world.snapshot(tick, last_processed_client_tick);
-        if tick % args.tick_rate_hz == 0 {
-            info!(tick = %tick, world = ?snapshot, "world snapshot");
+        for (client_id, _entity) in &client_entities {
+            let ack = last_processed.get(client_id).copied().unwrap_or(Tick::ZERO);
+            let snapshot = world.snapshot(tick, ack);
+            server_handle.try_send_snapshot_to(*client_id, snapshot);
         }
-
-        server_handle.try_send_snapshot(snapshot);
     })
 }

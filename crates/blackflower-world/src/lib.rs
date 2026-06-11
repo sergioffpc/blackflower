@@ -10,7 +10,7 @@ use tracing::{error, info, trace, warn};
 pub struct SimulationWorld {
     entities: World,
     entity_id_allocator: EntityIdAllocator,
-    entity_lookup: HashMap<Entity, EntityId>,
+    entity_lookup: HashMap<EntityId, Entity>,
 }
 
 impl SimulationWorld {
@@ -25,15 +25,36 @@ impl SimulationWorld {
     pub fn spawn(&mut self, components: impl DynamicBundle) -> EntityId {
         let entity = self.entities.spawn(components);
         let entity_id = self.entity_id_allocator.allocate();
-        self.entity_lookup.insert(entity, entity_id);
+        self.entity_lookup.insert(entity_id, entity);
         entity_id
     }
 
-    pub fn snapshot(&self, tick: Tick, last_processed_client_tick: Tick) -> Snapshot {
+    /// Despawn an entity by id, removing it from the world and the lookup.
+    /// A no-op if the id is unknown.
+    pub fn despawn(&mut self, id: EntityId) {
+        if let Some(entity) = self.entity_lookup.remove(&id) {
+            self.entities.despawn(entity).ok();
+        }
+    }
+
+    /// Mutable access to a specific entity's transform, by id.
+    pub fn transform_mut(
+        &mut self,
+        id: EntityId,
+    ) -> Result<hecs::RefMut<'_, Transform>, hecs::ComponentError> {
+        let entity = self
+            .entity_lookup
+            .get(&id)
+            .copied()
+            .ok_or(hecs::ComponentError::NoSuchEntity)?;
+        self.entities.get::<&mut Transform>(entity)
+    }
+
+    pub fn snapshot(&self, tick: Tick, ack: Tick) -> Snapshot {
         let entities = self
             .entity_lookup
             .iter()
-            .filter_map(|(&entity, &id)| {
+            .filter_map(|(&id, &entity)| {
                 self.entities
                     .get::<&Transform>(entity)
                     .ok()
@@ -47,7 +68,7 @@ impl SimulationWorld {
 
         Snapshot {
             tick: tick.into(),
-            last_processed_client_tick: last_processed_client_tick.into(),
+            last_processed_client_tick: ack.into(),
             entities,
         }
     }
@@ -60,14 +81,6 @@ pub struct PresentationWorld {
 }
 
 impl PresentationWorld {
-    pub fn query<Q: hecs::Query>(&self) -> hecs::QueryBorrow<'_, Q> {
-        self.entities.query::<Q>()
-    }
-
-    pub fn query_mut<Q: hecs::Query>(&mut self) -> hecs::QueryMut<'_, Q> {
-        self.entities.query_mut::<Q>()
-    }
-
     pub fn apply(&mut self, snapshot: &Snapshot) {
         let present: hashbrown::HashSet<EntityId> =
             snapshot.entities.iter().map(|e| e.id.into()).collect();
