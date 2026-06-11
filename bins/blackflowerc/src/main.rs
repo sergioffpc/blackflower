@@ -16,7 +16,7 @@ use blackflower_tick::{Tick, TickScheduler};
 use blackflower_window::WindowHandler;
 use blackflower_world::PresentationWorld;
 use clap::Parser;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -33,12 +33,6 @@ struct Args {
 
     #[arg(long, default_value = "127.0.0.1:3512")]
     server_addr: SocketAddr,
-
-    /// Disable client-side prediction. The local player then renders
-    /// straight from authoritative server state, exposing full latency.
-    /// Useful for A/B-ing the effect of prediction under `--fake-latency-ms`.
-    #[arg(long, default_value_t = false)]
-    no_prediction: bool,
 
     /// Artificial inbound latency (ms) applied to received snapshots.
     /// Zero disables it. Simulates downlink delay for prediction demos.
@@ -100,10 +94,10 @@ fn main() -> anyhow::Result<()> {
 
             TickScheduler::new(args.tick_rate_hz).start(|tick, _elapsed| {
                 for event in network_handle.try_recv_events() {
-                    #[allow(clippy::excessive_nesting)]
                     match event {
                         Event::Welcome { assigned_entity } => {
-                            info!(entity = %assigned_entity, "received welcome");
+                            info!(entity = %assigned_entity, "assigned entity");
+                            prediction.assign(assigned_entity.into());
                         }
                     }
                 }
@@ -111,18 +105,16 @@ fn main() -> anyhow::Result<()> {
                 let mut latest_ack: Option<Tick> = None;
                 network_handle.try_recv_snapshots().for_each(|snapshot| {
                     world.apply(&snapshot);
-                    let ack = Tick::from(snapshot.last_processed_client_tick);
+                    let ack = Tick::from(snapshot.ack);
                     latest_ack = Some(latest_ack.map_or(ack, |cur| cur.max(ack)));
                 });
 
                 let command = input_handle_clone.command(tick);
                 if tick % args.tick_rate_hz == 0 {
-                    info!(tick = %tick, input = ?command, "input command");
+                    debug!(tick = %tick, buttons = ?InputButtons::from_bits(command.buttons).unwrap_or_default(), "input command");
                 }
 
-                if let Some(local) = prediction.local_player()
-                    && !args.no_prediction
-                {
+                if let Some(local) = prediction.local_player() {
                     if let (Some(ack), Some(authoritative)) =
                         (latest_ack, world.transform_of(local))
                     {
@@ -138,8 +130,11 @@ fn main() -> anyhow::Result<()> {
 
                 network_handle.try_send_command(command);
 
-                // Publish a render-ready extract.
-                framebuffer_clone.store(Arc::new(world.extract()));
+                let entities = Arc::new(world.extract());
+                 if tick % args.tick_rate_hz == 0 {
+                    debug!(tick = %tick, entities = ?entities, "world entities");
+                }
+                framebuffer_clone.store(entities);
             })
         })?;
 

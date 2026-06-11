@@ -68,7 +68,7 @@ impl SimulationWorld {
 
         Snapshot {
             tick: tick.into(),
-            last_processed_client_tick: ack.into(),
+            ack: ack.into(),
             entities,
         }
     }

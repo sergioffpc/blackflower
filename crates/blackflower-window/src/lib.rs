@@ -62,7 +62,11 @@ impl ApplicationHandler for InnerApp {
         }
 
         let window_attributes = WindowAttributes::default()
-            .with_decorations(false)
+            .with_title(concat!(
+                env!("CARGO_PKG_NAME"),
+                " ",
+                env!("CARGO_PKG_VERSION")
+            ))
             .with_inner_size(PhysicalSize::new(self.width, self.height));
 
         let window = match event_loop.create_window(window_attributes) {

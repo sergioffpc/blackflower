@@ -1,10 +1,14 @@
-use blackflower_math::{Mat4, components::Transform};
+use blackflower_math::Mat4;
 use wgpu::util::DeviceExt;
 
 use crate::{
     camera::{Camera, CameraUniform},
     geometry::{ModelUniform, Vertex},
 };
+
+/// Initial capacity (in model matrices) of the instance storage buffer.
+/// Grown on demand if a frame needs more.
+const INITIAL_INSTANCE_CAPACITY: u64 = 64;
 
 pub struct DefaultPipeline {
     pub pipeline: wgpu::RenderPipeline,
@@ -14,6 +18,8 @@ pub struct DefaultPipeline {
 
     camera_buffer: wgpu::Buffer,
     model_buffer: wgpu::Buffer,
+    model_bind_group_layout: wgpu::BindGroupLayout,
+    model_capacity: u64,
 }
 
 impl DefaultPipeline {
@@ -47,10 +53,11 @@ impl DefaultPipeline {
             }],
         });
 
-        let model_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Model uniform"),
-            contents: bytemuck::cast_slice(&[Mat4::IDENTITY]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Instance model storage"),
+            size: INITIAL_INSTANCE_CAPACITY * size_of::<ModelUniform>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let model_bind_group_layout =
@@ -60,7 +67,7 @@ impl DefaultPipeline {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -95,6 +102,8 @@ impl DefaultPipeline {
 
             camera_buffer,
             model_buffer,
+            model_bind_group_layout,
+            model_capacity: INITIAL_INSTANCE_CAPACITY,
         }
     }
 
@@ -103,9 +112,35 @@ impl DefaultPipeline {
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
-    pub fn update_model_uniform(&mut self, queue: &wgpu::Queue, transform: &Transform) {
-        let uniform = ModelUniform::from(transform);
-        queue.write_buffer(&self.model_buffer, 0, bytemuck::cast_slice(&[uniform]));
+    pub fn upload_instances(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        models: &[ModelUniform],
+    ) {
+        let needed = models.len() as u64;
+        if needed > self.model_capacity {
+            // Grow to the next power-of-two-ish capacity that fits.
+            let new_capacity = needed.next_power_of_two();
+            self.model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Instance model storage"),
+                size: new_capacity * size_of::<ModelUniform>() as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.model_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Model bind group"),
+                layout: &self.model_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.model_buffer.as_entire_binding(),
+                }],
+            });
+            self.model_capacity = new_capacity;
+        }
+        if !models.is_empty() {
+            queue.write_buffer(&self.model_buffer, 0, bytemuck::cast_slice(models));
+        }
     }
 
     fn create_render_pipeline(

@@ -15,6 +15,7 @@ use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::SimulationWorld;
 use clap::Parser;
 use hashbrown::HashMap;
+use tracing::{debug, info};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -74,6 +75,7 @@ fn main() -> anyhow::Result<()> {
                     let assigned_entity = *client_entities
                         .entry(client_id)
                         .or_insert_with(|| world.spawn((Transform::identity(),)));
+                    info!(client = %client_id, entity = %assigned_entity, "assigned entity");
                     server_handle.try_send_event_to(
                         client_id,
                         Event::Welcome {
@@ -121,6 +123,11 @@ fn main() -> anyhow::Result<()> {
         for (client_id, _entity) in &client_entities {
             let ack = last_processed.get(client_id).copied().unwrap_or(Tick::ZERO);
             let snapshot = world.snapshot(tick, ack);
+
+            if tick % args.tick_rate_hz == 0 {
+                debug!(client_id = ?client_id, tick = %tick, snapshot = ?snapshot, "world snapshot");
+            }
+
             server_handle.try_send_snapshot_to(*client_id, snapshot);
         }
     })
