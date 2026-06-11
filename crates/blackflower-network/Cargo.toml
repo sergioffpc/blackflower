@@ -14,6 +14,7 @@ readme.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
 crossbeam-channel.workspace = true
+fastrand.workspace = true
 hashbrown.workspace = true
 postcard.workspace = true
 quinn.workspace = true

@@ -38,7 +38,11 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    ClientId, cert::generate_self_signed_cert, decode, decode_framed, encode, encode_framed,
+    ClientId,
+    cert::generate_self_signed_cert,
+    decode, decode_framed,
+    delay::{DelayConfig, DelayQueue},
+    encode, encode_framed,
 };
 
 const SNAPSHOT_QUEUE_CAPACITY: usize = 8;
@@ -105,9 +109,12 @@ impl<C, S, R, E> Drop for ServerHandle<C, S, R, E> {
     }
 }
 
-pub fn start<C, S, R, E>(bind_addr: SocketAddr) -> anyhow::Result<ServerHandle<C, S, R, E>>
+pub fn start<C, S, R, E>(
+    bind_addr: SocketAddr,
+    delay: DelayConfig,
+) -> anyhow::Result<ServerHandle<C, S, R, E>>
 where
-    C: Send + DeserializeOwned + 'static,
+    C: Send + Sync + DeserializeOwned + 'static,
     S: Clone + Send + Sync + Serialize + 'static,
     R: Send + DeserializeOwned + 'static,
     E: Clone + Send + Sync + Serialize + 'static,
@@ -155,11 +162,14 @@ where
 
                         accept_loop(
                             ep,
-                            command_tx,
-                            snapshot_rx,
-                            request_tx,
-                            event_rx,
-                            shutdown_rx,
+                            delay,
+                            ServerChannelGroupDescriptor {
+                                command_tx,
+                                snapshot_rx,
+                                request_tx,
+                                event_rx,
+                                shutdown_rx,
+                            },
                         )
                         .await;
                     }
@@ -192,15 +202,20 @@ struct Connections<S, E> {
     inner: Mutex<HashMap<ClientId, ClientChannels<S, E>>>,
 }
 
-async fn accept_loop<C, S, R, E>(
-    endpoint: Endpoint,
+struct ServerChannelGroupDescriptor<C, S, R, E> {
     command_tx: crossbeam_channel::Sender<(ClientId, C)>,
     snapshot_rx: crossbeam_channel::Receiver<S>,
     request_tx: crossbeam_channel::Sender<(ClientId, R)>,
     event_rx: crossbeam_channel::Receiver<AddressedEvent<E>>,
-    mut shutdown_rx: oneshot::Receiver<()>,
+    shutdown_rx: oneshot::Receiver<()>,
+}
+
+async fn accept_loop<C, S, R, E>(
+    endpoint: Endpoint,
+    delay: DelayConfig,
+    mut desc: ServerChannelGroupDescriptor<C, S, R, E>,
 ) where
-    C: Send + DeserializeOwned + 'static,
+    C: Send + Sync + DeserializeOwned + 'static,
     S: Clone + Send + Sync + Serialize + 'static,
     R: Send + DeserializeOwned + 'static,
     E: Clone + Send + Sync + Serialize + 'static,
@@ -212,11 +227,10 @@ async fn accept_loop<C, S, R, E>(
 
     let connections_clone = Arc::clone(&connections);
     tokio::task::spawn_blocking(move || {
-        while let Ok(snapshot) = snapshot_rx.recv() {
+        while let Ok(snapshot) = desc.snapshot_rx.recv() {
             let snapshot = Arc::new(snapshot);
             let connections_guard = connections_clone.inner.blocking_lock();
             for channels in connections_guard.values() {
-                #[allow(clippy::excessive_nesting)]
                 if let Err(mpsc::error::TrySendError::Full(_)) =
                     channels.snapshot_tx.try_send(Arc::clone(&snapshot))
                 {
@@ -229,9 +243,8 @@ async fn accept_loop<C, S, R, E>(
 
     let conn_for_events = Arc::clone(&connections);
     tokio::task::spawn_blocking(move || {
-        while let Ok(AddressedEvent(client_id, event)) = event_rx.recv() {
+        while let Ok(AddressedEvent(client_id, event)) = desc.event_rx.recv() {
             let guard = conn_for_events.inner.blocking_lock();
-            #[allow(clippy::excessive_nesting)]
             if let Some(channels) = guard.get(&client_id) {
                 if let Err(mpsc::error::TrySendError::Full(_)) = channels.event_tx.try_send(event) {
                     warn!(client = %client_id, "client event queue full; dropping");
@@ -250,11 +263,11 @@ async fn accept_loop<C, S, R, E>(
         // This avoids accepting new connections while shutting down.
         biased;
 
-        _ = &mut shutdown_rx => {
+        _ = &mut desc.shutdown_rx => {
             info!("shutdown signal received; closing endpoint");
             endpoint.close(0_u32.into(), b"shut down");
         }
-        () = incoming_loop(&endpoint, connections, client_id_counter, command_tx, request_tx) => {}
+        () = incoming_loop(&endpoint, delay, connections, client_id_counter, desc.command_tx, desc.request_tx) => {}
     }
 
     endpoint.wait_idle().await;
@@ -262,12 +275,13 @@ async fn accept_loop<C, S, R, E>(
 
 async fn incoming_loop<C, S, R, E>(
     endpoint: &Endpoint,
+    delay: DelayConfig,
     connections: Arc<Connections<S, E>>,
     client_id_counter: Arc<AtomicU64>,
     command_tx: crossbeam_channel::Sender<(ClientId, C)>,
     request_tx: crossbeam_channel::Sender<(ClientId, R)>,
 ) where
-    C: Send + DeserializeOwned + 'static,
+    C: Send + Sync + DeserializeOwned + 'static,
     S: Clone + Send + Sync + Serialize + 'static,
     R: Send + DeserializeOwned + 'static,
     E: Clone + Send + Sync + Serialize + 'static,
@@ -282,8 +296,15 @@ async fn incoming_loop<C, S, R, E>(
         let command_tx = command_tx.clone();
         let request_tx = request_tx.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                handle_connection(incoming, client_id, connections, command_tx, request_tx).await
+            if let Err(e) = handle_connection(
+                incoming,
+                delay,
+                client_id,
+                connections,
+                command_tx,
+                request_tx,
+            )
+            .await
             {
                 error!(error = %e, "connection closed");
             }
@@ -293,13 +314,14 @@ async fn incoming_loop<C, S, R, E>(
 
 async fn handle_connection<C, S, R, E>(
     incoming: Incoming,
+    delay: DelayConfig,
     client_id: ClientId,
     connections: Arc<Connections<S, E>>,
     command_tx: crossbeam_channel::Sender<(ClientId, C)>,
     request_tx: crossbeam_channel::Sender<(ClientId, R)>,
 ) -> anyhow::Result<()>
 where
-    C: DeserializeOwned,
+    C: Send + Sync + DeserializeOwned,
     S: Clone + Send + Sync + Serialize,
     R: DeserializeOwned,
     E: Clone + Send + Sync + Serialize,
@@ -328,7 +350,7 @@ where
     }
 
     tokio::select! {
-        () = recv_commands(&connection, client_id, command_tx) => {}
+        () = recv_commands(&connection, delay, client_id, command_tx) => {}
         () = send_snapshot(&connection, snapshot_rx) => {}
         () = recv_requests(recv, client_id, request_tx) => {}
         () = send_events(send, event_rx) => {}
@@ -370,37 +392,61 @@ where
 
 async fn recv_commands<C>(
     connection: &Connection,
+    delay: DelayConfig,
     client_id: ClientId,
     command_tx: crossbeam_channel::Sender<(ClientId, C)>,
 ) where
-    C: DeserializeOwned,
+    C: Send + Sync + DeserializeOwned,
 {
+    let mut queue = DelayQueue::new(delay);
+
     loop {
-        let bytes = match connection.read_datagram().await {
-            Ok(bytes) => bytes,
-            Err(ConnectionError::ApplicationClosed(_) | ConnectionError::ConnectionClosed(_)) => {
-                info!("client closed connection");
-                break;
-            }
-            Err(e) => {
-                warn!(error = %e, "reading datagram failed");
-                continue;
+        let deliver_tick = async {
+            match queue.next_deadline() {
+                Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+                None => std::future::pending::<()>().await,
             }
         };
 
-        match decode::<C>(&bytes) {
-            Ok(command) => match command_tx.try_send((client_id, command)) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    warn!("command queue full; dropping snapshot");
+        tokio::select! {
+            biased;
+
+            () = deliver_tick => {
+                for command in queue.drain_ready(std::time::Instant::now()) {
+                    if command_tx.try_send((client_id, command)).is_err() {
+                        debug!("command receiver dropped; exiting");
+                        return;
+                    }
                 }
-                Err(TrySendError::Disconnected(_)) => {
-                    error!("command receiver dropped; exiting receive loop");
-                    break;
+            }
+
+            result = connection.read_datagram() => {
+                let bytes = match result {
+                    Ok(bytes) => bytes,
+                    Err(
+                        ConnectionError::ApplicationClosed(_)
+                        | ConnectionError::ConnectionClosed(_),
+                    ) => {
+                        info!(client = %client_id, "client closed connection");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "reading datagram failed");
+                        continue;
+                    }
+                };
+
+                match decode::<C>(&bytes) {
+                    Ok(command) => {
+                        if delay.is_enabled() {
+                            queue.push(command);
+                        } else if command_tx.try_send((client_id, command)).is_err() {
+                            debug!("command receiver dropped; exiting");
+                            break;
+                        }
+                    }
+                    Err(e) => warn!(error = %e, "decoding command failed"),
                 }
-            },
-            Err(e) => {
-                warn!(error = %e, "decoding packet failed");
             }
         }
     }

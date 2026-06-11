@@ -9,6 +9,7 @@ use blackflower_entity::EntityId;
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
+use blackflower_network::delay::DelayConfig;
 use blackflower_prediction::PredictionState;
 use blackflower_protocol::{Event, Request};
 use blackflower_tick::{Tick, TickScheduler};
@@ -32,6 +33,22 @@ struct Args {
 
     #[arg(long, default_value = "127.0.0.1:3512")]
     server_addr: SocketAddr,
+
+    /// Disable client-side prediction. The local player then renders
+    /// straight from authoritative server state, exposing full latency.
+    /// Useful for A/B-ing the effect of prediction under `--fake-latency-ms`.
+    #[arg(long, default_value_t = false)]
+    no_prediction: bool,
+
+    /// Artificial inbound latency (ms) applied to received snapshots.
+    /// Zero disables it. Simulates downlink delay for prediction demos.
+    #[arg(long, default_value_t = 0)]
+    fake_latency_ms: u64,
+
+    /// Jitter (ms) added to `--fake-latency-ms`, uniform in ±jitter.
+    /// May reorder packets. Ignored when latency is zero.
+    #[arg(long, default_value_t = 0)]
+    fake_jitter_ms: u64,
 }
 
 /// Render-ready, owned snapshot published from the tick thread to the
@@ -57,8 +74,11 @@ fn main() -> anyhow::Result<()> {
         .name("blackflowerc::tick".to_owned())
         .spawn(move || {
             let network_handle = Arc::new(
-                blackflower_network::client::connect(args.server_addr)
-                    .context("connecting to server")?,
+                blackflower_network::client::connect(
+                    args.server_addr,
+                    DelayConfig::from_millis(args.fake_latency_ms, args.fake_jitter_ms),
+                )
+                .context("connecting to server")?,
             );
 
             // Initiate the application-level handshake.
@@ -100,7 +120,9 @@ fn main() -> anyhow::Result<()> {
                     info!(tick = %tick, input = ?command, "input command");
                 }
 
-                if let Some(local) = prediction.local_player() {
+                if let Some(local) = prediction.local_player()
+                    && !args.no_prediction
+                {
                     if let (Some(ack), Some(authoritative)) =
                         (latest_ack, world.transform_of(local))
                     {

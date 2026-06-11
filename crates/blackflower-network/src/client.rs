@@ -11,7 +11,12 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use crate::{cert::SkipServerVerification, decode, decode_framed, encode, encode_framed};
+use crate::{
+    cert::SkipServerVerification,
+    decode, decode_framed,
+    delay::{DelayConfig, DelayQueue},
+    encode, encode_framed,
+};
 
 const COMMAND_QUEUE_CAPACITY: usize = 8;
 const SNAPSHOT_QUEUE_CAPACITY: usize = 8;
@@ -80,10 +85,13 @@ impl<C, S, R, E> Drop for ClientHandle<C, S, R, E> {
     }
 }
 
-pub fn connect<C, S, R, E>(server_addr: SocketAddr) -> anyhow::Result<ClientHandle<C, S, R, E>>
+pub fn connect<C, S, R, E>(
+    server_addr: SocketAddr,
+    delay: DelayConfig,
+) -> anyhow::Result<ClientHandle<C, S, R, E>>
 where
     C: Serialize + Send + 'static,
-    S: DeserializeOwned + Send + 'static,
+    S: DeserializeOwned + Send + Sync + 'static,
     R: Serialize + Send + 'static,
     E: DeserializeOwned + Send + 'static,
 {
@@ -102,11 +110,14 @@ where
         .spawn(move || {
             if let Err(e) = start(
                 server_addr,
-                command_rx,
-                snapshot_tx,
-                request_rx,
-                event_tx,
-                shutdown_rx,
+                delay,
+                ClientChannelGroupDescriptor {
+                    command_rx,
+                    snapshot_tx,
+                    request_rx,
+                    event_tx,
+                    shutdown_rx,
+                },
             ) {
                 error!(error = %e, "connection failed");
             }
@@ -123,17 +134,22 @@ where
     })
 }
 
-fn start<C, S, R, E>(
-    server_addr: SocketAddr,
-    mut command_rx: mpsc::Receiver<C>,
+struct ClientChannelGroupDescriptor<C, S, R, E> {
+    command_rx: mpsc::Receiver<C>,
     snapshot_tx: crossbeam_channel::Sender<S>,
-    mut request_rx: mpsc::Receiver<R>,
+    request_rx: mpsc::Receiver<R>,
     event_tx: crossbeam_channel::Sender<E>,
     shutdown_rx: oneshot::Receiver<()>,
+}
+
+fn start<C, S, R, E>(
+    server_addr: SocketAddr,
+    delay: DelayConfig,
+    mut desc: ClientChannelGroupDescriptor<C, S, R, E>,
 ) -> anyhow::Result<()>
 where
     C: Serialize,
-    S: DeserializeOwned,
+    S: DeserializeOwned + Send + Sync,
     R: Serialize,
     E: DeserializeOwned,
 {
@@ -177,13 +193,13 @@ where
         tokio::select! {
             biased;
 
-            _ = shutdown_rx => {
+            _ = desc.shutdown_rx => {
                 info!("client received shutdown signal");
             }
-            () = send_commands(&connection, &mut command_rx) => {}
-            () = recv_snapshots(&connection, &snapshot_tx) => {}
-            () = send_requests(send, &mut request_rx) => {}
-            () = recv_events(recv, &event_tx) => {}
+            () = send_commands(&connection, &mut desc.command_rx) => {}
+            () = recv_snapshots(&connection, delay, &desc.snapshot_tx) => {}
+            () = send_requests(send, &mut desc.request_rx) => {}
+            () = recv_events(recv, &desc.event_tx) => {}
         }
 
         connection.close(0_u32.into(), b"client done");
@@ -210,37 +226,80 @@ where
     }
 }
 
-async fn recv_snapshots<S>(connection: &Connection, snapshot_tx: &crossbeam_channel::Sender<S>)
-where
-    S: DeserializeOwned,
+async fn recv_snapshots<S>(
+    connection: &Connection,
+    delay: DelayConfig,
+    snapshot_tx: &crossbeam_channel::Sender<S>,
+) where
+    S: DeserializeOwned + Send + Sync,
 {
+    let mut queue = DelayQueue::new(delay);
+
     loop {
-        let bytes = match connection.read_datagram().await {
-            Ok(bytes) => bytes,
-            Err(ConnectionError::ApplicationClosed(_) | ConnectionError::ConnectionClosed(_)) => {
-                info!("server closed connection");
-                break;
-            }
-            Err(e) => {
-                warn!(error = %e, "reading datagram failed");
-                continue;
+        // Arm a timer for the head of the delay queue. When the queue is
+        // empty there is no deadline, so this future never completes and
+        // the select reacts only to new datagrams.
+        let deliver_tick = async {
+            match queue.next_deadline() {
+                Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+                None => std::future::pending::<()>().await,
             }
         };
 
-        match decode::<S>(&bytes) {
-            Ok(snapshot) => match snapshot_tx.try_send(snapshot) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    warn!("snapshot queue full; dropping snapshot");
+        tokio::select! {
+            biased;
+
+            // A queued snapshot is ready for delivery.
+            () = deliver_tick => {
+                for snapshot in queue.drain_ready(std::time::Instant::now()) {
+                    if !forward_snapshot(snapshot_tx, snapshot) {
+                        return;
+                    }
                 }
-                Err(TrySendError::Disconnected(_)) => {
-                    error!("snapshot receiver dropped; exiting receive loop");
-                    break;
-                }
-            },
-            Err(e) => {
-                warn!(error = %e, "decoding datagram failed");
             }
+
+            // A new datagram arrived from the server.
+            result = connection.read_datagram() => {
+                let bytes = match result {
+                    Ok(bytes) => bytes,
+                    Err(ConnectionError::ApplicationClosed(_) | ConnectionError::ConnectionClosed(_)) => {
+                        info!("server closed connection");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "reading datagram failed");
+                        continue;
+                    }
+                };
+
+                match decode::<S>(&bytes) {
+                    Ok(snapshot) => {
+                        if delay.is_enabled() {
+                            // Hold for the sampled delivery deadline.
+                            queue.push(snapshot);
+                        } else if !forward_snapshot(snapshot_tx, snapshot) {
+                            break;
+                        }
+                    }
+                    Err(e) => warn!(error = %e, "decoding snapshot failed"),
+                }
+            }
+        }
+    }
+}
+
+/// Forward one snapshot to the tick thread. Returns `false` if the
+/// receiver is gone and the caller should stop.
+fn forward_snapshot<S>(snapshot_tx: &crossbeam_channel::Sender<S>, snapshot: S) -> bool {
+    match snapshot_tx.try_send(snapshot) {
+        Ok(()) => true,
+        Err(TrySendError::Full(_)) => {
+            warn!("snapshot drain queue full; dropping snapshot");
+            true
+        }
+        Err(TrySendError::Disconnected(_)) => {
+            info!("snapshot receiver dropped; exiting");
+            false
         }
     }
 }

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub mod cert;
 pub mod client;
+pub mod delay;
 pub mod server;
 
 /// Opaque identifier for a connected client.

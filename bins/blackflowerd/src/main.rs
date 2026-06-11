@@ -3,7 +3,10 @@ use std::net::SocketAddr;
 use anyhow::Context;
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
-use blackflower_network::server::{self, ServerHandle};
+use blackflower_network::{
+    delay::DelayConfig,
+    server::{self, ServerHandle},
+};
 use blackflower_physics::components::Velocity;
 use blackflower_protocol::{Command, Event, Request, Snapshot};
 use blackflower_tick::{Tick, TickScheduler};
@@ -21,6 +24,16 @@ struct Args {
     /// Address the server binds to.
     #[arg(long, default_value = "0.0.0.0:3512")]
     bind_addr: SocketAddr,
+
+    /// Artificial inbound latency (ms) applied to received commands.
+    /// Zero disables it. Simulates uplink delay for prediction demos.
+    #[arg(long, default_value_t = 0)]
+    fake_latency_ms: u64,
+
+    /// Jitter (ms) added to `--fake-latency-ms`, uniform in ±jitter.
+    /// May reorder packets. Ignored when latency is zero.
+    #[arg(long, default_value_t = 0)]
+    fake_jitter_ms: u64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -31,8 +44,11 @@ fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let server_handle: ServerHandle<Command, Snapshot, Request, Event> =
-        server::start(args.bind_addr).context("starting server")?;
+    let server_handle: ServerHandle<Command, Snapshot, Request, Event> = server::start(
+        args.bind_addr,
+        DelayConfig::from_millis(args.fake_latency_ms, args.fake_jitter_ms),
+    )
+    .context("starting server")?;
 
     let mut world = SimulationWorld::default();
 
