@@ -1,31 +1,35 @@
 # Blackflower
 
-A Rust game engine for arena multiplayer shooters (up to 64 players @ 60Hz),
+A Rust game engine for arena multiplayer shooters (up to 64 players @ 60 Hz),
 with authoritative dedicated server and client-side prediction.
 
-Quake 2-style architecture, modernized: archetype-based ECS, QUIC transport,
-hot-reloadable game module, deterministic asset pipeline.
+Quake 2-style architecture, modernized: archetype ECS (`hecs`), QUIC transport
+(`quinn`), rollback-replay prediction, lock-free render pipeline.
 
 ## Status
 
-Early development — milestone M0 (foundations).
-See [`docs/architecture.md`](docs/architecture.md) for design and roadmap.
+Active development — foundations, networking, ECS, and client-side prediction
+are implemented. See [`docs/architecture.md`](docs/architecture.md) for the
+full design and milestone roadmap.
 
 ## Build
 
 Requires Rust 1.95.0 (managed automatically by `rustup` via `rust-toolchain.toml`).
 
 ```bash
-# Build all crates
 cargo build --workspace
 
-# Run the dedicated server
+# Run the dedicated server (listens on 0.0.0.0:3512)
 cargo run --bin blackflowerd
 
-# Run the client
+# Run the client (connects to 127.0.0.1:3512)
 cargo run --bin blackflowerc
 
-# Run linters
+# Simulate network conditions for prediction testing
+cargo run --bin blackflowerd -- --fake-latency-ms 80 --fake-jitter-ms 20
+cargo run --bin blackflowerc -- --fake-latency-ms 40 --fake-jitter-ms 10
+
+# Lint and test
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -33,10 +37,27 @@ cargo test --workspace
 
 ## Layout
 
-- `crates/blackflower-core/` — shared engine library (headless, deterministic).
-- `bins/blackflowerd/` — dedicated server binary.
-- `bins/blackflowerc/` — client binary.
-- `docs/` — architecture document, ADRs, diagrams.
+```
+bins/
+  blackflowerd/   dedicated server
+  blackflowerc/   game client (winit + wgpu)
+crates/
+  blackflower-entity      stable EntityId (u64, 0 = NONE)
+  blackflower-gameplay    pure simulation functions (shared by client + server)
+  blackflower-graphics    wgpu renderer
+  blackflower-input       InputButtons bitfield, InputHandle, Command generation
+  blackflower-math        glam re-export + Transform component
+  blackflower-network     QUIC transport (quinn), ServerHandle / ClientHandle
+  blackflower-physics     Velocity component, integrate_movement system
+  blackflower-prediction  rollback-replay reconciliation, PredictionState
+  blackflower-protocol    wire types: Command, Snapshot, Request, Event
+  blackflower-tick        Tick counter, TickScheduler (configurable Hz)
+  blackflower-world       SimulationWorld (server ECS), PresentationWorld (client)
+  blackflower-audio       stub (kira wired, no logic yet)
+docs/
+  architecture.md   design doc + ADRs
+  diagrams/         SVG diagrams
+```
 
 ## License
 

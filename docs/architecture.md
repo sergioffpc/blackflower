@@ -1,16 +1,16 @@
 # Game Engine — Architecture
 
-Living architecture document for the engine. Quake 2-style (authoritative client/server), with modern advances: archetype-based ECS, QUIC transport, hot-reload, deterministic asset pipeline.
+Living architecture document for the engine. Quake 2-style (authoritative client/server), with modern advances: archetype-based ECS, QUIC transport, client-side prediction + reconciliation.
 
-**Status:** initial design — pre-implementation.
+**Status:** Active development — M2.5 implemented (foundations, ECS, QUIC networking, client-side prediction with rollback-replay). See [roadmap](#implementation-roadmap) for milestone status.
 **Audience:** author + future contributors.
-**Convention:** each section ends with decisions recorded as embedded ADRs. When a decision is "ratified" in code, extract it to `docs/adr/NNNN-title.md`.
+**Convention:** each section ends with decisions recorded as embedded ADRs. `**Status: implemented**` means the decision is live in code; `**Status: planned**` means it is a design commitment not yet coded. When a decision is extracted to its own file, it moves to `docs/adr/NNNN-title.md`.
 
 ---
 
 ## Executive summary
 
-Multiplayer engine for arena games (up to 64 players @ 60Hz), with authoritative dedicated server and client featuring client-side prediction + server reconciliation. Modular Rust monorepo architecture, with a shared core library between client and server, and separate products (binaries) for each role. Dev-time asset pipeline decoupled from runtime, with hot-reload.
+Multiplayer engine for arena games (up to 64 players @ 60 Hz), with authoritative dedicated server and client featuring client-side prediction + server reconciliation. Modular Rust monorepo, with a shared core library between client and server, and separate binaries for each role.
 
 **Non-goals:** listen-server, peer-to-peer, MMO/large shards, pure offline single-player (offline runs a local dedicated server).
 
@@ -22,8 +22,6 @@ The actors and external systems the engine interacts with.
 
 ![Level 1 context diagram](diagrams/L1-context.svg)
 
-**Reading notes:**
-
 - *Player* — input/output via client.
 - *Developer* — writes game code + tooling.
 - *Operator* — runs/monitors dedicated servers.
@@ -33,21 +31,19 @@ The actors and external systems the engine interacts with.
 
 ### ADR 0001 — Topology: dedicated server only
 
-**Context:** multiple topologies possible (single-player, listen-server, dedicated, peer-to-peer).
-
 **Decision:** support dedicated server only (separate, headless process). Offline single-player runs a local dedicated server on loopback.
 
-**Alternatives:** listen-server (host is also a player, Quake 2 / CS 1.6 model) — rejected because it muddies the authority boundary and requires the client to be able to load the full simulation.
+**Rationale:** authority 100% on server, always. Client is purely I/O terminal + prediction. Server compiles without GPU/audio/input.
 
-**Consequences:** authority 100% on server, always. Client is purely I/O terminal + prediction. Server compiles without GPU/audio/input.
+**Status: implemented.** `blackflowerd` is headless; `blackflowerc` is the I/O terminal. Both share `blackflower-gameplay` and `blackflower-protocol` but not rendering or window crates.
 
-### ADR 0002 — Target scale: arena ~64 players @ 60Hz
+### ADR 0002 — Target scale: arena ~64 players @ 60 Hz
 
-**Context:** scale influences everything (replication, area-of-interest, tickrate, networking).
+**Decision:** primary target is arena/shooter up to 64 players @ 60 Hz tickrate.
 
-**Decision:** primary target is arena/shooter up to 64 players @ 60Hz tickrate.
+**Consequences:** snapshot-based networking, client-side prediction, lag-comp via rewind in history buffer, no area-of-interest.
 
-**Consequences:** snapshot-based networking with delta + ack-bitfield, client-side prediction, lag-comp via rewind in history buffer, no area-of-interest (everyone sees everyone). Not supported: MMO/large shards.
+**Status: partially implemented.** Tick scheduler and QUIC broadcast support the scale target. Snapshot is full-world (no delta compression or lag-comp yet — see roadmap M3/M4).
 
 ---
 
@@ -57,17 +53,16 @@ The processes that run in production and how they communicate.
 
 ![Level 2 containers](diagrams/L2-containers.svg)
 
-**Key notes:**
-
-- Commands and snapshots are distinct channels, not bidirectional. Commands = player input. Snapshots = world state with delta compression.
-- Asset bundle is the *same* source but with distinct sub-bundles for client (meshes, textures, shaders, audio) and server (collision geometry, navmesh, gameplay data).
-- Player and Operator have different trust boundaries — operator has RCON/admin on the server; player only sends limited inputs.
+- Commands and snapshots are distinct channels. Commands = player input (client → server datagram). Snapshots = world state (server → client datagram).
+- Requests/Events are reliable control messages carried on QUIC streams (client → server / server → client respectively).
 
 ### ADR 0003 — Client/server communication: asymmetric on two channels
 
-**Decision:** two distinct logical channels — commands (client→server) and snapshots (server→client). Both unreliable with sequence numbers.
+**Decision:** two distinct logical channels — commands (client → server) and snapshots (server → client). Both unreliable (QUIC datagrams). Reliable control messages use QUIC streams (COBS-framed).
 
-**Rationale:** snapshots are idempotent in aggregate (tick N+1's overrides N's); reliability adds latency without adding correctness.
+**Rationale:** snapshots are idempotent in aggregate (tick N+1 supersedes N); reliability adds latency without adding correctness.
+
+**Status: implemented.** Commands and snapshots use `quinn` datagrams. `Request`/`Event` use a single bidirectional QUIC stream per connection with COBS framing.
 
 ---
 
@@ -75,40 +70,49 @@ The processes that run in production and how they communicate.
 
 ![Dedicated server components](diagrams/L3-server-components.svg)
 
-**Categories (conceptual coloring):**
+**Implemented components:**
 
-- **Network/validation (purple)** — `Net & session`, `Command pipeline`, `Snapshot builder`. Everything touching bytes or untrusted state.
-- **Simulation core (teal)** — `Tick scheduler`, `World ECS`, `Simulation systems`, `History buffer`. All deterministic, source of truth.
-- **Pluggable (coral)** — `Game module` (cdylib loaded at runtime).
+- **Tick scheduler** — `TickScheduler::start(60)` drives a fixed-rate loop. Logs overruns.
+- **SimulationWorld** — `hecs`-backed ECS; `EntityIdAllocator` issues monotonic IDs (never reused).
+- **Command pipeline** — drains one `Command` per client per tick; applies `apply_player_movement()`; records `last_processed[client]`.
+- **Snapshot builder** — every tick, iterates all `Transform` components; builds `Snapshot { tick, ack: last_processed[client], entities }` and sends as datagram.
+- **Session management** — `client_entities: HashMap<ClientId, EntityId>` and `last_processed: HashMap<ClientId, Tick>`; `Hello` request spawns entity, disconnect despawns it.
+- **Physics** — `integrate_movement()` applied per tick to `(Transform, Velocity)` pairs.
 
-**Cross-cutting concerns not shown:**
+**Not yet implemented:**
 
-- Job system (parallelizes inside each system).
-- Asset loader (loads bundle at map start).
-- Telemetry (async sink).
-- Anti-cheat (hooks in Command pipeline and Snapshot builder).
+- Job system (parallelizes inside each system) — single-threaded today.
+- History buffer for server-side lag compensation.
+- Anti-cheat hooks in command pipeline.
+- Asset loader / map loading.
+- Telemetry sink.
+- Game module as a hot-loadable cdylib (see ADR 0006).
 
 ### ADR 0004 — Archetype-based ECS
 
 **Decision:** ECS with archetypes (entities with the same set of components live in contiguous chunks), not sparse-set.
 
-**Rationale:** bulk iteration (the simulation pattern) is the hot case; archetype layout is cache-friendly. References: Bevy ECS, Unity DOTS.
+**Rationale:** bulk iteration (simulation pattern) is cache-friendly. `add_component`/`remove_component` is rare and can pay the move-between-archetype cost.
 
-**Trade-off:** mutating a component set (`add_component`/`remove_component`) is more expensive (move between archetypes). Acceptable — it's rare on the hot path.
+**Status: implemented.** `blackflower-world` wraps `hecs 0.11`.
 
-### ADR 0005 — Fixed 60Hz tick
+### ADR 0005 — Fixed 60 Hz tick
 
-**Decision:** server runs a fixed 16.67ms tick. Inputs arriving mid-tick wait for the next one. Client renderer is variable (independent).
+**Decision:** server runs a fixed 16.67 ms tick. Inputs arriving mid-tick wait for the next one. Client renderer is variable (independent).
 
 **Rationale:** determinism. Client and server must produce identical results for identical inputs; physics with variable `dt` diverges.
 
+**Status: implemented.** `TickScheduler` drives both server and client tick loops at the configured Hz. Client render and input run on a separate winit event loop thread.
+
 ### ADR 0006 — Game logic in hot-loadable cdylib
 
-**Decision:** game logic lives in a dynamic library (`game-module`), loaded at runtime. In dev, supports unload+reload+state migration.
+**Decision:** game logic lives in a dynamic library, loaded at runtime. In dev, supports unload+reload+state migration.
 
-**Rationale:** fast iteration cycle (Quake's `game.dll` solved this in 1997).
+**Rationale:** fast iteration cycle (Quake's `game.dll`).
 
-**Risk in Rust:** unstable ABI → shared types must be FFI-safe (`#[repr(C)]` or via data format).
+**Risk:** unstable Rust ABI → shared types must be FFI-safe (`#[repr(C)]`).
+
+**Status: planned.** Game logic currently lives in `blackflower-gameplay` (a static crate). The `Transform`, `Velocity`, and `InputButtons` types are `#[repr(C)]` in anticipation of this migration.
 
 ---
 
@@ -116,20 +120,23 @@ The processes that run in production and how they communicate.
 
 ![Server tick sequence](diagrams/L3-server-tick-sequence.svg)
 
-**Invariants:**
+**Invariants (as implemented):**
 
 1. `drain → apply → simulate` — all inputs ready before simulating.
-2. Lag-comp happens *inside* simulate (rewind in History buffer).
-3. `commit` before `snapshot` — history is source of truth for deltas.
-4. `send` is N parallel sends (one per client).
+2. Ack tracked per-client; echoed in snapshot for client reconciliation.
+3. Snapshot sent after physics integrate (world is fully committed).
+4. Send is N parallel sends via per-client tokio channels; slow clients drop packets, others unaffected.
 
-**Typical per-tick budget (64 players, tuned):**
+**Actual per-tick work (current, unoptimized):**
 
-- drain + apply: 0.5–1ms
-- simulate: 4–8ms (parallelizable)
-- commit: <0.5ms
-- snapshot + send: 1–3ms (parallelizable per client)
-- cushion: 5–10ms
+```
+1. try_recv_requests()      — accept Hello, spawn entity, send Welcome
+2. try_recv_commands()      — apply_player_movement() per client
+3. try_recv_disconnects()   — despawn entity
+4. integrate_movement()     — Euler integrate all (Transform, Velocity)
+5. snapshot(tick, ack)      — iterate all Transforms, build Snapshot
+6. try_send_snapshot_to()   — enqueue to per-client channel
+```
 
 ---
 
@@ -137,38 +144,91 @@ The processes that run in production and how they communicate.
 
 ![Game client components](diagrams/L3-client-components.svg)
 
-**Asymmetries vs. server:**
+**Implemented components:**
 
-- Two rhythms: simulation (fixed 60Hz, mirror of the server) + render (variable, tied to display).
-- Two entity categories: local player (prediction + reconciliation) and remotes (interpolation from snapshots).
-- Renderer and audio engine *do not exist on the server*.
+- **Tick thread** — `TickScheduler` at 60 Hz; owns `PresentationWorld`, `PredictionState`, `ClientHandle`.
+- **Render thread** — winit event loop; `App` implements `WindowHandler`; reads `FrameBuffer` via `ArcSwap` (lock-free).
+- **Input** — `InputHandle` (thread-safe `Arc<Mutex<InputButtons>>`); render thread writes, tick thread reads.
+- **PresentationWorld** — upserts entities from server snapshots; `extract()` returns flat `Vec<(EntityId, Transform)]` for renderer.
+- **PredictionState** — rollback-replay reconciliation (see ADR 0007).
+- **Renderer** — wgpu pipeline; one instanced draw call per frame, per-instance model matrix via SSBO.
 
-### ADR 0007 — Frame loop with accumulator-based timestep
+**Not yet implemented:**
 
-**Decision:** client uses fixed-step accumulator (Gaffer on Games "Fix Your Timestep"). Simulation at fixed 60Hz; render at variable framerate, interpolating between the two latest ticks.
+- Interpolation for remote entities (currently shown at last-known authoritative position).
+- Extrapolation / dead reckoning for remote entities under packet loss.
+- Audio (`blackflower-audio` is a stub).
 
-**Rationale:** decouples framerate from tickrate. Allows 144/240fps render in a 60Hz-sim game, with optimal responsiveness and consistency with the server.
+### ADR 0007 — Client-side prediction with rollback-replay
+
+**Decision:** client predicts local player input speculatively using the same pure simulation functions as the server. On snapshot arrival, roll back to the server's authoritative state and replay unacked inputs.
+
+**Rationale:** hides RTT latency for local player; eliminates input-induced position error via reconciliation.
+
+**Status: implemented.** `PredictionState` keeps a `VecDeque<HistoryEntry>` ring buffer of 128 ticks (~2.1 s @ 60 Hz). On each tick:
+
+1. **predict(tick, buttons, seed, dt)** — applies `apply_player_movement()` locally; pushes to history.
+2. **reconcile(authoritative, ack, dt)** — drops history entries `tick ≤ ack`, rolls back to server transform, replays remaining inputs in order.
+3. **extract** — overwrites local player's transform in `PresentationWorld` before publishing to framebuffer.
+
+`apply_player_movement()` is a pure function shared by `blackflower-gameplay`; server and client run identical code, so prediction is exact given identical inputs and `dt`.
+
+### ADR 0007b — Frame loop: separate tick and render threads
+
+**Decision:** client uses two threads. Tick thread: fixed 60 Hz `TickScheduler`. Render thread: winit event loop at display rate. Data published via lock-free `ArcSwap<Box<[(EntityId, Transform)]>>` framebuffer.
+
+**Rationale:** decouples simulation rate from frame rate. Render never blocks on network I/O; tick never blocks on GPU.
+
+**Status: implemented.** See `bins/blackflowerc/src/main.rs`. Interpolation between the two latest ticks (render at variable rate) is planned for M3.
 
 ---
 
 ## Level 3 — Engine core (shared library)
 
-![Engine core layers](diagrams/L3-engine-core.svg)
+**Principles (as applied in current code):**
 
-**Principles:**
+1. **Determinism first** — `apply_player_movement()` and `integrate_movement()` are pure functions with no global state, no RNG.
+2. **Headless by construction** — server binary has zero GPU/audio/window dependencies.
+3. **Vertical dependencies only** — lower-level crates (`blackflower-math`, `blackflower-entity`, `blackflower-protocol`) have no dependencies on higher-level ones.
 
-1. **Determinism first** — all functions produce bit-identical results on all platforms for identical inputs.
-2. **Headless by construction** — zero dependencies on window, GPU, audio, input.
-3. **Zero dynamic allocation on the hot path** — arenas, pools, pre-allocated archetypes.
-4. **Vertical dependencies only** — layer N only depends on N-1 and below.
+**Crate dependency order (leaf → root):**
 
-**What's deliberately outside the core:** RHI/renderer, audio, input, network transport (lives in `engine-net`), physics (lives in `engine-physics`), editor.
+```
+blackflower-math
+blackflower-entity
+blackflower-protocol
+blackflower-input   → math
+blackflower-gameplay → input, math
+blackflower-physics  → math
+blackflower-tick
+blackflower-world    → entity, protocol, tick
+blackflower-prediction → gameplay, input, math, entity, tick
+blackflower-network  → protocol, tick
+blackflower-graphics → math, entity
+blackflower-window
+blackflower-audio    (stub)
 
-### ADR 0008 — Math: IEEE float with strict ordering, fixed-point only where needed
+blackflowerd → world, network, protocol, tick, physics, gameplay, input, entity
+blackflowerc → world, network, protocol, tick, prediction, input, graphics, window, entity, audio
+```
 
-**Decision:** IEEE 754 floats for most things; Q16.16 fixed-point *only* for networked player movement and physics.
+### ADR 0008 — Math: IEEE float throughout; fixed-point deferred
 
-**Rationale:** avoids holding productivity hostage to determinism where it doesn't matter (UI, audio, particles). Cost of the mixed approach: need for a clear boundary between types.
+**Decision:** IEEE 754 floats for all simulation math. Q16.16 fixed-point for networked movement is deferred until delta compression (M3) requires it.
+
+**Rationale:** avoids holding development velocity hostage to determinism work where it doesn't yet matter. Clear boundary between wire and simulation types allows migration later.
+
+**Status: implemented (IEEE float in use).** Fixed-point encoding is planned for M3 when quantized delta snapshots replace full-float snapshots. `Transform` is `#[repr(C)]` in preparation.
+
+### ADR 0016 — ECS: hecs (not bevy_ecs)
+
+**Decision:** `hecs` as the foundation. Scheduler, change detection, and command buffers are implemented in the engine as a layer over `hecs`.
+
+**Rationale:** avoid architectural coupling to the Bevy ecosystem. `hecs` (~5000 LOC) is auditable; its API has been stable for years. `bevy_ecs` breaks across major versions.
+
+**Trade-offs accepted:** ~2–3 months additional engineering for a custom scheduler; smaller third-party ecosystem.
+
+**Status: implemented.** `blackflower-world` wraps `hecs::World`. No custom scheduler yet — systems are called directly in tick loop order.
 
 ---
 
@@ -176,143 +236,122 @@ The processes that run in production and how they communicate.
 
 ![Network protocol stack](diagrams/L3-network-protocol.svg)
 
-**Packet structure (hot state):**
+### Wire format (current implementation)
+
+All messages are serialized with `postcard` (compact binary, little-endian, no schema).
+
+**Command** (client → server, unreliable datagram):
 
 ```
-[seq:u16] [last_acked_remote:u16] [ack_bitfield:u32]
-[tick:u32] [baseline_tick:u32]
-[ bit-packed component deltas ... ]
+tick:    u64   (8 bytes)
+buttons: u64   (8 bytes, InputButtons bitfield)
+─────────────────────────────
+                ~16 bytes per command
 ```
 
-**Typical quantization:**
+**Snapshot** (server → client, unreliable datagram):
 
-- Positions: 16-bit per axis on a 4096-unit map → 0.0625 precision.
-- Quaternions: smallest-three (index + 3×10 bits) → 4 bytes.
-- Velocities: 12-bit.
-- Presence bitmask: 64 bits per entity, RLE.
+```
+tick:     u64               (8 bytes)
+ack:      u64               (8 bytes — highest client tick server processed)
+entities: [EntitySnapshot]  (varint count + N entries)
 
-**Expected bandwidth budget:** ~30–60 KB/s downstream per client, ~5–10 KB/s upstream. 64-player server: ~2–4 MB/s downstream total.
+EntitySnapshot:
+  id:          u64         (8 bytes)
+  translation: [f32; 3]    (12 bytes)
+  rotation:    [f32; 4]    (16 bytes)
+─────────────────────────────────────
+                ~16 + N × 36 bytes per snapshot
+```
+
+**Control messages** (QUIC stream, COBS-framed, zero-terminated):
+
+```
+Request::Hello          (client → server, ~1 byte)
+Event::Welcome { assigned_entity: u64 }   (server → client, ~9 bytes)
+```
+
+**Current bandwidth (unoptimized, full snapshots):**
+
+- Snapshot @ 64 entities: ≈ 2.3 KB
+- Downstream per client @ 60 Hz: ≈ 138 KB/s
+- 64-client server downstream: ≈ 8.8 MB/s
+
+*Target bandwidth after delta compression + quantization (M3): ~30–60 KB/s downstream per client, ~2–4 MB/s total.*
 
 ### ADR 0009 — Transport: QUIC datagrams (hot) + QUIC streams (bulk)
 
-**Decision:** QUIC with datagrams (RFC 9221) for hot state and streams for bulk. Mandatory TLS 1.3.
+**Decision:** QUIC with datagrams (RFC 9221) for hot state (commands + snapshots), streams for control (requests + events). Mandatory TLS 1.3.
 
-**Rationale:** gains encrypted handshake, mature congestion control, connection migration, 0-RTT on reconnects. Cost: ~16 bytes AEAD overhead per packet.
+**Rationale:** QUIC gives encrypted handshake, mature congestion control, connection migration, 0-RTT on reconnects.
 
-**Considered alternative:** UDP+DTLS+custom protocol (Q3/CS style). Rejected — reinvents what QUIC ships ready.
+**Dev caveat:** self-signed certs and `SkipServerVerification` are used in development. Both server and client accept `--fake-latency-ms` / `--fake-jitter-ms` CLI flags to simulate network conditions locally.
 
-**Risk:** QUIC datagrams still have less maturity than streams. Fallback plan: revert to custom UDP+DTLS if benchmarks reveal excessive overhead.
+**Status: implemented.** `blackflower-network` wraps `quinn`. Dev cert helpers in `cert.rs`. `DelayQueue` implements per-message latency + jitter.
 
-### ADR 0010 — Reliability in the application layer for events
+### ADR 0010 — Reliable events on QUIC streams
 
-**Decision:** critical events (chat, kills, important changes) use a *reliable-unordered* channel implemented atop QUIC datagrams, *not* atop streams.
+**Decision:** critical events (`Hello`, `Welcome`) use a COBS-framed reliable QUIC stream, not application-layer retransmit over datagrams.
 
-**Rationale:** streams create head-of-line blocking between unrelated events. Custom reliability is simple (number + retransmit until acked).
+**Rationale:** stream reliability is free in QUIC; using it for low-frequency control messages avoids building a custom reliability layer.
+
+**Status: implemented.** One bidirectional stream per connection; framed with `encode_framed`/`decode_framed` (COBS, zero-terminated).
 
 ---
 
-## Level 3 — Connection state machine (client)
+## Level 3 — Connection lifecycle (current implementation)
 
-![Client connection states](diagrams/L3-client-connection-states.svg)
+Simplified relative to the full state machine design; implemented states:
 
-**Notes:**
+```
+Client connects (QUIC handshake)
+  → server accepts connection, allocates ClientId
+  → client sends Request::Hello
+  → server spawns entity, sends Event::Welcome { assigned_entity }
+  → client sets local player, begins prediction
 
-- `Authenticating` is separate from `Handshaking` — network crypto ≠ player identity.
-- `Loading` is its own state, not a sub-phase of `Active` — during load there's no input nor world render.
-- `Reconnecting` tries QUIC 0-RTT to resume the session without going back to the matchmaker.
+Client disconnects / connection drops
+  → server receives disconnect notification
+  → server despawns entity, removes from client_entities map
+```
 
-## Level 3 — Server state machines (global session + slots)
-
-![Server state machines](diagrams/L3-server-state-machines.svg)
-
-**Key notes:**
-
-- Server runs consecutive matches; doesn't restart the process between matches.
-- `Reserved` prevents matchmaker race (promising N+1 players to an N-slot server).
-- `Zombie` keeps the slot alive for 15-30s after connection loss — pairs with client's `Reconnecting`.
+**Not yet implemented:** reconnect / zombie slots, authentication, lobby, match state machine.
 
 ### ADR 0011 — Slot state machine as typed enum
 
 **Decision:** each slot state is a variant of a typed enum with typed payload. Invalid transitions don't compile.
 
-```rust
-enum SlotState {
-    Free,
-    Reserved { token: SessionToken, since: Tick },
-    Handshake { conn: QuicConn, since: Tick },
-    Auth { conn: QuicConn, ident: PlayerId, since: Tick },
-    Loading { conn: QuicConn, ident: PlayerId, entity: EntityId, since: Tick },
-    Playing { conn: QuicConn, ident: PlayerId, entity: EntityId, last_seen: Tick },
-    Zombie { ident: PlayerId, entity: EntityId, until: Tick },
-}
-```
-
-**Rationale:** avoids a whole class of bugs where state is computed from other fields.
+**Status: planned.** Current implementation uses `HashMap<ClientId, EntityId>`. Full slot state machine (`Free` → `Handshake` → `Playing` → `Zombie`) is deferred to M3.
 
 ---
 
-## Level 3 — Asset pipeline (dev-time)
-
-![Asset pipeline](diagrams/L3-asset-pipeline.svg)
-
-**Principles:**
-
-- Runtime never parses authoring formats. Loads ready-to-use bytes.
-- Content-addressed cache: key = hash(importer_version + source + options).
-- Shared remote cache (S3 or Bazel remote cache) — `git pull` inherits cookings from colleagues.
-- Sources versioned (git+LFS); outputs not (`.gitignore`).
-- Scenes in text (YAML/JSON) for PR diffs.
-
-### ADR 0012 — Content-addressed, shared cooking cache
-
-**Decision:** local cache + remote cache, indexed by hash of content + importer version + options.
-
-**Rationale:** avoids the "wait 40 minutes on first launch after pull" anti-pattern. CI cooks releases and publishes to the remote cache.
-
-### ADR 0013 — Scenes in text format
-
-**Decision:** scene files in YAML (or JSON). Cooker processes to runtime-ready binary.
-
-**Rationale:** diff-able in PRs. Editor *edits* the text file, not a proprietary binary.
-
----
-
-## Level 3 — Monorepo structure
-
-![Monorepo structure](diagrams/L3-repo-structure.svg)
-
-**Rules:**
-
-- Product never depends on product.
-- Engine libs never depend on each other (all → `engine-core`).
-- `server-host` does *not* link `engine-render`/`engine-audio`/`engine-input` — compiles headless.
-
-**Physical layout:**
+## Level 3 — Monorepo structure (actual)
 
 ```
-gameengine/
-├── Cargo.toml                  # workspace
-├── engine-core/                # ECS, jobs, math, mem, log, asset, config
-├── engine-net/                 # QUIC + sessions
-├── engine-render/              # RHI + renderer
-├── engine-audio/               # 3D mixer
-├── engine-physics/             # physics ECS systems
-├── engine-input/               # mouse, kbd, gamepad
-├── engine-platform/            # OS, windows
-├── game-module/                # cdylib — game logic
-├── assets/                     # sources (NOT a crate); git-lfs
-│   ├── maps/, textures/, audio/, models/, shaders/
-│   └── .gitattributes
-├── server-host/                # binary
-├── client-host/                # binary
-├── cooker/                     # binary
-├── editor/                     # binary
-├── ci/
-├── deploy/                     # k8s, helm
-├── docs/
-│   ├── diagrams/               # SVG diagrams for this document
-│   └── adr/                    # extracted ADRs
-└── tests/                      # cross-crate integration
+blackflower/
+├── Cargo.toml                      # workspace (resolver v3, shared lints)
+├── rust-toolchain.toml             # pinned to stable 1.95.0
+├── clippy.toml                     # lint thresholds
+├── bins/
+│   ├── blackflowerd/               # dedicated server binary
+│   └── blackflowerc/               # client binary (winit + wgpu)
+├── crates/
+│   ├── blackflower-audio/          # stub (kira wired, no logic yet)
+│   ├── blackflower-entity/         # EntityId, EntityIdAllocator
+│   ├── blackflower-gameplay/       # pure simulation functions
+│   ├── blackflower-graphics/       # wgpu renderer, camera, geometry, shader
+│   ├── blackflower-input/          # InputButtons bitflags, InputHandle
+│   ├── blackflower-math/           # glam re-export, Transform component
+│   ├── blackflower-network/        # QUIC transport, ServerHandle, ClientHandle
+│   ├── blackflower-physics/        # Velocity component, integrate_movement
+│   ├── blackflower-prediction/     # PredictionState, rollback-replay
+│   ├── blackflower-protocol/       # Command, Snapshot, Request, Event
+│   ├── blackflower-tick/           # Tick, TickScheduler
+│   ├── blackflower-window/         # winit wrapper, WindowHandler trait
+│   └── blackflower-world/          # SimulationWorld, PresentationWorld
+└── docs/
+    ├── architecture.md             # this file
+    └── diagrams/                   # SVG diagrams
 ```
 
 ### ADR 0014 — Monorepo Cargo workspace
@@ -321,116 +360,56 @@ gameengine/
 
 **Rationale:** atomic refactors, hermetic build, single version across the entire stack.
 
-**Alternative:** polyrepo. Rejected — coordination overhead unjustified at this scale.
+**Status: implemented.**
 
 ### ADR 0015 — Language: Rust
 
 **Decision:** Rust across the runtime stack.
 
-**Rationale:** borrow checker eliminates classes of bugs in multi-threaded ECS, solid ecosystem (`wgpu`, `quinn` for QUIC, references like `bevy_ecs`), Cargo workspace tailor-made.
+**Rationale:** borrow checker eliminates classes of bugs in multi-threaded ECS; solid ecosystem (`wgpu`, `quinn`); Cargo workspace; `hecs` as ECS foundation.
 
-**Known cost:** hot-reload requires FFI-safe cdylib (`#[repr(C)]` types or serialization). Long compile times.
-
-### ADR 0016 — ECS: hecs (not bevy_ecs)
-
-Context: Three archetype-based ECS options for engine-core: bevy_ecs, hecs, flecs-rs. The decision shapes the entire engine since the ECS is its heart.
-
-Decision: hecs as the foundation. Scheduler, change detection, command buffers, and reflection are implemented in engine-core as our own layer over hecs.
-
-Rationale: Avoid architectural emergence via dependencies. bevy_ecs brings strong gravity toward the Bevy ecosystem; small "convenient" choices accumulate until the engine becomes a Bevy fork. hecs has no such gravity.
-Inversion of control. Our engine must be the framework. Building on a library (hecs) rather than a framework (bevy_ecs) eliminates structural tension.
-Comprehension as a reliability asset. ~5000 LOC of hecs is auditable. Production debugging at 60Hz × 64 players benefits from deep understanding of the scheduler.
-API stability. hecs API has been stable for years. bevy_ecs breaks across major versions, with upgrade cost compounding.
-
-Costs accepted: ~2-3 months of additional engineering across M1-M5 to build our own scheduler with DAG, change detection, command buffers, and reflection-light for snapshot serialization.
-Smaller third-party ecosystem; less code to learn from.
-No "drop-in" hot-reload — we implement it ourselves.
-
-Rejected alternatives:
-
-bevy_ecs — superior ecosystem and parallel scheduler out-of-the-box, but creates ecosystem coupling and ongoing API churn risk.
-flecs-rs — FFI overhead and less rusty.
-legion — unmaintained.
-
-Reconsider if: by end of M3, our custom scheduler proves materially worse than bevy_ecs's under load, or development velocity is severely hampered. Migration cost would be high but bounded (queries and components are largely portable).
+**Status: implemented.**
 
 ---
 
 ## Implementation roadmap
 
-![Roadmap](diagrams/roadmap.svg)
-
-**Principles:**
-
-1. **Vertical before horizontal** — thin slice touches the whole stack from M1.
-2. **Demoable at every milestone.**
-3. **Irreversible decisions first** (protocol, ECS layout, threading), optimizations last.
-
-**Per-milestone detail:**
-
-| M | Focus | Demoable deliverable |
-|---|-------|----------------------|
-| M0 | Workspace, CI, engine-core skeleton, log, math, ADR template | `cargo test` passes, empty binaries |
-| M1 | Minimal ECS, tick scheduler, QUIC echo, raw snapshot (no delta), window+render | Server has cube A, client sees cube A moving |
-| M2 | Input → command → wire, local sim with reconcile, rollback | WASD moves cube, prediction visible at 100ms lag |
-| M3 | Slot machine, handshake, snapshot delta with ack-bitfield, interp buffer | 4 clients see each other, smooth movement |
-| M4 | engine-physics, collision, minimal asset pipeline, hit-detection with lag-comp | Box arena, 8 players, hits with rewind |
-| M5 | Functional cooker, hot-reload, basic audio, MVP editor | Textured arena with audio; edit .scene → see in seconds |
-| M6 | 64 players, telemetry, k8s deploy, anti-cheat hooks, optimization | Full 64-player match in production |
-| M7 | Advanced renderer, audio mixing, particles, UI tooling | Ongoing |
-
-**Calibration:**
-
-- Solo part-time (10-15h/week): ×3-4 on timings.
-- Team of 2-3 full-time: ÷2 (not ÷3 — coordination costs).
-- First engine project: +50%.
-
-**Risks to watch:**
-
-1. **M4 overruns** — lag-comp hit detection is the subtlest piece. Reserve buffer.
-2. **M0 sprawls** — time-box at 2 weeks even if ugly.
-3. **Platform multiplication in M5/M6** — focus on Windows or Linux until M6.
-4. **Temptation to rewrite in M3-M4** — incremental refactor, not rewrite.
+| M | Focus | Demoable deliverable | Status |
+|---|-------|----------------------|--------|
+| M0 | Workspace, CI, core skeletons, math, logging | `cargo test` passes, empty binaries | **done** |
+| M1 | ECS, tick scheduler, QUIC echo, raw snapshots, window + render | Server has cube; client sees it move | **done** |
+| M2 | Input → command → wire, local sim + rollback reconciliation | WASD moves cube; prediction visible at 100 ms simulated lag | **done** |
+| M3 | Slot state machine, handshake, snapshot delta + ack bitfield, remote interpolation | 4 clients see each other, smooth movement | in progress |
+| M4 | Physics, collision, minimal asset pipeline, hit-detection with lag-comp | Box arena, 8 players, hits with rewind | planned |
+| M5 | Hot-reload cdylib, audio, basic editor | Textured arena with audio; edit .scene → live update | planned |
+| M6 | 64 players, telemetry, k8s deploy, anti-cheat hooks, optimization | Full 64-player match in production | planned |
+| M7 | Advanced renderer, audio mixing, particles, UI tooling | — | planned |
 
 ---
 
-## Open decisions (to be closed in future milestones)
+## Open decisions
 
 - **Supported client platforms** — Windows + Linux minimum. macOS, consoles: post-launch.
-- **Editor: separate native app vs web/electron** — defer until M5.
+- **Editor: separate native app vs web/Electron** — defer until M5.
 - **External anti-cheat** — BattlEye/EAC integration only if there's an actual post-launch problem.
 - **Replay/demo system** — possibly "free" if snapshots are persisted; ADR in M3.
-- **Spectator mode** — sub-case of replay; depends.
+- **Spectator mode** — sub-case of replay.
 - **In-game voice chat** — out of scope until M7.
+- **Fixed-point quantization** — deferred to M3 (snapshot delta redesign).
 
 ---
 
 ## Glossary
 
-- **ACK bitfield** — 32 bits sent in each packet indicating which recent packets were received.
+- **Ack** — the highest client-tick the server has processed; echoed in each `Snapshot` so the client can reconcile prediction history.
 - **Archetype** — grouping of entities sharing the same set of component types; contiguous in memory.
-- **AEAD** — Authenticated Encryption with Associated Data; crypto primitive granting confidentiality + authenticity.
+- **COBS** — Consistent Overhead Byte Stuffing; framing scheme that eliminates 0x00 bytes so streams can be delimited by a zero byte.
 - **cdylib** — Rust dynamic library format with C-compatible ABI (loadable at runtime).
-- **Delta compression** — sending only the difference between state N and state N-K (snapshot baseline).
-- **ECS** — Entity-Component-System; architectural pattern where entities are IDs, components are pure data, systems are functions iterating over components.
-- **HAL/RHI** — Hardware Abstraction Layer / Render Hardware Interface; abstraction over Vulkan/D3D12/Metal.
-- **Lag compensation** — server rewinds the world in time (via History buffer) to validate actions the client took in its past.
-- **Listen server** — host that is also a player (not supported, see ADR 0001).
+- **Delta compression** — sending only the difference between state N and state N-K (snapshot baseline). Not yet implemented.
+- **ECS** — Entity-Component-System; entities are IDs, components are pure data, systems are functions iterating over components.
+- **EntityId** — stable 64-bit identifier; 0 is `NONE` (sentinel); allocated monotonically, never reused.
+- **Lag compensation** — server rewinds the world in time (via history buffer) to validate actions the client took in its past. Planned M4.
 - **Prediction (client-side)** — client simulates local player actions locally to hide latency; server corrects when mispredicted.
-- **Reconciliation** — when client receives the authoritative server state for a tick it had already predicted, compare and re-simulate if differed.
-- **Snapshot** — complete (or delta) world state at a specific tick, sent from server to client.
-- **Tick** — discrete simulation step (16.67ms at 60Hz).
-- **VFS** — Virtual File System; abstraction over asset sources (filesystem, bundle, network).
-
----
-
-## Next steps
-
-1. **Create repo** with the folder structure above. Don't write code yet.
-2. **Extract ADRs** to `docs/adr/NNNN-title.md`. Make them official.
-3. **Start M0** — Cargo workspace, CI, empty crate skeletons. Time-box: 2 weeks.
-4. **Maintain this document.** Every big decision spawns a new ADR; this `architecture.md` is the index.
-
----
-
-*Document generated from an iteratively conducted design session. Subject to revision as implementation discovers unforeseen realities.*
+- **Reconciliation** — when client receives the authoritative server state for a tick it had already predicted, roll back and re-simulate from that point.
+- **Snapshot** — complete world state at a specific tick, sent from server to client as an unreliable datagram.
+- **Tick** — discrete simulation step (16.67 ms at 60 Hz).
