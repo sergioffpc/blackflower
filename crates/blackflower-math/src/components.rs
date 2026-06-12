@@ -16,6 +16,13 @@ impl Transform {
             rotation: Quat::IDENTITY,
         }
     }
+
+    pub fn lerp(&self, other: Self, t: f32) -> Self {
+        Self {
+            translation: self.translation.lerp(other.translation, t),
+            rotation: self.rotation.slerp(other.rotation, t),
+        }
+    }
 }
 
 impl Default for Transform {

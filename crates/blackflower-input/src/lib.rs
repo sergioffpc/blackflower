@@ -31,7 +31,7 @@ impl InputHandle {
         };
 
         Command {
-            tick: tick.into(),
+            tick: tick.as_u64(),
             buttons: buttons.bits(),
         }
     }

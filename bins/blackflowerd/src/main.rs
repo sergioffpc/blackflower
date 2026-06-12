@@ -124,7 +124,7 @@ fn main() -> anyhow::Result<()> {
             let ack = last_processed.get(client_id).copied().unwrap_or(Tick::ZERO);
             let snapshot = world.snapshot(tick, ack);
 
-            if tick % args.tick_rate_hz == 0 {
+            if tick.as_u64() % args.tick_rate_hz == 0 {
                 debug!(client_id = ?client_id, tick = %tick, snapshot = ?snapshot, "world snapshot");
             }
 

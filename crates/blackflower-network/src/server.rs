@@ -70,7 +70,7 @@ impl<C, S, R, E> ServerHandle<C, S, R, E> {
         match self.snapshot_tx.try_send(Addressed(client_id, snapshot)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                warn!(client = %client_id, "snapshot queue full; dropping")
+                warn!(client = %client_id, "snapshot queue full; dropping");
             }
             Err(TrySendError::Disconnected(_)) => debug!("snapshot channel disconnected"),
         }

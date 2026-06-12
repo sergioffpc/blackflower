@@ -1,11 +1,11 @@
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use blackflower_entity::EntityId;
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
@@ -14,7 +14,7 @@ use blackflower_prediction::PredictionState;
 use blackflower_protocol::{Event, Request};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_window::WindowHandler;
-use blackflower_world::PresentationWorld;
+use blackflower_world::{PresentationWorld, RenderEntity, RenderState, interpolate};
 use clap::Parser;
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -45,9 +45,10 @@ struct Args {
     fake_jitter_ms: u64,
 }
 
-/// Render-ready, owned snapshot published from the tick thread to the
-/// render thread. Order is unspecified; key by `EntityId`.
-type FrameBuffer = Arc<ArcSwap<Box<[(EntityId, Transform)]>>>;
+/// Render-ready, owned payload published from the tick thread to the
+/// render thread. Carries per-entity history so the render thread can
+/// interpolate remotes against its own clock.
+type FrameBuffer = Arc<ArcSwap<RenderState>>;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -60,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     let input_handle = Arc::new(InputHandle::default());
 
     // Shared, lock-free frame buffer: tick thread publishes, render reads.
-    let framebuffer: FrameBuffer = Arc::new(ArcSwap::from_pointee(Box::from([])));
+    let framebuffer: FrameBuffer = Arc::new(ArcSwap::from_pointee(RenderState::default()));
 
     let input_handle_clone = input_handle.clone();
     let framebuffer_clone = framebuffer.clone();
@@ -110,7 +111,7 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 let command = input_handle_clone.command(tick);
-                if tick % args.tick_rate_hz == 0 {
+                if tick.as_u64() % args.tick_rate_hz == 0 {
                     debug!(tick = %tick, buttons = ?InputButtons::from_bits(command.buttons).unwrap_or_default(), "input command");
                 }
 
@@ -130,31 +131,81 @@ fn main() -> anyhow::Result<()> {
 
                 network_handle.try_send_command(command);
 
-                let entities = Arc::new(world.extract());
-                 if tick % args.tick_rate_hz == 0 {
-                    debug!(tick = %tick, entities = ?entities, "world entities");
+                // Publish: the local player carries its predicted transform;
+                // remotes carry sample history for the render thread to
+                // interpolate.
+                let local = prediction
+                    .local_player()
+                    .zip(prediction.local_transform());
+                let state = Arc::new(world.extract(local));
+                if tick.as_u64() % args.tick_rate_hz == 0 {
+                    debug!(tick = %tick, state = ?state, "publish render state");
                 }
-                framebuffer_clone.store(entities);
+                framebuffer_clone.store(state);
             })
         })?;
 
-    let app = Arc::new(Mutex::new(App::new(framebuffer, input_handle)));
+    let app = Arc::new(Mutex::new(App::new(
+        framebuffer,
+        input_handle,
+        args.tick_rate_hz,
+    )));
     blackflower_window::start(args.width, args.height, app)
 }
+
+/// Interpolation delay, in server ticks. 3 ticks ≈ 50 ms at 60 Hz: enough
+/// to always bracket the render target with two received snapshots under
+/// normal jitter, without adding excessive visual latency to remotes.
+const INTERP_DELAY_TICKS: f64 = 2.0;
 
 struct App {
     renderer: Option<Renderer>,
     framebuffer: FrameBuffer,
     input_handle: Arc<InputHandle>,
+    tick_hz: f64,
+    /// Server-time clock anchor: the newest server tick the render thread
+    /// has seen, and the local instant it first saw it. Used to project a
+    /// fractional "server tick now" each frame.
+    clock_anchor_tick: Tick,
+    clock_anchor_instant: Instant,
 }
 
 impl App {
-    const fn new(framebuffer: FrameBuffer, input_handle: Arc<InputHandle>) -> Self {
+    fn new(framebuffer: FrameBuffer, input_handle: Arc<InputHandle>, tick_rate_hz: u64) -> Self {
         Self {
             renderer: None,
             framebuffer,
             input_handle,
+            tick_hz: tick_rate_hz as f64,
+            clock_anchor_tick: Tick::ZERO,
+            clock_anchor_instant: Instant::now(),
         }
+    }
+
+    /// Project the fractional server tick the render should display now:
+    /// the anchored newest tick plus locally-elapsed time, expressed in
+    /// ticks. Re-anchors whenever a newer server tick arrives.
+    fn server_time_now(&mut self, state: &RenderState, now: Instant) -> f64 {
+        if state.latest_server_tick > self.clock_anchor_tick {
+            self.clock_anchor_tick = state.latest_server_tick;
+            self.clock_anchor_instant = now;
+        }
+        let elapsed = now.duration_since(self.clock_anchor_instant).as_secs_f64();
+        elapsed.mul_add(self.clock_anchor_tick.as_f64(), self.tick_hz)
+    }
+
+    /// Resolve every entity to a final transform: predicted locals as-is,
+    /// remotes interpolated at `server_time_now - INTERP_DELAY_TICKS`.
+    fn resolve(&mut self, state: &RenderState, now: Instant) -> Vec<Transform> {
+        let target = self.server_time_now(state, now) - INTERP_DELAY_TICKS;
+        state
+            .entities
+            .iter()
+            .filter_map(|(_, render)| match render {
+                RenderEntity::Predicted(t) => Some(*t),
+                RenderEntity::Interpolated(samples) => interpolate(samples, target),
+            })
+            .collect()
     }
 }
 
@@ -191,8 +242,10 @@ impl WindowHandler for App {
     }
 
     fn on_draw(&mut self) {
+        let state = self.framebuffer.load_full();
+        let transforms = self.resolve(&state, Instant::now());
         if let Some(renderer) = &mut self.renderer {
-            renderer.render(&self.framebuffer.load());
+            renderer.render(&transforms);
         }
     }
 

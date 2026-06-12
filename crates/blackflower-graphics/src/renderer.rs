@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use blackflower_entity::EntityId;
 use blackflower_math::{Vec3, components::Transform};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use tracing::{debug, error, info, warn};
@@ -130,7 +129,7 @@ impl Renderer {
         self.camera.aspect = width as f32 / height as f32;
     }
 
-    pub fn render(&mut self, entities: &[(EntityId, Transform)]) {
+    pub fn render(&mut self, entities: &[Transform]) {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => {
                 self.present(surface_texture, entities);
@@ -155,21 +154,14 @@ impl Renderer {
         }
     }
 
-    fn present(
-        &mut self,
-        surface_texture: wgpu::SurfaceTexture,
-        entities: &[(EntityId, Transform)],
-    ) {
+    fn present(&mut self, surface_texture: wgpu::SurfaceTexture, entities: &[Transform]) {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Build the per-instance model matrices, in the same order the draw
         // will index them.
-        let models: Vec<ModelUniform> = entities
-            .iter()
-            .map(|(_id, transform)| ModelUniform::from(transform))
-            .collect();
+        let models: Vec<ModelUniform> = entities.iter().map(ModelUniform::from).collect();
         self.pipeline
             .upload_instances(&self.device, &self.queue, &models);
 

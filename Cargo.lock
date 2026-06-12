@@ -348,7 +348,6 @@ name = "blackflower-graphics"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-entity",
  "blackflower-math",
  "bytemuck",
  "pollster",

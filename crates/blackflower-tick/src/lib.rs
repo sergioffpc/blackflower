@@ -16,25 +16,21 @@ impl Tick {
     pub const fn next(self) -> Self {
         Self(self.0 + 1)
     }
-}
 
-impl std::ops::Rem<u64> for Tick {
-    type Output = u64;
+    #[must_use]
+    pub const fn as_f64(self) -> f64 {
+        self.0 as f64
+    }
 
-    fn rem(self, rhs: u64) -> Self::Output {
-        self.0 % rhs
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
     }
 }
 
 impl From<u64> for Tick {
     fn from(value: u64) -> Self {
         Self(value)
-    }
-}
-
-impl From<Tick> for u64 {
-    fn from(value: Tick) -> Self {
-        value.0
     }
 }
 
