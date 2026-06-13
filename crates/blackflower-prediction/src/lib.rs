@@ -54,25 +54,13 @@ pub struct PredictionState {
 
 impl PredictionState {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(entity: EntityId) -> Self {
         Self {
-            local_player: None,
+            local_player: Some(entity),
             seeded: false,
             local_transform: Transform::identity(),
             history: VecDeque::with_capacity(HISTORY_CAPACITY),
         }
-    }
-
-    /// Name the entity this client controls. Called when the server's
-    /// `Welcome` is processed. Idempotent re-assignment to the same id
-    /// is a no-op; a *different* id resets the prediction.
-    pub fn assign(&mut self, entity: EntityId) {
-        if self.local_player == Some(entity) {
-            return;
-        }
-        self.local_player = Some(entity);
-        self.seeded = false;
-        self.history.clear();
     }
 
     /// The entity this client controls, if assigned.

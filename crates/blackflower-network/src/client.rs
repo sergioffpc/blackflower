@@ -111,7 +111,7 @@ where
             if let Err(e) = start(
                 server_addr,
                 delay,
-                ClientChannelGroupDescriptor {
+                ClientChannels {
                     command_rx,
                     snapshot_tx,
                     request_rx,
@@ -134,7 +134,7 @@ where
     })
 }
 
-struct ClientChannelGroupDescriptor<C, S, R, E> {
+struct ClientChannels<C, S, R, E> {
     command_rx: mpsc::Receiver<C>,
     snapshot_tx: crossbeam_channel::Sender<S>,
     request_rx: mpsc::Receiver<R>,
@@ -145,7 +145,7 @@ struct ClientChannelGroupDescriptor<C, S, R, E> {
 fn start<C, S, R, E>(
     server_addr: SocketAddr,
     delay: DelayConfig,
-    mut desc: ClientChannelGroupDescriptor<C, S, R, E>,
+    mut desc: ClientChannels<C, S, R, E>,
 ) -> anyhow::Result<()>
 where
     C: Serialize,

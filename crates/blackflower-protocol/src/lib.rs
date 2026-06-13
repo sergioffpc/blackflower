@@ -35,5 +35,8 @@ pub enum Request {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
     /// Confirms connection and assigns the client's avatar.
-    Welcome { assigned_entity: u64 },
+    Welcome {
+        tick_rate_hz: u64,
+        assigned_entity: u64,
+    },
 }

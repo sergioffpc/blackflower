@@ -329,6 +329,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "blackflower-entity",
+ "blackflower-input",
+ "blackflower-math",
+ "blackflower-network",
+ "blackflower-prediction",
+ "blackflower-protocol",
+ "blackflower-tick",
+ "blackflower-world",
+ "tracing",
+]
+
+[[package]]
 name = "blackflower-entity"
 version = "0.1.0"
 dependencies = [
@@ -421,6 +438,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blackflower-entity",
+ "blackflower-gameplay",
+ "blackflower-input",
+ "blackflower-math",
+ "blackflower-network",
+ "blackflower-physics",
+ "blackflower-protocol",
+ "blackflower-tick",
+ "blackflower-world",
+ "hashbrown 0.17.1",
+ "tracing",
+]
+
+[[package]]
 name = "blackflower-tick"
 version = "0.1.0"
 dependencies = [
@@ -459,17 +494,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "blackflower-audio",
- "blackflower-entity",
+ "blackflower-client",
  "blackflower-graphics",
  "blackflower-input",
- "blackflower-math",
- "blackflower-network",
- "blackflower-prediction",
- "blackflower-protocol",
- "blackflower-tick",
  "blackflower-window",
- "blackflower-world",
  "clap",
  "tracing",
  "tracing-subscriber",
@@ -480,17 +508,8 @@ name = "blackflowerd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-entity",
- "blackflower-gameplay",
- "blackflower-input",
- "blackflower-math",
- "blackflower-network",
- "blackflower-physics",
- "blackflower-protocol",
- "blackflower-tick",
- "blackflower-world",
+ "blackflower-server",
  "clap",
- "hashbrown 0.17.1",
  "tracing",
  "tracing-subscriber",
 ]
