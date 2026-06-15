@@ -182,7 +182,7 @@ impl Client {
             self.clock_anchor_instant = now;
         }
         let elapsed = now.duration_since(self.clock_anchor_instant).as_secs_f64();
-        elapsed.mul_add(self.clock_anchor_tick.as_f64(), self.tick_rate_hz as f64)
+        elapsed.mul_add(self.tick_rate_hz as f64, self.clock_anchor_tick.as_f64())
     }
 
     /// Resolve every entity to a final transform: predicted locals as-is,

@@ -2,35 +2,14 @@
 //!
 //! Provides QUIC-based bidirectional communication between client and server.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub mod cert;
 pub mod client;
+pub mod connection;
 pub mod delay;
 pub mod server;
-
-/// Opaque identifier for a connected client.
-///
-/// Assigned by the server on connection acceptance. Stable for the
-/// lifetime of the connection. Not portable across sessions.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ClientId(u64);
-
-impl ClientId {
-    /// Used by the server to atomically generate identifiers.
-    pub(crate) fn allocate(counter: &AtomicU64) -> Self {
-        Self(counter.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-impl std::fmt::Display for ClientId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// Errors raised by the wire encoding/decoding layer.
 #[derive(Debug, thiserror::Error)]

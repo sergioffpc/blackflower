@@ -16,11 +16,31 @@ pub struct PresentationWorld {
     /// newest at the back. The local player is also recorded here but the
     /// render path ignores its history in favor of the predicted transform.
     history: HashMap<EntityId, VecDeque<Sample>>,
+    /// Server tick of the most recently applied snapshot, `None` before the
+    /// first. Snapshots not strictly newer are ignored, so `apply` is
+    /// order-independent under datagram reordering.
+    last_applied: Option<Tick>,
 }
 
 impl PresentationWorld {
     pub fn apply(&mut self, snapshot: &Snapshot) {
         let server_tick = Tick::from(snapshot.tick);
+
+        // Snapshots can arrive out of order (jittered datagram path, or real
+        // UDP reordering): an older snapshot carries strictly staler state.
+        // Applying it would regress stored transforms (feeding a stale
+        // authoritative pose into reconciliation) and spuriously despawn
+        // entities a newer snapshot already introduced. Drop anything not
+        // strictly newer — this is the one place that enforces snapshot
+        // ordering for the whole world.
+        if let Some(last) = self.last_applied
+            && server_tick <= last
+        {
+            trace!(tick = %server_tick, last = %last, "dropping stale snapshot");
+            return;
+        }
+        self.last_applied = Some(server_tick);
+
         let present: hashbrown::HashSet<EntityId> =
             snapshot.entities.iter().map(|e| e.id.into()).collect();
 
@@ -51,15 +71,16 @@ impl PresentationWorld {
         }
     }
 
-    /// Append an authoritative sample, keeping the per-entity buffer
-    /// monotonic in `server_tick`. Out-of-order or duplicate ticks (which
-    /// the jittered datagram path can produce) are dropped so the buffer
-    /// stays sorted for interpolation's bracket search.
+    /// Append an authoritative sample for interpolation, newest at the back,
+    /// capped at `INTERP_HISTORY`. Ordering is guaranteed upstream: `apply`
+    /// rejects snapshots not strictly newer than the last applied, so every
+    /// sample pushed here has a `server_tick` greater than the buffer's back.
     fn push_sample(&mut self, id: EntityId, server_tick: Tick, transform: Transform) {
         let buf = self.history.entry(id).or_default();
-        if buf.back().is_some_and(|s| server_tick <= s.server_tick) {
-            return;
-        }
+        debug_assert!(
+            buf.back().is_none_or(|s| s.server_tick < server_tick),
+            "push_sample called with non-monotonic tick; apply must reject stale snapshots first"
+        );
         if buf.len() == INTERP_HISTORY {
             buf.pop_front();
         }
