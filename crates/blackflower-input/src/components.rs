@@ -3,10 +3,6 @@ use blackflower_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 bitflags! {
-    /// Buttons currently pressed by the player.
-    ///
-    /// Each variant corresponds to one digital input. Multiple may be set
-    /// simultaneously (e.g. `FORWARD | RIGHT` for diagonal movement).
     #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
     pub struct InputButtons: u64 {
         const FORWARD  = 1 << 0;
@@ -17,14 +13,6 @@ bitflags! {
 }
 
 impl InputButtons {
-    /// Compute the normalized 2D movement direction in the XZ plane.
-    ///
-    /// Convention: `+x` right, `-z` forward (matching the renderer's
-    /// camera setup). Returns `Vec2::ZERO` when no buttons are active or
-    /// when opposing buttons cancel out.
-    ///
-    /// The result is normalized so diagonal movement is not faster than
-    /// axis-aligned movement.
     #[must_use]
     pub fn normalize_or_zero(&self) -> Vec2 {
         let mut d = Vec2::ZERO;

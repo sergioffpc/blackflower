@@ -2,10 +2,6 @@ use blackflower_math::{Mat4, Vec3, components::Transform};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-/// Vertex layout matching the WGSL shader's `VertexInput` struct.
-///
-/// `#[repr(C)]` and `Pod` + `Zeroable` allow us to copy these directly to
-/// a GPU buffer via `bytemuck::cast_slice`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Vertex {
@@ -27,7 +23,6 @@ impl Vertex {
     }
 }
 
-/// GPU-side per-entity uniform: model matrix only.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct ModelUniform {
@@ -71,60 +66,39 @@ impl GeometryResources {
     }
 }
 
-/// 24 vertices: 4 per face × 6 faces. Each face has a distinct color so
-/// the cube is visible from any angle without lighting.
-///
-/// Face order (right-handed, Y-up):
-///   +X (right):   red
-///   -X (left):    cyan
-///   +Y (top):     green
-///   -Y (bottom):  magenta
-///   +Z (front):   blue
-///   -Z (back):    yellow
 #[rustfmt::skip]
 pub const CUBE_VERTICES: &[Vertex] = &[
-    // +X face (right), normal (1, 0, 0), red
     Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
     Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
     Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
     Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 0.0] },
 
-    // -X face (left), normal (-1, 0, 0), cyan
     Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
     Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
     Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
     Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
 
-    // +Y face (top), normal (0, 1, 0), green
     Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
     Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
     Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
     Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.0, 1.0, 0.0] },
 
-    // -Y face (bottom), normal (0, -1, 0), magenta
     Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 0.0, 1.0] },
     Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 0.0, 1.0] },
     Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 0.0, 1.0] },
     Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 0.0, 1.0] },
 
-    // +Z face (front), normal (0, 0, 1), blue
     Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
     Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
     Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
     Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [0.0, 0.0, 1.0] },
 
-    // -Z face (back), normal (0, 0, -1), yellow
     Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [1.0, 1.0, 0.0] },
     Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [1.0, 1.0, 0.0] },
     Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [1.0, 1.0, 0.0] },
     Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [1.0, 1.0, 0.0] },
 ];
 
-/// 36 indices: 2 triangles per face × 6 faces.
-///
-/// Vertices within each face are ordered counter-clockwise as seen from
-/// the positive side of the normal — wgpu interprets this as the front
-/// face by default.
 #[rustfmt::skip]
 pub const CUBE_INDICES: &[u32] = &[
      0,  1,  2,    0,  2,  3,  // +X

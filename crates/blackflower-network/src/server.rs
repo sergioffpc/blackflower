@@ -1,27 +1,4 @@
-//! Server-side QUIC endpoint.
-//!
-//! Spawns a tokio runtime on a dedicated background thread, binds a QUIC
-//! endpoint, and accepts incoming connections. Each connection, after a
-//! `Subscribe`, receives every snapshot the tick thread produces as a QUIC
-//! datagram.
-//!
-//! ## Broadcast architecture
-//!
-//! Three layers:
-//!
-//! 1. **Tick thread** pushes `Snapshot` into a bounded `crossbeam` channel
-//!    via [`ServerHandle::send_snapshot`].
-//!
-//! 2. **Dispatcher task** drains the crossbeam channel, wraps each snapshot
-//!    in an `Arc`, and fans it out to every active connection's own per-
-//!    client tokio channel.
-//!
-//! 3. **Per-connection task** pops snapshots from its own channel, encodes
-//!    them, and sends them as datagrams. If a client is slow, its channel
-//!    fills and snapshots for that client are dropped — other clients are
-//!    unaffected.
-
-use std::{net::SocketAddr, sync::Arc, thread::JoinHandle};
+use std::{net::SocketAddr, sync::Arc, thread::JoinHandle, time::Duration};
 
 use anyhow::Context;
 use crossbeam_channel::TrySendError;
@@ -40,10 +17,6 @@ const SNAPSHOT_QUEUE_CAPACITY: usize = 8;
 
 struct Addressed<M>(ConnectionId, M);
 
-/// Handle to a running server endpoint.
-///
-/// The server runs on a dedicated background thread that owns a tokio runtime.
-/// When this handle is dropped, the thread is signaled to shut down and joined.
 pub struct ServerHandle<C, S, R, E> {
     command_rx: crossbeam_channel::Receiver<(ConnectionId, C)>,
     snapshot_tx: crossbeam_channel::Sender<Addressed<S>>,
@@ -73,12 +46,6 @@ impl<C, S, R, E> ServerHandle<C, S, R, E> {
         self.request_rx.try_iter()
     }
 
-    /// Drain clients that have disconnected since the last call.
-    ///
-    /// Originated by the transport itself (not the peer): when a QUIC
-    /// connection closes, the network emits the corresponding
-    /// [`ConnectionId`] here so the application can release that client's
-    /// resources (e.g. despawn its avatar).
     pub fn try_recv_disconnects(&self) -> impl Iterator<Item = ConnectionId> + '_ {
         self.disconnect_rx.try_iter()
     }
@@ -105,8 +72,22 @@ impl<C, S, R, E> Drop for ServerHandle<C, S, R, E> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct TransportConfig {
+    pub max_idle_timeout: Duration,
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        Self {
+            max_idle_timeout: Duration::from_secs(10),
+        }
+    }
+}
+
 pub fn start<C, S, R, E>(
-    bind_addr: SocketAddr,
+    addr: SocketAddr,
+    transport: TransportConfig,
     delay: DelayConfig,
 ) -> anyhow::Result<ServerHandle<C, S, R, E>>
 where
@@ -128,7 +109,12 @@ where
 
     let quic_config = quinn::crypto::rustls::QuicServerConfig::try_from(rustls_config)
         .context("converting rustls to QUIC server config")?;
-    let server_config = ServerConfig::with_crypto(Arc::new(quic_config));
+    let mut transport_config = quinn::TransportConfig::default();
+    transport_config.max_idle_timeout(Some(quinn::IdleTimeout::try_from(
+        transport.max_idle_timeout,
+    )?));
+    let mut server_config = ServerConfig::with_crypto(Arc::new(quic_config));
+    server_config.transport_config(Arc::new(transport_config));
 
     let (command_tx, command_rx) = crossbeam_channel::unbounded();
     let (snapshot_tx, snapshot_rx) = crossbeam_channel::bounded(SNAPSHOT_QUEUE_CAPACITY);
@@ -152,9 +138,9 @@ where
             };
 
             runtime.block_on(async move {
-                match Endpoint::server(server_config, bind_addr) {
+                match Endpoint::server(server_config, addr) {
                     Ok(ep) => {
-                        let local_addr = ep.local_addr().unwrap_or(bind_addr);
+                        let local_addr = ep.local_addr().unwrap_or(addr);
                         info!(local = %local_addr, "listening");
 
                         accept_loop(
@@ -200,20 +186,20 @@ struct ServerChannels<C, S, R, E> {
     disconnect_tx: crossbeam_channel::Sender<ConnectionId>,
 }
 
-struct OutgoingChannels<S, E> {
-    snapshot_rx: crossbeam_channel::Receiver<Addressed<S>>,
-    event_rx: crossbeam_channel::Receiver<Addressed<E>>,
-}
-
 struct IncomingChannels<C, R> {
     command_tx: crossbeam_channel::Sender<(ConnectionId, C)>,
     request_tx: crossbeam_channel::Sender<(ConnectionId, R)>,
 }
 
+struct OutgoingChannels<S, E> {
+    snapshot_rx: crossbeam_channel::Receiver<Addressed<S>>,
+    event_rx: crossbeam_channel::Receiver<Addressed<E>>,
+}
+
 async fn accept_loop<C, S, R, E>(
     endpoint: Endpoint,
     delay: DelayConfig,
-    channels: ServerChannels<C, S, R, E>,
+    chans: ServerChannels<C, S, R, E>,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) where
     C: Send + Sync + DeserializeOwned + 'static,
@@ -223,7 +209,7 @@ async fn accept_loop<C, S, R, E>(
 {
     let connections = Arc::new(Connections::new());
 
-    let snapshot_rx = channels.outgoing.snapshot_rx;
+    let snapshot_rx = chans.outgoing.snapshot_rx;
     let conn_for_snapshots = Arc::clone(&connections);
     tokio::task::spawn_blocking(move || {
         while let Ok(Addressed(client_id, snapshot)) = snapshot_rx.recv() {
@@ -232,7 +218,7 @@ async fn accept_loop<C, S, R, E>(
         debug!("exiting snapshot dispatcher");
     });
 
-    let event_rx = channels.outgoing.event_rx;
+    let event_rx = chans.outgoing.event_rx;
     let conn_for_events = Arc::clone(&connections);
     tokio::task::spawn_blocking(move || {
         while let Ok(Addressed(client_id, event)) = event_rx.recv() {
@@ -242,17 +228,13 @@ async fn accept_loop<C, S, R, E>(
     });
 
     tokio::select! {
-        // Prioritize shutdown handling over incoming connections.
-        // With `biased`, Tokio evaluates branches top-to-bottom, so if both
-        // shutdown and accept are ready at the same time, shutdown wins.
-        // This avoids accepting new connections while shutting down.
         biased;
 
         _ = &mut shutdown_rx => {
             info!("shutdown signal received; closing endpoint");
             endpoint.close(0_u32.into(), b"shut down");
         }
-        () = incoming_loop(&endpoint, delay, connections, channels.incoming, channels.disconnect_tx) => {}
+        () = incoming_loop(&endpoint, delay, connections, chans.incoming, chans.disconnect_tx) => {}
     }
 
     endpoint.wait_idle().await;
@@ -289,19 +271,11 @@ async fn incoming_loop<C, S, R, E>(
                             channels.request_tx.clone(),
                         )
                         .await;
-                    // Remove routing entry before notifying the game loop so
-                    // that no snapshot dispatches hit a dead channel between
-                    // the disconnect signal and the map cleanup.
                     connections.remove(&client_id).await;
                     disconnect_tx.send(client_id).ok();
-                    // Give QUIC a bounded window to drain cleanly; unresponsive
-                    // peers won't hold the task open indefinitely.
-                    tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        connection.wait_for_close(),
-                    )
-                    .await
-                    .ok();
+                    tokio::time::timeout(Duration::from_secs(5), connection.wait_for_close())
+                        .await
+                        .ok();
                 }
                 Err(e) => {
                     error!(error = %e, "connection closed");

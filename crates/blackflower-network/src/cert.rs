@@ -1,16 +1,7 @@
-//! Self-signed certificate utilities for dev environments.
-//!
-//! **NOT FOR PRODUCTION.** These helpers generate certificates that are valid
-//! only for `127.0.0.1` and `localhost`, signed by an ephemeral CA created
-//! at runtime. The client is configured to skip verification of the server
-//! certificate's identity chain.
-
 use std::sync::Arc;
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-/// Generate a self-signed certificate and private key for a server binding to
-/// `127.0.0.1` / `localhost`.
 pub fn generate_self_signed_cert()
 -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), rcgen::Error> {
     let subject_alt_names = vec!["localhost".to_owned(), "127.0.0.1".to_owned()];
@@ -22,12 +13,6 @@ pub fn generate_self_signed_cert()
     Ok((vec![cert_der], key_der))
 }
 
-/// A `rustls` client verifier that accepts **any** server certificate without
-/// validation. Used by dev clients connecting to dev servers with self-signed
-/// certs.
-///
-/// **NEVER use this in production.** It defeats the entire point of TLS
-/// authentication.
 #[derive(Debug)]
 pub struct SkipServerVerification;
 

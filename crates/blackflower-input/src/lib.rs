@@ -1,14 +1,3 @@
-//! Player input primitives.
-//!
-//! Defines [`InputButtons`], a bitfield encoding which digital actions are
-//! currently active. The same type is used:
-//!
-//! - On the client, to capture and serialize input over the network.
-//! - On the server, to apply incoming commands authoritatively.
-//! - In the shared simulation system, to compute movement.
-//!
-//! Encoded over the wire as a single `u8`.
-
 use std::sync::{Arc, Mutex};
 
 use blackflower_protocol::Command;

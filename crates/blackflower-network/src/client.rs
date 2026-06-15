@@ -1,7 +1,3 @@
-//! Client-side QUIC endpoint.
-//!
-//! Synchronous public API; internally drives a single-threaded tokio runtime.
-
 use std::{net::SocketAddr, sync::Arc, thread::JoinHandle};
 
 use anyhow::Context;
@@ -86,7 +82,7 @@ impl<C, S, R, E> Drop for ClientHandle<C, S, R, E> {
 }
 
 pub fn connect<C, S, R, E>(
-    server_addr: SocketAddr,
+    remote: SocketAddr,
     delay: DelayConfig,
 ) -> anyhow::Result<ClientHandle<C, S, R, E>>
 where
@@ -109,15 +105,19 @@ where
         .name("blackflower-net::client".to_owned())
         .spawn(move || {
             if let Err(e) = start(
-                server_addr,
+                remote,
                 delay,
                 ClientChannels {
-                    command_rx,
-                    snapshot_tx,
-                    request_rx,
-                    event_tx,
-                    shutdown_rx,
+                    incoming: IncomingChannels {
+                        snapshot_tx,
+                        event_tx,
+                    },
+                    outgoing: OutgoingChannels {
+                        command_rx,
+                        request_rx,
+                    },
                 },
+                shutdown_rx,
             ) {
                 error!(error = %e, "connection failed");
             }
@@ -135,17 +135,25 @@ where
 }
 
 struct ClientChannels<C, S, R, E> {
-    command_rx: mpsc::Receiver<C>,
+    incoming: IncomingChannels<S, E>,
+    outgoing: OutgoingChannels<C, R>,
+}
+
+struct IncomingChannels<S, E> {
     snapshot_tx: crossbeam_channel::Sender<S>,
-    request_rx: mpsc::Receiver<R>,
     event_tx: crossbeam_channel::Sender<E>,
-    shutdown_rx: oneshot::Receiver<()>,
+}
+
+struct OutgoingChannels<C, R> {
+    command_rx: mpsc::Receiver<C>,
+    request_rx: mpsc::Receiver<R>,
 }
 
 fn start<C, S, R, E>(
-    server_addr: SocketAddr,
+    remote: SocketAddr,
     delay: DelayConfig,
-    mut desc: ClientChannels<C, S, R, E>,
+    mut chans: ClientChannels<C, S, R, E>,
+    mut shutdown_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()>
 where
     C: Serialize,
@@ -164,26 +172,24 @@ where
             .with_custom_certificate_verifier(SkipServerVerification::new())
             .with_no_client_auth();
 
-        // ALPN: any string works as long as client and server agree. Pick a name.
         rustls_config.alpn_protocols = vec![b"blackflower/0".to_vec()];
 
         let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(rustls_config)
             .context("converting rustls config to QUIC")?;
         let client_config = ClientConfig::new(Arc::new(quic_config));
 
-        // Bind to an ephemeral local port on the unspecified address.
         let mut endpoint =
             Endpoint::client("0.0.0.0:0".parse()?).context("binding client socket")?;
         endpoint.set_default_client_config(client_config);
 
-        info!(server = %server_addr, "connecting");
+        info!(server = %remote, "connecting");
 
         let connection = endpoint
-            .connect(server_addr, "localhost")
+            .connect(remote, "localhost")
             .context("starting connection")?
             .await
             .context("connection handshake failed")?;
-        info!(server = %server_addr, "connected");
+        info!(server = %remote, "connected");
 
         let (send, recv) = connection
             .open_bi()
@@ -193,13 +199,13 @@ where
         tokio::select! {
             biased;
 
-            _ = desc.shutdown_rx => {
+            _ = &mut shutdown_rx => {
                 info!("client received shutdown signal");
             }
-            () = send_commands(&connection, &mut desc.command_rx) => {}
-            () = recv_snapshots(&connection, delay, &desc.snapshot_tx) => {}
-            () = send_requests(send, &mut desc.request_rx) => {}
-            () = recv_events(recv, &desc.event_tx) => {}
+            () = send_commands_loop(&connection, &mut chans.outgoing.command_rx) => {}
+            () = recv_snapshots_loop(&connection, delay, &chans.incoming.snapshot_tx) => {}
+            () = send_requests_loop(send, &mut chans.outgoing.request_rx) => {}
+            () = recv_events_loop(recv, &chans.incoming.event_tx) => {}
         }
 
         connection.close(0_u32.into(), b"client done");
@@ -209,7 +215,7 @@ where
     })
 }
 
-async fn send_commands<C>(connection: &Connection, command_rx: &mut mpsc::Receiver<C>)
+async fn send_commands_loop<C>(connection: &Connection, command_rx: &mut mpsc::Receiver<C>)
 where
     C: Serialize,
 {
@@ -226,7 +232,7 @@ where
     }
 }
 
-async fn recv_snapshots<S>(
+async fn recv_snapshots_loop<S>(
     connection: &Connection,
     delay: DelayConfig,
     snapshot_tx: &crossbeam_channel::Sender<S>,
@@ -236,9 +242,6 @@ async fn recv_snapshots<S>(
     let mut queue = DelayQueue::new(delay);
 
     loop {
-        // Arm a timer for the head of the delay queue. When the queue is
-        // empty there is no deadline, so this future never completes and
-        // the select reacts only to new datagrams.
         let deliver_tick = async {
             match queue.next_deadline() {
                 Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
@@ -249,7 +252,6 @@ async fn recv_snapshots<S>(
         tokio::select! {
             biased;
 
-            // A queued snapshot is ready for delivery.
             () = deliver_tick => {
                 for snapshot in queue.drain_ready(std::time::Instant::now()) {
                     if !forward_snapshot(snapshot_tx, snapshot) {
@@ -258,7 +260,6 @@ async fn recv_snapshots<S>(
                 }
             }
 
-            // A new datagram arrived from the server.
             result = connection.read_datagram() => {
                 let bytes = match result {
                     Ok(bytes) => bytes,
@@ -275,7 +276,6 @@ async fn recv_snapshots<S>(
                 match decode::<S>(&bytes) {
                     Ok(snapshot) => {
                         if delay.is_enabled() {
-                            // Hold for the sampled delivery deadline.
                             queue.push(snapshot);
                         } else if !forward_snapshot(snapshot_tx, snapshot) {
                             break;
@@ -288,8 +288,6 @@ async fn recv_snapshots<S>(
     }
 }
 
-/// Forward one snapshot to the tick thread. Returns `false` if the
-/// receiver is gone and the caller should stop.
 fn forward_snapshot<S>(snapshot_tx: &crossbeam_channel::Sender<S>, snapshot: S) -> bool {
     match snapshot_tx.try_send(snapshot) {
         Ok(()) => true,
@@ -304,7 +302,7 @@ fn forward_snapshot<S>(snapshot_tx: &crossbeam_channel::Sender<S>, snapshot: S) 
     }
 }
 
-async fn send_requests<R>(mut send: SendStream, request_rx: &mut mpsc::Receiver<R>)
+async fn send_requests_loop<R>(mut send: SendStream, request_rx: &mut mpsc::Receiver<R>)
 where
     R: Serialize,
 {
@@ -322,7 +320,7 @@ where
     send.finish().ok();
 }
 
-async fn recv_events<E>(mut recv: RecvStream, event_tx: &crossbeam_channel::Sender<E>)
+async fn recv_events_loop<E>(mut recv: RecvStream, event_tx: &crossbeam_channel::Sender<E>)
 where
     E: DeserializeOwned,
 {

@@ -19,8 +19,8 @@ use crate::{
     encode, encode_framed,
 };
 
-const PER_CLIENT_SNAPSHOT_CAPACITY: usize = 3;
-const PER_CLIENT_EVENT_CAPACITY: usize = 32;
+const PER_CONN_SNAPSHOT_CAPACITY: usize = 3;
+const PER_CONN_EVENT_CAPACITY: usize = 32;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConnectionId(u64);
@@ -45,19 +45,23 @@ pub struct Connection<S, E> {
     event_rx: mpsc::Receiver<E>,
 }
 
-impl<S, E> Connection<S, E> {
+impl<S, E> Connection<S, E>
+where
+    S: Send + Sync,
+    E: Send + Sync,
+{
     pub async fn new(incoming: Incoming, delay: DelayConfig) -> anyhow::Result<Self> {
         let conn = incoming.await.context("connection handshake failed")?;
         let remote_addr = conn.remote_address();
-        info!(remote = %remote_addr, "client connected");
+        info!(remote = %remote_addr, "connection connected");
 
         let (send, recv) = conn
             .accept_bi()
             .await
             .context("accepting bidirectional stream")?;
 
-        let (snapshot_tx, snapshot_rx) = mpsc::channel::<Arc<S>>(PER_CLIENT_SNAPSHOT_CAPACITY);
-        let (event_tx, event_rx) = mpsc::channel::<E>(PER_CLIENT_EVENT_CAPACITY);
+        let (snapshot_tx, snapshot_rx) = mpsc::channel::<Arc<S>>(PER_CONN_SNAPSHOT_CAPACITY);
+        let (event_tx, event_rx) = mpsc::channel::<E>(PER_CONN_EVENT_CAPACITY);
 
         Ok(Self {
             conn,
@@ -73,7 +77,7 @@ impl<S, E> Connection<S, E> {
 
     pub async fn connection_loop<C, R>(
         &mut self,
-        client_id: ConnectionId,
+        conn_id: ConnectionId,
         command_tx: crossbeam_channel::Sender<(ConnectionId, C)>,
         request_tx: crossbeam_channel::Sender<(ConnectionId, R)>,
     ) where
@@ -82,8 +86,6 @@ impl<S, E> Connection<S, E> {
         R: DeserializeOwned,
         S: Serialize + Send + Sync,
     {
-        // Destructure into disjoint field borrows so the borrow checker can
-        // see that the four concurrent futures touch independent state.
         let Self {
             conn,
             delay,
@@ -95,9 +97,9 @@ impl<S, E> Connection<S, E> {
         } = self;
 
         tokio::select! {
-            () = recv_commands_loop(conn, *delay, client_id, &command_tx) => {}
+            () = recv_commands_loop(conn, *delay, conn_id, &command_tx) => {}
             () = send_snapshots_loop(conn, snapshot_rx) => {}
-            () = recv_requests_loop(recv, client_id, &request_tx) => {}
+            () = recv_requests_loop(recv, conn_id, &request_tx) => {}
             () = send_events_loop(send, event_rx) => {}
         }
     }
@@ -132,7 +134,7 @@ async fn send_snapshots_loop<S>(
 async fn recv_commands_loop<C>(
     connection: &quinn::Connection,
     delay: DelayConfig,
-    client_id: ConnectionId,
+    conn_id: ConnectionId,
     command_tx: &crossbeam_channel::Sender<(ConnectionId, C)>,
 ) where
     C: Send + Sync + DeserializeOwned,
@@ -152,7 +154,7 @@ async fn recv_commands_loop<C>(
 
             () = deliver_tick => {
                 for command in queue.drain_ready(std::time::Instant::now()) {
-                    if command_tx.try_send((client_id, command)).is_err() {
+                    if command_tx.try_send((conn_id, command)).is_err() {
                         debug!("command receiver dropped; exiting");
                         return;
                     }
@@ -166,12 +168,12 @@ async fn recv_commands_loop<C>(
                         ConnectionError::ApplicationClosed(_)
                         | ConnectionError::ConnectionClosed(_),
                     ) => {
-                        info!(client = %client_id, "client closed connection");
+                        info!(connection = %conn_id, "connection closed connection");
                         break;
                     }
                     Err(e) => {
-                        warn!(error = %e, "reading datagram failed");
-                        continue;
+                        warn!(error = %e, "connection lost");
+                        break;
                     }
                 };
 
@@ -179,7 +181,7 @@ async fn recv_commands_loop<C>(
                     Ok(command) => {
                         if delay.is_enabled() {
                             queue.push(command);
-                        } else if command_tx.try_send((client_id, command)).is_err() {
+                        } else if command_tx.try_send((conn_id, command)).is_err() {
                             debug!("command receiver dropped; exiting");
                             break;
                         }
@@ -211,7 +213,7 @@ where
 
 async fn recv_requests_loop<R>(
     recv: &mut RecvStream,
-    client_id: ConnectionId,
+    conn_id: ConnectionId,
     request_tx: &crossbeam_channel::Sender<(ConnectionId, R)>,
 ) where
     R: DeserializeOwned,
@@ -225,7 +227,7 @@ async fn recv_requests_loop<R>(
                 buf.extend_from_slice(&chunk[..n]);
             }
             Ok(None) => {
-                info!(client = %client_id, "control stream closed by client");
+                info!(connection = %conn_id, "control stream closed by connection");
                 break;
             }
             Err(e) => {
@@ -246,7 +248,7 @@ async fn recv_requests_loop<R>(
             };
             buf.drain(..consumed);
 
-            if let Err(e) = request_tx.try_send((client_id, request)) {
+            if let Err(e) = request_tx.try_send((conn_id, request)) {
                 debug!(error = %e, "request receiver dropped; exiting");
                 return;
             }
@@ -254,72 +256,95 @@ async fn recv_requests_loop<R>(
     }
 }
 
-struct ConnectionEntry<S, E> {
+struct ConnectionHandle<S, E> {
     snapshot_tx: mpsc::Sender<Arc<S>>,
     event_tx: mpsc::Sender<E>,
 }
 
+type ConnectionRegistry<S, E> = HashMap<ConnectionId, ConnectionHandle<S, E>>;
+
 pub struct Connections<S, E> {
-    inner: Mutex<HashMap<ConnectionId, ConnectionEntry<S, E>>>,
-    client_id_counter: AtomicU64,
+    registry: Mutex<ConnectionRegistry<S, E>>,
+    conn_id_counter: AtomicU64,
 }
 
-impl<S, E> Connections<S, E> {
+impl<S, E> Connections<S, E>
+where
+    S: Send + Sync,
+    E: Send + Sync,
+{
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(HashMap::new()),
-            client_id_counter: AtomicU64::new(1),
+            registry: Mutex::new(HashMap::new()),
+            conn_id_counter: AtomicU64::new(1),
         }
     }
 
-    /// Register a connection's outbound senders and return its assigned [`ConnectionId`].
     pub async fn insert(&self, connection: &Connection<S, E>) -> ConnectionId {
-        let client_id = ConnectionId(self.client_id_counter.fetch_add(1, Ordering::Relaxed));
-        self.inner.lock().await.insert(
-            client_id,
-            ConnectionEntry {
+        let conn_id = ConnectionId(self.conn_id_counter.fetch_add(1, Ordering::Relaxed));
+        self.registry.lock().await.insert(
+            conn_id,
+            ConnectionHandle {
                 snapshot_tx: connection.snapshot_tx.clone(),
                 event_tx: connection.event_tx.clone(),
             },
         );
-        client_id
+        conn_id
     }
 
-    pub async fn remove(&self, client_id: &ConnectionId) {
-        self.inner.lock().await.remove(client_id);
+    pub async fn remove(&self, conn_id: &ConnectionId) {
+        self.registry.lock().await.remove(conn_id);
     }
 
-    pub fn try_send_snapshot_to(&self, client_id: ConnectionId, snapshot: S) {
-        // Clone the sender under the lock, then release before allocating the
-        // Arc and calling try_send — minimises critical-section duration.
-        let sender = self.inner.blocking_lock().get(&client_id).map(|e| e.snapshot_tx.clone());
-        match sender {
-            Some(tx) => match tx.try_send(Arc::new(snapshot)) {
+    pub fn try_send_snapshot_to(&self, conn_id: ConnectionId, snapshot: S) {
+        let sender = self
+            .registry
+            .blocking_lock()
+            .get(&conn_id)
+            .map(|e| e.snapshot_tx.clone());
+        if let Some(tx) = sender {
+            match tx.try_send(Arc::new(snapshot)) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => {
-                    debug!(client = %client_id, "client snapshot queue full; dropping");
+                    debug!(connection = %conn_id, "connection snapshot queue full; dropping");
                 }
                 Err(TrySendError::Closed(_)) => {
-                    debug!(client = %client_id, "client snapshot channel closed; dropping");
+                    debug!(connection = %conn_id, "connection snapshot channel closed; dropping");
                 }
-            },
-            None => debug!(client = %client_id, "snapshot for unknown client; dropping"),
+            }
+        } else {
+            debug!(connection = %conn_id, "snapshot for unknown connection; dropping");
         }
     }
 
-    pub fn try_send_event_to(&self, client_id: ConnectionId, event: E) {
-        let sender = self.inner.blocking_lock().get(&client_id).map(|e| e.event_tx.clone());
-        match sender {
-            Some(tx) => match tx.try_send(event) {
+    pub fn try_send_event_to(&self, conn_id: ConnectionId, event: E) {
+        let sender = self
+            .registry
+            .blocking_lock()
+            .get(&conn_id)
+            .map(|e| e.event_tx.clone());
+        if let Some(tx) = sender {
+            match tx.try_send(event) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => {
-                    warn!(client = %client_id, "client event queue full; dropping");
+                    warn!(connection = %conn_id, "connection event queue full; dropping");
                 }
                 Err(TrySendError::Closed(_)) => {
-                    debug!(client = %client_id, "client event channel closed; dropping");
+                    debug!(connection = %conn_id, "connection event channel closed; dropping");
                 }
-            },
-            None => debug!(client = %client_id, "event for unknown client; dropping"),
+            }
+        } else {
+            debug!(connection = %conn_id, "event for unknown connection; dropping");
         }
+    }
+}
+
+impl<S, E> Default for Connections<S, E>
+where
+    S: Send + Sync,
+    E: Send + Sync,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }

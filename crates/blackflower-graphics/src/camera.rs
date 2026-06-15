@@ -33,7 +33,6 @@ impl Camera {
     }
 }
 
-/// GPU-side representation of the camera.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct CameraUniform {

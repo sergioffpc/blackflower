@@ -4,7 +4,7 @@ members = [
   "bins/blackflowerc",
   "bins/blackflowerd",
   "crates/blackflower-audio",
-  "crates/blackflower-client",
+  "crates/blackflower-authority",
   "crates/blackflower-entity",
   "crates/blackflower-gameplay",
   "crates/blackflower-graphics",
@@ -12,9 +12,8 @@ members = [
   "crates/blackflower-math",
   "crates/blackflower-network",
   "crates/blackflower-physics",
-  "crates/blackflower-prediction",
   "crates/blackflower-protocol",
-  "crates/blackflower-server",
+  "crates/blackflower-replica",
   "crates/blackflower-tick",
   "crates/blackflower-window",
   "crates/blackflower-world",
@@ -32,7 +31,7 @@ readme = "README.md"
 
 [workspace.dependencies]
 blackflower-audio = { path = "crates/blackflower-audio" }
-blackflower-client = { path = "crates/blackflower-client" }
+blackflower-authority = { path = "crates/blackflower-authority" }
 blackflower-entity = { path = "crates/blackflower-entity" }
 blackflower-gameplay = { path = "crates/blackflower-gameplay" }
 blackflower-graphics = { path = "crates/blackflower-graphics" }
@@ -40,9 +39,8 @@ blackflower-input = { path = "crates/blackflower-input" }
 blackflower-math = { path = "crates/blackflower-math" }
 blackflower-network = { path = "crates/blackflower-network" }
 blackflower-physics = { path = "crates/blackflower-physics" }
-blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-protocol = { path = "crates/blackflower-protocol" }
-blackflower-server = { path = "crates/blackflower-server" }
+blackflower-replica = { path = "crates/blackflower-replica" }
 blackflower-tick = { path = "crates/blackflower-tick" }
 blackflower-window = { path = "crates/blackflower-window" }
 blackflower-world = { path = "crates/blackflower-world" }

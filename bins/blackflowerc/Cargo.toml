@@ -11,9 +11,9 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-blackflower-client.workspace = true
 blackflower-graphics.workspace = true
 blackflower-input.workspace = true
+blackflower-replica.workspace = true
 blackflower-window.workspace = true
 
 anyhow.workspace = true

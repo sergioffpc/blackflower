@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     camera::Camera,
     geometry::{CUBE_INDICES, CUBE_VERTICES, GeometryResources, ModelUniform},
-    pipelines::DefaultPipeline,
+    pipeline::DefaultPipeline,
 };
 
 pub struct Renderer {
@@ -159,8 +159,6 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Build the per-instance model matrices, in the same order the draw
-        // will index them.
         let models: Vec<ModelUniform> = entities.iter().map(ModelUniform::from).collect();
         self.pipeline
             .upload_instances(&self.device, &self.queue, &models);
@@ -202,7 +200,6 @@ impl Renderer {
                 multiview_mask: None,
             });
 
-            // Nothing to draw — still want the clear to happen.
             if instance_count > 0 {
                 pass.set_pipeline(&self.pipeline.pipeline);
                 pass.set_bind_group(0, &self.pipeline.camera_bind_group, &[]);
@@ -214,7 +211,6 @@ impl Renderer {
                     self.geometry_resources.index_buffer.slice(..),
                     wgpu::IndexFormat::Uint32,
                 );
-                // ONE draw call, N instances. The shader reads models[instance_index].
                 pass.draw_indexed(0..self.geometry_resources.index_count, 0, 0..instance_count);
             }
         }

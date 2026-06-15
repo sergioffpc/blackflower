@@ -4,9 +4,9 @@ use std::{
     time::Instant,
 };
 
-use blackflower_client::{Client, ClientConfig};
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::components::InputButtons;
+use blackflower_replica::{Replica, ReplicaConfig};
 use blackflower_window::WindowHandler;
 use clap::Parser;
 use tracing::error;
@@ -24,13 +24,9 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1:3512")]
     server_addr: SocketAddr,
 
-    /// Artificial inbound latency (ms) applied to received snapshots.
-    /// Zero disables it. Simulates downlink delay for prediction demos.
     #[arg(long, default_value_t = 0)]
     fake_latency_ms: u64,
 
-    /// Jitter (ms) added to `--fake-latency-ms`, uniform in ±jitter.
-    /// May reorder packets. Ignored when latency is zero.
     #[arg(long, default_value_t = 0)]
     fake_jitter_ms: u64,
 }
@@ -43,26 +39,26 @@ fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    let config = ClientConfig {
+    let replica_config = ReplicaConfig {
         latency_ms: args.fake_latency_ms,
         jitter_ms: args.fake_jitter_ms,
     };
-    let mut client = Client::connect(args.server_addr, config)?;
-    client.start()?;
+    let mut replica = Replica::connect(args.server_addr, replica_config)?;
+    replica.start()?;
 
-    let app = Arc::new(Mutex::new(App::new(client)));
+    let app = Arc::new(Mutex::new(App::new(replica)));
     blackflower_window::start(args.width, args.height, app)
 }
 
 struct App {
-    client: Client,
+    replica: Replica,
     renderer: Option<Renderer>,
 }
 
 impl App {
-    const fn new(client: Client) -> Self {
+    const fn new(replica: Replica) -> Self {
         Self {
-            client,
+            replica,
             renderer: None,
         }
     }
@@ -97,11 +93,11 @@ impl WindowHandler for App {
     fn on_gained_focus(&mut self) {}
 
     fn on_lost_focus(&mut self) {
-        self.client.clear_buttons();
+        self.replica.clear_buttons();
     }
 
     fn on_draw(&mut self) {
-        let transforms = self.client.state(Instant::now());
+        let transforms = self.replica.state(Instant::now());
         if let Some(renderer) = &mut self.renderer {
             renderer.render(&transforms);
         }
@@ -115,7 +111,7 @@ impl WindowHandler for App {
             "D" => InputButtons::RIGHT,
             _ => return,
         };
-        self.client.press_button(button);
+        self.replica.press_button(button);
     }
 
     fn on_key_up(&mut self, key: &str) {
@@ -126,6 +122,6 @@ impl WindowHandler for App {
             "D" => InputButtons::RIGHT,
             _ => return,
         };
-        self.client.release_button(button);
+        self.replica.release_button(button);
     }
 }

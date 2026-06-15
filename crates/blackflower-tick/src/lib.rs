@@ -1,9 +1,11 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-/// Identifier of a single simulation step.
 #[repr(transparent)]
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -43,6 +45,7 @@ impl std::fmt::Display for Tick {
 pub struct TickScheduler {
     tick_hz: u64,
     tick_duration: Duration,
+    stop: Arc<AtomicBool>,
 }
 
 impl TickScheduler {
@@ -50,10 +53,16 @@ impl TickScheduler {
         Self {
             tick_hz,
             tick_duration: Duration::from_secs_f64(1.0 / tick_hz as f64),
+            stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    #[allow(clippy::infinite_loop, reason = "tick scheduler runs until SIGTERM")]
+    /// Returns a handle that, when set to `true`, causes `start` to return
+    /// after the current tick completes (within one tick period).
+    pub fn stop_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.stop)
+    }
+
     pub fn start<F>(&self, mut do_tick: F) -> anyhow::Result<()>
     where
         F: FnMut(Tick, Duration),
@@ -68,6 +77,10 @@ impl TickScheduler {
         let mut next_tick_instant = Instant::now() + self.tick_duration;
 
         loop {
+            if self.stop.load(Ordering::Relaxed) {
+                break;
+            }
+
             let current_tick_instant = Instant::now();
 
             do_tick(current_tick, self.tick_duration);
@@ -87,5 +100,7 @@ impl TickScheduler {
             current_tick = current_tick.next();
             next_tick_instant += self.tick_duration;
         }
+
+        Ok(())
     }
 }

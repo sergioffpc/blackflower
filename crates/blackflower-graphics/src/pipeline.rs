@@ -6,8 +6,6 @@ use crate::{
     geometry::{ModelUniform, Vertex},
 };
 
-/// Initial capacity (in model matrices) of the instance storage buffer.
-/// Grown on demand if a frame needs more.
 const INITIAL_INSTANCE_CAPACITY: u64 = 64;
 
 pub struct DefaultPipeline {

@@ -1,7 +1,6 @@
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
-/// Spatial transform of an entity in world space.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Transform {
