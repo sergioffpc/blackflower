@@ -13,6 +13,7 @@ use hashbrown::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 use tracing::{debug, error, info};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,11 +23,15 @@ pub struct AuthorityConfig {
     pub jitter_ms: u64,
 }
 
+struct Slot {
+    entity: EntityId,
+    last_processed: Tick,
+}
+
 pub struct Authority {
     world: SimulationWorld,
     tick_hz: u64,
-    conn_entities: HashMap<ConnectionId, EntityId>,
-    last_processed: HashMap<ConnectionId, Tick>,
+    slots: HashMap<ConnectionId, Slot>,
 
     network_handle: ServerHandle<Command, Snapshot, Request, Event>,
 }
@@ -34,9 +39,6 @@ pub struct Authority {
 impl Authority {
     pub fn listen(addr: SocketAddr, config: AuthorityConfig) -> anyhow::Result<Self> {
         let world = SimulationWorld::default();
-
-        let conn_entities: HashMap<ConnectionId, EntityId> = HashMap::new();
-        let last_processed: HashMap<ConnectionId, Tick> = HashMap::new();
 
         let network_handle: ServerHandle<Command, Snapshot, Request, Event> = server::start(
             addr,
@@ -48,8 +50,7 @@ impl Authority {
         Ok(Self {
             world,
             tick_hz: config.tick_hz,
-            conn_entities,
-            last_processed,
+            slots: HashMap::new(),
 
             network_handle,
         })
@@ -60,45 +61,55 @@ impl Authority {
             .name("blackflower-authority::tick".to_owned())
             .spawn(move || {
                 let result = TickScheduler::new(self.tick_hz).start(|tick, dt| {
-                    let requests: Vec<_> = self.network_handle.try_recv_requests().collect();
-                    for (conn_id, request) in requests {
-                        self.on_request(conn_id, &request, tick);
-                    }
-
-                    // One command per client per tick: keep the highest-tick command
-                    // from each burst so jitter or command spam cannot advance the
-                    // simulation more than one step per tick.
-                    let pending = self.drain_commands();
-                    for (conn_id, command) in &pending {
-                        self.on_command(*conn_id, command, dt.as_secs_f32());
-                    }
-
-                    let disconnects: Vec<_> = self.network_handle.try_recv_disconnects().collect();
-                    for conn_id in disconnects {
-                        self.last_processed.remove(&conn_id);
-                        #[allow(clippy::excessive_nesting)]
-                        if let Some(entity) = self.conn_entities.remove(&conn_id) {
-                            self.world.despawn(entity);
-                        }
-                    }
-
-                    self.on_tick(tick, dt.as_secs_f32());
-
-                    let world = Arc::new(self.world.snapshot());
-                    for (conn_id, _entity) in &self.conn_entities {
-                        #[allow(clippy::excessive_nesting)]
-                        if tick.as_u64() % self.tick_hz == 0 {
-                            debug!(connection_id = ?conn_id, tick = %tick, snapshot = ?world, "world snapshot");
-                        }
-
-                        let ack = self.last_processed.get(conn_id).copied().unwrap_or(Tick::ZERO);
-                        self.network_handle.try_send_snapshot_to(*conn_id, Snapshot { tick: tick.as_u64(), ack: ack.as_u64(), world: (*world).clone() });
-                    }
+                    self.do_tick(tick, dt);
                 });
                 if let Err(error) = result {
                     error!(%error, "tick thread terminated");
                 }
-            }).map_err(Into::into)
+            })
+            .map_err(Into::into)
+    }
+
+    fn do_tick(&mut self, tick: Tick, dt: Duration) {
+        let requests: Vec<_> = self.network_handle.try_recv_requests().collect();
+        for (conn_id, request) in requests {
+            self.on_request(conn_id, &request, tick);
+        }
+
+        // One command per client per tick: keep the highest-tick command
+        // from each burst so jitter or command spam cannot advance the
+        // simulation more than one step per tick.
+        let pending = self.drain_commands();
+        for (conn_id, command) in &pending {
+            self.on_command(*conn_id, command, dt.as_secs_f32());
+        }
+
+        let disconnects: Vec<_> = self.network_handle.try_recv_disconnects().collect();
+        for conn_id in disconnects {
+            if let Some(slot) = self.slots.remove(&conn_id) {
+                self.world.despawn(slot.entity);
+            }
+        }
+
+        self.on_tick(tick, dt.as_secs_f32());
+        self.broadcast_snapshots(tick);
+    }
+
+    fn broadcast_snapshots(&self, tick: Tick) {
+        let world = Arc::new(self.world.snapshot());
+        for (conn_id, slot) in &self.slots {
+            if tick.as_u64().is_multiple_of(self.tick_hz) {
+                debug!(connection_id = ?conn_id, tick = %tick, snapshot = ?world, "world snapshot");
+            }
+            self.network_handle.try_send_snapshot_to(
+                *conn_id,
+                Snapshot {
+                    tick: tick.as_u64(),
+                    ack: slot.last_processed.as_u64(),
+                    world: (*world).clone(),
+                },
+            );
+        }
     }
 
     fn drain_commands(&self) -> HashMap<ConnectionId, Command> {
@@ -115,10 +126,19 @@ impl Authority {
     fn on_request(&mut self, conn_id: ConnectionId, request: &Request, tick: Tick) {
         match request {
             Request::Hello => {
-                let assigned_entity_id = *self
-                    .conn_entities
-                    .entry(conn_id)
-                    .or_insert_with(|| self.world.spawn((Transform::identity(),)));
+                let assigned_entity_id = if let Some(slot) = self.slots.get(&conn_id) {
+                    slot.entity
+                } else {
+                    let entity = self.world.spawn((Transform::identity(),));
+                    self.slots.insert(
+                        conn_id,
+                        Slot {
+                            entity,
+                            last_processed: Tick::ZERO,
+                        },
+                    );
+                    entity
+                };
                 info!(client = %conn_id, entity_id = %assigned_entity_id, "assigned entity");
                 self.network_handle.try_send_event_to(
                     conn_id,
@@ -131,20 +151,21 @@ impl Authority {
             Request::Ping { client_send_ns } => {
                 self.network_handle.try_send_event_to(
                     conn_id,
-                    Event::Pong { client_send_ns: *client_send_ns, server_tick: tick.as_u64() },
+                    Event::Pong {
+                        client_send_ns: *client_send_ns,
+                        server_tick: tick.as_u64(),
+                    },
                 );
             }
         }
     }
 
     fn on_command(&mut self, conn_id: ConnectionId, command: &Command, dt: f32) {
-        let Some(&entity) = self.conn_entities.get(&conn_id) else {
+        let Some(slot) = self.slots.get_mut(&conn_id) else {
             return;
         };
-        self.last_processed
-            .entry(conn_id)
-            .and_modify(|t| *t = (*t).max(Tick::from(command.tick)))
-            .or_insert(Tick::from(command.tick));
+        slot.last_processed = slot.last_processed.max(Tick::from(command.tick));
+        let entity = slot.entity;
 
         if let Ok(mut transform) = self.world.transform_mut(entity) {
             blackflower_gameplay::systems::apply_player_movement(
