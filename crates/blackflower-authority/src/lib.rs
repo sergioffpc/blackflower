@@ -1,19 +1,23 @@
 use anyhow::Context;
+use blackflower_arena::Arena;
 use blackflower_entity::EntityId;
+use blackflower_gameplay::PLAYER_HALF_EXTENTS;
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
 use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
 use blackflower_physics::components::Velocity;
+use blackflower_plugin::Plugin;
 use blackflower_protocol::{
-    Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, RejectReason, Request,
+    Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, Prop, RejectReason, Request,
     WorldDelta, WorldSnapshot,
 };
 use blackflower_tick::{Tick, TickScheduler};
-use blackflower_world::simulation::SimulationWorld;
+use blackflower_world::simulation::{EntityProps, SimulationWorld};
 use hashbrown::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -22,12 +26,15 @@ use tracing::{debug, error, info, warn};
 const RING_SIZE: usize = 32;
 const ZOMBIE_TTL_SECS: u64 = 5;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug)]
 pub struct AuthorityConfig {
     pub tick_hz: u64,
     pub max_clients: usize,
     pub latency_ms: u64,
     pub jitter_ms: u64,
+    pub arena: Arena,
+    /// Path to the WASM game-plugin component. `None` = no plugin loaded.
+    pub plugin_path: Option<PathBuf>,
 }
 
 enum SlotState {
@@ -74,6 +81,9 @@ pub struct Authority {
     world: SimulationWorld,
     tick_hz: u64,
     max_clients: usize,
+    arena: Arena,
+    next_spawn: usize,
+    plugin: Option<Plugin>,
     ring: SnapshotRing,
     slots: HashMap<ConnectionId, SlotState>,
     network_handle: ServerHandle<Command, WorldDelta, Request, Event>,
@@ -90,10 +100,20 @@ impl Authority {
         )
         .context("starting server")?;
 
+        let plugin = config
+            .plugin_path
+            .as_deref()
+            .map(Plugin::load)
+            .transpose()
+            .context("loading game plugin")?;
+
         Ok(Self {
             world,
             tick_hz: config.tick_hz,
             max_clients: config.max_clients,
+            arena: config.arena,
+            next_spawn: 0,
+            plugin,
             ring: SnapshotRing::default(),
             slots: HashMap::new(),
             network_handle,
@@ -284,7 +304,17 @@ impl Authority {
             return;
         }
 
-        let entity = self.world.spawn((Transform::identity(),));
+        let spawn: [f32; 3] = self.next_spawn_point();
+        let transform = Transform {
+            translation: spawn.into(),
+            rotation: blackflower_math::Quat::IDENTITY,
+        };
+        let initial_props = self
+            .plugin
+            .as_mut()
+            .and_then(|p| p.on_spawn().ok())
+            .unwrap_or_default();
+        let entity = self.world.spawn((transform, EntityProps(initial_props)));
         self.slots.insert(
             conn_id,
             SlotState::Playing {
@@ -293,7 +323,7 @@ impl Authority {
                 baseline_tick: 0,
             },
         );
-        info!(client = %conn_id, entity_id = %entity, "assigned entity");
+        info!(client = %conn_id, entity_id = %entity, spawn = ?spawn, "assigned entity");
         self.network_handle.try_send_event_to(
             conn_id,
             Event::Welcome {
@@ -320,12 +350,32 @@ impl Authority {
         let entity = *entity;
 
         if let Ok(mut transform) = self.world.transform_mut(entity) {
+            let old_pos: [f32; 3] = transform.translation.into();
             blackflower_gameplay::systems::apply_player_movement(
                 &mut transform,
                 InputButtons::from_bits(command.buttons).unwrap_or_default(),
                 dt,
             );
+            let new_pos: [f32; 3] = transform.translation.into();
+            let displacement = [
+                new_pos[0] - old_pos[0],
+                new_pos[1] - old_pos[1],
+                new_pos[2] - old_pos[2],
+            ];
+            transform.translation = self
+                .arena
+                .collide_and_slide(old_pos, PLAYER_HALF_EXTENTS, displacement)
+                .into();
         }
+    }
+
+    fn next_spawn_point(&mut self) -> [f32; 3] {
+        if self.arena.spawn_points.is_empty() {
+            return [0.0, 0.9, 0.0];
+        }
+        let idx = self.next_spawn % self.arena.spawn_points.len();
+        self.next_spawn = self.next_spawn.wrapping_add(1);
+        self.arena.spawn_points[idx]
     }
 
     fn on_tick(&mut self, _tick: Tick, dt: f32) {
@@ -390,11 +440,13 @@ fn build_delta(
     }
 }
 
-const fn entity_full_delta(e: &EntitySnapshot) -> EntityDelta {
+fn entity_full_delta(e: &EntitySnapshot) -> EntityDelta {
     EntityDelta {
         id: e.id,
         translation: Some(e.translation),
         rotation: Some(e.rotation),
+        props: e.props.clone(),
+        removed_props: vec![],
     }
 }
 
@@ -405,11 +457,40 @@ fn entity_delta(curr: &EntitySnapshot, base: Option<&EntitySnapshot>) -> Option<
     let translation =
         field_changed(&curr.translation, &base.translation).then_some(curr.translation);
     let rotation = field_changed(&curr.rotation, &base.rotation).then_some(curr.rotation);
-    (translation.is_some() || rotation.is_some()).then_some(EntityDelta {
+    let (changed_props, removed_props) = diff_props(&curr.props, &base.props);
+    let has_changes = translation.is_some()
+        || rotation.is_some()
+        || !changed_props.is_empty()
+        || !removed_props.is_empty();
+    has_changes.then_some(EntityDelta {
         id: curr.id,
         translation,
         rotation,
+        props: changed_props,
+        removed_props,
     })
+}
+
+/// Returns `(changed, removed)` props by comparing current vs baseline.
+/// Change detection is byte-exact — the engine does not interpret values.
+fn diff_props(curr: &[Prop], base: &[Prop]) -> (Vec<Prop>, Vec<u16>) {
+    let mut changed = Vec::new();
+    let mut removed = Vec::new();
+
+    for base_prop in base {
+        if !curr.iter().any(|p| p.id == base_prop.id) {
+            removed.push(base_prop.id);
+        }
+    }
+    for curr_prop in curr {
+        let baseline_val = base.iter().find(|p| p.id == curr_prop.id).map(|p| &p.value);
+        let is_new_or_changed = baseline_val.is_none_or(|v| *v != curr_prop.value);
+        if is_new_or_changed {
+            changed.push(curr_prop.clone());
+        }
+    }
+
+    (changed, removed)
 }
 
 /// Bit-exact change detection via `f32::to_bits`.

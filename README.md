@@ -8,22 +8,29 @@ Quake 2-style architecture, modernized: archetype ECS (`hecs`), QUIC transport
 
 ## Status
 
-Active development — M3 complete. Implemented: authoritative server, QUIC
-networking, ECS, client-side prediction with rollback-replay, slot state
-machine (Handshake → Playing → Zombie), protocol version handshake, delta
-snapshot compression with per-client ack bitfield, and remote entity
-interpolation. See [`docs/architecture.md`](docs/architecture.md) for the
-full design and milestone roadmap.
+Active development — M3 complete, M4 in progress. M3 delivered: slot state
+machine, protocol handshake, delta snapshot compression, remote interpolation.
+M4 (in progress): AABB arena geometry, WASM game-plugin architecture (engine
+is agnostic to game properties — HP, damage, respawn are raw bytes owned by
+the plugin), collision. See [`docs/architecture.md`](docs/architecture.md)
+for the full design and milestone roadmap.
 
 ## Build
 
 Requires Rust 1.95.0 (managed automatically by `rustup` via `rust-toolchain.toml`).
 
 ```bash
+# Build engine
 cargo build --workspace
 
-# Run the dedicated server (listens on 0.0.0.0:3512)
-cargo run --bin blackflowerd
+# Build the arena-shooter WASM plugin (separate build, wasm32-wasip2 target)
+rustup target add wasm32-wasip2
+cargo build --manifest-path plugins/arena-shooter/Cargo.toml --target wasm32-wasip2
+
+# Run the dedicated server with arena + plugin
+cargo run --bin blackflowerd -- \
+  --arena assets/arena.ron \
+  --plugin plugins/arena-shooter/target/wasm32-wasip2/debug/arena_shooter.wasm
 
 # Run the client (connects to 127.0.0.1:3512)
 cargo run --bin blackflowerc
@@ -45,6 +52,7 @@ bins/
   blackflowerd/   dedicated server
   blackflowerc/   game client (winit + wgpu)
 crates/
+  blackflower-arena       Aabb, Arena (RON), collide_and_slide
   blackflower-authority   server tick loop, SlotState machine, delta broadcast
   blackflower-entity      stable EntityId (u64, 0 = NONE)
   blackflower-gameplay    pure simulation functions (shared by client + server)
@@ -53,11 +61,18 @@ crates/
   blackflower-math        glam re-export + Transform component
   blackflower-network     QUIC transport (quinn), ServerHandle / ClientHandle
   blackflower-physics     Velocity component, integrate_movement system
-  blackflower-protocol    wire types: Command, WorldDelta, Request, Event
+  blackflower-plugin      wasmtime host — loads WASM game-plugin component
+  blackflower-protocol    wire types: Command, WorldDelta, Prop, Request, Event
   blackflower-replica     client tick loop, prediction + reconciliation, ClockSync
   blackflower-tick        Tick counter, TickScheduler (configurable Hz)
   blackflower-world       SimulationWorld (server ECS), PresentationWorld (client)
   blackflower-audio       stub (kira wired, no logic yet)
+assets/
+  arena.ron         box arena geometry (50×4×50 m, 8 spawn points)
+plugins/
+  arena-shooter/    WASM game-plugin: HP, damage, respawn rules (wasm32-wasip2)
+wit/
+  game-plugin.wit   WIT contract between engine and game plugin
 docs/
   architecture.md   design doc + ADRs
   diagrams/         SVG diagrams

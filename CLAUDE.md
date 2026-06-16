@@ -21,6 +21,15 @@ cargo run --bin blackflowerc -- --fake-latency-ms 40 --fake-jitter-ms 10
 # Server options (defaults shown)
 cargo run --bin blackflowerd -- --tick-hz 60 --max-clients 64 --bind-addr 0.0.0.0:3512
 
+# Build the arena-shooter WASM plugin (requires wasm32-wasip2 target)
+rustup target add wasm32-wasip2
+cargo build --manifest-path plugins/arena-shooter/Cargo.toml --target wasm32-wasip2
+
+# Run server with arena + plugin
+cargo run --bin blackflowerd -- \
+  --arena assets/arena.ron \
+  --plugin plugins/arena-shooter/target/wasm32-wasip2/debug/arena_shooter.wasm
+
 # Format check
 cargo fmt --all --check
 

@@ -1,0 +1,30 @@
+// Box arena: 50 × 4 × 50 metres.
+// Coordinate system: X = east, Y = up, Z = south.
+// Player spawns at Y = 0.9 (half-height), standing on the floor at Y = 0.
+// [f32; 3] arrays use RON tuple syntax (a, b, c).
+(
+    walls: [
+        // Floor slab
+        (min: (-25.0, -0.5, -25.0), max: (25.0, 0.0, 25.0)),
+        // Ceiling slab
+        (min: (-25.0, 4.0, -25.0), max: (25.0, 4.5, 25.0)),
+        // North wall (-Z)
+        (min: (-25.0, 0.0, -25.5), max: (25.0, 4.0, -25.0)),
+        // South wall (+Z)
+        (min: (-25.0, 0.0, 25.0), max: (25.0, 4.0, 25.5)),
+        // East wall (+X)
+        (min: (25.0, 0.0, -25.0), max: (25.5, 4.0, 25.0)),
+        // West wall (-X)
+        (min: (-25.5, 0.0, -25.0), max: (-25.0, 4.0, 25.0)),
+    ],
+    spawn_points: [
+        (0.0, 0.9, 0.0),
+        (10.0, 0.9, 10.0),
+        (-10.0, 0.9, -10.0),
+        (10.0, 0.9, -10.0),
+        (-10.0, 0.9, 10.0),
+        (0.0, 0.9, 15.0),
+        (0.0, 0.9, -15.0),
+        (15.0, 0.9, 0.0),
+    ],
+)

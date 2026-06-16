@@ -1,8 +1,14 @@
 use blackflower_entity::{EntityId, EntityIdAllocator};
 use blackflower_math::components::Transform;
-use blackflower_protocol::{EntitySnapshot, WorldSnapshot};
+use blackflower_protocol::{EntitySnapshot, Prop, WorldSnapshot};
 use hashbrown::HashMap;
 use hecs::{DynamicBundle, Entity, World};
+
+/// Engine-opaque property bag stored per entity.
+/// Encoding of each value is owned by the game plugin — the engine never
+/// interprets the bytes.
+#[derive(Clone, Default)]
+pub struct EntityProps(pub Vec<(u16, Vec<u8>)>);
 
 #[derive(Default)]
 pub struct SimulationWorld {
@@ -50,14 +56,22 @@ impl SimulationWorld {
             .entities
             .iter()
             .filter_map(|(&id, &entity)| {
-                self.world
-                    .get::<&Transform>(entity)
-                    .ok()
-                    .map(|transform| EntitySnapshot {
-                        id: id.into(),
-                        translation: transform.translation.into(),
-                        rotation: transform.rotation.into(),
+                let transform = self.world.get::<&Transform>(entity).ok()?;
+                let props = self
+                    .world
+                    .get::<&EntityProps>(entity)
+                    .map(|p| {
+                        p.0.iter()
+                            .map(|(pid, val)| Prop { id: *pid, value: val.clone() })
+                            .collect()
                     })
+                    .unwrap_or_default();
+                Some(EntitySnapshot {
+                    id: id.into(),
+                    translation: transform.translation.into(),
+                    rotation: transform.rotation.into(),
+                    props,
+                })
             })
             .collect();
 

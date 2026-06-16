@@ -8,11 +8,16 @@ use hashbrown::HashMap;
 use hecs::{Entity, World};
 use tracing::{error, info, trace, warn};
 
+/// Engine-opaque per-entity property store on the client side.
+type EntityPropStore = Vec<(u16, Vec<u8>)>;
+
 #[derive(Default)]
 pub struct PresentationWorld {
     world: World,
     entities: HashMap<EntityId, Entity>,
     history: HashMap<EntityId, VecDeque<TransformSample>>,
+    /// Engine-opaque props per entity. Encoding is owned by the game plugin.
+    props: HashMap<EntityId, EntityPropStore>,
     last_applied: Option<Tick>,
 }
 
@@ -55,6 +60,7 @@ impl PresentationWorld {
             }
         });
         self.history.retain(|id, _| present.contains(id));
+        self.props.retain(|id, _| present.contains(id));
 
         for delta in &snapshot.entities {
             let id = EntityId::from(delta.id);
@@ -62,6 +68,7 @@ impl PresentationWorld {
                 self.upsert_entity(id, transform);
                 self.push_sample(id, tick, transform);
             }
+            self.apply_props(id, delta);
         }
     }
 
@@ -74,6 +81,7 @@ impl PresentationWorld {
                 warn!(error = %e, id = %id, "failed to despawn entity");
             }
             self.history.remove(&id);
+            self.props.remove(&id);
         }
 
         for delta in &snapshot.entities {
@@ -84,6 +92,21 @@ impl PresentationWorld {
                 self.push_sample(id, tick, transform);
             } else {
                 warn!(id = %id, "delta has no transform for unknown entity — skipped");
+            }
+            self.apply_props(id, delta);
+        }
+    }
+
+    fn apply_props(&mut self, id: EntityId, delta: &EntityDelta) {
+        let entry = self.props.entry(id).or_default();
+        for id_to_remove in &delta.removed_props {
+            entry.retain(|(pid, _)| pid != id_to_remove);
+        }
+        for prop in &delta.props {
+            if let Some(existing) = entry.iter_mut().find(|(pid, _)| *pid == prop.id) {
+                existing.1.clone_from(&prop.value);
+            } else {
+                entry.push((prop.id, prop.value.clone()));
             }
         }
     }

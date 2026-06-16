@@ -11,8 +11,10 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-arena.workspace = true
 blackflower-entity.workspace = true
 blackflower-gameplay.workspace = true
+blackflower-plugin.workspace = true
 blackflower-input.workspace = true
 blackflower-math.workspace = true
 blackflower-network.workspace = true

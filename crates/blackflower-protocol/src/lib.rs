@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// An opaque entity property. The engine stores and forwards `value` as raw
+/// bytes without interpreting them — encoding is owned by the game plugin.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Prop {
+    pub id: u16,
+    pub value: Vec<u8>,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Command {
     pub tick: u64,
@@ -24,6 +32,10 @@ pub struct EntityDelta {
     pub id: u64,
     pub translation: Option<[f32; 3]>,
     pub rotation: Option<[f32; 4]>,
+    /// Props that changed since the baseline; engine merges by id.
+    pub props: Vec<Prop>,
+    /// Prop ids removed since the baseline.
+    pub removed_props: Vec<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,11 +43,12 @@ pub struct WorldSnapshot {
     pub entities: Box<[EntitySnapshot]>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EntitySnapshot {
     pub id: u64,
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
+    pub props: Vec<Prop>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -1,0 +1,13 @@
+package blackflower:game-plugin@0.1.0;
+
+/// Game-logic plugin interface. The engine is opaque to prop values —
+/// it stores and forwards raw bytes. The plugin owns the encoding scheme.
+world game-plugin {
+    /// Return initial properties for a newly spawned entity.
+    export on-spawn: func() -> list<tuple<u16, list<u8>>>;
+
+    /// Called when a hitscan ray hits a target entity.
+    /// `target-props` are the target's current properties.
+    /// Returns the updated properties (may be a subset — engine merges by id).
+    export on-hit: func(target-props: list<tuple<u16, list<u8>>>) -> list<tuple<u16, list<u8>>>;
+}

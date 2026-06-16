@@ -3,6 +3,8 @@ resolver = "3"
 members = [
   "bins/blackflowerc",
   "bins/blackflowerd",
+  "crates/blackflower-arena",
+  "crates/blackflower-plugin",
   "crates/blackflower-audio",
   "crates/blackflower-authority",
   "crates/blackflower-entity",
@@ -30,7 +32,9 @@ description = "Multiplayer arena game engine."
 readme = "README.md"
 
 [workspace.dependencies]
+blackflower-arena = { path = "crates/blackflower-arena" }
 blackflower-audio = { path = "crates/blackflower-audio" }
+blackflower-plugin = { path = "crates/blackflower-plugin" }
 blackflower-authority = { path = "crates/blackflower-authority" }
 blackflower-entity = { path = "crates/blackflower-entity" }
 blackflower-gameplay = { path = "crates/blackflower-gameplay" }
@@ -63,6 +67,10 @@ postcard = { version = "1.1.3", features = ["use-std"] }
 rapier3d = { version = "0.33.0", features = ["simd-stable"] }
 raw-window-handle = "0.6.2"
 rcgen = "0.14.8"
+ron = "0.12.1"
+wasmtime = { version = "45.0.2", features = ["component-model"] }
+wasmtime-wasi = "45.0.2"
+wit-bindgen = "0.58.0"
 rustls = { version = "0.23.40", features = ["ring"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
