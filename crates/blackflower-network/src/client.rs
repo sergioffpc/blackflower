@@ -102,7 +102,7 @@ where
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let join_handle = std::thread::Builder::new()
-        .name("blackflower-net::client".to_owned())
+        .name("blackflower-network::client".to_owned())
         .spawn(move || {
             if let Err(e) = start(
                 remote,
