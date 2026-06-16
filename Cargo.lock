@@ -441,6 +441,7 @@ dependencies = [
  "blackflower-protocol",
  "blackflower-tick",
  "blackflower-world",
+ "hashbrown 0.17.1",
  "tracing",
 ]
 

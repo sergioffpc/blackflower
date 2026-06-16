@@ -28,6 +28,7 @@ pub struct EntitySnapshot {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
     Hello,
+    Ping { client_send_ns: u64 },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -35,5 +36,9 @@ pub enum Event {
     Welcome {
         tick_hz: u64,
         assigned_entity_id: u64,
+    },
+    Pong {
+        client_send_ns: u64,
+        server_tick: u64,
     },
 }

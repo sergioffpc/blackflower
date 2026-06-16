@@ -6,7 +6,7 @@ use std::{
 
 use blackflower_graphics::renderer::Renderer;
 use blackflower_input::components::InputButtons;
-use blackflower_replica::{Replica, ReplicaConfig};
+use blackflower_replica::replica::{Replica, ReplicaConfig};
 use blackflower_window::WindowHandler;
 use clap::Parser;
 use tracing::error;

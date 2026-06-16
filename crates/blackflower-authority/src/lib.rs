@@ -62,7 +62,7 @@ impl Authority {
                 let result = TickScheduler::new(self.tick_hz).start(|tick, dt| {
                     let requests: Vec<_> = self.network_handle.try_recv_requests().collect();
                     for (conn_id, request) in requests {
-                        self.on_request(conn_id, &request);
+                        self.on_request(conn_id, &request, tick);
                     }
 
                     let commands: Vec<_> = self.network_handle.try_recv_commands().collect();
@@ -98,7 +98,7 @@ impl Authority {
             }).map_err(Into::into)
     }
 
-    fn on_request(&mut self, conn_id: ConnectionId, request: &Request) {
+    fn on_request(&mut self, conn_id: ConnectionId, request: &Request, tick: Tick) {
         match request {
             Request::Hello => {
                 let assigned_entity_id = *self
@@ -112,6 +112,12 @@ impl Authority {
                         tick_hz: self.tick_hz,
                         assigned_entity_id: u64::from(assigned_entity_id),
                     },
+                );
+            }
+            Request::Ping { client_send_ns } => {
+                self.network_handle.try_send_event_to(
+                    conn_id,
+                    Event::Pong { client_send_ns: *client_send_ns, server_tick: tick.as_u64() },
                 );
             }
         }
