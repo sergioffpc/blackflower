@@ -65,9 +65,12 @@ impl Authority {
                         self.on_request(conn_id, &request, tick);
                     }
 
-                    let commands: Vec<_> = self.network_handle.try_recv_commands().collect();
-                    for (conn_id, command) in commands {
-                        self.on_command(conn_id, &command, dt.as_secs_f32());
+                    // One command per client per tick: keep the highest-tick command
+                    // from each burst so jitter or command spam cannot advance the
+                    // simulation more than one step per tick.
+                    let pending = self.drain_commands();
+                    for (conn_id, command) in &pending {
+                        self.on_command(*conn_id, command, dt.as_secs_f32());
                     }
 
                     let disconnects: Vec<_> = self.network_handle.try_recv_disconnects().collect();
@@ -96,6 +99,17 @@ impl Authority {
                     error!(%error, "tick thread terminated");
                 }
             }).map_err(Into::into)
+    }
+
+    fn drain_commands(&self) -> HashMap<ConnectionId, Command> {
+        let mut pending: HashMap<ConnectionId, Command> = HashMap::new();
+        for (conn_id, command) in self.network_handle.try_recv_commands() {
+            let prev = pending.entry(conn_id).or_insert(command);
+            if command.tick > prev.tick {
+                *prev = command;
+            }
+        }
+        pending
     }
 
     fn on_request(&mut self, conn_id: ConnectionId, request: &Request, tick: Tick) {
