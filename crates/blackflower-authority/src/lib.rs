@@ -6,7 +6,10 @@ use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
 use blackflower_physics::components::Velocity;
-use blackflower_protocol::{Command, Event, RejectReason, Request, Snapshot, PROTOCOL_VERSION};
+use blackflower_protocol::{
+    Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, RejectReason, Request,
+    WorldDelta, WorldSnapshot,
+};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::simulation::SimulationWorld;
 use hashbrown::HashMap;
@@ -15,6 +18,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tracing::{debug, error, info};
+
+const RING_SIZE: usize = 32;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AuthorityConfig {
@@ -27,22 +32,50 @@ pub struct AuthorityConfig {
 struct Slot {
     entity: EntityId,
     last_processed: Tick,
+    baseline_tick: u64,
+}
+
+/// Fixed-size ring of the last `RING_SIZE` world snapshots, keyed by tick.
+struct SnapshotRing {
+    entries: [Option<(u64, WorldSnapshot)>; RING_SIZE],
+}
+
+impl Default for SnapshotRing {
+    fn default() -> Self {
+        Self {
+            entries: std::array::from_fn(|_| None),
+        }
+    }
+}
+
+impl SnapshotRing {
+    fn insert(&mut self, tick: u64, snapshot: WorldSnapshot) {
+        self.entries[tick as usize % RING_SIZE] = Some((tick, snapshot));
+    }
+
+    fn get(&self, tick: u64) -> Option<&WorldSnapshot> {
+        if tick == 0 {
+            return None;
+        }
+        let (stored_tick, snapshot) = self.entries[tick as usize % RING_SIZE].as_ref()?;
+        (*stored_tick == tick).then_some(snapshot)
+    }
 }
 
 pub struct Authority {
     world: SimulationWorld,
     tick_hz: u64,
     max_clients: usize,
+    ring: SnapshotRing,
     slots: HashMap<ConnectionId, Slot>,
-
-    network_handle: ServerHandle<Command, Snapshot, Request, Event>,
+    network_handle: ServerHandle<Command, WorldDelta, Request, Event>,
 }
 
 impl Authority {
     pub fn listen(addr: SocketAddr, config: AuthorityConfig) -> anyhow::Result<Self> {
         let world = SimulationWorld::default();
 
-        let network_handle: ServerHandle<Command, Snapshot, Request, Event> = server::start(
+        let network_handle: ServerHandle<Command, WorldDelta, Request, Event> = server::start(
             addr,
             TransportConfig::default(),
             DelayConfig::from_millis(config.latency_ms, config.jitter_ms),
@@ -53,8 +86,8 @@ impl Authority {
             world,
             tick_hz: config.tick_hz,
             max_clients: config.max_clients,
+            ring: SnapshotRing::default(),
             slots: HashMap::new(),
-
             network_handle,
         })
     }
@@ -98,20 +131,24 @@ impl Authority {
         self.broadcast_snapshots(tick);
     }
 
-    fn broadcast_snapshots(&self, tick: Tick) {
-        let world = Arc::new(self.world.snapshot());
-        for (conn_id, slot) in &self.slots {
+    fn broadcast_snapshots(&mut self, tick: Tick) {
+        let current = Arc::new(self.world.snapshot());
+        self.ring.insert(tick.as_u64(), (*current).clone());
+
+        // Materialise per-client info before splitting the borrow.
+        let clients: Vec<(ConnectionId, u64, u64)> = self
+            .slots
+            .iter()
+            .map(|(&id, slot)| (id, slot.baseline_tick, slot.last_processed.as_u64()))
+            .collect();
+
+        for (conn_id, baseline_tick, ack) in clients {
+            let baseline = self.ring.get(baseline_tick);
+            let snapshot = build_delta(&current, baseline, baseline_tick, tick, ack);
             if tick.as_u64().is_multiple_of(self.tick_hz) {
-                debug!(connection_id = ?conn_id, tick = %tick, snapshot = ?world, "world snapshot");
+                debug!(connection_id = ?conn_id, %tick, baseline_tick, "sending snapshot");
             }
-            self.network_handle.try_send_snapshot_to(
-                *conn_id,
-                Snapshot {
-                    tick: tick.as_u64(),
-                    ack: slot.last_processed.as_u64(),
-                    world: (*world).clone(),
-                },
-            );
+            self.network_handle.try_send_snapshot_to(conn_id, snapshot);
         }
     }
 
@@ -158,6 +195,7 @@ impl Authority {
                         Slot {
                             entity,
                             last_processed: Tick::ZERO,
+                            baseline_tick: 0,
                         },
                     );
                     entity
@@ -188,6 +226,12 @@ impl Authority {
             return;
         };
         slot.last_processed = slot.last_processed.max(Tick::from(command.tick));
+        // Monotonically advance baseline: never go backwards even if acks arrive
+        // out of order.
+        slot.baseline_tick = slot.baseline_tick.max(highest_acked(
+            command.snapshot_ack_tick,
+            command.snapshot_ack_bits,
+        ));
         let entity = slot.entity;
 
         if let Ok(mut transform) = self.world.transform_mut(entity) {
@@ -205,4 +249,88 @@ impl Authority {
             dt,
         );
     }
+}
+
+/// Returns the highest snapshot tick confirmed by `bits` relative to
+/// `ack_tick`. Bit `i` set means tick `ack_tick - i` was received.
+fn highest_acked(ack_tick: u64, bits: u32) -> u64 {
+    for i in 0_u32..32 {
+        if bits & (1_u32 << i) != 0 {
+            return ack_tick.saturating_sub(u64::from(i));
+        }
+    }
+    0
+}
+
+fn build_delta(
+    current: &WorldSnapshot,
+    baseline: Option<&WorldSnapshot>,
+    baseline_tick: u64,
+    server_tick: Tick,
+    ack: u64,
+) -> WorldDelta {
+    let Some(base) = baseline else {
+        return WorldDelta {
+            tick: server_tick.as_u64(),
+            ack,
+            baseline: 0,
+            removed: Box::default(),
+            entities: current.entities.iter().map(entity_full_delta).collect(),
+        };
+    };
+
+    let base_index: HashMap<u64, &EntitySnapshot> =
+        base.entities.iter().map(|e| (e.id, e)).collect();
+    let curr_ids: hashbrown::HashSet<u64> = current.entities.iter().map(|e| e.id).collect();
+
+    let removed: Box<[u64]> = base
+        .entities
+        .iter()
+        .map(|e| e.id)
+        .filter(|id| !curr_ids.contains(id))
+        .collect();
+
+    let entities: Box<[EntityDelta]> = current
+        .entities
+        .iter()
+        .filter_map(|curr| entity_delta(curr, base_index.get(&curr.id).copied()))
+        .collect();
+
+    WorldDelta {
+        tick: server_tick.as_u64(),
+        ack,
+        baseline: baseline_tick,
+        removed,
+        entities,
+    }
+}
+
+const fn entity_full_delta(e: &EntitySnapshot) -> EntityDelta {
+    EntityDelta {
+        id: e.id,
+        translation: Some(e.translation),
+        rotation: Some(e.rotation),
+    }
+}
+
+fn entity_delta(curr: &EntitySnapshot, base: Option<&EntitySnapshot>) -> Option<EntityDelta> {
+    let Some(base) = base else {
+        return Some(entity_full_delta(curr));
+    };
+    let translation =
+        field_changed(&curr.translation, &base.translation).then_some(curr.translation);
+    let rotation = field_changed(&curr.rotation, &base.rotation).then_some(curr.rotation);
+    (translation.is_some() || rotation.is_some()).then_some(EntityDelta {
+        id: curr.id,
+        translation,
+        rotation,
+    })
+}
+
+/// Bit-exact change detection via `f32::to_bits`, avoiding NaN/−0 false
+/// negatives that `PartialEq` would produce.
+fn field_changed(a: &[f32], b: &[f32]) -> bool {
+    a.iter()
+        .zip(b.iter())
+        .any(|(x, y)| x.to_bits() != y.to_bits())
 }

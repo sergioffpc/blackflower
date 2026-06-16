@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use blackflower_entity::EntityId;
 use blackflower_math::{Quat, components::Transform};
-use blackflower_protocol::WorldSnapshot;
+use blackflower_protocol::{EntityDelta, WorldDelta};
 use blackflower_tick::Tick;
 use hashbrown::HashMap;
 use hecs::{Entity, World};
@@ -17,7 +17,10 @@ pub struct PresentationWorld {
 }
 
 impl PresentationWorld {
-    pub fn apply(&mut self, snapshot: &WorldSnapshot, tick: Tick) {
+    /// Apply a snapshot (full or delta) to the presentation world.
+    /// Full snapshots (`baseline == 0`) reconcile the full entity set;
+    /// delta snapshots only touch entities listed in `removed`/`entities`.
+    pub fn apply_delta(&mut self, snapshot: &WorldDelta, tick: Tick) {
         if let Some(last) = self.last_applied
             && tick <= last
         {
@@ -26,8 +29,19 @@ impl PresentationWorld {
         }
         self.last_applied = Some(tick);
 
-        let present: hashbrown::HashSet<EntityId> =
-            snapshot.entities.iter().map(|e| e.id.into()).collect();
+        if snapshot.baseline == 0 {
+            self.apply_full(snapshot, tick);
+        } else {
+            self.apply_incremental(snapshot, tick);
+        }
+    }
+
+    fn apply_full(&mut self, snapshot: &WorldDelta, tick: Tick) {
+        let present: hashbrown::HashSet<EntityId> = snapshot
+            .entities
+            .iter()
+            .map(|d| EntityId::from(d.id))
+            .collect();
 
         self.entities.retain(|id, entity| {
             if present.contains(id) {
@@ -42,14 +56,35 @@ impl PresentationWorld {
         });
         self.history.retain(|id, _| present.contains(id));
 
-        for entity in &snapshot.entities {
-            let id = EntityId::from(entity.id);
-            let transform = Transform {
-                translation: entity.translation.into(),
-                rotation: Quat::from_array(entity.rotation),
-            };
-            self.upsert_entity(id, transform);
-            self.push_sample(id, tick, transform);
+        for delta in &snapshot.entities {
+            let id = EntityId::from(delta.id);
+            if let Some(transform) = merge_delta(None, delta) {
+                self.upsert_entity(id, transform);
+                self.push_sample(id, tick, transform);
+            }
+        }
+    }
+
+    fn apply_incremental(&mut self, snapshot: &WorldDelta, tick: Tick) {
+        for &id_raw in &snapshot.removed {
+            let id = EntityId::from(id_raw);
+            if let Some(entity) = self.entities.remove(&id)
+                && let Err(e) = self.world.despawn(entity)
+            {
+                warn!(error = %e, id = %id, "failed to despawn entity");
+            }
+            self.history.remove(&id);
+        }
+
+        for delta in &snapshot.entities {
+            let id = EntityId::from(delta.id);
+            let current = self.transform_of(id);
+            if let Some(transform) = merge_delta(current, delta) {
+                self.upsert_entity(id, transform);
+                self.push_sample(id, tick, transform);
+            } else {
+                warn!(id = %id, "delta has no transform for unknown entity — skipped");
+            }
         }
     }
 
@@ -144,6 +179,25 @@ impl PresentationWorld {
             trace!(id = %id, transform = ?transform, "entity transform inserted");
         }
     }
+}
+
+/// Merge a partial delta onto an optional current transform. Returns `None`
+/// only when a field is absent from both the delta and the current state,
+/// which indicates a new entity arriving with an incomplete delta (a bug on
+/// the server side).
+fn merge_delta(current: Option<Transform>, delta: &EntityDelta) -> Option<Transform> {
+    let translation = delta
+        .translation
+        .map(Into::into)
+        .or_else(|| current.map(|t| t.translation))?;
+    let rotation = delta
+        .rotation
+        .map(Quat::from_array)
+        .or_else(|| current.map(|t| t.rotation))?;
+    Some(Transform {
+        translation,
+        rotation,
+    })
 }
 
 pub const INTERP_HISTORY: usize = 8;

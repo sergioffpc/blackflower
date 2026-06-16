@@ -22,6 +22,8 @@ impl InputHandle {
         Command {
             tick: tick.as_u64(),
             buttons: buttons.bits(),
+            snapshot_ack_tick: 0,
+            snapshot_ack_bits: 0,
         }
     }
 

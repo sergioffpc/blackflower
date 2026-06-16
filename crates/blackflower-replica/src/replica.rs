@@ -17,7 +17,7 @@ use blackflower_network::{
     client::{self, ClientHandle},
     delay::DelayConfig,
 };
-use blackflower_protocol::{Command, Event, Request, Snapshot, PROTOCOL_VERSION};
+use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, Request, WorldDelta};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::presentation::{
     EntityState, PresentationState, PresentationWorld, interpolate,
@@ -32,6 +32,36 @@ use crate::{
 type PresentationBuffer = Arc<ArcSwap<PresentationState>>;
 
 const INTERP_DELAY_TICKS: f64 = 2.0;
+
+/// Sliding-window ack for received snapshots. Bit `i` set in `bits` means the
+/// client received the snapshot at tick `ack_tick - i`. Sent piggybacked on
+/// every Command so the server can pick a delta baseline.
+struct SnapshotAck {
+    ack_tick: u64,
+    bits: u32,
+}
+
+impl SnapshotAck {
+    const fn new() -> Self {
+        Self {
+            ack_tick: 0,
+            bits: 0,
+        }
+    }
+
+    fn record(&mut self, tick: u64) {
+        if tick > self.ack_tick {
+            let shift = (tick - self.ack_tick).min(32) as u32;
+            // Shift old bits right; when shift >= 32 all old bits fall off.
+            self.bits = self.bits.checked_shr(shift).unwrap_or(0);
+            self.ack_tick = tick;
+        }
+        let offset = self.ack_tick.saturating_sub(tick);
+        if offset < 32 {
+            self.bits |= 1_u32 << offset;
+        }
+    }
+}
 
 pub type ReplicaState = Box<[Transform]>;
 
@@ -49,7 +79,7 @@ pub struct Replica {
     presentation_buffer: PresentationBuffer,
 
     input_handle: Arc<InputHandle>,
-    network_handle: Arc<ClientHandle<Command, Snapshot, Request, Event>>,
+    network_handle: Arc<ClientHandle<Command, WorldDelta, Request, Event>>,
 
     tick_stop: Arc<AtomicBool>,
     tick_handle: Option<JoinHandle<()>>,
@@ -85,7 +115,10 @@ impl Replica {
             anyhow::ensure!(Instant::now() < deadline, "handshake timed out");
             for event in network_handle.try_recv_events() {
                 match event {
-                    Event::Welcome { tick_hz, assigned_entity_id } => {
+                    Event::Welcome {
+                        tick_hz,
+                        assigned_entity_id,
+                    } => {
                         break 'handshake (tick_hz, assigned_entity_id);
                     }
                     Event::Rejected { reason } => {
@@ -132,6 +165,7 @@ impl Replica {
         let mut world = PresentationWorld::default();
         let mut prediction = PredictionState::new(self.assigned_entity_id);
         let mut clock_sync = ClockSync::new(tick_hz, Instant::now(), self.clock_estimate.clone());
+        let mut snapshot_ack = SnapshotAck::new();
 
         let handle = std::thread::Builder::new()
         .name("blackflower-runtime::tick".to_owned())
@@ -143,10 +177,12 @@ impl Replica {
 
                 let mut latest_ack: Option<Tick> = None;
                 tick_network_handle.try_recv_snapshots().for_each(|snapshot| {
-                    world.apply(&snapshot.world, Tick::from(snapshot.tick));
+                    let snap_tick = Tick::from(snapshot.tick);
+                    world.apply_delta(&snapshot, snap_tick);
                     let ack = Tick::from(snapshot.ack);
                     latest_ack = Some(latest_ack.map_or(ack, |cur| cur.max(ack)));
-                    clock_sync.seed_from_snapshot(Tick::from(snapshot.tick), now);
+                    snapshot_ack.record(snapshot.tick);
+                    clock_sync.seed_from_snapshot(snap_tick, now);
                 });
 
                 tick_network_handle.try_recv_events().for_each(|event| match event {
@@ -165,9 +201,9 @@ impl Replica {
                     tick_network_handle.try_send_request(clock_sync.make_ping(now));
                 }
 
-                let command = tick_input_handle.command(tick);
+                let input_cmd = tick_input_handle.command(tick);
                 if tick.as_u64() % tick_hz == 0 {
-                    debug!(tick = %tick, buttons = ?InputButtons::from_bits(command.buttons).unwrap_or_default(), "input command");
+                    debug!(tick = %tick, buttons = ?InputButtons::from_bits(input_cmd.buttons).unwrap_or_default(), "input command");
                 }
 
                 #[allow(clippy::excessive_nesting)]
@@ -178,14 +214,18 @@ impl Replica {
                         prediction.reconcile(authoritative, ack, dt);
                     }
 
-                    let buttons = InputButtons::from_bits(command.buttons).unwrap_or_default();
+                    let buttons = InputButtons::from_bits(input_cmd.buttons).unwrap_or_default();
                     let seed = world.transform_of(local);
                     if let Some(predicted) = prediction.predict(tick, buttons, seed, dt) {
                         world.set_transform(local, predicted);
                     }
                 }
 
-                tick_network_handle.try_send_command(command);
+                tick_network_handle.try_send_command(Command {
+                    snapshot_ack_tick: snapshot_ack.ack_tick,
+                    snapshot_ack_bits: snapshot_ack.bits,
+                    ..input_cmd
+                });
 
                 let local = prediction
                     .local_player()
