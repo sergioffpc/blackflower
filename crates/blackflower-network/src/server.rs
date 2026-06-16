@@ -20,14 +20,22 @@ struct Addressed<M>(ConnectionId, M);
 pub struct ServerHandle<C, S, R, E> {
     command_rx: crossbeam_channel::Receiver<(ConnectionId, C)>,
     snapshot_tx: crossbeam_channel::Sender<Addressed<S>>,
+
     request_rx: crossbeam_channel::Receiver<(ConnectionId, R)>,
     event_tx: crossbeam_channel::Sender<Addressed<E>>,
+
+    connect_rx: crossbeam_channel::Receiver<ConnectionId>,
     disconnect_rx: crossbeam_channel::Receiver<ConnectionId>,
+
     shutdown_tx: Option<oneshot::Sender<()>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
 impl<C, S, R, E> ServerHandle<C, S, R, E> {
+    pub fn try_recv_connects(&self) -> impl Iterator<Item = ConnectionId> + '_ {
+        self.connect_rx.try_iter()
+    }
+
     pub fn try_send_snapshot_to(&self, client_id: ConnectionId, snapshot: S) {
         match self.snapshot_tx.try_send(Addressed(client_id, snapshot)) {
             Ok(()) => {}
@@ -120,11 +128,12 @@ where
     let (snapshot_tx, snapshot_rx) = crossbeam_channel::bounded(SNAPSHOT_QUEUE_CAPACITY);
     let (request_tx, request_rx) = crossbeam_channel::unbounded();
     let (event_tx, event_rx) = crossbeam_channel::unbounded::<Addressed<E>>();
+    let (connect_tx, connect_rx) = crossbeam_channel::unbounded::<ConnectionId>();
     let (disconnect_tx, disconnect_rx) = crossbeam_channel::unbounded::<ConnectionId>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let join_handle = std::thread::Builder::new()
-        .name("blackflower-net::server".to_owned())
+        .name("blackflower-network::server".to_owned())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -147,6 +156,10 @@ where
                             ep,
                             delay,
                             ServerChannels {
+                                control: Arc::new(ControlChannels {
+                                    connect_tx,
+                                    disconnect_tx,
+                                }),
                                 incoming: Arc::new(IncomingChannels {
                                     command_tx,
                                     request_tx,
@@ -155,7 +168,6 @@ where
                                     snapshot_rx,
                                     event_rx,
                                 },
-                                disconnect_tx,
                             },
                             shutdown_rx,
                         )
@@ -170,6 +182,7 @@ where
         .context("spawning network server thread")?;
 
     Ok(ServerHandle {
+        connect_rx,
         command_rx,
         snapshot_tx,
         request_rx,
@@ -181,9 +194,9 @@ where
 }
 
 struct ServerChannels<C, S, R, E> {
+    control: Arc<ControlChannels>,
     incoming: Arc<IncomingChannels<C, R>>,
     outgoing: OutgoingChannels<S, E>,
-    disconnect_tx: crossbeam_channel::Sender<ConnectionId>,
 }
 
 struct IncomingChannels<C, R> {
@@ -194,6 +207,11 @@ struct IncomingChannels<C, R> {
 struct OutgoingChannels<S, E> {
     snapshot_rx: crossbeam_channel::Receiver<Addressed<S>>,
     event_rx: crossbeam_channel::Receiver<Addressed<E>>,
+}
+
+struct ControlChannels {
+    connect_tx: crossbeam_channel::Sender<ConnectionId>,
+    disconnect_tx: crossbeam_channel::Sender<ConnectionId>,
 }
 
 async fn accept_loop<C, S, R, E>(
@@ -207,10 +225,10 @@ async fn accept_loop<C, S, R, E>(
     R: Send + DeserializeOwned + 'static,
     E: Clone + Send + Sync + Serialize + 'static,
 {
-    let connections = Arc::new(Connections::new());
+    let conns = Arc::new(Connections::new());
 
     let snapshot_rx = chans.outgoing.snapshot_rx;
-    let conn_for_snapshots = Arc::clone(&connections);
+    let conn_for_snapshots = Arc::clone(&conns);
     tokio::task::spawn_blocking(move || {
         while let Ok(Addressed(client_id, snapshot)) = snapshot_rx.recv() {
             conn_for_snapshots.try_send_snapshot_to(client_id, snapshot);
@@ -219,7 +237,7 @@ async fn accept_loop<C, S, R, E>(
     });
 
     let event_rx = chans.outgoing.event_rx;
-    let conn_for_events = Arc::clone(&connections);
+    let conn_for_events = Arc::clone(&conns);
     tokio::task::spawn_blocking(move || {
         while let Ok(Addressed(client_id, event)) = event_rx.recv() {
             conn_for_events.try_send_event_to(client_id, event);
@@ -234,7 +252,7 @@ async fn accept_loop<C, S, R, E>(
             info!("shutdown signal received; closing endpoint");
             endpoint.close(0_u32.into(), b"shut down");
         }
-        () = incoming_loop(&endpoint, delay, connections, chans.incoming, chans.disconnect_tx) => {}
+        () = incoming_loop(&endpoint, delay, conns, chans.control, chans.incoming) => {}
     }
 
     endpoint.wait_idle().await;
@@ -243,9 +261,9 @@ async fn accept_loop<C, S, R, E>(
 async fn incoming_loop<C, S, R, E>(
     endpoint: &Endpoint,
     delay: DelayConfig,
-    connections: Arc<Connections<S, E>>,
-    channels: Arc<IncomingChannels<C, R>>,
-    disconnect_tx: crossbeam_channel::Sender<ConnectionId>,
+    conns: Arc<Connections<S, E>>,
+    control_chans: Arc<ControlChannels>,
+    incoming_chans: Arc<IncomingChannels<C, R>>,
 ) where
     C: Send + Sync + DeserializeOwned + 'static,
     S: Clone + Send + Sync + Serialize + 'static,
@@ -257,23 +275,23 @@ async fn incoming_loop<C, S, R, E>(
             info!("endpoint closed; exiting accept loop");
             break;
         };
-        let connections = Arc::clone(&connections);
-        let channels = channels.clone();
-        let disconnect_tx = disconnect_tx.clone();
+        let conns = conns.clone();
+        let incoming_chans = incoming_chans.clone();
+        let control_chans = control_chans.clone();
         tokio::spawn(async move {
             match Connection::new(incoming, delay).await {
-                Ok(mut connection) => {
-                    let client_id = connections.insert(&connection).await;
-                    connection
-                        .connection_loop(
-                            client_id,
-                            channels.command_tx.clone(),
-                            channels.request_tx.clone(),
-                        )
-                        .await;
-                    connections.remove(&client_id).await;
-                    disconnect_tx.send(client_id).ok();
-                    tokio::time::timeout(Duration::from_secs(5), connection.wait_for_close())
+                Ok(mut conn) => {
+                    let client_id = conns.insert(&conn).await;
+                    control_chans.connect_tx.send(client_id).ok();
+                    conn.connection_loop(
+                        client_id,
+                        incoming_chans.command_tx.clone(),
+                        incoming_chans.request_tx.clone(),
+                    )
+                    .await;
+                    conns.remove(&client_id).await;
+                    control_chans.disconnect_tx.send(client_id).ok();
+                    tokio::time::timeout(Duration::from_secs(5), conn.wait_for_close())
                         .await
                         .ok();
                 }
