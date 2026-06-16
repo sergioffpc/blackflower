@@ -10,6 +10,9 @@ struct Args {
     #[arg(long, default_value_t = 60)]
     tick_hz: u64,
 
+    #[arg(long, default_value_t = 64)]
+    max_clients: usize,
+
     #[arg(long, default_value = "0.0.0.0:3512")]
     bind_addr: SocketAddr,
 
@@ -30,6 +33,7 @@ fn main() -> anyhow::Result<()> {
 
     let authority_config = AuthorityConfig {
         tick_hz: args.tick_hz,
+        max_clients: args.max_clients,
         latency_ms: args.fake_latency_ms,
         jitter_ms: args.fake_jitter_ms,
     };

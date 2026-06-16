@@ -17,7 +17,7 @@ use blackflower_network::{
     client::{self, ClientHandle},
     delay::DelayConfig,
 };
-use blackflower_protocol::{Command, Event, Request, Snapshot};
+use blackflower_protocol::{Command, Event, Request, Snapshot, PROTOCOL_VERSION};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::presentation::{
     EntityState, PresentationState, PresentationWorld, interpolate,
@@ -76,14 +76,23 @@ impl Replica {
         let network_handle =
             Arc::new(client::connect(addr, delay).context("connecting to server")?);
 
-        network_handle.try_send_request(Request::Hello);
-        let (tick_hz, assigned_entity_id) = loop {
-            if let Some(Event::Welcome {
-                tick_hz,
-                assigned_entity_id,
-            }) = network_handle.try_recv_events().next()
-            {
-                break (tick_hz, assigned_entity_id);
+        network_handle.try_send_request(Request::Hello {
+            protocol_version: PROTOCOL_VERSION,
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (tick_hz, assigned_entity_id) = 'handshake: loop {
+            anyhow::ensure!(Instant::now() < deadline, "handshake timed out");
+            for event in network_handle.try_recv_events() {
+                match event {
+                    Event::Welcome { tick_hz, assigned_entity_id } => {
+                        break 'handshake (tick_hz, assigned_entity_id);
+                    }
+                    Event::Rejected { reason } => {
+                        anyhow::bail!("connection rejected by server: {reason:?}");
+                    }
+                    Event::Pong { .. } => {}
+                }
             }
             std::thread::sleep(Duration::from_millis(5));
         };
@@ -146,6 +155,9 @@ impl Replica {
                     }
                     Event::Welcome { .. } => {
                         warn!("spurious Welcome in tick thread — ignored");
+                    }
+                    Event::Rejected { .. } => {
+                        warn!("spurious Rejected in tick thread — ignored");
                     }
                 });
 

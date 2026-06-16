@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const PROTOCOL_VERSION: u32 = 1;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Command {
     pub tick: u64,
@@ -26,8 +28,14 @@ pub struct EntitySnapshot {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum RejectReason {
+    VersionMismatch { server_version: u32 },
+    ServerFull,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Hello,
+    Hello { protocol_version: u32 },
     Ping { client_send_ns: u64 },
 }
 
@@ -36,6 +44,9 @@ pub enum Event {
     Welcome {
         tick_hz: u64,
         assigned_entity_id: u64,
+    },
+    Rejected {
+        reason: RejectReason,
     },
     Pong {
         client_send_ns: u64,

@@ -6,7 +6,7 @@ use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
 use blackflower_physics::components::Velocity;
-use blackflower_protocol::{Command, Event, Request, Snapshot};
+use blackflower_protocol::{Command, Event, RejectReason, Request, Snapshot, PROTOCOL_VERSION};
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::simulation::SimulationWorld;
 use hashbrown::HashMap;
@@ -19,6 +19,7 @@ use tracing::{debug, error, info};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AuthorityConfig {
     pub tick_hz: u64,
+    pub max_clients: usize,
     pub latency_ms: u64,
     pub jitter_ms: u64,
 }
@@ -31,6 +32,7 @@ struct Slot {
 pub struct Authority {
     world: SimulationWorld,
     tick_hz: u64,
+    max_clients: usize,
     slots: HashMap<ConnectionId, Slot>,
 
     network_handle: ServerHandle<Command, Snapshot, Request, Event>,
@@ -50,6 +52,7 @@ impl Authority {
         Ok(Self {
             world,
             tick_hz: config.tick_hz,
+            max_clients: config.max_clients,
             slots: HashMap::new(),
 
             network_handle,
@@ -125,7 +128,27 @@ impl Authority {
 
     fn on_request(&mut self, conn_id: ConnectionId, request: &Request, tick: Tick) {
         match request {
-            Request::Hello => {
+            Request::Hello { protocol_version } => {
+                if *protocol_version != PROTOCOL_VERSION {
+                    self.network_handle.try_send_event_to(
+                        conn_id,
+                        Event::Rejected {
+                            reason: RejectReason::VersionMismatch {
+                                server_version: PROTOCOL_VERSION,
+                            },
+                        },
+                    );
+                    return;
+                }
+                if !self.slots.contains_key(&conn_id) && self.slots.len() >= self.max_clients {
+                    self.network_handle.try_send_event_to(
+                        conn_id,
+                        Event::Rejected {
+                            reason: RejectReason::ServerFull,
+                        },
+                    );
+                    return;
+                }
                 let assigned_entity_id = if let Some(slot) = self.slots.get(&conn_id) {
                     slot.entity
                 } else {
