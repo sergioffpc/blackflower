@@ -76,7 +76,7 @@ The processes that run in production and how they communicate.
 - **SimulationWorld** — `hecs`-backed ECS; `EntityIdAllocator` issues monotonic IDs (never reused).
 - **Command pipeline** — drains one `Command` per client per tick; applies `apply_player_movement()`; records `last_processed[client]`.
 - **Snapshot builder** — every tick, iterates all `Transform` components; builds `Snapshot { tick, ack: last_processed[client], entities }` and sends as datagram.
-- **Session management** — `client_entities: HashMap<ClientId, EntityId>` and `last_processed: HashMap<ClientId, Tick>`; `Hello` request spawns entity, disconnect despawns it.
+- **Session management** — `conn_entities: HashMap<ConnectionId, EntityId>` and `last_processed: HashMap<ConnectionId, Tick>`; `Hello` request spawns entity, disconnect despawns it.
 - **Physics** — `integrate_movement()` applied per tick to `(Transform, Velocity)` pairs.
 
 **Not yet implemented:**
@@ -202,14 +202,15 @@ blackflower-gameplay → input, math
 blackflower-physics  → math
 blackflower-tick
 blackflower-world    → entity, protocol, tick
-blackflower-prediction → gameplay, input, math, entity, tick
+blackflower-authority → world, network, protocol, tick, physics, gameplay, input, entity
+blackflower-replica  → world, network, protocol, tick, gameplay, input, entity
 blackflower-network  → protocol, tick
 blackflower-graphics → math, entity
 blackflower-window
 blackflower-audio    (stub)
 
-blackflowerd → world, network, protocol, tick, physics, gameplay, input, entity
-blackflowerc → world, network, protocol, tick, prediction, input, graphics, window, entity, audio
+blackflowerd → authority, network, protocol, tick, physics, gameplay, input, entity
+blackflowerc → replica, world, network, protocol, tick, input, graphics, window, entity, audio
 ```
 
 ### ADR 0008 — Math: IEEE float throughout; fixed-point deferred
@@ -218,7 +219,7 @@ blackflowerc → world, network, protocol, tick, prediction, input, graphics, wi
 
 **Rationale:** avoids holding development velocity hostage to determinism work where it doesn't yet matter. Clear boundary between wire and simulation types allows migration later.
 
-**Status: implemented (IEEE float in use).** Fixed-point encoding is planned for M3 when quantized delta snapshots replace full-float snapshots. `Transform` is `#[repr(C)]` in preparation.
+**Status: implemented (IEEE float in use).** Fixed-point encoding is deferred — no longer tied to M3. `Transform` is `#[repr(C)]` in preparation for a future migration if quantized delta snapshots are ever adopted.
 
 ### ADR 0016 — ECS: hecs (not bevy_ecs)
 
@@ -305,14 +306,14 @@ Simplified relative to the full state machine design; implemented states:
 
 ```
 Client connects (QUIC handshake)
-  → server accepts connection, allocates ClientId
+  → server accepts connection, allocates ConnectionId
   → client sends Request::Hello
   → server spawns entity, sends Event::Welcome { assigned_entity }
   → client sets local player, begins prediction
 
 Client disconnects / connection drops
   → server receives disconnect notification
-  → server despawns entity, removes from client_entities map
+  → server despawns entity, removes from conn_entities map
 ```
 
 **Not yet implemented:** reconnect / zombie slots, authentication, lobby, match state machine.
@@ -321,7 +322,7 @@ Client disconnects / connection drops
 
 **Decision:** each slot state is a variant of a typed enum with typed payload. Invalid transitions don't compile.
 
-**Status: planned.** Current implementation uses `HashMap<ClientId, EntityId>`. Full slot state machine (`Free` → `Handshake` → `Playing` → `Zombie`) is deferred to M3.
+**Status: planned.** Current implementation uses `HashMap<ConnectionId, EntityId>`. Full slot state machine (`Free` → `Handshake` → `Playing` → `Zombie`) is deferred to M3.
 
 ---
 
@@ -344,7 +345,8 @@ blackflower/
 │   ├── blackflower-math/           # glam re-export, Transform component
 │   ├── blackflower-network/        # QUIC transport, ServerHandle, ClientHandle
 │   ├── blackflower-physics/        # Velocity component, integrate_movement
-│   ├── blackflower-prediction/     # PredictionState, rollback-replay
+│   ├── blackflower-authority/      # server-side authority loop, session management
+│   ├── blackflower-replica/        # client tick loop, PredictionState, ClockSync
 │   ├── blackflower-protocol/       # Command, Snapshot, Request, Event
 │   ├── blackflower-tick/           # Tick, TickScheduler
 │   ├── blackflower-window/         # winit wrapper, WindowHandler trait
@@ -395,7 +397,7 @@ blackflower/
 - **Replay/demo system** — possibly "free" if snapshots are persisted; ADR in M3.
 - **Spectator mode** — sub-case of replay.
 - **In-game voice chat** — out of scope until M7.
-- **Fixed-point quantization** — deferred to M3 (snapshot delta redesign).
+- **Fixed-point quantization** — deferred indefinitely; revisit if bandwidth becomes a bottleneck.
 
 ---
 

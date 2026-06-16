@@ -47,7 +47,8 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-math` — `glam` re-export + `Transform { translation: Vec3, rotation: Quat }`
 - `crates/blackflower-network` — QUIC transport layer (quinn); `ClientHandle`, `ServerHandle`, wire codec
 - `crates/blackflower-physics` — `Velocity` component, `integrate_movement` system
-- `crates/blackflower-prediction` — client-side prediction with rollback-replay reconciliation
+- `crates/blackflower-authority` — server-side authority loop, session management (`conn_entities`, `last_processed`)
+- `crates/blackflower-replica` — client tick loop, `PredictionState` (rollback-replay), `ClockSync` (NTP clock estimation)
 - `crates/blackflower-protocol` — wire message types shared by client and server
 - `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
 - `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots)
@@ -73,7 +74,7 @@ Three threads, no mutexes on the hot path:
 
 The tick thread publishes render-ready state via `Arc<ArcSwap<Box<[(EntityId, Transform)]>>>`. The main thread calls `framebuffer.load()` — a lock-free atomic load. Neither thread ever blocks the other.
 
-### Client-side prediction (blackflower-prediction)
+### Client-side prediction (blackflower-replica)
 
 `PredictionState` keeps a ring buffer of 128 `HistoryEntry { tick, buttons, transform }` (~2 s at 60 Hz). Each tick:
 
