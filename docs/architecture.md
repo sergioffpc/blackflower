@@ -2,7 +2,7 @@
 
 Living architecture document for the engine. Quake 2-style (authoritative client/server), with modern advances: archetype-based ECS, QUIC transport, client-side prediction + reconciliation.
 
-**Status:** Active development — M2.5 implemented (foundations, ECS, QUIC networking, client-side prediction with rollback-replay). See [roadmap](#implementation-roadmap) for milestone status.
+**Status:** Active development — M3 implemented (foundations, ECS, QUIC networking, client-side prediction, slot state machine, handshake validation, delta snapshots with ack bitfield, remote interpolation). See [roadmap](#implementation-roadmap) for milestone status.
 **Audience:** author + future contributors.
 **Convention:** each section ends with decisions recorded as embedded ADRs. `**Status: implemented**` means the decision is live in code; `**Status: planned**` means it is a design commitment not yet coded. When a decision is extracted to its own file, it moves to `docs/adr/NNNN-title.md`.
 
@@ -43,7 +43,7 @@ The actors and external systems the engine interacts with.
 
 **Consequences:** snapshot-based networking, client-side prediction, lag-comp via rewind in history buffer, no area-of-interest.
 
-**Status: partially implemented.** Tick scheduler and QUIC broadcast support the scale target. Snapshot is full-world (no delta compression or lag-comp yet — see roadmap M3/M4).
+**Status: partially implemented.** Tick scheduler and QUIC broadcast support the scale target. Delta snapshot compression (M3) is implemented; lag-comp via history-buffer rewind is planned for M4.
 
 ---
 
@@ -127,15 +127,20 @@ The processes that run in production and how they communicate.
 3. Snapshot sent after physics integrate (world is fully committed).
 4. Send is N parallel sends via per-client tokio channels; slow clients drop packets, others unaffected.
 
-**Actual per-tick work (current, unoptimized):**
+**Actual per-tick work (current):**
 
 ```
-1. try_recv_requests()      — accept Hello, spawn entity, send Welcome
-2. try_recv_commands()      — apply_player_movement() per client
-3. try_recv_disconnects()   — despawn entity
-4. integrate_movement()     — Euler integrate all (Transform, Velocity)
-5. snapshot(tick, ack)      — iterate all Transforms, build Snapshot
-6. try_send_snapshot_to()   — enqueue to per-client channel
+1. try_recv_connects()      — insert SlotState::Handshake
+2. try_recv_requests()      — Hello: Handshake→Playing (version + capacity check)
+                            — Ping: send Pong (NTP clock sync)
+3. try_recv_commands()      — apply_player_movement() per Playing client
+                            — update baseline_tick from snapshot ack bitfield
+4. try_recv_disconnects()   — Playing→Zombie (entity held 5 s)
+5. expire_zombies()         — despawn entities past TTL, remove slot
+6. integrate_movement()     — Euler integrate all (Transform, Velocity)
+7. world.snapshot()         — iterate Transforms, build WorldSnapshot, insert into ring
+8. build_delta()            — per Playing client: delta vs baseline or full snapshot
+9. try_send_snapshot_to()   — enqueue WorldDelta to per-client channel
 ```
 
 ---
@@ -179,7 +184,7 @@ The processes that run in production and how they communicate.
 
 **Rationale:** decouples simulation rate from frame rate. Render never blocks on network I/O; tick never blocks on GPU.
 
-**Status: implemented.** See `bins/blackflowerc/src/main.rs`. Interpolation between the two latest ticks (render at variable rate) is planned for M3.
+**Status: implemented.** See `bins/blackflowerc/src/main.rs`. `PresentationWorld` maintains up to 8 `TransformSample` entries per entity; `resolve()` in `Replica` computes a clock-estimated target tick and calls `interpolate()` with a 2-tick delay buffer.
 
 ---
 
@@ -244,41 +249,51 @@ All messages are serialized with `postcard` (compact binary, little-endian, no s
 **Command** (client → server, unreliable datagram):
 
 ```
-tick:    u64   (8 bytes)
-buttons: u64   (8 bytes, InputButtons bitfield)
-─────────────────────────────
-                ~16 bytes per command
+tick:              u64   (8 bytes)
+buttons:           u64   (8 bytes, InputButtons bitfield)
+snapshot_ack_tick: u64   (8 bytes — reference tick for ack window)
+snapshot_ack_bits: u32   (4 bytes — bit i set = received tick ack_tick−i)
+─────────────────────────────────────────────────────────────────────
+                          ~28 bytes per command
 ```
 
-**Snapshot** (server → client, unreliable datagram):
+**WorldDelta** (server → client, unreliable datagram):
 
 ```
-tick:     u64               (8 bytes)
-ack:      u64               (8 bytes — highest client tick server processed)
-entities: [EntitySnapshot]  (varint count + N entries)
+tick:     u64             (8 bytes)
+ack:      u64             (8 bytes — highest client command tick processed)
+baseline: u64             (8 bytes — 0 = full snapshot; N = delta vs tick N)
+removed:  [u64]           (varint count + removed entity IDs × 8 bytes)
+entities: [EntityDelta]   (varint count + N entries)
 
-EntitySnapshot:
-  id:          u64         (8 bytes)
-  translation: [f32; 3]    (12 bytes)
-  rotation:    [f32; 4]    (16 bytes)
-─────────────────────────────────────
-                ~16 + N × 36 bytes per snapshot
+EntityDelta:
+  id:          u64                 (8 bytes)
+  translation: Option<[f32; 3]>   (1 + 12 bytes if present, 1 byte if absent)
+  rotation:    Option<[f32; 4]>   (1 + 16 bytes if present, 1 byte if absent)
+─────────────────────────────────────────────────────────────────────
+Full snapshot:  ~24 + N × 30 bytes
+Delta snapshot: ~24 + removed × 8 + changed × 2–30 bytes (only dirty fields)
 ```
+
+Server keeps last 32 `WorldSnapshot`s in `SnapshotRing` (indexed by `tick % 32`).
+Change detection uses `f32::to_bits()` (bit-exact, handles −0/NaN correctly).
 
 **Control messages** (QUIC stream, COBS-framed, zero-terminated):
 
 ```
-Request::Hello          (client → server, ~1 byte)
-Event::Welcome { assigned_entity: u64 }   (server → client, ~9 bytes)
+Request::Hello { protocol_version: u32 }           (client → server, ~5 bytes)
+Request::Ping  { client_send_ns: u64 }             (client → server, ~9 bytes)
+Event::Welcome { tick_hz: u64, assigned_entity_id: u64 }  (server → client, ~17 bytes)
+Event::Rejected { reason: RejectReason }           (server → client, ~2–9 bytes)
+Event::Pong    { client_send_ns: u64, server_tick: u64 }  (server → client, ~17 bytes)
 ```
 
-**Current bandwidth (unoptimized, full snapshots):**
+**Bandwidth (post M3 delta compression, static-world baseline):**
 
-- Snapshot @ 64 entities: ≈ 2.3 KB
-- Downstream per client @ 60 Hz: ≈ 138 KB/s
-- 64-client server downstream: ≈ 8.8 MB/s
-
-*Target bandwidth after delta compression + quantization (M3): ~30–60 KB/s downstream per client, ~2–4 MB/s total.*
+- Full snapshot @ 64 entities: ≈ 1.9 KB
+- Delta snapshot (typical active match): ≈ 50–400 bytes depending on movement
+- Downstream per client @ 60 Hz (active): ≈ 3–24 KB/s
+- Quantization deferred indefinitely (see ADR 0008)
 
 ### ADR 0009 — Transport: QUIC datagrams (hot) + QUIC streams (bulk)
 
@@ -306,23 +321,26 @@ Simplified relative to the full state machine design; implemented states:
 
 ```
 Client connects (QUIC handshake)
-  → server accepts connection, allocates ConnectionId
-  → client sends Request::Hello
-  → server spawns entity, sends Event::Welcome { assigned_entity }
-  → client sets local player, begins prediction
+  → server: SlotState::Handshake inserted
+  → client sends Request::Hello { protocol_version }
+  → server: version check, capacity check
+      ✗ mismatch → Event::Rejected { VersionMismatch | ServerFull }
+      ✓ ok       → entity spawned, SlotState::Playing, Event::Welcome { tick_hz, assigned_entity_id }
+  → client: begins prediction, tick loop starts
 
 Client disconnects / connection drops
-  → server receives disconnect notification
-  → server despawns entity, removes from conn_entities map
+  → server: SlotState::Zombie { entity, until: tick + 5 s }
+  → entity stays in world (visible to others) during zombie window
+  → zombie TTL expires → entity despawned, slot removed
 ```
 
-**Not yet implemented:** reconnect / zombie slots, authentication, lobby, match state machine.
+**Not yet implemented:** identity-based reconnect (requires auth token in Hello), authentication, lobby, match state machine.
 
 ### ADR 0011 — Slot state machine as typed enum
 
 **Decision:** each slot state is a variant of a typed enum with typed payload. Invalid transitions don't compile.
 
-**Status: planned.** Current implementation uses `HashMap<ConnectionId, EntityId>`. Full slot state machine (`Free` → `Handshake` → `Playing` → `Zombie`) is deferred to M3.
+**Status: implemented.** `blackflower-authority` uses `HashMap<ConnectionId, SlotState>` where `SlotState` is a typed enum. Transitions: QUIC connect → `Handshake`; validated `Hello` → `Playing`; disconnect → `Zombie` (5 s TTL); TTL expiry → entity despawned, slot removed. `Free` is implicit (absent from the map). Commands and snapshot broadcasts only reach `Playing` slots.
 
 ---
 
@@ -381,7 +399,7 @@ blackflower/
 | M0 | Workspace, CI, core skeletons, math, logging | `cargo test` passes, empty binaries | **done** |
 | M1 | ECS, tick scheduler, QUIC echo, raw snapshots, window + render | Server has cube; client sees it move | **done** |
 | M2 | Input → command → wire, local sim + rollback reconciliation | WASD moves cube; prediction visible at 100 ms simulated lag | **done** |
-| M3 | Slot state machine, handshake, snapshot delta + ack bitfield, remote interpolation | 4 clients see each other, smooth movement | in progress |
+| M3 | Slot state machine, handshake, snapshot delta + ack bitfield, remote interpolation | 4 clients see each other, smooth movement | **done** |
 | M4 | Physics, collision, minimal asset pipeline, hit-detection with lag-comp | Box arena, 8 players, hits with rewind | planned |
 | M5 | Hot-reload cdylib, audio, basic editor | Textured arena with audio; edit .scene → live update | planned |
 | M6 | 64 players, telemetry, k8s deploy, anti-cheat hooks, optimization | Full 64-player match in production | planned |

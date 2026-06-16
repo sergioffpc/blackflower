@@ -8,8 +8,11 @@ Quake 2-style architecture, modernized: archetype ECS (`hecs`), QUIC transport
 
 ## Status
 
-Active development — foundations, networking, ECS, and client-side prediction
-are implemented. See [`docs/architecture.md`](docs/architecture.md) for the
+Active development — M3 complete. Implemented: authoritative server, QUIC
+networking, ECS, client-side prediction with rollback-replay, slot state
+machine (Handshake → Playing → Zombie), protocol version handshake, delta
+snapshot compression with per-client ack bitfield, and remote entity
+interpolation. See [`docs/architecture.md`](docs/architecture.md) for the
 full design and milestone roadmap.
 
 ## Build
@@ -42,6 +45,7 @@ bins/
   blackflowerd/   dedicated server
   blackflowerc/   game client (winit + wgpu)
 crates/
+  blackflower-authority   server tick loop, SlotState machine, delta broadcast
   blackflower-entity      stable EntityId (u64, 0 = NONE)
   blackflower-gameplay    pure simulation functions (shared by client + server)
   blackflower-graphics    wgpu renderer
@@ -49,8 +53,8 @@ crates/
   blackflower-math        glam re-export + Transform component
   blackflower-network     QUIC transport (quinn), ServerHandle / ClientHandle
   blackflower-physics     Velocity component, integrate_movement system
-  blackflower-prediction  rollback-replay reconciliation, PredictionState
-  blackflower-protocol    wire types: Command, Snapshot, Request, Event
+  blackflower-protocol    wire types: Command, WorldDelta, Request, Event
+  blackflower-replica     client tick loop, prediction + reconciliation, ClockSync
   blackflower-tick        Tick counter, TickScheduler (configurable Hz)
   blackflower-world       SimulationWorld (server ECS), PresentationWorld (client)
   blackflower-audio       stub (kira wired, no logic yet)
