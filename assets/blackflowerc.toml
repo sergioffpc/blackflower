@@ -1,6 +1,12 @@
 # Blackflower client configuration.
 # Path passed via `--config` (defaults to ./assets/blackflowerc.toml).
 
+# Window dimensions (pixels). Either field may be omitted to use its default
+# (1280 x 720); the whole table may be omitted too.
+[window]
+width = 1280
+height = 720
+
 # Input bindings: physical key -> action.
 # The action must name an `InputButtons` flag (case-insensitive):
 # forward, backward, left, right, fire.

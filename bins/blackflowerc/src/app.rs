@@ -22,12 +22,6 @@ pub struct Args {
     #[arg(long, default_value = "assets/blackflowerc.toml")]
     config_path: PathBuf,
 
-    #[arg(long, default_value_t = 1280)]
-    width: u32,
-
-    #[arg(long, default_value_t = 720)]
-    height: u32,
-
     #[arg(long, default_value = "127.0.0.1:3512")]
     server_addr: SocketAddr,
 
@@ -48,13 +42,35 @@ pub fn run_app(args: Args) -> anyhow::Result<()> {
 
     let config = Config::load(args.config_path)?;
     let app = Arc::new(Mutex::new(App::new(&config, replica)?));
-    blackflower_window::start(args.width, args.height, app)
+    blackflower_window::start(config.window.width, config.window.height, app)
 }
+
+const DEFAULT_WIDTH: u32 = 1280;
+const DEFAULT_HEIGHT: u32 = 720;
 
 #[derive(Debug, Deserialize)]
 struct Config {
+    /// Window dimensions; omitted fields fall back to defaults.
+    #[serde(default)]
+    window: WindowConfig,
     /// Physical key name (as emitted by the window layer) → action name.
     bindings: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct WindowConfig {
+    width: u32,
+    height: u32,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+        }
+    }
 }
 
 impl Config {
