@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use blackflower_protocol::Command;
-use blackflower_tick::Tick;
+use blackflower_time::Tick;
 
 use crate::components::InputButtons;
 

@@ -63,7 +63,7 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-authority` — server-side authority loop, `SlotState` machine (`Handshake → Playing → Zombie`), delta snapshot broadcast
 - `crates/blackflower-replica` — client tick loop, `PredictionState` (rollback-replay), `ClockSync` (NTP clock estimation), `SnapshotAck` (sliding-window ack bitfield)
 - `crates/blackflower-protocol` — wire message types shared by client and server
-- `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
+- `crates/blackflower-time` — `Tick` counter, `TickScheduler` (configurable Hz)
 - `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (entity-based map: `Arena { id, entities }` from `assets/maps/*.ron`, `MapEntity { classname, props }`; derives solid `Aabb`s and spawn points by classname — collision itself lives in `blackflower-physics`)
 
 ### Configuration
@@ -147,7 +147,7 @@ Deltas are intentionally lossy — an older delta is worthless once a newer one 
 
 **Dev certs:** `cert.rs` generates self-signed certs; `SkipServerVerification` skips TLS verification. Not for production.
 
-### Timing (blackflower-tick)
+### Timing (blackflower-time)
 
 - `Tick` — newtype `u64`, monotonically increasing simulation step counter
 - `TickScheduler::start(tick_hz, cb)` — runtime-configurable rate; `dt_secs()` returns `1.0 / tick_hz`; logs overruns as warnings

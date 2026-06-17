@@ -13,7 +13,7 @@ members = [
   "crates/blackflower-physics",
   "crates/blackflower-protocol",
   "crates/blackflower-replica",
-  "crates/blackflower-tick",
+  "crates/blackflower-time",
   "crates/blackflower-window",
   "crates/blackflower-world",
 ]
@@ -39,7 +39,7 @@ blackflower-network = { path = "crates/blackflower-network" }
 blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-protocol = { path = "crates/blackflower-protocol" }
 blackflower-replica = { path = "crates/blackflower-replica" }
-blackflower-tick = { path = "crates/blackflower-tick" }
+blackflower-time = { path = "crates/blackflower-time" }
 blackflower-window = { path = "crates/blackflower-window" }
 blackflower-world = { path = "crates/blackflower-world" }
 

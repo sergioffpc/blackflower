@@ -338,9 +338,9 @@ blackflower-protocol
 blackflower-input   → math
 blackflower-gameplay → input, math
 blackflower-physics  → math
-blackflower-tick
-blackflower-world    → entity, protocol, tick
-blackflower-authority → world, network, protocol, tick, physics, gameplay, input, entity
+blackflower-time
+blackflower-world    → entity, protocol, time
+blackflower-authority → world, network, protocol, time, physics, gameplay, input, entity
 blackflower-replica  → world, network, protocol, tick, gameplay, input, entity
 blackflower-network  → protocol, tick
 blackflower-graphics → math, entity
@@ -532,7 +532,7 @@ blackflower/
 │   ├── blackflower-authority/      # server-side authority loop, session management
 │   ├── blackflower-replica/        # client tick loop, PredictionState, ClockSync
 │   ├── blackflower-protocol/       # Command, Snapshot, Request, Event
-│   ├── blackflower-tick/           # Tick, TickScheduler
+│   ├── blackflower-time/           # Tick, TickScheduler
 │   ├── blackflower-window/         # winit wrapper, WindowHandler trait
 │   └── blackflower-world/          # SimulationWorld, PresentationWorld, EntityId, arena
 ├── plugins/

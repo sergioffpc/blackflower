@@ -13,7 +13,7 @@ use blackflower_protocol::{
     Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, Prop, RejectReason, Request,
     WorldDelta, WorldSnapshot,
 };
-use blackflower_tick::{Tick, TickScheduler};
+use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::EntityId;
 use blackflower_world::arena::{Arena, SpawnPoint};
 use blackflower_world::simulation::{EntityProps, SimulationWorld};

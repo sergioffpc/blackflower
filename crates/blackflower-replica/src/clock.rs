@@ -6,7 +6,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use blackflower_protocol::Request;
-use blackflower_tick::Tick;
+use blackflower_time::Tick;
 use hashbrown::HashMap;
 use tracing::debug;
 

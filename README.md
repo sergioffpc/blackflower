@@ -64,7 +64,7 @@ crates/
   blackflower-plugin      wasmtime host — loads WASM game-plugin component
   blackflower-protocol    wire types: Command, WorldDelta, Prop, Request, Event
   blackflower-replica     client tick loop, prediction + reconciliation, ClockSync
-  blackflower-tick        Tick counter, TickScheduler (configurable Hz)
+  blackflower-time        Tick counter, TickScheduler (configurable Hz)
   blackflower-world       SimulationWorld (server ECS), PresentationWorld (client)
   blackflower-audio       stub (kira wired, no logic yet)
 assets/

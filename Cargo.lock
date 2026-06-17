@@ -380,7 +380,7 @@ dependencies = [
  "blackflower-network",
  "blackflower-physics",
  "blackflower-protocol",
- "blackflower-tick",
+ "blackflower-time",
  "blackflower-world",
  "hashbrown 0.17.1",
  "tracing",
@@ -417,7 +417,7 @@ dependencies = [
  "bitflags 2.11.1",
  "blackflower-math",
  "blackflower-protocol",
- "blackflower-tick",
+ "blackflower-time",
  "serde",
 ]
 
@@ -475,14 +475,14 @@ dependencies = [
  "blackflower-math",
  "blackflower-network",
  "blackflower-protocol",
- "blackflower-tick",
+ "blackflower-time",
  "blackflower-world",
  "hashbrown 0.17.1",
  "tracing",
 ]
 
 [[package]]
-name = "blackflower-tick"
+name = "blackflower-time"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -507,7 +507,7 @@ dependencies = [
  "anyhow",
  "blackflower-math",
  "blackflower-protocol",
- "blackflower-tick",
+ "blackflower-time",
  "hashbrown 0.17.1",
  "hecs",
  "ron",

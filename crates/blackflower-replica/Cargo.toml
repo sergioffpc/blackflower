@@ -16,7 +16,7 @@ blackflower-input.workspace = true
 blackflower-math.workspace = true
 blackflower-network.workspace = true
 blackflower-protocol.workspace = true
-blackflower-tick.workspace = true
+blackflower-time.workspace = true
 blackflower-world.workspace = true
 
 anyhow.workspace = true

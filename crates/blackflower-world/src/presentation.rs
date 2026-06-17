@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use blackflower_math::{Quat, components::Transform};
 use blackflower_protocol::{EntityDelta, WorldDelta};
-use blackflower_tick::Tick;
+use blackflower_time::Tick;
 use hashbrown::HashMap;
 use hecs::{Entity, World};
 use tracing::{error, info, trace, warn};

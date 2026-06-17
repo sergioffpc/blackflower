@@ -17,7 +17,7 @@ use blackflower_network::{
     delay::DelayConfig,
 };
 use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, Request, WorldDelta};
-use blackflower_tick::{Tick, TickScheduler};
+use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::{
     EntityId,
     presentation::{EntityState, PresentationState, PresentationWorld, interpolate},
