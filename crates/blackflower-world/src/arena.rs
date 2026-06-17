@@ -54,6 +54,7 @@ impl Aabb {
 /// Static arena geometry loaded from a RON file.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Arena {
+    pub id: String,
     /// Solid walls/floor/ceiling the player cannot pass through.
     pub walls: Vec<Aabb>,
     /// World-space positions where players may spawn (Y = eye height above floor).

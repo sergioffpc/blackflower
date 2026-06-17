@@ -12,6 +12,7 @@ readme.workspace = true
 
 [dependencies]
 blackflower-authority.workspace = true
+blackflower-gameplay.workspace = true
 blackflower-world.workspace = true
 
 anyhow.workspace = true

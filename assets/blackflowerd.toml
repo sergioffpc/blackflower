@@ -1,8 +1,0 @@
-# Blackflower dedicated server configuration.
-# Path passed via `--config` (defaults to ./assets/blackflowerd.toml).
-
-# Arena/map file (RON) loaded at startup.
-arena = "assets/maps/e1m1.ron"
-
-# WASM game-plugin component. Comment out to run without a plugin.
-plugin = "plugins/e1m1/target/wasm32-wasip2/debug/e1m1.wasm"

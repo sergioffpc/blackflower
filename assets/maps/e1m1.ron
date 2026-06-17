@@ -3,6 +3,7 @@
 // Player spawns at Y = 0.9 (half-height), standing on the floor at Y = 0.
 // [f32; 3] arrays use RON tuple syntax (a, b, c).
 (
+    id: "e1m1",
     walls: [
         // Floor slab
         (min: (-25.0, -0.5, -25.0), max: (25.0, 0.0, 25.0)),
