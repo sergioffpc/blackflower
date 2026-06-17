@@ -74,10 +74,10 @@ The processes that run in production and how they communicate.
 
 - **Tick scheduler** — `TickScheduler::start(60)` drives a fixed-rate loop. Logs overruns.
 - **SimulationWorld** — `hecs`-backed ECS; `EntityIdAllocator` issues monotonic IDs (never reused).
-- **Command pipeline** — drains one `Command` per client per tick; applies `apply_player_movement()`; records `last_processed[client]`.
+- **Command pipeline** — drains one `Command` per client per tick; applies `apply_player_movement()` then `CollisionWorld::move_and_slide()` (server-authoritative); records `last_processed[client]`.
 - **Snapshot builder** — every tick, iterates all `Transform` components; builds `Snapshot { tick, ack: last_processed[client], entities }` and sends as datagram.
 - **Session management** — `conn_entities: HashMap<ConnectionId, EntityId>` and `last_processed: HashMap<ConnectionId, Tick>`; `Hello` request spawns entity, disconnect despawns it.
-- **Physics** — `integrate_movement()` applied per tick to `(Transform, Velocity)` pairs.
+- **Physics** — `integrate_movement()` applied per tick to `(Transform, Velocity)` pairs; player collision via rapier (`blackflower-physics::collision`, server-only — ADR 0018).
 
 **Not yet implemented:**
 
@@ -132,6 +132,18 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 **Risk:** if a future predicted rule (e.g. predicted projectiles, weapon recoil) is wanted *inside* the plugin, the plugin must run on both client and server, which adds a hard requirement of **bit-exact determinism** across both (identical wasmtime `Config`, float/SIMD/NaN determinism). Until then, predicted logic stays in pure Rust. Separately, opaque props decouple the engine from game state but block the engine from any logic that needs to understand them (per-type AABBs, HP-bar interpolation); when that need arises, that piece is not actually engine-agnostic.
 
 **Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `on-spawn`/`on-hit` are server-only WASM.
+
+---
+
+### ADR 0018 — Collision: rapier, server-authoritative; entity-based maps
+
+**Decision:** collision lives in `blackflower-physics::collision::CollisionWorld` (rapier3d `KinematicCharacterController` over static cuboid colliders) and runs **only on the server**. The client does not predict collision: it applies the pure movement system and is corrected by snapshots. Maps are entity-based: an arena is an `id` plus a flat list of `MapEntity { classname, props }` (opaque string key/values, Quake style); the engine interprets only the classnames it knows — `func_wall` (solid `mins`/`maxs`) and `info_player_*` (spawn `origin`) — and passes the rest through untouched.
+
+**Rationale:** per ADR 0017, anything the client predicts must run identically on both sides. Keeping collision server-only avoids putting rapier on the predicted path, which would demand cross-platform bit-determinism (rapier defaults to `simd-stable`, which is non-deterministic). The trade-off is the status quo of mild rubber-banding near walls; acceptable until predicted collision is explicitly wanted. The entity-based map model mirrors real engines and aligns with the opaque-props philosophy (ADR 0017): the engine stays ignorant of gameplay classnames.
+
+**Consequences:** only `blackflower-authority` (server) depends on `blackflower-physics`, so rapier never reaches the client. Promoting collision to the predicted path later means running the same collision code client-side under `enhanced-determinism` (or a shared deterministic sweep) — a deliberate future decision, not an accident.
+
+**Status: implemented.** `blackflower-physics::collision` (rapier3d 0.33); `blackflower-world::arena` parses the entity map and derives `solids()`/`spawn_points()`; `blackflower-authority` builds the `CollisionWorld` in `start()` and applies `move_and_slide` after movement.
 
 ---
 
@@ -383,7 +395,7 @@ blackflower/
 │   ├── blackflower-input/          # InputButtons bitflags, InputHandle
 │   ├── blackflower-math/           # glam re-export, Transform component
 │   ├── blackflower-network/        # QUIC transport, ServerHandle, ClientHandle
-│   ├── blackflower-physics/        # Velocity component, integrate_movement
+│   ├── blackflower-physics/        # Velocity, integrate_movement, collision (rapier, server-only)
 │   ├── blackflower-authority/      # server-side authority loop, session management
 │   ├── blackflower-replica/        # client tick loop, PredictionState, ClockSync
 │   ├── blackflower-protocol/       # Command, Snapshot, Request, Event
@@ -393,9 +405,8 @@ blackflower/
 ├── plugins/
 │   └── e1m1/                       # WASM game-logic guest (wasm32-wasip2)
 ├── assets/
-│   ├── blackflowerd.toml           # server config (arena, plugin paths)
-│   ├── blackflowerc.toml           # client config (key bindings)
-│   └── maps/                       # arena geometry (RON)
+│   ├── blackflowerc.toml           # client config (key bindings); server uses CLI flags
+│   └── maps/                       # entity-based arena maps (RON)
 └── docs/
     ├── architecture.md             # this file
     └── diagrams/                   # SVG diagrams

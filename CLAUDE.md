@@ -59,12 +59,12 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-input` — `InputButtons` bitfield, `InputHandle`, produces `Command` per tick
 - `crates/blackflower-math` — `glam` re-export + `Transform { translation: Vec3, rotation: Quat }`
 - `crates/blackflower-network` — QUIC transport layer (quinn); `ClientHandle`, `ServerHandle`, wire codec
-- `crates/blackflower-physics` — `Velocity` component, `integrate_movement` system
+- `crates/blackflower-physics` — `Velocity` component, `integrate_movement` system; `collision` module (`CollisionWorld`: rapier3d static cuboid colliders + kinematic character controller for server-side player move-and-slide). Server-only — not in the client dependency graph.
 - `crates/blackflower-authority` — server-side authority loop, `SlotState` machine (`Handshake → Playing → Zombie`), delta snapshot broadcast
 - `crates/blackflower-replica` — client tick loop, `PredictionState` (rollback-replay), `ClockSync` (NTP clock estimation), `SnapshotAck` (sliding-window ack bitfield)
 - `crates/blackflower-protocol` — wire message types shared by client and server
 - `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
-- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (AABB geometry, `Arena` from `assets/maps/*.ron`, `collide_and_slide`)
+- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (entity-based map: `Arena { id, entities }` from `assets/maps/*.ron`, `MapEntity { classname, props }`; derives solid `Aabb`s and spawn points by classname — collision itself lives in `blackflower-physics`)
 
 ### Configuration
 
@@ -79,7 +79,7 @@ Each binary owns its `Args` (clap) and `App` in its own `app.rs` module; `main.r
 1. Drain connects → insert `SlotState::Handshake`
 2. Drain `Request::Hello` → version + capacity check; `Handshake → Playing`, send `Event::Welcome`; or send `Event::Rejected`
 3. Drain `Request::Ping` → send `Event::Pong` (NTP clock sync)
-4. Drain `Command` datagrams per `Playing` client → apply `apply_player_movement`, record `last_processed`, advance `baseline_tick` from ack bitfield
+4. Drain `Command` datagrams per `Playing` client → apply `apply_player_movement` then `CollisionWorld::move_and_slide` (server-authoritative wall collision), record `last_processed`, advance `baseline_tick` from ack bitfield
 5. Drain disconnects → `Playing → Zombie` (entity held 5 s), `Handshake → removed`
 6. Expire zombies → despawn entity, remove slot
 7. Run `integrate_movement` for all `(Transform, Velocity)` entities
@@ -174,12 +174,11 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 **Milestone:** M4 in progress — Phase A done, Phase B next.
 
 **M4-A delivered:**
-- `blackflower-world::arena` — AABB geometry, `Arena` from `assets/maps/*.ron`, `collide_and_slide`
+- `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use real-map classnames (`func_wall`, `info_player_deathmatch`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
+- Collision via `blackflower-physics::collision::CollisionWorld` (rapier3d kinematic character controller), server-authoritative (not predicted — see ADR 0017).
 - WASM Component Model plugin: `wit/game-plugin.wit`, `blackflower-gameplay::plugin` (wasmtime 45 host), `plugins/e1m1` (wasm32-wasip2 guest)
 - Engine-agnostic properties: `Prop { id: u16, value: Vec<u8> }` — raw bytes, engine never interprets
-- Players spawn at arena spawn points, collide with walls
-
-> **⚠️ Temporarily regressed:** the entrypoint refactor (`main.rs` → `app.rs`, server args via CLI flags) moved `arena`/`plugin` out of `AuthorityConfig` into `Authority::start(arena, plugin)` params, but did not re-wire them. On `main` right now spawn points, wall collision (`collide_and_slide`), and plugin `on_spawn` props are dropped (players spawn at the origin with default props) and the `start` params are unused (fails `-D warnings`). To be re-wired in a follow-up.
+- Players spawn at arena spawn points (round-robin), collide with walls via rapier
 
 **M4-A refactor:** the standalone `blackflower-arena`, `blackflower-plugin`, and `blackflower-entity` crates were folded into existing crates — arena geometry into `blackflower-world::arena`, the WASM host into `blackflower-gameplay::plugin`, and `EntityId`/`EntityIdAllocator` into `blackflower-world`.
 

@@ -31,7 +31,7 @@ pub struct Args {
     fake_jitter_ms: u64,
 }
 
-pub fn run_app(args: Args) -> anyhow::Result<()> {
+pub fn run_app(args: &Args) -> anyhow::Result<()> {
     let arena = Arena::load(&args.arena_path)?;
     let plugin = args
         .plugin_path
@@ -50,7 +50,7 @@ pub fn run_app(args: Args) -> anyhow::Result<()> {
     };
     let authority = Authority::listen(args.bind_addr, authority_config)?;
     authority
-        .start(arena, plugin)?
+        .start(&arena, plugin)?
         .join()
         .map_err(|_| anyhow::anyhow!("server tick thread panicked"))
 }

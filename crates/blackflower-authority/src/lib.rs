@@ -1,10 +1,13 @@
 use anyhow::Context;
+use blackflower_gameplay::PLAYER_HALF_EXTENTS;
 use blackflower_gameplay::plugin::Plugin;
 use blackflower_input::components::InputButtons;
+use blackflower_math::Vec3;
 use blackflower_math::components::Transform;
 use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
+use blackflower_physics::collision::CollisionWorld;
 use blackflower_physics::components::Velocity;
 use blackflower_protocol::{
     Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, Prop, RejectReason, Request,
@@ -24,7 +27,7 @@ use tracing::{debug, error, info, warn};
 const RING_SIZE: usize = 32;
 const ZOMBIE_TTL_SECS: u64 = 5;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct AuthorityConfig {
     pub tick_hz: u64,
     pub max_clients: usize,
@@ -81,6 +84,11 @@ pub struct Authority {
     network_handle: ServerHandle<Command, WorldDelta, Request, Event>,
 
     world: SimulationWorld,
+
+    collision: CollisionWorld,
+    spawn_points: Vec<[f32; 3]>,
+    next_spawn: usize,
+    plugin: Option<Plugin>,
 }
 
 impl Authority {
@@ -99,10 +107,28 @@ impl Authority {
             slots: HashMap::new(),
             network_handle,
             world: SimulationWorld::default(),
+            // Real geometry is loaded in `start`, once the arena is known.
+            collision: CollisionWorld::from_solids(std::iter::empty()),
+            spawn_points: Vec::new(),
+            next_spawn: 0,
+            plugin: None,
         })
     }
 
-    pub fn start(mut self, arena: Arena, plugin: Option<Plugin>) -> anyhow::Result<JoinHandle<()>> {
+    pub fn start(
+        mut self,
+        arena: &Arena,
+        plugin: Option<Plugin>,
+    ) -> anyhow::Result<JoinHandle<()>> {
+        self.collision = CollisionWorld::from_solids(
+            arena
+                .solids()
+                .into_iter()
+                .map(|a| (Vec3::from_array(a.min), Vec3::from_array(a.max))),
+        );
+        self.spawn_points = arena.spawn_points();
+        self.plugin = plugin;
+
         std::thread::Builder::new()
             .name("blackflower-authority::tick".to_owned())
             .spawn(move || {
@@ -286,9 +312,17 @@ impl Authority {
             return;
         }
 
-        let entity = self
-            .world
-            .spawn((Transform::default(), EntityProps::default()));
+        let spawn = self.next_spawn_point();
+        let transform = Transform {
+            translation: spawn.into(),
+            rotation: blackflower_math::Quat::IDENTITY,
+        };
+        let initial_props = self
+            .plugin
+            .as_mut()
+            .and_then(|p| p.on_spawn().ok())
+            .unwrap_or_default();
+        let entity = self.world.spawn((transform, EntityProps(initial_props)));
         self.slots.insert(
             conn_id,
             SlotState::Playing {
@@ -297,7 +331,7 @@ impl Authority {
                 baseline_tick: 0,
             },
         );
-        info!(client = %conn_id, entity_id = %entity, "assigned entity");
+        info!(client = %conn_id, entity_id = %entity, spawn = ?spawn, "assigned entity");
         self.network_handle.try_send_event_to(
             conn_id,
             Event::Welcome {
@@ -324,12 +358,35 @@ impl Authority {
         let entity = *entity;
 
         if let Ok(mut transform) = self.world.transform_mut(entity) {
+            let old_pos: [f32; 3] = transform.translation.into();
             blackflower_gameplay::systems::apply_player_movement(
                 &mut transform,
                 InputButtons::from_bits(command.buttons).unwrap_or_default(),
                 dt,
             );
+            let new_pos: [f32; 3] = transform.translation.into();
+            let displacement = Vec3::new(
+                new_pos[0] - old_pos[0],
+                new_pos[1] - old_pos[1],
+                new_pos[2] - old_pos[2],
+            );
+            transform.translation = self.collision.move_and_slide(
+                Vec3::from_array(old_pos),
+                Vec3::from_array(PLAYER_HALF_EXTENTS),
+                displacement,
+                dt,
+            );
         }
+    }
+
+    /// Next spawn origin, round-robin over the arena's spawn points.
+    fn next_spawn_point(&mut self) -> [f32; 3] {
+        if self.spawn_points.is_empty() {
+            return [0.0, 0.9, 0.0];
+        }
+        let idx = self.next_spawn % self.spawn_points.len();
+        self.next_spawn = self.next_spawn.wrapping_add(1);
+        self.spawn_points[idx]
     }
 
     fn on_tick(&mut self, _tick: Tick, dt: f32) {

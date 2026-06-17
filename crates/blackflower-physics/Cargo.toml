@@ -13,6 +13,7 @@ readme.workspace = true
 [dependencies]
 blackflower-math.workspace = true
 
+rapier3d.workspace = true
 serde.workspace = true
 
 [lints]

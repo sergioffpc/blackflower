@@ -8,5 +8,5 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let args = <app::Args as clap::Parser>::parse();
-    app::run_app(args)
+    app::run_app(&args)
 }
