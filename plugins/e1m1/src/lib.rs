@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 wit_bindgen::generate!({
     path: "../../wit/game-plugin.wit",
     world: "game-plugin",
@@ -9,9 +11,20 @@ const PROP_HP: u16 = 1;
 const HP_INITIAL: i32 = 100;
 const HP_DAMAGE: i32 = 25;
 
+/// Cursor for round-robin spawn selection across this match.
+static NEXT_SPAWN: AtomicUsize = AtomicUsize::new(0);
+
 struct Plugin;
 
 impl Guest for Plugin {
+    fn select_spawn(candidates: Vec<SpawnPoint>) -> u32 {
+        if candidates.is_empty() {
+            return 0;
+        }
+        let idx = NEXT_SPAWN.fetch_add(1, Ordering::Relaxed) % candidates.len();
+        idx as u32
+    }
+
     fn on_spawn() -> Vec<(u16, Vec<u8>)> {
         vec![(PROP_HP, encode(HP_INITIAL))]
     }

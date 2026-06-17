@@ -58,6 +58,31 @@ impl Plugin {
         Ok(Self { store, bindings })
     }
 
+    /// Pick which map spawn point a player spawns at. `candidates` are
+    /// `(origin, angle)` pairs from the map; returns the chosen index,
+    /// clamped into range against `candidates.len()`.
+    pub fn select_spawn(&mut self, candidates: &[([f32; 3], f32)]) -> anyhow::Result<usize> {
+        if candidates.is_empty() {
+            return Ok(0);
+        }
+        let wit: Vec<SpawnPoint> = candidates
+            .iter()
+            .map(|&(origin, angle)| SpawnPoint {
+                origin: Vec3 {
+                    x: origin[0],
+                    y: origin[1],
+                    z: origin[2],
+                },
+                angle,
+            })
+            .collect();
+        let idx = self
+            .bindings
+            .call_select_spawn(&mut self.store, &wit)
+            .map_err(|e| anyhow::anyhow!("plugin select_spawn: {e}"))?;
+        Ok((idx as usize) % candidates.len())
+    }
+
     /// Called when a new player entity is spawned.
     pub fn on_spawn(&mut self) -> anyhow::Result<PropList> {
         self.bindings

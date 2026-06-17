@@ -110,9 +110,9 @@ The processes that run in production and how they communicate.
 
 **Rationale:** fast iteration and safe sandboxing (capability-gated WASI, no Rust ABI hazard), keeping game rules out of the engine. Supersedes the original cdylib plan (Quake's `game.dll`): the unstable Rust ABI made `#[repr(C)]` shared types fragile, and WASM gives a stable, language-agnostic boundary instead.
 
-**Scope:** only NON-predicted rules go in the plugin (`on-spawn`, `on-hit`). Predicted rules stay as pure Rust in `blackflower-gameplay::systems` — see ADR 0017 for the boundary and its rationale.
+**Scope:** only NON-predicted rules go in the plugin (`select-spawn`, `on-spawn`, `on-hit`). Predicted rules stay as pure Rust in `blackflower-gameplay::systems` — see ADR 0017 for the boundary and its rationale. Spawn-point *selection* is a rule and lives in the plugin (`select-spawn` picks an index into the candidates the map offers); the *candidate list* is map data the engine derives (`arena.spawn_points()`).
 
-**Status: implemented.** `wit/game-plugin.wit` defines `on-spawn`/`on-hit`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from config). Hot-reload + state migration in dev remains **planned** (M5).
+**Status: implemented.** `wit/game-plugin.wit` defines `select-spawn`/`on-spawn`/`on-hit`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from config). Hot-reload + state migration in dev remains **planned** (M5).
 
 ---
 
@@ -137,7 +137,7 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 
 ### ADR 0018 — Collision: rapier, server-authoritative; entity-based maps
 
-**Decision:** collision lives in `blackflower-physics::collision::CollisionWorld` (rapier3d `KinematicCharacterController` over static cuboid colliders) and runs **only on the server**. The client does not predict collision: it applies the pure movement system and is corrected by snapshots. Maps are entity-based: an arena is an `id` plus a flat list of `MapEntity { classname, props }` (opaque string key/values, Quake style); the engine interprets only the classnames it knows — `func_wall` (solid `mins`/`maxs`) and `info_player_*` (spawn `origin`) — and passes the rest through untouched.
+**Decision:** collision lives in `blackflower-physics::collision::CollisionWorld` (rapier3d `KinematicCharacterController` over static cuboid colliders) and runs **only on the server**. The client does not predict collision: it applies the pure movement system and is corrected by snapshots. Maps are entity-based: an arena is an `id` plus a flat list of `MapEntity { classname, props }` (opaque string key/values, Quake style); the engine interprets only the classnames it knows — `solid_brush` (solid `min`/`max`) and `spawn_point` (spawn `origin`) — and passes the rest through untouched.
 
 **Rationale:** per ADR 0017, anything the client predicts must run identically on both sides. Keeping collision server-only avoids putting rapier on the predicted path, which would demand cross-platform bit-determinism (rapier defaults to `simd-stable`, which is non-deterministic). The trade-off is the status quo of mild rubber-banding near walls; acceptable until predicted collision is explicitly wanted. The entity-based map model mirrors real engines and aligns with the opaque-props philosophy (ADR 0017): the engine stays ignorant of gameplay classnames.
 

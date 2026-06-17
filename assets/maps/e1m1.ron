@@ -4,30 +4,30 @@
 // Entity-based map (in line with real maps): a flat list of entities, each with
 // a `classname` and opaque string key/value `props` (Quake style, "x y z").
 // The engine interprets only the classnames it knows:
-//   - solids (`func_wall`): world-space AABB via `mins`/`maxs`
-//   - spawns (`info_player_deathmatch`/`info_player_start`): `origin` (+ `angle`)
+//   - solids (`solid_brush`): world-space AABB via `min`/`max`
+//   - spawns (`spawn_point`): `origin` (+ `angle`)
 // Every other classname/prop is passed through untouched for gameplay/plugins.
 (
     id: "e1m1",
     entities: [
-        (classname: "worldspawn", props: [("message", "e1m1")]),
+        (classname: "world", props: [("message", "e1m1")]),
 
         // Solid geometry.
-        (classname: "func_wall", props: [("mins", "-25 -0.5 -25"), ("maxs", "25 0 25")]),    // floor
-        (classname: "func_wall", props: [("mins", "-25 4 -25"), ("maxs", "25 4.5 25")]),      // ceiling
-        (classname: "func_wall", props: [("mins", "-25 0 -25.5"), ("maxs", "25 4 -25")]),     // north (-Z)
-        (classname: "func_wall", props: [("mins", "-25 0 25"), ("maxs", "25 4 25.5")]),       // south (+Z)
-        (classname: "func_wall", props: [("mins", "25 0 -25"), ("maxs", "25.5 4 25")]),       // east (+X)
-        (classname: "func_wall", props: [("mins", "-25.5 0 -25"), ("maxs", "-25 4 25")]),     // west (-X)
+        (classname: "solid_brush", props: [("min", "-25 -0.5 -25"), ("max", "25 0 25")]),    // floor
+        (classname: "solid_brush", props: [("min", "-25 4 -25"), ("max", "25 4.5 25")]),      // ceiling
+        (classname: "solid_brush", props: [("min", "-25 0 -25.5"), ("max", "25 4 -25")]),     // north (-Z)
+        (classname: "solid_brush", props: [("min", "-25 0 25"), ("max", "25 4 25.5")]),       // south (+Z)
+        (classname: "solid_brush", props: [("min", "25 0 -25"), ("max", "25.5 4 25")]),       // east (+X)
+        (classname: "solid_brush", props: [("min", "-25.5 0 -25"), ("max", "-25 4 25")]),     // west (-X)
 
         // Player spawn points (Y = 0.9, half-height above the floor).
-        (classname: "info_player_deathmatch", props: [("origin", "0 0.9 0"), ("angle", "0")]),
-        (classname: "info_player_deathmatch", props: [("origin", "10 0.9 10"), ("angle", "180")]),
-        (classname: "info_player_deathmatch", props: [("origin", "-10 0.9 -10"), ("angle", "0")]),
-        (classname: "info_player_deathmatch", props: [("origin", "10 0.9 -10"), ("angle", "270")]),
-        (classname: "info_player_deathmatch", props: [("origin", "-10 0.9 10"), ("angle", "90")]),
-        (classname: "info_player_deathmatch", props: [("origin", "0 0.9 15"), ("angle", "180")]),
-        (classname: "info_player_deathmatch", props: [("origin", "0 0.9 -15"), ("angle", "0")]),
-        (classname: "info_player_deathmatch", props: [("origin", "15 0.9 0"), ("angle", "270")]),
+        (classname: "spawn_point", props: [("origin", "0 0.9 0"), ("angle", "0")]),
+        (classname: "spawn_point", props: [("origin", "10 0.9 10"), ("angle", "180")]),
+        (classname: "spawn_point", props: [("origin", "-10 0.9 -10"), ("angle", "0")]),
+        (classname: "spawn_point", props: [("origin", "10 0.9 -10"), ("angle", "270")]),
+        (classname: "spawn_point", props: [("origin", "-10 0.9 10"), ("angle", "90")]),
+        (classname: "spawn_point", props: [("origin", "0 0.9 15"), ("angle", "180")]),
+        (classname: "spawn_point", props: [("origin", "0 0.9 -15"), ("angle", "0")]),
+        (classname: "spawn_point", props: [("origin", "15 0.9 0"), ("angle", "270")]),
     ],
 )

@@ -174,11 +174,11 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 **Milestone:** M4 in progress — Phase A done, Phase B next.
 
 **M4-A delivered:**
-- `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use real-map classnames (`func_wall`, `info_player_deathmatch`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
+- `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
 - Collision via `blackflower-physics::collision::CollisionWorld` (rapier3d kinematic character controller), server-authoritative (not predicted — see ADR 0017).
 - WASM Component Model plugin: `wit/game-plugin.wit`, `blackflower-gameplay::plugin` (wasmtime 45 host), `plugins/e1m1` (wasm32-wasip2 guest)
 - Engine-agnostic properties: `Prop { id: u16, value: Vec<u8> }` — raw bytes, engine never interprets
-- Players spawn at arena spawn points (round-robin), collide with walls via rapier
+- Players spawn at arena spawn points chosen by the plugin (`select-spawn` returns an index into the map's candidates; engine falls back to round-robin with no plugin), collide with walls via rapier
 
 **M4-A refactor:** the standalone `blackflower-arena`, `blackflower-plugin`, and `blackflower-entity` crates were folded into existing crates — arena geometry into `blackflower-world::arena`, the WASM host into `blackflower-gameplay::plugin`, and `EntityId`/`EntityIdAllocator` into `blackflower-world`.
 

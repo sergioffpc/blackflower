@@ -2,8 +2,8 @@ use anyhow::Context;
 use blackflower_gameplay::PLAYER_HALF_EXTENTS;
 use blackflower_gameplay::plugin::Plugin;
 use blackflower_input::components::InputButtons;
-use blackflower_math::Vec3;
 use blackflower_math::components::Transform;
+use blackflower_math::{Quat, Vec3};
 use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
@@ -15,7 +15,7 @@ use blackflower_protocol::{
 };
 use blackflower_tick::{Tick, TickScheduler};
 use blackflower_world::EntityId;
-use blackflower_world::arena::Arena;
+use blackflower_world::arena::{Arena, SpawnPoint};
 use blackflower_world::simulation::{EntityProps, SimulationWorld};
 use hashbrown::HashMap;
 use std::net::SocketAddr;
@@ -83,10 +83,9 @@ pub struct Authority {
 
     network_handle: ServerHandle<Command, WorldDelta, Request, Event>,
 
-    world: SimulationWorld,
-
+    simulation: SimulationWorld,
     collision: CollisionWorld,
-    spawn_points: Vec<[f32; 3]>,
+    spawn_points: Vec<SpawnPoint>,
     next_spawn: usize,
     plugin: Option<Plugin>,
 }
@@ -106,8 +105,7 @@ impl Authority {
             ring: SnapshotRing::default(),
             slots: HashMap::new(),
             network_handle,
-            world: SimulationWorld::default(),
-            // Real geometry is loaded in `start`, once the arena is known.
+            simulation: SimulationWorld::default(),
             collision: CollisionWorld::from_solids(std::iter::empty()),
             spawn_points: Vec::new(),
             next_spawn: 0,
@@ -203,14 +201,14 @@ impl Authority {
 
         for conn_id in expired {
             if let Some(SlotState::Zombie { entity, .. }) = self.slots.remove(&conn_id) {
-                self.world.despawn(entity);
+                self.simulation.despawn(entity);
                 info!(client = %conn_id, entity_id = %entity, "zombie expired; entity despawned");
             }
         }
     }
 
     fn broadcast_snapshots(&mut self, tick: Tick) {
-        let current = Arc::new(self.world.snapshot());
+        let current = Arc::new(self.simulation.snapshot());
         self.ring.insert(tick.as_u64(), (*current).clone());
 
         let clients: Vec<(ConnectionId, u64, u64)> = self
@@ -312,17 +310,15 @@ impl Authority {
             return;
         }
 
-        let spawn = self.next_spawn_point();
-        let transform = Transform {
-            translation: spawn.into(),
-            rotation: blackflower_math::Quat::IDENTITY,
-        };
+        let transform = self.next_spawn_transform();
         let initial_props = self
             .plugin
             .as_mut()
             .and_then(|p| p.on_spawn().ok())
             .unwrap_or_default();
-        let entity = self.world.spawn((transform, EntityProps(initial_props)));
+        let entity = self
+            .simulation
+            .spawn((transform, EntityProps(initial_props)));
         self.slots.insert(
             conn_id,
             SlotState::Playing {
@@ -331,7 +327,7 @@ impl Authority {
                 baseline_tick: 0,
             },
         );
-        info!(client = %conn_id, entity_id = %entity, spawn = ?spawn, "assigned entity");
+        info!(client = %conn_id, entity_id = %entity, spawn = ?transform.translation, "assigned entity");
         self.network_handle.try_send_event_to(
             conn_id,
             Event::Welcome {
@@ -357,7 +353,7 @@ impl Authority {
         ));
         let entity = *entity;
 
-        if let Ok(mut transform) = self.world.transform_mut(entity) {
+        if let Ok(mut transform) = self.simulation.transform_mut(entity) {
             let old_pos: [f32; 3] = transform.translation.into();
             blackflower_gameplay::systems::apply_player_movement(
                 &mut transform,
@@ -379,19 +375,45 @@ impl Authority {
         }
     }
 
-    /// Next spawn origin, round-robin over the arena's spawn points.
-    fn next_spawn_point(&mut self) -> [f32; 3] {
+    /// Transform for the next player spawn. The plugin (if any) picks which
+    /// of the arena's spawn points to use — a game rule, server-authoritative
+    /// and non-predicted (ADR 0017). Without a plugin we round-robin. The
+    /// chosen spawn's `angle` becomes a yaw about the up axis.
+    fn next_spawn_transform(&mut self) -> Transform {
         if self.spawn_points.is_empty() {
-            return [0.0, 0.9, 0.0];
+            return Transform::default();
+        }
+        let idx = self.select_spawn_index();
+        let spawn = self.spawn_points[idx];
+        Transform {
+            translation: Vec3::from_array(spawn.origin),
+            rotation: Quat::from_rotation_y(spawn.angle.to_radians()),
+        }
+    }
+
+    /// Index into `spawn_points` for the next spawn — plugin choice, or
+    /// round-robin fallback. Caller guarantees `spawn_points` is non-empty.
+    fn select_spawn_index(&mut self) -> usize {
+        let candidates: Vec<([f32; 3], f32)> = self
+            .spawn_points
+            .iter()
+            .map(|s| (s.origin, s.angle))
+            .collect();
+        if let Some(idx) = self
+            .plugin
+            .as_mut()
+            .and_then(|p| p.select_spawn(&candidates).ok())
+        {
+            return idx;
         }
         let idx = self.next_spawn % self.spawn_points.len();
         self.next_spawn = self.next_spawn.wrapping_add(1);
-        self.spawn_points[idx]
+        idx
     }
 
     fn on_tick(&mut self, _tick: Tick, dt: f32) {
         blackflower_physics::systems::integrate_movement(
-            self.world.query_mut::<(&mut Transform, &Velocity)>(),
+            self.simulation.query_mut::<(&mut Transform, &Velocity)>(),
             dt,
         );
     }

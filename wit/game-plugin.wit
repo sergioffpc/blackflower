@@ -9,6 +9,22 @@ package blackflower:game-plugin@0.1.0;
 /// because the client must run identical code to predict them.
 /// See ADR 0017 in `docs/architecture.md`.
 world game-plugin {
+    /// A candidate spawn point offered by the map.
+    record vec3 {
+        x: f32,
+        y: f32,
+        z: f32,
+    }
+    record spawn-point {
+        origin: vec3,
+        angle: f32,
+    }
+
+    /// Pick which map spawn point a player spawns at, given the candidates the
+    /// map offers. Returns an index into `candidates`; the engine clamps an
+    /// out-of-range result. With no candidates the engine spawns at the origin.
+    export select-spawn: func(candidates: list<spawn-point>) -> u32;
+
     /// Return initial properties for a newly spawned entity.
     export on-spawn: func() -> list<tuple<u16, list<u8>>>;
 

@@ -12,6 +12,17 @@ pub struct Aabb {
     pub max: [f32; 3],
 }
 
+/// A candidate player spawn point.
+///
+/// World-space `origin` plus facing `angle` (yaw, degrees about the up axis).
+/// The engine derives these from spawn entities; which one to use for a given
+/// spawn is a game rule (the plugin decides).
+#[derive(Clone, Copy, Debug)]
+pub struct SpawnPoint {
+    pub origin: [f32; 3],
+    pub angle: f32,
+}
+
 /// One map entity: a `classname` plus opaque string key/value `props`.
 ///
 /// Quake style. The engine interprets only the classnames it knows (solids and
@@ -41,10 +52,10 @@ pub struct Arena {
     pub entities: Vec<MapEntity>,
 }
 
-/// Classnames the engine treats as solid geometry (AABB via `mins`/`maxs`).
-const SOLID_CLASSNAMES: &[&str] = &["func_wall"];
+/// Classnames the engine treats as solid geometry (AABB via `min`/`max`).
+const SOLID_CLASSNAMES: &[&str] = &["solid_brush"];
 /// Classnames the engine treats as player spawn points (`origin`).
-const SPAWN_CLASSNAMES: &[&str] = &["info_player_deathmatch", "info_player_start"];
+const SPAWN_CLASSNAMES: &[&str] = &["spawn_point"];
 
 impl Arena {
     pub fn load<P>(path: P) -> anyhow::Result<Self>
@@ -57,27 +68,32 @@ impl Arena {
             .map_err(|e| anyhow::anyhow!("arena parse error in {}: {e}", path.as_ref().display()))
     }
 
-    /// Solid AABBs derived from solid entities (`mins`/`maxs` props).
+    /// Solid AABBs derived from solid entities (`min`/`max` props).
     #[must_use]
     pub fn solids(&self) -> Vec<Aabb> {
         self.entities
             .iter()
             .filter(|e| SOLID_CLASSNAMES.contains(&e.classname.as_str()))
             .filter_map(|e| {
-                let min = parse_vec3(e.prop("mins")?)?;
-                let max = parse_vec3(e.prop("maxs")?)?;
+                let min = parse_vec3(e.prop("min")?)?;
+                let max = parse_vec3(e.prop("max")?)?;
                 Some(Aabb { min, max })
             })
             .collect()
     }
 
-    /// Player spawn origins derived from spawn entities (`origin` prop).
+    /// Player spawn points derived from spawn entities (`origin` + `angle`).
+    /// A missing/invalid `angle` defaults to `0`.
     #[must_use]
-    pub fn spawn_points(&self) -> Vec<[f32; 3]> {
+    pub fn spawn_points(&self) -> Vec<SpawnPoint> {
         self.entities
             .iter()
             .filter(|e| SPAWN_CLASSNAMES.contains(&e.classname.as_str()))
-            .filter_map(|e| parse_vec3(e.prop("origin")?))
+            .filter_map(|e| {
+                let origin = parse_vec3(e.prop("origin")?)?;
+                let angle = e.prop("angle").and_then(|a| a.parse().ok()).unwrap_or(0.0);
+                Some(SpawnPoint { origin, angle })
+            })
             .collect()
     }
 }
