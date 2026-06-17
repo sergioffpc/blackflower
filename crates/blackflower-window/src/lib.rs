@@ -153,6 +153,7 @@ impl ApplicationHandler for InnerApp {
                     KeyCode::KeyA => "A",
                     KeyCode::KeyS => "S",
                     KeyCode::KeyD => "D",
+                    KeyCode::Space => "Space",
                     _ => "Unknown",
                 };
 

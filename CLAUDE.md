@@ -171,7 +171,7 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 
 ## Current state (2026-06-17)
 
-**Milestone:** M4 in progress — Phase A done, Phase B next.
+**Milestone:** M4 in progress — Phases A + B done, Phase C next.
 
 **M4-A delivered:**
 - `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
@@ -182,10 +182,13 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 
 **M4-A refactor:** the standalone `blackflower-arena`, `blackflower-plugin`, and `blackflower-entity` crates were folded into existing crates — arena geometry into `blackflower-world::arena`, the WASM host into `blackflower-gameplay::plugin`, and `EntityId`/`EntityIdAllocator` into `blackflower-world`.
 
-**M4-B next (weapon + hitscan):**
-1. `InputButtons::FIRE` bit
-2. Server: ray from player position when `FIRE` in command → hit vs player AABBs
-3. Call `plugin.on_hit(target_props)` → update target's `EntityProps`
+**M4-B delivered (weapon + hitscan):**
+- `InputButtons::FIRE` bit (`1 << 4`); client binds it via `"fire"` (e.g. `Space` in `blackflowerc.toml`).
+- `blackflower-physics::hitscan::ray_aabb` — pure slab-method ray-vs-AABB (unit-tested).
+- `blackflower-authority::fire_hitscan` — when `FIRE` is set, casts a ray from the shooter along its facing (`rotation * -Z`), tests against every other player's AABB (`±PLAYER_HALF_EXTENTS` via `SimulationWorld::targets`), nearest hit only.
+- On hit: `plugin.on_hit(target_props)` → merge returned `(id, value)` props back into the target's `EntityProps` by id (`SimulationWorld::props_mut`).
+- Server-authoritative, non-predicted (ADR 0017).
+- **Known MVP gaps:** aim reuses the spawn facing (no look/aim input yet); fires once per tick while `FIRE` is held (no edge-detection / fire-rate).
 
 **M4-C next (lag compensation + respawn):**
 1. Rewind `SnapshotRing` to `command.snapshot_ack_tick` for hit validation

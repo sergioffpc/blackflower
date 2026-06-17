@@ -9,6 +9,7 @@ bitflags! {
         const BACKWARD = 1 << 1;
         const LEFT     = 1 << 2;
         const RIGHT    = 1 << 3;
+        const FIRE     = 1 << 4;
     }
 }
 

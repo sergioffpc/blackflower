@@ -52,6 +52,32 @@ impl SimulationWorld {
         self.world.get::<&mut Transform>(entity)
     }
 
+    pub fn props_mut(
+        &mut self,
+        id: EntityId,
+    ) -> Result<hecs::RefMut<'_, EntityProps>, hecs::ComponentError> {
+        let entity = self
+            .entities
+            .get(&id)
+            .copied()
+            .ok_or(hecs::ComponentError::NoSuchEntity)?;
+        self.world.get::<&mut EntityProps>(entity)
+    }
+
+    /// Hitscan-targetable entities — those carrying both a `Transform` and
+    /// `EntityProps` (i.e. players). Returns `(id, transform)` pairs.
+    #[must_use]
+    pub fn targets(&self) -> Vec<(EntityId, Transform)> {
+        self.entities
+            .iter()
+            .filter_map(|(&id, &entity)| {
+                let transform = self.world.get::<&Transform>(entity).ok()?;
+                self.world.get::<&EntityProps>(entity).ok()?;
+                Some((id, *transform))
+            })
+            .collect()
+    }
+
     pub fn snapshot(&self) -> WorldSnapshot {
         let entities = self
             .entities

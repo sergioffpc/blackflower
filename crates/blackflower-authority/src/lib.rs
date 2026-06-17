@@ -352,14 +352,11 @@ impl Authority {
             command.snapshot_ack_bits,
         ));
         let entity = *entity;
+        let buttons = InputButtons::from_bits(command.buttons).unwrap_or_default();
 
         if let Ok(mut transform) = self.simulation.transform_mut(entity) {
             let old_pos: [f32; 3] = transform.translation.into();
-            blackflower_gameplay::systems::apply_player_movement(
-                &mut transform,
-                InputButtons::from_bits(command.buttons).unwrap_or_default(),
-                dt,
-            );
+            blackflower_gameplay::systems::apply_player_movement(&mut transform, buttons, dt);
             let new_pos: [f32; 3] = transform.translation.into();
             let displacement = Vec3::new(
                 new_pos[0] - old_pos[0],
@@ -373,6 +370,68 @@ impl Authority {
                 dt,
             );
         }
+
+        if buttons.contains(InputButtons::FIRE) {
+            self.fire_hitscan(entity);
+        }
+    }
+
+    /// Server-authoritative hitscan: a ray from the shooter along its facing,
+    /// tested against every other player's AABB. The nearest hit's properties
+    /// are run through the plugin's `on_hit` and merged back (game rule —
+    /// non-predicted, ADR 0017). Aim currently reuses the spawn facing; a
+    /// dedicated look direction is future work.
+    fn fire_hitscan(&mut self, shooter: EntityId) {
+        let Ok((origin, dir)) = self.simulation.transform_mut(shooter).map(|t| {
+            (
+                t.translation,
+                (t.rotation * Vec3::NEG_Z).normalize_or_zero(),
+            )
+        }) else {
+            return;
+        };
+        if dir == Vec3::ZERO {
+            return;
+        }
+
+        let half = Vec3::from_array(PLAYER_HALF_EXTENTS);
+        let hit = self
+            .simulation
+            .targets()
+            .into_iter()
+            .filter(|(id, _)| *id != shooter)
+            .filter_map(|(id, t)| {
+                let center = t.translation;
+                blackflower_physics::hitscan::ray_aabb(origin, dir, center - half, center + half)
+                    .map(|dist| (dist, id))
+            })
+            .min_by(|(a, _), (b, _)| a.total_cmp(b));
+
+        let Some((_, target)) = hit else { return };
+        self.apply_hit(shooter, target);
+    }
+
+    /// Run the target's props through the plugin's `on_hit` and merge the
+    /// returned `(id, value)` pairs back into the target by id.
+    fn apply_hit(&mut self, shooter: EntityId, target: EntityId) {
+        let Some(plugin) = self.plugin.as_mut() else {
+            return;
+        };
+        let Ok(current) = self.simulation.props_mut(target).map(|p| p.0.clone()) else {
+            return;
+        };
+        let Ok(updated) = plugin.on_hit(&current) else {
+            return;
+        };
+        if let Ok(mut props) = self.simulation.props_mut(target) {
+            for (id, value) in updated {
+                match props.0.iter_mut().find(|(pid, _)| *pid == id) {
+                    Some(slot) => slot.1 = value,
+                    None => props.0.push((id, value)),
+                }
+            }
+        }
+        debug!(%shooter, %target, "hitscan hit");
     }
 
     /// Transform for the next player spawn. The plugin (if any) picks which

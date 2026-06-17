@@ -186,7 +186,7 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 
 **Risk:** if a future predicted rule (e.g. predicted projectiles, weapon recoil) is wanted *inside* the plugin, the plugin must run on both client and server, which adds a hard requirement of **bit-exact determinism** across both (identical wasmtime `Config`, float/SIMD/NaN determinism). Until then, predicted logic stays in pure Rust. Separately, opaque props decouple the engine from game state but block the engine from any logic that needs to understand them (per-type AABBs, HP-bar interpolation); when that need arises, that piece is not actually engine-agnostic.
 
-**Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `on-spawn`/`on-hit` are server-only WASM.
+**Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `select-spawn`/`on-spawn`/`on-hit` are server-only WASM. Hitscan drives `on-hit`: when a command carries `FIRE`, the server casts a ray from the shooter (`blackflower-physics::hitscan::ray_aabb`) against other players' AABBs and runs the nearest hit's props through `on-hit`, merging the result by id. Aim direction (look input) and fire-rate control are not yet implemented (M4-B MVP).
 
 ---
 

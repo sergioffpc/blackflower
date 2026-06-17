@@ -3,10 +3,11 @@
 
 # Input bindings: physical key -> action.
 # The action must name an `InputButtons` flag (case-insensitive):
-# forward, backward, left, right.
+# forward, backward, left, right, fire.
 # Bind several keys to the same action by repeating the action value.
 [bindings]
 W = "forward"
 S = "backward"
 A = "left"
 D = "right"
+Space = "fire"
