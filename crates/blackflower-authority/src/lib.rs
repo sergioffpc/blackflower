@@ -1,19 +1,19 @@
 use anyhow::Context;
-use blackflower_arena::Arena;
-use blackflower_entity::EntityId;
 use blackflower_gameplay::PLAYER_HALF_EXTENTS;
+use blackflower_gameplay::plugin::Plugin;
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
 use blackflower_network::server::ServerHandle;
 use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
 use blackflower_physics::components::Velocity;
-use blackflower_plugin::Plugin;
 use blackflower_protocol::{
     Command, EntityDelta, EntitySnapshot, Event, PROTOCOL_VERSION, Prop, RejectReason, Request,
     WorldDelta, WorldSnapshot,
 };
 use blackflower_tick::{Tick, TickScheduler};
+use blackflower_world::EntityId;
+use blackflower_world::arena::Arena;
 use blackflower_world::simulation::{EntityProps, SimulationWorld};
 use hashbrown::HashMap;
 use std::net::SocketAddr;

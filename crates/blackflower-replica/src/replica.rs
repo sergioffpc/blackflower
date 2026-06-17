@@ -10,7 +10,6 @@ use std::{
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use blackflower_entity::EntityId;
 use blackflower_input::{InputHandle, components::InputButtons};
 use blackflower_math::components::Transform;
 use blackflower_network::{
@@ -19,8 +18,9 @@ use blackflower_network::{
 };
 use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, Request, WorldDelta};
 use blackflower_tick::{Tick, TickScheduler};
-use blackflower_world::presentation::{
-    EntityState, PresentationState, PresentationWorld, interpolate,
+use blackflower_world::{
+    EntityId,
+    presentation::{EntityState, PresentationState, PresentationWorld, interpolate},
 };
 use tracing::{debug, error, warn};
 

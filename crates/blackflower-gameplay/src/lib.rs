@@ -1,3 +1,4 @@
+pub mod plugin;
 pub mod systems;
 
 /// AABB half-extents for the player shape (width × half-height × depth), metres.

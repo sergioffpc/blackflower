@@ -11,8 +11,8 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
-blackflower-arena.workspace = true
 blackflower-authority.workspace = true
+blackflower-world.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true

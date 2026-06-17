@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, path::PathBuf};
 
-use blackflower_arena::Arena;
 use blackflower_authority::{Authority, AuthorityConfig};
+use blackflower_world::arena::Arena;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 

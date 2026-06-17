@@ -13,8 +13,16 @@ impl Aabb {
     #[must_use]
     pub fn from_center_half(center: [f32; 3], half: [f32; 3]) -> Self {
         Self {
-            min: [center[0] - half[0], center[1] - half[1], center[2] - half[2]],
-            max: [center[0] + half[0], center[1] + half[1], center[2] + half[2]],
+            min: [
+                center[0] - half[0],
+                center[1] - half[1],
+                center[2] - half[2],
+            ],
+            max: [
+                center[0] + half[0],
+                center[1] + half[1],
+                center[2] + half[2],
+            ],
         }
     }
 

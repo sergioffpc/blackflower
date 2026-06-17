@@ -354,15 +354,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-arena"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ron",
- "serde",
-]
-
-[[package]]
 name = "blackflower-audio"
 version = "0.1.0"
 dependencies = [
@@ -374,14 +365,11 @@ name = "blackflower-authority"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-arena",
- "blackflower-entity",
  "blackflower-gameplay",
  "blackflower-input",
  "blackflower-math",
  "blackflower-network",
  "blackflower-physics",
- "blackflower-plugin",
  "blackflower-protocol",
  "blackflower-tick",
  "blackflower-world",
@@ -390,18 +378,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-entity"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "blackflower-gameplay"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "blackflower-input",
  "blackflower-math",
+ "wasmtime",
+ "wasmtime-wasi",
 ]
 
 [[package]]
@@ -464,15 +448,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-plugin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "wasmtime",
- "wasmtime-wasi",
-]
-
-[[package]]
 name = "blackflower-protocol"
 version = "0.1.0"
 dependencies = [
@@ -485,7 +460,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "blackflower-entity",
  "blackflower-gameplay",
  "blackflower-input",
  "blackflower-math",
@@ -520,12 +494,13 @@ dependencies = [
 name = "blackflower-world"
 version = "0.1.0"
 dependencies = [
- "blackflower-entity",
+ "anyhow",
  "blackflower-math",
  "blackflower-protocol",
  "blackflower-tick",
  "hashbrown 0.17.1",
  "hecs",
+ "ron",
  "serde",
  "tracing",
 ]
@@ -550,8 +525,8 @@ name = "blackflowerd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-arena",
  "blackflower-authority",
+ "blackflower-world",
  "clap",
  "tracing",
  "tracing-subscriber",
@@ -3990,7 +3965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

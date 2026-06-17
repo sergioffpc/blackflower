@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 
-use blackflower_entity::EntityId;
 use blackflower_gameplay::systems::apply_player_movement;
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
 use blackflower_tick::Tick;
+use blackflower_world::EntityId;
 
 const HISTORY_CAPACITY: usize = 128;
 

@@ -3,11 +3,8 @@ resolver = "3"
 members = [
   "bins/blackflowerc",
   "bins/blackflowerd",
-  "crates/blackflower-arena",
-  "crates/blackflower-plugin",
   "crates/blackflower-audio",
   "crates/blackflower-authority",
-  "crates/blackflower-entity",
   "crates/blackflower-gameplay",
   "crates/blackflower-graphics",
   "crates/blackflower-input",
@@ -32,11 +29,8 @@ description = "Multiplayer arena game engine."
 readme = "README.md"
 
 [workspace.dependencies]
-blackflower-arena = { path = "crates/blackflower-arena" }
 blackflower-audio = { path = "crates/blackflower-audio" }
-blackflower-plugin = { path = "crates/blackflower-plugin" }
 blackflower-authority = { path = "crates/blackflower-authority" }
-blackflower-entity = { path = "crates/blackflower-entity" }
 blackflower-gameplay = { path = "crates/blackflower-gameplay" }
 blackflower-graphics = { path = "crates/blackflower-graphics" }
 blackflower-input = { path = "crates/blackflower-input" }

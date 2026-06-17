@@ -1,8 +1,9 @@
-use blackflower_entity::{EntityId, EntityIdAllocator};
 use blackflower_math::components::Transform;
 use blackflower_protocol::{EntitySnapshot, Prop, WorldSnapshot};
 use hashbrown::HashMap;
 use hecs::{DynamicBundle, Entity, World};
+
+use crate::{EntityId, EntityIdAllocator};
 
 /// Engine-opaque property bag stored per entity.
 /// Encoding of each value is owned by the game plugin — the engine never
@@ -62,7 +63,10 @@ impl SimulationWorld {
                     .get::<&EntityProps>(entity)
                     .map(|p| {
                         p.0.iter()
-                            .map(|(pid, val)| Prop { id: *pid, value: val.clone() })
+                            .map(|(pid, val)| Prop {
+                                id: *pid,
+                                value: val.clone(),
+                            })
                             .collect()
                     })
                     .unwrap_or_default();

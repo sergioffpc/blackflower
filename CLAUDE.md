@@ -52,8 +52,7 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `bins/blackflowerd` — dedicated game server binary
 - `bins/blackflowerc` — game client binary (winit window + wgpu renderer)
 - `crates/blackflower-audio` — audio stub (kira dependency wired, no logic yet)
-- `crates/blackflower-entity` — `EntityId` (stable 64-bit network-safe ID; 0 = NONE), `EntityIdAllocator`
-- `crates/blackflower-gameplay` — pure simulation functions (e.g. `apply_player_movement`); run identically on client and server
+- `crates/blackflower-gameplay` — pure simulation functions (e.g. `apply_player_movement`); run identically on client and server. `plugin` module hosts the WASM Component Model plugin (`Plugin`, wasmtime host)
 - `crates/blackflower-graphics` — rendering: camera, geometry, pipelines, `Renderer` (wgpu/winit)
 - `crates/blackflower-input` — `InputButtons` bitfield, `InputHandle`, produces `Command` per tick
 - `crates/blackflower-math` — `glam` re-export + `Transform { translation: Vec3, rotation: Quat }`
@@ -63,7 +62,7 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-replica` — client tick loop, `PredictionState` (rollback-replay), `ClockSync` (NTP clock estimation), `SnapshotAck` (sliding-window ack bitfield)
 - `crates/blackflower-protocol` — wire message types shared by client and server
 - `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
-- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots)
+- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (AABB geometry, `Arena` from `assets/arena.ron`, `collide_and_slide`)
 
 ### Server simulation loop (blackflowerd)
 
@@ -160,3 +159,24 @@ Deltas are intentionally lossy — an older delta is worthless once a newer one 
 ### Toolchain
 
 Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (for server deployments).
+
+## Current state (2026-06-17)
+
+**Milestone:** M4 in progress — Phase A done, Phase B next.
+
+**M4-A delivered:**
+- `blackflower-world::arena` — AABB geometry, `Arena` from `assets/arena.ron`, `collide_and_slide`
+- WASM Component Model plugin: `wit/game-plugin.wit`, `blackflower-gameplay::plugin` (wasmtime 45 host), `plugins/arena-shooter` (wasm32-wasip2 guest)
+- Engine-agnostic properties: `Prop { id: u16, value: Vec<u8> }` — raw bytes, engine never interprets
+- Players spawn at arena spawn points, collide with walls
+
+**M4-A refactor:** the standalone `blackflower-arena`, `blackflower-plugin`, and `blackflower-entity` crates were folded into existing crates — arena geometry into `blackflower-world::arena`, the WASM host into `blackflower-gameplay::plugin`, and `EntityId`/`EntityIdAllocator` into `blackflower-world`.
+
+**M4-B next (weapon + hitscan):**
+1. `InputButtons::FIRE` bit
+2. Server: ray from player position when `FIRE` in command → hit vs player AABBs
+3. Call `plugin.on_hit(target_props)` → update target's `EntityProps`
+
+**M4-C next (lag compensation + respawn):**
+1. Rewind `SnapshotRing` to `command.snapshot_ack_tick` for hit validation
+2. HP=0 → respawn (reset transform + props, same EntityId)

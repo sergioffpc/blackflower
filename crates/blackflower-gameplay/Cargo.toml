@@ -14,5 +14,9 @@ readme.workspace = true
 blackflower-input.workspace = true
 blackflower-math.workspace = true
 
+anyhow.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
 [lints]
 workspace = true

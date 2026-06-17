@@ -1,12 +1,13 @@
 use std::collections::VecDeque;
 
-use blackflower_entity::EntityId;
 use blackflower_math::{Quat, components::Transform};
 use blackflower_protocol::{EntityDelta, WorldDelta};
 use blackflower_tick::Tick;
 use hashbrown::HashMap;
 use hecs::{Entity, World};
 use tracing::{error, info, trace, warn};
+
+use crate::EntityId;
 
 /// Engine-opaque per-entity property store on the client side.
 type EntityPropStore = Vec<(u16, Vec<u8>)>;
