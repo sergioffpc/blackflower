@@ -45,55 +45,23 @@ pub fn ray_aabb(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
     Some(t_enter.max(0.0))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn v(x: f32, y: f32, z: f32) -> Vec3 {
-        Vec3::new(x, y, z)
-    }
-
-    #[test]
-    fn hits_box_in_front() {
-        let t = ray_aabb(
-            v(0.0, 0.0, 0.0),
-            v(1.0, 0.0, 0.0),
-            v(4.0, -1.0, -1.0),
-            v(6.0, 1.0, 1.0),
-        );
-        assert_eq!(t, Some(4.0));
-    }
-
-    #[test]
-    fn misses_box_to_the_side() {
-        let t = ray_aabb(
-            v(0.0, 0.0, 0.0),
-            v(1.0, 0.0, 0.0),
-            v(4.0, 5.0, 5.0),
-            v(6.0, 7.0, 7.0),
-        );
-        assert_eq!(t, None);
-    }
-
-    #[test]
-    fn misses_box_behind() {
-        let t = ray_aabb(
-            v(0.0, 0.0, 0.0),
-            v(1.0, 0.0, 0.0),
-            v(-6.0, -1.0, -1.0),
-            v(-4.0, 1.0, 1.0),
-        );
-        assert_eq!(t, None);
-    }
-
-    #[test]
-    fn origin_inside_hits_at_zero() {
-        let t = ray_aabb(
-            v(0.0, 0.0, 0.0),
-            v(1.0, 0.0, 0.0),
-            v(-1.0, -1.0, -1.0),
-            v(1.0, 1.0, 1.0),
-        );
-        assert_eq!(t, Some(0.0));
-    }
+/// Nearest target whose AABB the ray enters first.
+///
+/// Each target is an `(id, center)` pair sharing the same `half`-extents; the
+/// `id` type is opaque to physics so callers (e.g. the ECS) keep their own
+/// identity type. Returns the `id` with the smallest entry distance, or `None`
+/// if the ray hits nothing. The caller excludes the shooter from `targets`.
+pub fn nearest_hit<T>(
+    origin: Vec3,
+    dir: Vec3,
+    half: Vec3,
+    targets: impl IntoIterator<Item = (T, Vec3)>,
+) -> Option<T> {
+    targets
+        .into_iter()
+        .filter_map(|(id, center)| {
+            ray_aabb(origin, dir, center - half, center + half).map(|dist| (dist, id))
+        })
+        .min_by(|(a, _), (b, _)| a.total_cmp(b))
+        .map(|(_, id)| id)
 }

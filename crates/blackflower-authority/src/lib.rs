@@ -395,19 +395,17 @@ impl Authority {
         }
 
         let half = Vec3::from_array(PLAYER_HALF_EXTENTS);
-        let hit = self
+        let candidates = self
             .simulation
             .targets()
             .into_iter()
             .filter(|(id, _)| *id != shooter)
-            .filter_map(|(id, t)| {
-                let center = t.translation;
-                blackflower_physics::hitscan::ray_aabb(origin, dir, center - half, center + half)
-                    .map(|dist| (dist, id))
-            })
-            .min_by(|(a, _), (b, _)| a.total_cmp(b));
+            .map(|(id, t)| (id, t.translation));
 
-        let Some((_, target)) = hit else { return };
+        let Some(target) = blackflower_physics::hitscan::nearest_hit(origin, dir, half, candidates)
+        else {
+            return;
+        };
         self.apply_hit(shooter, target);
     }
 
