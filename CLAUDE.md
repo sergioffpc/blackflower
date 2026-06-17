@@ -8,10 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build
 cargo build --workspace
 
-# Run server (listens on 0.0.0.0:3512)
+# Run server (listens on 0.0.0.0:3512; reads assets/server.toml)
 cargo run --bin blackflowerd
 
-# Run client (connects to 127.0.0.1:3512)
+# Run client (connects to 127.0.0.1:3512; reads assets/client.toml)
 cargo run --bin blackflowerc
 
 # Simulate network conditions for testing prediction (both binaries accept these flags)
@@ -25,10 +25,10 @@ cargo run --bin blackflowerd -- --tick-hz 60 --max-clients 64 --bind-addr 0.0.0.
 rustup target add wasm32-wasip2
 cargo build --manifest-path plugins/arena-shooter/Cargo.toml --target wasm32-wasip2
 
-# Run server with arena + plugin
-cargo run --bin blackflowerd -- \
-  --arena assets/arena.ron \
-  --plugin plugins/arena-shooter/target/wasm32-wasip2/debug/arena_shooter.wasm
+# Arena/map and plugin paths come from the config file, not CLI flags.
+# Server: edit assets/server.toml (`arena`, `plugin`); override file with --config.
+# Client: edit assets/client.toml (`[bindings]` key → action); override with --config.
+cargo run --bin blackflowerd -- --config assets/server.toml
 
 # Format check
 cargo fmt --all --check
@@ -63,6 +63,13 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-protocol` — wire message types shared by client and server
 - `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
 - `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (AABB geometry, `Arena` from `assets/arena.ron`, `collide_and_slide`)
+
+### Configuration (TOML)
+
+Both binaries load a TOML config via `--config` (parsed with the `toml` crate into a serde struct):
+
+- **Server** — `assets/server.toml` (default). `arena` = path to the arena/map RON file; `plugin` = path to the WASM component (optional, omit to run without a plugin). Other runtime knobs (`--tick-hz`, `--max-clients`, `--bind-addr`, fake-latency) stay CLI flags.
+- **Client** — `assets/client.toml` (default). `[bindings]` table maps a physical key name (as emitted by `blackflower-window`, e.g. `"W"`) to an action — an `InputButtons` flag name resolved case-insensitively via `InputButtons::from_action` (`forward`/`backward`/`left`/`right`). Many keys may map to the same action. Unknown action names fail at startup. The resolved `HashMap<String, InputButtons>` lives in `App` and drives `on_key_down`/`on_key_up`.
 
 ### Server simulation loop (blackflowerd)
 

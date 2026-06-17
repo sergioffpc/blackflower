@@ -13,6 +13,13 @@ bitflags! {
 }
 
 impl InputButtons {
+    /// Resolve a binding action name (case-insensitive) to its flag, e.g.
+    /// `"forward"` → [`InputButtons::FORWARD`]. Returns `None` for unknown names.
+    #[must_use]
+    pub fn from_action(name: &str) -> Option<Self> {
+        Self::from_name(&name.to_uppercase())
+    }
+
     #[must_use]
     pub fn normalize_or_zero(&self) -> Vec2 {
         let mut d = Vec2::ZERO;

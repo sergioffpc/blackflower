@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Context;
 use serde::Deserialize;
 
@@ -59,11 +61,14 @@ pub struct Arena {
 }
 
 impl Arena {
-    pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
-        let src = std::fs::read_to_string(path)
-            .with_context(|| format!("reading arena file {}", path.display()))?;
+    pub fn load<P>(path: P) -> anyhow::Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let src = std::fs::read_to_string(path.as_ref())
+            .with_context(|| format!("reading arena file {}", path.as_ref().display()))?;
         ron::from_str(&src)
-            .map_err(|e| anyhow::anyhow!("arena parse error in {}: {e}", path.display()))
+            .map_err(|e| anyhow::anyhow!("arena parse error in {}: {e}", path.as_ref().display()))
     }
 
     /// Move `position` by `displacement`, sliding along walls axis-by-axis.

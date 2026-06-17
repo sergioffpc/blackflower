@@ -1,0 +1,12 @@
+# Blackflower client configuration.
+# Path passed via `--config` (defaults to ./assets/client.toml).
+
+# Input bindings: physical key -> action.
+# The action must name an `InputButtons` flag (case-insensitive):
+# forward, backward, left, right.
+# Bind several keys to the same action by repeating the action value.
+[bindings]
+W = "forward"
+S = "backward"
+A = "left"
+D = "right"
