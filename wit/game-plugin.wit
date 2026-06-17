@@ -7,7 +7,7 @@ package blackflower:game-plugin@0.1.0;
 /// server (`blackflowerd`); the client never instantiates it. Predicted
 /// rules (movement, etc.) live in `blackflower-gameplay::systems` instead,
 /// because the client must run identical code to predict them.
-/// See ADR 0017 in `docs/architecture.md`.
+/// See ADR 0017 in `docs/ARCHITECTURE.md`.
 world game-plugin {
     /// A candidate spawn point offered by the map.
     record vec3 {

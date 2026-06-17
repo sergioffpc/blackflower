@@ -12,7 +12,7 @@ Active development — M3 complete, M4 in progress. M3 delivered: slot state
 machine, protocol handshake, delta snapshot compression, remote interpolation.
 M4 (in progress): AABB arena geometry, WASM game-plugin architecture (engine
 is agnostic to game properties — HP, damage, respawn are raw bytes owned by
-the plugin), collision. See [`docs/architecture.md`](docs/architecture.md)
+the plugin), collision. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 for the full design and milestone roadmap.
 
 ## Build
@@ -74,7 +74,7 @@ plugins/
 wit/
   game-plugin.wit   WIT contract between engine and game plugin
 docs/
-  architecture.md   design doc + ADRs
+  ARCHITECTURE.md   design doc + ADRs
   diagrams/         SVG diagrams
 ```
 

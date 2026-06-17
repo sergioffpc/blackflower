@@ -2,7 +2,7 @@
 //!
 //! Pure functions run identically by server (`blackflower-authority`) and
 //! client (`blackflower-replica` prediction). Any rule the client must predict
-//! belongs here, never in the plugin. See ADR 0017 in `docs/architecture.md`.
+//! belongs here, never in the plugin. See ADR 0017 in `docs/ARCHITECTURE.md`.
 
 use blackflower_input::components::InputButtons;
 use blackflower_math::{Vec2, Vec3, components::Transform};
