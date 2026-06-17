@@ -168,7 +168,7 @@ impl Replica {
         let mut snapshot_ack = SnapshotAck::new();
 
         let handle = std::thread::Builder::new()
-        .name("blackflower-runtime::tick".to_owned())
+        .name("blackflower-replica::tick".to_owned())
         .spawn(move || {
             let dt = 1.0 / tick_hz as f32;
 

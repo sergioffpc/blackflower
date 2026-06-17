@@ -31,14 +31,14 @@ pub struct Args {
     fake_jitter_ms: u64,
 }
 
-pub fn run_app(args: &Args) -> anyhow::Result<()> {
-    let arena = Arena::load(&args.arena_path)?;
+pub fn run_app(args: Args) -> anyhow::Result<()> {
+    let arena = Arena::load(args.arena_path)?;
     let plugin = args
         .plugin_path
         .as_deref()
         .map(Plugin::load)
         .transpose()
-        .context("loading game plugin")?;
+        .context("loading plugin")?;
 
     let authority_config = AuthorityConfig {
         tick_hz: args.tick_hz,
