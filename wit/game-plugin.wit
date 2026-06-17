@@ -2,6 +2,12 @@ package blackflower:game-plugin@0.1.0;
 
 /// Game-logic plugin interface. The engine is opaque to prop values —
 /// it stores and forwards raw bytes. The plugin owns the encoding scheme.
+///
+/// Scope: server-authoritative, NON-predicted rules only. Loaded by the
+/// server (`blackflowerd`); the client never instantiates it. Predicted
+/// rules (movement, etc.) live in `blackflower-gameplay::systems` instead,
+/// because the client must run identical code to predict them.
+/// See ADR 0017 in `docs/architecture.md`.
 world game-plugin {
     /// Return initial properties for a newly spawned entity.
     export on-spawn: func() -> list<tuple<u16, list<u8>>>;

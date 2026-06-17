@@ -104,15 +104,34 @@ The processes that run in production and how they communicate.
 
 **Status: implemented.** `TickScheduler` drives both server and client tick loops at the configured Hz. Client render and input run on a separate winit event loop thread.
 
-### ADR 0006 — Game logic in hot-loadable cdylib
+### ADR 0006 — Game logic in a WASM Component Model plugin
 
-**Decision:** game logic lives in a dynamic library, loaded at runtime. In dev, supports unload+reload+state migration.
+**Decision:** server-authoritative game logic lives in a WASM component loaded at runtime by the server, via the interface in `wit/game-plugin.wit`. The host lives in `blackflower-gameplay::plugin` (wasmtime). The engine treats entity properties as opaque bytes (`Prop { id: u16, value: Vec<u8> }`) and never interprets them; the plugin owns the encoding.
 
-**Rationale:** fast iteration cycle (Quake's `game.dll`).
+**Rationale:** fast iteration and safe sandboxing (capability-gated WASI, no Rust ABI hazard), keeping game rules out of the engine. Supersedes the original cdylib plan (Quake's `game.dll`): the unstable Rust ABI made `#[repr(C)]` shared types fragile, and WASM gives a stable, language-agnostic boundary instead.
 
-**Risk:** unstable Rust ABI → shared types must be FFI-safe (`#[repr(C)]`).
+**Scope:** only NON-predicted rules go in the plugin (`on-spawn`, `on-hit`). Predicted rules stay as pure Rust in `blackflower-gameplay::systems` — see ADR 0017 for the boundary and its rationale.
 
-**Status: planned.** Game logic currently lives in `blackflower-gameplay` (a static crate). The `Transform`, `Velocity`, and `InputButtons` types are `#[repr(C)]` in anticipation of this migration.
+**Status: implemented.** `wit/game-plugin.wit` defines `on-spawn`/`on-hit`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from config). Hot-reload + state migration in dev remains **planned** (M5).
+
+---
+
+### ADR 0017 — Game-rule boundary: predicted pure systems vs server-only plugin
+
+**Decision:** game rules are split by whether the client must predict them.
+
+- **Predicted rules** (movement, and any rule whose effect the client must show before the server confirms) stay as **pure functions in `blackflower-gameplay::systems`**, called identically by server (`blackflower-authority`) and client (`blackflower-replica::PredictionState`). They never live in the plugin.
+- **Server-authoritative, non-predicted rules** (`on-spawn`, `on-hit`/damage) live in the **WASM Component Model plugin** (`wit/game-plugin.wit`, host in `blackflower-gameplay::plugin`). The plugin is loaded only by `blackflowerd`; the client never instantiates it. The engine treats entity properties as opaque bytes (`Prop { id: u16, value: Vec<u8> }`) and never interprets them.
+
+The ECS itself (storage, scheduling, change detection) is engine mechanism, not game policy, and stays in the engine regardless.
+
+**Rationale:** client-side prediction (ADR 0007) requires the client to run the exact same code as the server for any rule it predicts. A rule that lives only in the server-side plugin cannot be predicted, reintroducing the rubber-banding that prediction exists to remove. Keeping the predicted/non-predicted split explicit prevents a predicted rule from silently landing in the plugin.
+
+**Decision test for any new rule:** *does the client need to predict this?* Yes → pure function in `gameplay::systems`. No → plugin.
+
+**Risk:** if a future predicted rule (e.g. predicted projectiles, weapon recoil) is wanted *inside* the plugin, the plugin must run on both client and server, which adds a hard requirement of **bit-exact determinism** across both (identical wasmtime `Config`, float/SIMD/NaN determinism). Until then, predicted logic stays in pure Rust. Separately, opaque props decouple the engine from game state but block the engine from any logic that needs to understand them (per-type AABBs, HP-bar interpolation); when that need arises, that piece is not actually engine-agnostic.
+
+**Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `on-spawn`/`on-hit` are server-only WASM.
 
 ---
 
@@ -351,13 +370,15 @@ blackflower/
 ├── Cargo.toml                      # workspace (resolver v3, shared lints)
 ├── rust-toolchain.toml             # pinned to stable 1.95.0
 ├── clippy.toml                     # lint thresholds
+├── rustfmt.toml                    # formatting (width 100, LF, edition 2024)
+├── wit/
+│   └── game-plugin.wit             # WASM Component Model plugin interface
 ├── bins/
 │   ├── blackflowerd/               # dedicated server binary
 │   └── blackflowerc/               # client binary (winit + wgpu)
 ├── crates/
 │   ├── blackflower-audio/          # stub (kira wired, no logic yet)
-│   ├── blackflower-entity/         # EntityId, EntityIdAllocator
-│   ├── blackflower-gameplay/       # pure simulation functions
+│   ├── blackflower-gameplay/       # pure simulation systems + WASM plugin host
 │   ├── blackflower-graphics/       # wgpu renderer, camera, geometry, shader
 │   ├── blackflower-input/          # InputButtons bitflags, InputHandle
 │   ├── blackflower-math/           # glam re-export, Transform component
@@ -368,11 +389,19 @@ blackflower/
 │   ├── blackflower-protocol/       # Command, Snapshot, Request, Event
 │   ├── blackflower-tick/           # Tick, TickScheduler
 │   ├── blackflower-window/         # winit wrapper, WindowHandler trait
-│   └── blackflower-world/          # SimulationWorld, PresentationWorld
+│   └── blackflower-world/          # SimulationWorld, PresentationWorld, EntityId, arena
+├── plugins/
+│   └── e1m1/                       # WASM game-logic guest (wasm32-wasip2)
+├── assets/
+│   ├── blackflowerd.toml           # server config (arena, plugin paths)
+│   ├── blackflowerc.toml           # client config (key bindings)
+│   └── maps/                       # arena geometry (RON)
 └── docs/
     ├── architecture.md             # this file
     └── diagrams/                   # SVG diagrams
 ```
+
+> Note: `blackflower-entity`, `blackflower-arena`, and `blackflower-plugin` no longer exist as standalone crates — `EntityId`/`EntityIdAllocator` and arena geometry were folded into `blackflower-world`, and the WASM host into `blackflower-gameplay` (M4-A refactor).
 
 ### ADR 0014 — Monorepo Cargo workspace
 
@@ -424,7 +453,6 @@ blackflower/
 - **Ack** — the highest client-tick the server has processed; echoed in each `Snapshot` so the client can reconcile prediction history.
 - **Archetype** — grouping of entities sharing the same set of component types; contiguous in memory.
 - **COBS** — Consistent Overhead Byte Stuffing; framing scheme that eliminates 0x00 bytes so streams can be delimited by a zero byte.
-- **cdylib** — Rust dynamic library format with C-compatible ABI (loadable at runtime).
 - **Delta compression** — sending only the difference between state N and state N-K (snapshot baseline). Not yet implemented.
 - **ECS** — Entity-Component-System; entities are IDs, components are pure data, systems are functions iterating over components.
 - **EntityId** — stable 64-bit identifier; 0 is `NONE` (sentinel); allocated monotonically, never reused.
