@@ -1,5 +1,5 @@
 # Blackflower client configuration.
-# Path passed via `--config` (defaults to ./assets/client.toml).
+# Path passed via `--config` (defaults to ./assets/blackflowerc.toml).
 
 # Input bindings: physical key -> action.
 # The action must name an `InputButtons` flag (case-insensitive):

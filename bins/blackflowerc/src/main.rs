@@ -20,7 +20,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to the client configuration file (TOML).
-    #[arg(long, default_value = "assets/client.toml")]
+    #[arg(long, default_value = "assets/blackflowerc.toml")]
     config: PathBuf,
 
     #[arg(long, default_value_t = 1280)]

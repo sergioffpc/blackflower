@@ -8,10 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build
 cargo build --workspace
 
-# Run server (listens on 0.0.0.0:3512; reads assets/server.toml)
+# Run server (listens on 0.0.0.0:3512; reads assets/blackflowerd.toml)
 cargo run --bin blackflowerd
 
-# Run client (connects to 127.0.0.1:3512; reads assets/client.toml)
+# Run client (connects to 127.0.0.1:3512; reads assets/blackflowerc.toml)
 cargo run --bin blackflowerc
 
 # Simulate network conditions for testing prediction (both binaries accept these flags)
@@ -21,14 +21,14 @@ cargo run --bin blackflowerc -- --fake-latency-ms 40 --fake-jitter-ms 10
 # Server options (defaults shown)
 cargo run --bin blackflowerd -- --tick-hz 60 --max-clients 64 --bind-addr 0.0.0.0:3512
 
-# Build the arena-shooter WASM plugin (requires wasm32-wasip2 target)
+# Build the e1m1 WASM plugin (requires wasm32-wasip2 target)
 rustup target add wasm32-wasip2
-cargo build --manifest-path plugins/arena-shooter/Cargo.toml --target wasm32-wasip2
+cargo build --manifest-path plugins/e1m1/Cargo.toml --target wasm32-wasip2
 
 # Arena/map and plugin paths come from the config file, not CLI flags.
-# Server: edit assets/server.toml (`arena`, `plugin`); override file with --config.
-# Client: edit assets/client.toml (`[bindings]` key → action); override with --config.
-cargo run --bin blackflowerd -- --config assets/server.toml
+# Server: edit assets/blackflowerd.toml (`arena`, `plugin`); override file with --config.
+# Client: edit assets/blackflowerc.toml (`[bindings]` key → action); override with --config.
+cargo run --bin blackflowerd -- --config assets/blackflowerd.toml
 
 # Format check
 cargo fmt --all --check
@@ -62,14 +62,14 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 - `crates/blackflower-replica` — client tick loop, `PredictionState` (rollback-replay), `ClockSync` (NTP clock estimation), `SnapshotAck` (sliding-window ack bitfield)
 - `crates/blackflower-protocol` — wire message types shared by client and server
 - `crates/blackflower-tick` — `Tick` counter, `TickScheduler` (configurable Hz)
-- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (AABB geometry, `Arena` from `assets/arena.ron`, `collide_and_slide`)
+- `crates/blackflower-world` — `SimulationWorld` (server-side hecs ECS), `PresentationWorld` (client-side, applies snapshots), `EntityId`/`EntityIdAllocator` (stable 64-bit network-safe ID; 0 = NONE), `arena` module (AABB geometry, `Arena` from `assets/maps/*.ron`, `collide_and_slide`)
 
 ### Configuration (TOML)
 
 Both binaries load a TOML config via `--config` (parsed with the `toml` crate into a serde struct):
 
-- **Server** — `assets/server.toml` (default). `arena` = path to the arena/map RON file; `plugin` = path to the WASM component (optional, omit to run without a plugin). Other runtime knobs (`--tick-hz`, `--max-clients`, `--bind-addr`, fake-latency) stay CLI flags.
-- **Client** — `assets/client.toml` (default). `[bindings]` table maps a physical key name (as emitted by `blackflower-window`, e.g. `"W"`) to an action — an `InputButtons` flag name resolved case-insensitively via `InputButtons::from_action` (`forward`/`backward`/`left`/`right`). Many keys may map to the same action. Unknown action names fail at startup. The resolved `HashMap<String, InputButtons>` lives in `App` and drives `on_key_down`/`on_key_up`.
+- **Server** — `assets/blackflowerd.toml` (default). `arena` = path to the arena/map RON file; `plugin` = path to the WASM component (optional, omit to run without a plugin). Other runtime knobs (`--tick-hz`, `--max-clients`, `--bind-addr`, fake-latency) stay CLI flags.
+- **Client** — `assets/blackflowerc.toml` (default). `[bindings]` table maps a physical key name (as emitted by `blackflower-window`, e.g. `"W"`) to an action — an `InputButtons` flag name resolved case-insensitively via `InputButtons::from_action` (`forward`/`backward`/`left`/`right`). Many keys may map to the same action. Unknown action names fail at startup. The resolved `HashMap<String, InputButtons>` lives in `App` and drives `on_key_down`/`on_key_up`.
 
 ### Server simulation loop (blackflowerd)
 
@@ -172,8 +172,8 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 **Milestone:** M4 in progress — Phase A done, Phase B next.
 
 **M4-A delivered:**
-- `blackflower-world::arena` — AABB geometry, `Arena` from `assets/arena.ron`, `collide_and_slide`
-- WASM Component Model plugin: `wit/game-plugin.wit`, `blackflower-gameplay::plugin` (wasmtime 45 host), `plugins/arena-shooter` (wasm32-wasip2 guest)
+- `blackflower-world::arena` — AABB geometry, `Arena` from `assets/maps/*.ron`, `collide_and_slide`
+- WASM Component Model plugin: `wit/game-plugin.wit`, `blackflower-gameplay::plugin` (wasmtime 45 host), `plugins/e1m1` (wasm32-wasip2 guest)
 - Engine-agnostic properties: `Prop { id: u16, value: Vec<u8> }` — raw bytes, engine never interprets
 - Players spawn at arena spawn points, collide with walls
 
