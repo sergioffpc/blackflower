@@ -2,7 +2,7 @@
 
 Living architecture document for the engine. Quake 2-style (authoritative client/server), with modern advances: archetype-based ECS, QUIC transport, client-side prediction + reconciliation.
 
-**Status:** Active development — M3 implemented (foundations, ECS, QUIC networking, client-side prediction, slot state machine, handshake validation, delta snapshots with ack bitfield, remote interpolation). See [roadmap](#implementation-roadmap) for milestone status.
+**Status:** Active development — M4 implemented (foundations, ECS, QUIC networking, client-side prediction, slot state machine, handshake validation, delta snapshots with ack bitfield, remote interpolation, entity-based arenas + rapier collision, WASM plugin, lag-compensated hitscan + plugin-driven respawn). See [roadmap](#implementation-roadmap) for milestone status.
 **Audience:** author + future contributors.
 **Convention:** each section ends with decisions recorded as embedded ADRs. `**Status: implemented**` means the decision is live in code; `**Status: planned**` means it is a design commitment not yet coded. When a decision is extracted to its own file, it moves to `docs/adr/NNNN-title.md`.
 
@@ -58,7 +58,7 @@ The actors and external systems the engine interacts with.
 
 **Consequences:** snapshot-based networking, client-side prediction, lag-comp via rewind in history buffer, no area-of-interest.
 
-**Status: partially implemented.** Tick scheduler and QUIC broadcast support the scale target. Delta snapshot compression (M3) is implemented; lag-comp via history-buffer rewind is planned for M4.
+**Status: implemented.** Tick scheduler and QUIC broadcast support the scale target. Delta snapshot compression (M3) is implemented; lag-comp via snapshot-ring rewind (M4) is implemented (`Authority::hit_candidates` rewinds targets to the shooter's acked snapshot).
 
 ---
 
@@ -572,7 +572,7 @@ blackflower/
 | M1 | ECS, tick scheduler, QUIC echo, raw snapshots, window + render | Server has cube; client sees it move | **done** |
 | M2 | Input → command → wire, local sim + rollback reconciliation | WASD moves cube; prediction visible at 100 ms simulated lag | **done** |
 | M3 | Slot state machine, handshake, snapshot delta + ack bitfield, remote interpolation | 4 clients see each other, smooth movement | **done** |
-| M4 | Physics, collision, minimal asset pipeline, hit-detection with lag-comp | Box arena, 8 players, hits with rewind | planned |
+| M4 | Physics, collision, minimal asset pipeline, hit-detection with lag-comp | Box arena, 8 players, hits with rewind | **done** |
 | M5 | Hot-reload cdylib, audio, basic editor | Textured arena with audio; edit .scene → live update | planned |
 | M6 | 64 players, telemetry, k8s deploy, anti-cheat hooks, optimization | Full 64-player match in production | planned |
 | M7 | Advanced renderer, audio mixing, particles, UI tooling | — | planned |

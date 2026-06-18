@@ -169,9 +169,9 @@ Deltas are intentionally lossy — an older delta is worthless once a newer one 
 
 Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (for server deployments).
 
-## Current state (2026-06-17)
+## Current state (2026-06-18)
 
-**Milestone:** M4 in progress — Phases A + B + C done.
+**Milestone:** M4 **closed** — Phases A + B + C delivered; roadmap marks M4 done.
 
 **M4-A delivered:**
 - `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
@@ -197,4 +197,4 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - e1m1 guest sets `respawn` when HP reaches 0.
 - Unit tests: `SnapshotRing` insert/get/eviction + `highest_acked` (in `blackflower-authority`).
 
-**M5 next:** plugin hot-reload + state migration; remaining MVP gaps (aim/look input, fire-rate).
+**M5 next:** plugin hot-reload + state migration, audio, basic editor. Carried-over MVP gaps from M4-B (aim/look input, fire-rate/edge-detection) are tracked into M5.
