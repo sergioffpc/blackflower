@@ -14,6 +14,10 @@ pub struct Prop {
 pub struct Command {
     pub tick: u64,
     pub buttons: u64,
+    /// Absolute view angles (radians): yaw about +Y, pitch about +X. Sent
+    /// absolute (not as deltas) so a dropped datagram never desyncs orientation.
+    pub yaw: f32,
+    pub pitch: f32,
     pub snapshot_ack_tick: u64,
     pub snapshot_ack_bits: u32,
 }

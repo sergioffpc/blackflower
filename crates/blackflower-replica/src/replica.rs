@@ -63,7 +63,16 @@ impl SnapshotAck {
     }
 }
 
-pub type ReplicaState = Box<[Transform]>;
+/// Render-ready frame state.
+///
+/// The local player's transform drives the first-person camera (`camera`), and
+/// every other entity is a world body to draw (`entities`). The local body is
+/// excluded — we render from inside it.
+#[derive(Clone, Debug, Default)]
+pub struct RenderState {
+    pub camera: Option<Transform>,
+    pub entities: Box<[Transform]>,
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReplicaConfig {
@@ -215,8 +224,9 @@ impl Replica {
                     }
 
                     let buttons = InputButtons::from_bits(input_cmd.buttons).unwrap_or_default();
+                    let look = (input_cmd.yaw, input_cmd.pitch);
                     let seed = world.transform_of(local);
-                    if let Some(predicted) = prediction.predict(tick, buttons, seed, dt) {
+                    if let Some(predicted) = prediction.predict(tick, buttons, look, seed, dt) {
                         world.set_transform(local, predicted);
                     }
                 }
@@ -257,22 +267,39 @@ impl Replica {
         self.input_handle.release(button);
     }
 
-    pub fn state(&self, now: Instant) -> ReplicaState {
-        let state = self.presentation_buffer.load_full();
-        self.resolve(&state, now).into_boxed_slice()
+    /// Feed a relative mouse motion (already scaled by sensitivity, radians)
+    /// into the local view angles.
+    pub fn look(&self, dyaw: f32, dpitch: f32) {
+        self.input_handle.look(dyaw, dpitch);
     }
 
-    fn resolve(&self, state: &PresentationState, now: Instant) -> Vec<Transform> {
+    pub fn state(&self, now: Instant) -> RenderState {
+        let state = self.presentation_buffer.load_full();
+        self.resolve(&state, now)
+    }
+
+    fn resolve(&self, state: &PresentationState, now: Instant) -> RenderState {
         let est = self.clock_estimate.load();
         let elapsed = now.duration_since(est.reference_instant).as_secs_f64();
         let target = elapsed.mul_add(self.tick_hz as f64, est.offset_ticks) - INTERP_DELAY_TICKS;
-        state
-            .entities
-            .iter()
-            .filter_map(|(_, ent)| match ent {
-                EntityState::Predicted(t) => Some(*t),
-                EntityState::Interpolated(samples) => interpolate(samples, target),
-            })
-            .collect()
+
+        let mut camera = None;
+        let mut entities = Vec::new();
+        for (_, ent) in &state.entities {
+            match ent {
+                // The local (predicted) player drives the camera; its body is
+                // not drawn (first-person).
+                EntityState::Predicted(t) => camera = Some(*t),
+                EntityState::Interpolated(samples) => {
+                    if let Some(t) = interpolate(samples, target) {
+                        entities.push(t);
+                    }
+                }
+            }
+        }
+        RenderState {
+            camera,
+            entities: entities.into_boxed_slice(),
+        }
     }
 }

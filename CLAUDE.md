@@ -71,7 +71,7 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 Each binary owns its `Args` (clap) and `App` in its own `app.rs` module; `main.rs` is a thin entrypoint that parses args and calls `app::run_app`.
 
 - **Server** — all CLI flags, no config file. `--arena-path` (required) = arena/map RON file, loaded via `Arena::load`; `--plugin-path` (optional, omit to run without a plugin) = WASM component. Other knobs: `--tick-hz`, `--max-clients`, `--bind-addr`, `--fake-latency-ms`, `--fake-jitter-ms`.
-- **Client** — loads a TOML config via `--config-path` (default `assets/blackflowerc.toml`), parsed with the `toml` crate into a serde struct. `[window]` table sets `width`/`height` (each defaults to 1280×720; the table may be omitted). `[bindings]` table maps a physical key name (as emitted by `blackflower-window`, e.g. `"W"`) to an action — an `InputButtons` flag name resolved case-insensitively via `InputButtons::from_action` (`forward`/`backward`/`left`/`right`/`fire`). Many keys may map to the same action. Unknown action names fail at startup. The resolved `HashMap<String, InputButtons>` lives in `App` and drives `on_key_down`/`on_key_up`. Remaining CLI flags: `--config-path`, `--server-addr`, `--fake-latency-ms`, `--fake-jitter-ms`.
+- **Client** — loads a TOML config via `--config-path` (default `assets/blackflowerc.toml`), parsed with the `toml` crate into a serde struct. `[window]` table sets `width`/`height` (each defaults to 1280×720; the table may be omitted). `[look]` table sets `sensitivity` (radians of view rotation per pixel of mouse motion; defaults to 0.0022; table may be omitted). `[bindings]` table maps a physical key name (as emitted by `blackflower-window`, e.g. `"W"`) to an action — an `InputButtons` flag name resolved case-insensitively via `InputButtons::from_action` (`forward`/`backward`/`left`/`right`/`fire`). Many keys may map to the same action. Unknown action names fail at startup. The resolved `HashMap<String, InputButtons>` lives in `App` and drives `on_key_down`/`on_key_up`; `on_mouse_motion` feeds mouse-look. Remaining CLI flags: `--config-path`, `--server-addr`, `--fake-latency-ms`, `--fake-jitter-ms`.
 
 ### Server simulation loop (blackflowerd)
 
@@ -116,7 +116,7 @@ Gameplay functions must remain pure (no side effects, no RNG) so predict and ser
 
 ### Protocol types (blackflower-protocol)
 
-- `Command { tick, buttons, snapshot_ack_tick, snapshot_ack_bits }` — client input sent as unreliable datagrams; ack fields carry a 32-bit sliding-window of received snapshot ticks
+- `Command { tick, buttons, yaw, pitch, snapshot_ack_tick, snapshot_ack_bits }` — client input sent as unreliable datagrams; `yaw`/`pitch` are absolute view angles (radians, sent absolute not as deltas); ack fields carry a 32-bit sliding-window of received snapshot ticks
 - `WorldDelta { tick, ack, baseline, removed, entities: Box<[EntityDelta]> }` — server→client datagram; `baseline == 0` = full snapshot, `baseline > 0` = delta against that tick; `ack` is the highest client command tick processed (for prediction reconciliation)
 - `EntityDelta { id, translation: Option<[f32;3]>, rotation: Option<[f32;4]> }` — only changed fields are `Some`; change detection via `f32::to_bits()`
 - `WorldSnapshot / EntitySnapshot` — full entity state, used internally by server's `SnapshotRing` (not sent on wire directly)
@@ -171,7 +171,7 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 
 ## Current state (2026-06-18)
 
-**Milestone:** M4 **closed** — Phases A + B + C delivered; roadmap marks M4 done.
+**Milestone:** M4 **closed** (Phases A + B + C). M5 in progress — aim/look input delivered.
 
 **M4-A delivered:**
 - `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
@@ -185,10 +185,10 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 **M4-B delivered (weapon + hitscan):**
 - `InputButtons::FIRE` bit (`1 << 4`); client binds it via `"fire"` (e.g. `Space` in `blackflowerc.toml`).
 - `blackflower-physics::hitscan::ray_aabb` — pure slab-method ray-vs-AABB (unit-tested).
-- `blackflower-authority::fire_hitscan` — when `FIRE` is set, casts a ray from the shooter along its facing (`rotation * -Z`), tests against every other player's AABB (`±PLAYER_HALF_EXTENTS` via `SimulationWorld::targets`), nearest hit only.
+- `blackflower-authority::fire_hitscan` — when `FIRE` is set, casts a ray from the shooter along its facing (`rotation * -Z`, now driven by mouse-look — see M5 below), tests against every other player's AABB (`±PLAYER_HALF_EXTENTS` via `SimulationWorld::targets`), nearest hit only.
 - On hit: `plugin.on_hit(target_props)` → merge returned `(id, value)` props back into the target's `EntityProps` by id (`SimulationWorld::props_mut`).
 - Server-authoritative, non-predicted (ADR 0017).
-- **Known MVP gaps:** aim reuses the spawn facing (no look/aim input yet); fires once per tick while `FIRE` is held (no edge-detection / fire-rate).
+- **Known MVP gaps:** aim reuses the spawn facing (no look/aim input yet) — *resolved in M5, see below*; fires once per tick while `FIRE` is held (no edge-detection / fire-rate).
 
 **M4-C delivered (lag compensation + respawn):**
 - Lag comp: `Authority::hit_candidates` rewinds target positions to the snapshot at `command.snapshot_ack_tick` (via `SnapshotRing::get`); falls back to current positions when that tick has aged out of the ring. `fire_hitscan` now takes the ack tick.
@@ -197,4 +197,13 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - e1m1 guest sets `respawn` when HP reaches 0.
 - Unit tests: `SnapshotRing` insert/get/eviction + `highest_acked` (in `blackflower-authority`).
 
-**M5 next:** plugin hot-reload + state migration, audio, basic editor. Carried-over MVP gaps from M4-B (aim/look input, fire-rate/edge-detection) are tracked into M5.
+**M5 in progress — aim/look input delivered:**
+- Mouse-look → absolute view angles on the wire: `Command` gains `yaw`/`pitch` (radians, absolute). (`PROTOCOL_VERSION` left at 1 — pre-release, client and server build together.)
+- `blackflower-input::InputHandle` holds `{ buttons, yaw, pitch }`; `look(dyaw, dpitch)` accumulates (pitch clamped to ±~89°). Client app `on_mouse_motion` scales raw `DeviceEvent::MouseMotion` by `[look] sensitivity`.
+- `blackflower-window`: `WindowHandler::on_mouse_motion`, focus-gated `device_event`, best-effort cursor grab (`Locked`→`Confined`) + hide on focus.
+- Pure rule `blackflower-gameplay::systems::apply_player_look` (rotation = yaw·pitch); `apply_player_movement` is now **yaw-relative** (forward/right derived from facing). Applied look-before-move on both server (`Authority::on_command`) and client prediction (`PredictionState` predict+reconcile carry yaw/pitch).
+- First-person client: `Replica::state` returns `RenderState { camera, entities }` — local player drives the camera (`Renderer::render(camera_from, ..)`, `Camera::look_along`) and is not drawn; remotes interpolated as before.
+- Hitscan facing now follows the look direction (what you see is what you shoot; ray origin = camera eye = translation).
+- Unit tests in `blackflower-gameplay`: look facing, yaw-relative forward, pitch doesn't lift movement.
+
+**M5 remaining:** plugin hot-reload + state migration, audio, basic editor; fire-rate / edge-detect on `FIRE`.

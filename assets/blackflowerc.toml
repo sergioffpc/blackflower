@@ -7,6 +7,11 @@
 width = 1280
 height = 720
 
+# Mouse-look tuning. `sensitivity` is radians of view rotation per pixel of
+# mouse motion. The table may be omitted to use the default (0.0022).
+[look]
+sensitivity = 0.0022
+
 # Input bindings: physical key -> action.
 # The action must name an `InputButtons` flag (case-insensitive):
 # forward, backward, left, right, fire.

@@ -26,6 +26,14 @@ impl Camera {
         }
     }
 
+    /// Aim the camera from `eye` along `dir` (world up), e.g. to follow a
+    /// first-person player. Leaves projection params untouched.
+    pub fn look_along(&mut self, eye: Vec3, dir: Vec3) {
+        self.eye = eye;
+        self.target = eye + dir;
+        self.up = Vec3::Y;
+    }
+
     pub fn view_proj(&self) -> Mat4 {
         let view = Mat4::look_at_rh(self.eye, self.target, self.up);
         let proj = Mat4::perspective_rh(self.yfov, self.aspect, self.znear, self.zfar);

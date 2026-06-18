@@ -47,14 +47,34 @@ pub fn run_app(args: Args) -> anyhow::Result<()> {
 
 const DEFAULT_WIDTH: u32 = 1280;
 const DEFAULT_HEIGHT: u32 = 720;
+/// Default mouse-look sensitivity in radians per pixel of motion.
+const DEFAULT_SENSITIVITY: f32 = 0.0022;
 
 #[derive(Debug, Deserialize)]
 struct Config {
     /// Window dimensions; omitted fields fall back to defaults.
     #[serde(default)]
     window: WindowConfig,
+    /// Mouse-look tuning; may be omitted to use defaults.
+    #[serde(default)]
+    look: LookConfig,
     /// Physical key name (as emitted by the window layer) → action name.
     bindings: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct LookConfig {
+    /// Radians of view rotation per pixel of mouse motion.
+    sensitivity: f32,
+}
+
+impl Default for LookConfig {
+    fn default() -> Self {
+        Self {
+            sensitivity: DEFAULT_SENSITIVITY,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +119,7 @@ impl Config {
 struct App {
     replica: Replica,
     bindings: HashMap<String, InputButtons>,
+    sensitivity: f32,
     renderer: Option<Renderer>,
 }
 
@@ -109,6 +130,7 @@ impl App {
         Ok(Self {
             replica,
             bindings,
+            sensitivity: config.look.sensitivity,
             renderer: None,
         })
     }
@@ -147,9 +169,9 @@ impl WindowHandler for App {
     }
 
     fn on_draw(&mut self) {
-        let transforms = self.replica.state(Instant::now());
+        let frame = self.replica.state(Instant::now());
         if let Some(renderer) = &mut self.renderer {
-            renderer.render(&transforms);
+            renderer.render(frame.camera, &frame.entities);
         }
     }
 
@@ -163,5 +185,12 @@ impl WindowHandler for App {
         if let Some(&button) = self.bindings.get(key) {
             self.replica.release_button(button);
         }
+    }
+
+    fn on_mouse_motion(&mut self, dx: f64, dy: f64) {
+        // Mouse right (dx>0) turns right → decrease yaw; mouse up (dy<0) looks
+        // up → increase pitch. Both scaled by sensitivity.
+        let s = self.sensitivity;
+        self.replica.look(-(dx as f32) * s, -(dy as f32) * s);
     }
 }

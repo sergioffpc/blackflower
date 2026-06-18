@@ -129,7 +129,16 @@ impl Renderer {
         self.camera.aspect = width as f32 / height as f32;
     }
 
-    pub fn render(&mut self, entities: &[Transform]) {
+    /// Render the frame. When `camera_from` is `Some`, the camera follows that
+    /// transform first-person (eye at its origin, looking along its facing);
+    /// otherwise the default overview camera is kept.
+    pub fn render(&mut self, camera_from: Option<Transform>, entities: &[Transform]) {
+        if let Some(t) = camera_from {
+            let facing = t.rotation * Vec3::NEG_Z;
+            let dir = facing.normalize_or_zero();
+            let dir = if dir == Vec3::ZERO { Vec3::NEG_Z } else { dir };
+            self.camera.look_along(t.translation, dir);
+        }
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => {
                 self.present(surface_texture, entities);

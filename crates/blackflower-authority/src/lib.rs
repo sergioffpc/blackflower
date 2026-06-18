@@ -356,6 +356,12 @@ impl Authority {
         let buttons = InputButtons::from_bits(command.buttons).unwrap_or_default();
 
         if let Ok(mut transform) = self.simulation.transform_mut(entity) {
+            // Look before move so movement uses the new facing (yaw-relative).
+            blackflower_gameplay::systems::apply_player_look(
+                &mut transform,
+                command.yaw,
+                command.pitch,
+            );
             let old_pos: [f32; 3] = transform.translation.into();
             blackflower_gameplay::systems::apply_player_movement(&mut transform, buttons, dt);
             let new_pos: [f32; 3] = transform.translation.into();
@@ -380,8 +386,8 @@ impl Authority {
     /// Server-authoritative hitscan: a ray from the shooter along its facing,
     /// tested against every other player's AABB. The nearest hit's properties
     /// are run through the plugin's `on_hit` and merged back (game rule —
-    /// non-predicted, ADR 0017). Aim currently reuses the spawn facing; a
-    /// dedicated look direction is future work.
+    /// non-predicted, ADR 0017). The facing comes from the player's look input
+    /// (`Command.yaw/pitch`, applied in `on_command`).
     ///
     /// Targets are lag-compensated: validated against where the shooter's
     /// client saw them, not their current server positions (see

@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use blackflower_gameplay::systems::apply_player_movement;
+use blackflower_gameplay::systems::{apply_player_look, apply_player_movement};
 use blackflower_input::components::InputButtons;
 use blackflower_math::components::Transform;
 use blackflower_time::Tick;
@@ -12,6 +12,8 @@ const HISTORY_CAPACITY: usize = 128;
 struct HistoryEntry {
     tick: Tick,
     buttons: InputButtons,
+    yaw: f32,
+    pitch: f32,
     predicted: Transform,
 }
 
@@ -46,16 +48,21 @@ impl PredictionState {
         &mut self,
         tick: Tick,
         buttons: InputButtons,
+        look: (f32, f32),
         seed: Option<Transform>,
         dt: f32,
     ) -> Option<Transform> {
         self.local_player?;
+        let (yaw, pitch) = look;
         let transform = self.local_transform.get_or_insert(seed?);
+        apply_player_look(transform, yaw, pitch);
         apply_player_movement(transform, buttons, dt);
         let predicted = *transform;
         self.push_history(HistoryEntry {
             tick,
             buttons,
+            yaw,
+            pitch,
             predicted,
         });
         Some(predicted)
@@ -77,6 +84,7 @@ impl PredictionState {
         *transform = authoritative;
 
         for entry in &mut self.history {
+            apply_player_look(transform, entry.yaw, entry.pitch);
             apply_player_movement(transform, entry.buttons, dt);
             entry.predicted = *transform;
         }
