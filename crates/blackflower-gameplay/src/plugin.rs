@@ -109,4 +109,20 @@ impl Plugin {
             respawn: result.respawn,
         })
     }
+
+    /// Serialize the plugin's internal state to opaque bytes (for hot-reload
+    /// migration). The engine never interprets the bytes.
+    pub fn save_state(&mut self) -> anyhow::Result<Vec<u8>> {
+        self.bindings
+            .call_save_state(&mut self.store)
+            .map_err(|e| anyhow::anyhow!("plugin save_state: {e}"))
+    }
+
+    /// Restore internal state from bytes previously produced by `save_state`
+    /// (the plugin migrates older formats). Empty means a fresh start.
+    pub fn load_state(&mut self, state: &[u8]) -> anyhow::Result<()> {
+        self.bindings
+            .call_load_state(&mut self.store, state)
+            .map_err(|e| anyhow::anyhow!("plugin load_state: {e}"))
+    }
 }

@@ -14,6 +14,10 @@ const HP_DAMAGE: i32 = 25;
 /// Cursor for round-robin spawn selection across this match.
 static NEXT_SPAWN: AtomicUsize = AtomicUsize::new(0);
 
+/// Version tag for the saved-state blob, so a future plugin build can migrate
+/// an older format in `load_state`.
+const STATE_VERSION: u8 = 1;
+
 struct Plugin;
 
 impl Guest for Plugin {
@@ -44,6 +48,28 @@ impl Guest for Plugin {
             })
             .collect();
         HitResult { props, respawn }
+    }
+
+    /// Serialize state across a hot-reload: `[version][NEXT_SPAWN as u64 LE]`.
+    fn save_state() -> Vec<u8> {
+        let cursor = NEXT_SPAWN.load(Ordering::Relaxed) as u64;
+        let mut out = Vec::with_capacity(9);
+        out.push(STATE_VERSION);
+        out.extend_from_slice(&cursor.to_le_bytes());
+        out
+    }
+
+    /// Restore state from `save_state`. Unknown version or malformed input
+    /// falls back to a fresh start (cursor 0).
+    fn load_state(state: Vec<u8>) {
+        let cursor = match state.split_first() {
+            Some((&STATE_VERSION, rest)) => rest
+                .try_into()
+                .map(u64::from_le_bytes)
+                .map_or(0, |c| c as usize),
+            _ => 0,
+        };
+        NEXT_SPAWN.store(cursor, Ordering::Relaxed);
     }
 }
 

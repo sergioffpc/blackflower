@@ -169,9 +169,9 @@ Deltas are intentionally lossy — an older delta is worthless once a newer one 
 
 Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (for server deployments).
 
-## Current state (2026-06-18)
+## Current state (2026-06-19)
 
-**Milestone:** M4 **closed** (Phases A + B + C). M5 in progress — aim/look input delivered.
+**Milestone:** M4 **closed** (Phases A + B + C). M5 in progress — aim/look input + plugin hot-reload delivered.
 
 **M4-A delivered:**
 - `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
@@ -206,4 +206,10 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - Hitscan facing now follows the look direction (what you see is what you shoot; ray origin = camera eye = translation).
 - Unit tests in `blackflower-gameplay`: look facing, yaw-relative forward, pitch doesn't lift movement.
 
-**M5 remaining:** plugin hot-reload + state migration, audio, basic editor; fire-rate / edge-detect on `FIRE`.
+**M5 — plugin hot-reload + state migration delivered:**
+- WIT gains `save-state -> list<u8>` / `load-state(list<u8>)` (opaque bytes; plugin owns versioning/migration). Host: `Plugin::save_state`/`load_state`.
+- `blackflower-authority` watches the plugin `.wasm` via `notify` (parent dir, matched by file name) → sets an `AtomicBool`; the tick thread's `reload_plugin_if_changed` (top of `do_tick`) reloads: `save_state(old)` → `Plugin::load(new)` → `load_state` → swap. Any failure logs and keeps the current plugin (session never drops).
+- `Authority::start` now takes `Option<PathBuf>` (loads the plugin itself + sets up the watcher); `blackflowerd` no longer loads it.
+- e1m1 guest serializes `NEXT_SPAWN` as `[version][u64 LE]`; entity props (HP) live in the engine and survive reloads regardless.
+
+**M5 remaining:** audio, basic editor; fire-rate / edge-detect on `FIRE` (deferred by user).

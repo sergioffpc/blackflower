@@ -18,8 +18,14 @@ use blackflower_world::EntityId;
 use blackflower_world::arena::{Arena, SpawnPoint};
 use blackflower_world::simulation::{EntityProps, SimulationWorld};
 use hashbrown::HashMap;
+use notify::{
+    Event as NotifyEvent, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    recommended_watcher,
+};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -88,6 +94,15 @@ pub struct Authority {
     spawn_points: Vec<SpawnPoint>,
     next_spawn: usize,
     plugin: Option<Plugin>,
+    /// Source path of the plugin, for hot-reload.
+    plugin_path: Option<PathBuf>,
+    /// Set by the file watcher when the plugin `.wasm` changes; the tick thread
+    /// reloads on the next tick.
+    plugin_dirty: Arc<AtomicBool>,
+    /// Held only to keep the file watch alive (RAII); dropping it stops the
+    /// watch. Never read directly — the watcher pushes to `plugin_dirty`.
+    #[allow(dead_code)]
+    plugin_watcher: Option<RecommendedWatcher>,
 }
 
 impl Authority {
@@ -110,13 +125,16 @@ impl Authority {
             spawn_points: Vec::new(),
             next_spawn: 0,
             plugin: None,
+            plugin_path: None,
+            plugin_dirty: Arc::new(AtomicBool::new(false)),
+            plugin_watcher: None,
         })
     }
 
     pub fn start(
         mut self,
         arena: &Arena,
-        plugin: Option<Plugin>,
+        plugin_path: Option<PathBuf>,
     ) -> anyhow::Result<JoinHandle<()>> {
         self.collision = CollisionWorld::from_solids(
             arena
@@ -125,7 +143,12 @@ impl Authority {
                 .map(|a| (Vec3::from_array(a.min), Vec3::from_array(a.max))),
         );
         self.spawn_points = arena.spawn_points();
-        self.plugin = plugin;
+
+        if let Some(path) = plugin_path {
+            self.plugin = Some(Plugin::load(&path).context("loading plugin")?);
+            self.plugin_watcher = spawn_plugin_watcher(&path, self.plugin_dirty.clone());
+            self.plugin_path = Some(path);
+        }
 
         std::thread::Builder::new()
             .name("blackflower-authority::tick".to_owned())
@@ -141,6 +164,8 @@ impl Authority {
     }
 
     fn do_tick(&mut self, tick: Tick, dt: Duration) {
+        self.reload_plugin_if_changed();
+
         let connects: Vec<_> = self.network_handle.try_recv_connects().collect();
         for conn_id in connects {
             self.slots.entry(conn_id).or_insert(SlotState::Handshake);
@@ -519,12 +544,86 @@ impl Authority {
         idx
     }
 
+    /// Reload the plugin if the watcher flagged its `.wasm` as changed, carrying
+    /// internal state across via `save_state`/`load_state`. Any failure keeps the
+    /// current plugin running so a bad build never drops the session.
+    fn reload_plugin_if_changed(&mut self) {
+        if !self.plugin_dirty.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        let Some(path) = self.plugin_path.clone() else {
+            return;
+        };
+        let Some(old) = self.plugin.as_mut() else {
+            return;
+        };
+        let state = match old.save_state() {
+            Ok(state) => state,
+            Err(error) => {
+                warn!(%error, "plugin save_state failed; keeping current plugin");
+                return;
+            }
+        };
+        let mut next = match Plugin::load(&path) {
+            Ok(plugin) => plugin,
+            Err(error) => {
+                warn!(%error, "plugin reload failed; keeping current plugin");
+                return;
+            }
+        };
+        if let Err(error) = next.load_state(&state) {
+            warn!(%error, "plugin load_state failed; keeping current plugin");
+            return;
+        }
+        self.plugin = Some(next);
+        info!(path = %path.display(), "plugin hot-reloaded");
+    }
+
     fn on_tick(&mut self, _tick: Tick, dt: f32) {
         blackflower_physics::systems::integrate_movement(
             self.simulation.query_mut::<(&mut Transform, &Velocity)>(),
             dt,
         );
     }
+}
+
+/// Watch the plugin's directory for changes to its `.wasm`, flagging `dirty`
+/// when the file is written. Watches the parent dir (not the file) so it
+/// survives the rename/replace `cargo build` does, and matches by file name to
+/// sidestep path-canonicalization differences. Returns `None` (hot-reload
+/// disabled, server still runs) if the watcher can't be set up.
+fn spawn_plugin_watcher(path: &Path, dirty: Arc<AtomicBool>) -> Option<RecommendedWatcher> {
+    let target = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let file_name = target.file_name()?.to_owned();
+    let parent = target.parent()?.to_path_buf();
+
+    let mut watcher = match recommended_watcher(move |res: notify::Result<NotifyEvent>| {
+        let Ok(event) = res else {
+            return;
+        };
+        let touched = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
+        if touched
+            && event
+                .paths
+                .iter()
+                .any(|p| p.file_name() == Some(file_name.as_os_str()))
+        {
+            dirty.store(true, Ordering::Relaxed);
+        }
+    }) {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            warn!(%error, "plugin watcher unavailable; hot-reload disabled");
+            return None;
+        }
+    };
+
+    if let Err(error) = watcher.watch(&parent, RecursiveMode::NonRecursive) {
+        warn!(%error, "watching plugin directory failed; hot-reload disabled");
+        return None;
+    }
+    info!(path = %target.display(), "watching plugin for hot-reload");
+    Some(watcher)
 }
 
 /// Returns the highest snapshot tick confirmed by the sliding-window ack.

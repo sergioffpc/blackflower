@@ -1,8 +1,6 @@
 use std::{net::SocketAddr, path::PathBuf};
 
-use anyhow::Context;
 use blackflower_authority::{Authority, AuthorityConfig};
-use blackflower_gameplay::plugin::Plugin;
 use blackflower_world::arena::Arena;
 use clap::Parser;
 
@@ -33,12 +31,6 @@ pub struct Args {
 
 pub fn run_app(args: Args) -> anyhow::Result<()> {
     let arena = Arena::load(args.arena_path)?;
-    let plugin = args
-        .plugin_path
-        .as_deref()
-        .map(Plugin::load)
-        .transpose()
-        .context("loading plugin")?;
 
     let authority_config = AuthorityConfig {
         tick_hz: args.tick_hz,
@@ -50,7 +42,7 @@ pub fn run_app(args: Args) -> anyhow::Result<()> {
     };
     let authority = Authority::listen(args.bind_addr, authority_config)?;
     authority
-        .start(&arena, plugin)?
+        .start(&arena, args.plugin_path)?
         .join()
         .map_err(|_| anyhow::anyhow!("server tick thread panicked"))
 }

@@ -140,7 +140,6 @@ The processes that run in production and how they communicate.
 - Anti-cheat hooks in command pipeline.
 - Asset loader / map loading.
 - Telemetry sink.
-- Game module as a hot-loadable cdylib (see ADR 0006).
 
 ### ADR 0004 — Archetype-based ECS
 
@@ -166,7 +165,7 @@ The processes that run in production and how they communicate.
 
 **Scope:** only NON-predicted rules go in the plugin (`select-spawn`, `on-spawn`, `on-hit`). Predicted rules stay as pure Rust in `blackflower-gameplay::systems` — see ADR 0017 for the boundary and its rationale. Spawn-point *selection* is a rule and lives in the plugin (`select-spawn` picks an index into the candidates the map offers); the *candidate list* is map data the engine derives (`arena.spawn_points()`).
 
-**Status: implemented.** `wit/game-plugin.wit` defines `select-spawn`/`on-spawn`/`on-hit`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from config). Hot-reload + state migration in dev remains **planned** (M5).
+**Status: implemented.** `wit/game-plugin.wit` defines `select-spawn`/`on-spawn`/`on-hit` plus `save-state`/`load-state`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from CLI). **Hot-reload + state migration (M5):** the authority watches the plugin `.wasm` (`notify` file-watch on the parent dir) and, on the tick thread, reloads it when the file changes — calling `save-state` on the old instance and `load-state` on the new one to carry the plugin's internal state across (opaque bytes; the plugin owns versioning/migration). Entity props live in the engine and survive a reload regardless. A failed reload (bad/partial `.wasm`, migration error) is logged and the current plugin keeps running, so a bad build never drops the session.
 
 ---
 

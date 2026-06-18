@@ -40,4 +40,15 @@ world game-plugin {
     /// Called when a hitscan ray hits a target entity.
     /// `target-props` are the target's current properties.
     export on-hit: func(target-props: list<tuple<u16, list<u8>>>) -> hit-result;
+
+    /// Serialize the plugin's internal state to opaque bytes so it survives a
+    /// hot-reload (the engine reloads the component but keeps the session). The
+    /// engine stores and forwards these bytes without interpreting them; the
+    /// plugin owns the encoding and versioning.
+    export save-state: func() -> list<u8>;
+
+    /// Restore internal state previously produced by `save-state` — possibly by
+    /// an older plugin version, so the plugin migrates the bytes as needed. An
+    /// empty list means a fresh start (no prior state).
+    export load-state: func(state: list<u8>);
 }
