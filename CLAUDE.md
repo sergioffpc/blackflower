@@ -171,7 +171,7 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 
 ## Current state (2026-06-17)
 
-**Milestone:** M4 in progress — Phases A + B done, Phase C next.
+**Milestone:** M4 in progress — Phases A + B + C done.
 
 **M4-A delivered:**
 - `blackflower-world::arena` — entity-based map (`Arena { id, entities }` / `MapEntity { classname, props }` from `assets/maps/*.ron`); solids and spawn points derived by classname. Map entities use classnames (`solid_brush`, `spawn_point`) with opaque string `props` (`"x y z"`); the engine interprets only solids/spawns.
@@ -190,6 +190,11 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - Server-authoritative, non-predicted (ADR 0017).
 - **Known MVP gaps:** aim reuses the spawn facing (no look/aim input yet); fires once per tick while `FIRE` is held (no edge-detection / fire-rate).
 
-**M4-C next (lag compensation + respawn):**
-1. Rewind `SnapshotRing` to `command.snapshot_ack_tick` for hit validation
-2. HP=0 → respawn (reset transform + props, same EntityId)
+**M4-C delivered (lag compensation + respawn):**
+- Lag comp: `Authority::hit_candidates` rewinds target positions to the snapshot at `command.snapshot_ack_tick` (via `SnapshotRing::get`); falls back to current positions when that tick has aged out of the ring. `fire_hitscan` now takes the ack tick.
+- Death is a plugin rule (engine is opaque to HP): WIT `on-hit` returns `hit-result { props, respawn }`. Host exposes `HitOutcome { props, respawn }`.
+- On `respawn`: `Authority::respawn` resets the target's transform (`next_spawn_transform`) + props (`on_spawn`), same `EntityId`. Otherwise props merge by id as before.
+- e1m1 guest sets `respawn` when HP reaches 0.
+- Unit tests: `SnapshotRing` insert/get/eviction + `highest_acked` (in `blackflower-authority`).
+
+**M5 next:** plugin hot-reload + state migration; remaining MVP gaps (aim/look input, fire-rate).

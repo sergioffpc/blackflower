@@ -137,7 +137,6 @@ The processes that run in production and how they communicate.
 **Not yet implemented:**
 
 - Job system (parallelizes inside each system) — single-threaded today.
-- History buffer for server-side lag compensation.
 - Anti-cheat hooks in command pipeline.
 - Asset loader / map loading.
 - Telemetry sink.
@@ -186,7 +185,7 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 
 **Risk:** if a future predicted rule (e.g. predicted projectiles, weapon recoil) is wanted *inside* the plugin, the plugin must run on both client and server, which adds a hard requirement of **bit-exact determinism** across both (identical wasmtime `Config`, float/SIMD/NaN determinism). Until then, predicted logic stays in pure Rust. Separately, opaque props decouple the engine from game state but block the engine from any logic that needs to understand them (per-type AABBs, HP-bar interpolation); when that need arises, that piece is not actually engine-agnostic.
 
-**Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `select-spawn`/`on-spawn`/`on-hit` are server-only WASM. Hitscan drives `on-hit`: when a command carries `FIRE`, the server casts a ray from the shooter (`blackflower-physics::hitscan::ray_aabb`) against other players' AABBs and runs the nearest hit's props through `on-hit`, merging the result by id. Aim direction (look input) and fire-rate control are not yet implemented (M4-B MVP).
+**Status: implemented.** Refines ADR 0006's mechanism: the plugin is a WASM Component Model component, not a cdylib. Movement (`apply_player_movement`) is shared pure Rust; `select-spawn`/`on-spawn`/`on-hit` are server-only WASM. Hitscan drives `on-hit`: when a command carries `FIRE`, the server casts a ray from the shooter (`blackflower-physics::hitscan::ray_aabb`) against other players' AABBs and runs the nearest hit's props through `on-hit`. Hits are **lag-compensated** — targets are validated against their positions in the snapshot the shooter's client had acked (`command.snapshot_ack_tick`, rewound from the server's `SnapshotRing`), falling back to current positions when that tick has aged out of the ring. `on-hit` returns `hit-result { props, respawn }`: the engine merges `props` by id, and on `respawn` resets the target in place (fresh `next_spawn_transform` + `on-spawn` props, same `EntityId`). Death is the plugin's call since the engine never interprets HP. Aim direction (look input) and fire-rate control are not yet implemented (M4-B MVP).
 
 ---
 
@@ -600,7 +599,7 @@ blackflower/
 - **Delta compression** — sending only the difference between state N and state N-K (snapshot baseline). Not yet implemented.
 - **ECS** — Entity-Component-System; entities are IDs, components are pure data, systems are functions iterating over components.
 - **EntityId** — stable 64-bit identifier; 0 is `NONE` (sentinel); allocated monotonically, never reused.
-- **Lag compensation** — server rewinds the world in time (via history buffer) to validate actions the client took in its past. Planned M4.
+- **Lag compensation** — server rewinds the world in time (via the `SnapshotRing`) to validate actions the client took in its past. Hitscan rewinds targets to `command.snapshot_ack_tick` (ADR 0017).
 - **Prediction (client-side)** — client simulates local player actions locally to hide latency; server corrects when mispredicted.
 - **Reconciliation** — when client receives the authoritative server state for a tick it had already predicted, roll back and re-simulate from that point.
 - **Snapshot** — complete world state at a specific tick, sent from server to client as an unreliable datagram.

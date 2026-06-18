@@ -11,6 +11,14 @@ wasmtime::component::bindgen!({
 /// Raw prop list as used by the WASM interface — `(id, raw bytes)`.
 pub type PropList = Vec<(u16, Vec<u8>)>;
 
+/// Outcome of a hit: the target's updated props (merged by id) plus whether the
+/// plugin declared the target dead. The engine never reads HP — it respawns the
+/// target only when `respawn` is set.
+pub struct HitOutcome {
+    pub props: PropList,
+    pub respawn: bool,
+}
+
 struct PluginState {
     ctx: WasiCtx,
     table: ResourceTable,
@@ -91,9 +99,14 @@ impl Plugin {
     }
 
     /// Called when a hitscan ray confirms a hit on the target.
-    pub fn on_hit(&mut self, target_props: &PropList) -> anyhow::Result<PropList> {
-        self.bindings
+    pub fn on_hit(&mut self, target_props: &PropList) -> anyhow::Result<HitOutcome> {
+        let result = self
+            .bindings
             .call_on_hit(&mut self.store, target_props)
-            .map_err(|e| anyhow::anyhow!("plugin on_hit: {e}"))
+            .map_err(|e| anyhow::anyhow!("plugin on_hit: {e}"))?;
+        Ok(HitOutcome {
+            props: result.props,
+            respawn: result.respawn,
+        })
     }
 }

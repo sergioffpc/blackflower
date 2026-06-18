@@ -208,8 +208,8 @@ impl Authority {
     }
 
     fn broadcast_snapshots(&mut self, tick: Tick) {
-        let current = Arc::new(self.simulation.snapshot());
-        self.ring.insert(tick.as_u64(), (*current).clone());
+        let world_snapshot = Arc::new(self.simulation.snapshot());
+        self.ring.insert(tick.as_u64(), (*world_snapshot).clone());
 
         let clients: Vec<(ConnectionId, u64, u64)> = self
             .slots
@@ -230,11 +230,12 @@ impl Authority {
 
         for (conn_id, baseline_tick, ack) in clients {
             let baseline = self.ring.get(baseline_tick);
-            let snapshot = build_delta(&current, baseline, baseline_tick, tick, ack);
+            let world_delta = build_delta(&world_snapshot, baseline, baseline_tick, tick, ack);
             if tick.as_u64().is_multiple_of(self.tick_hz) {
                 debug!(connection_id = ?conn_id, %tick, baseline_tick, "sending snapshot");
             }
-            self.network_handle.try_send_snapshot_to(conn_id, snapshot);
+            self.network_handle
+                .try_send_snapshot_to(conn_id, world_delta);
         }
     }
 
@@ -372,7 +373,7 @@ impl Authority {
         }
 
         if buttons.contains(InputButtons::FIRE) {
-            self.fire_hitscan(entity);
+            self.fire_hitscan(entity, command.snapshot_ack_tick);
         }
     }
 
@@ -381,7 +382,11 @@ impl Authority {
     /// are run through the plugin's `on_hit` and merged back (game rule —
     /// non-predicted, ADR 0017). Aim currently reuses the spawn facing; a
     /// dedicated look direction is future work.
-    fn fire_hitscan(&mut self, shooter: EntityId) {
+    ///
+    /// Targets are lag-compensated: validated against where the shooter's
+    /// client saw them, not their current server positions (see
+    /// `hit_candidates`).
+    fn fire_hitscan(&mut self, shooter: EntityId, ack_tick: u64) {
         let Ok((origin, dir)) = self.simulation.transform_mut(shooter).map(|t| {
             (
                 t.translation,
@@ -395,12 +400,7 @@ impl Authority {
         }
 
         let half = Vec3::from_array(PLAYER_HALF_EXTENTS);
-        let candidates = self
-            .simulation
-            .targets()
-            .into_iter()
-            .filter(|(id, _)| *id != shooter)
-            .map(|(id, t)| (id, t.translation));
+        let candidates = self.hit_candidates(shooter, ack_tick);
 
         let Some(target) = blackflower_physics::hitscan::nearest_hit(origin, dir, half, candidates)
         else {
@@ -409,20 +409,45 @@ impl Authority {
         self.apply_hit(shooter, target);
     }
 
-    /// Run the target's props through the plugin's `on_hit` and merge the
-    /// returned `(id, value)` pairs back into the target by id.
+    /// Lag compensation: target centers rewound to the snapshot the shooter's
+    /// client had acked (`ack_tick`), so hits are validated against the world
+    /// the shooter actually saw. Falls back to current positions when that
+    /// tick is no longer in the ring (missed or older than `RING_SIZE`). The
+    /// shooter is excluded.
+    fn hit_candidates(&self, shooter: EntityId, ack_tick: u64) -> Vec<(EntityId, Vec3)> {
+        if let Some(snapshot) = self.ring.get(ack_tick) {
+            return snapshot
+                .entities
+                .iter()
+                .map(|e| (EntityId::from(e.id), Vec3::from_array(e.translation)))
+                .filter(|(id, _)| *id != shooter)
+                .collect();
+        }
+        self.simulation
+            .targets()
+            .into_iter()
+            .filter(|(id, _)| *id != shooter)
+            .map(|(id, t)| (id, t.translation))
+            .collect()
+    }
+
+    /// Run the target's props through the plugin's `on_hit`. If the plugin
+    /// declares the target dead, respawn it; otherwise merge the returned
+    /// `(id, value)` pairs back into the target by id.
     fn apply_hit(&mut self, shooter: EntityId, target: EntityId) {
-        let Some(plugin) = self.plugin.as_mut() else {
-            return;
-        };
         let Ok(current) = self.simulation.props_mut(target).map(|p| p.0.clone()) else {
             return;
         };
-        let Ok(updated) = plugin.on_hit(&current) else {
+        let Some(outcome) = self.plugin.as_mut().and_then(|p| p.on_hit(&current).ok()) else {
             return;
         };
+        if outcome.respawn {
+            self.respawn(target);
+            debug!(%shooter, %target, "hitscan kill → respawn");
+            return;
+        }
         if let Ok(mut props) = self.simulation.props_mut(target) {
-            for (id, value) in updated {
+            for (id, value) in outcome.props {
                 match props.0.iter_mut().find(|(pid, _)| *pid == id) {
                     Some(slot) => slot.1 = value,
                     None => props.0.push((id, value)),
@@ -430,6 +455,26 @@ impl Authority {
             }
         }
         debug!(%shooter, %target, "hitscan hit");
+    }
+
+    /// Reset a killed entity in place — fresh spawn transform and initial props,
+    /// keeping the same `EntityId` so clients keep tracking it across the death.
+    /// Death itself is a plugin rule (ADR 0017); the engine only resets state on
+    /// the plugin's word.
+    fn respawn(&mut self, target: EntityId) {
+        let transform = self.next_spawn_transform();
+        let props = self
+            .plugin
+            .as_mut()
+            .and_then(|p| p.on_spawn().ok())
+            .unwrap_or_default();
+        if let Ok(mut t) = self.simulation.transform_mut(target) {
+            *t = transform;
+        }
+        if let Ok(mut p) = self.simulation.props_mut(target) {
+            p.0 = props;
+        }
+        info!(entity_id = %target, "respawned");
     }
 
     /// Transform for the next player spawn. The plugin (if any) picks which

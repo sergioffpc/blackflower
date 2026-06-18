@@ -29,18 +29,21 @@ impl Guest for Plugin {
         vec![(PROP_HP, encode(HP_INITIAL))]
     }
 
-    fn on_hit(target_props: Vec<(u16, Vec<u8>)>) -> Vec<(u16, Vec<u8>)> {
-        target_props
+    fn on_hit(target_props: Vec<(u16, Vec<u8>)>) -> HitResult {
+        let mut respawn = false;
+        let props = target_props
             .into_iter()
             .map(|(id, val)| {
                 if id == PROP_HP {
-                    let hp = decode(&val);
-                    (id, encode((hp - HP_DAMAGE).max(0)))
+                    let hp = (decode(&val) - HP_DAMAGE).max(0);
+                    respawn = respawn || hp == 0;
+                    (id, encode(hp))
                 } else {
                     (id, val)
                 }
             })
-            .collect()
+            .collect();
+        HitResult { props, respawn }
     }
 }
 

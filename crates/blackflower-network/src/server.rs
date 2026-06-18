@@ -36,11 +36,11 @@ impl<C, S, R, E> ServerHandle<C, S, R, E> {
         self.connect_rx.try_iter()
     }
 
-    pub fn try_send_snapshot_to(&self, client_id: ConnectionId, snapshot: S) {
-        match self.snapshot_tx.try_send(Addressed(client_id, snapshot)) {
+    pub fn try_send_snapshot_to(&self, conn_id: ConnectionId, snapshot: S) {
+        match self.snapshot_tx.try_send(Addressed(conn_id, snapshot)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                warn!(client = %client_id, "snapshot queue full; dropping");
+                warn!(client = %conn_id, "snapshot queue full; dropping");
             }
             Err(TrySendError::Disconnected(_)) => debug!("snapshot channel disconnected"),
         }
@@ -58,10 +58,10 @@ impl<C, S, R, E> ServerHandle<C, S, R, E> {
         self.disconnect_rx.try_iter()
     }
 
-    pub fn try_send_event_to(&self, client_id: ConnectionId, event: E) {
-        match self.event_tx.try_send(Addressed(client_id, event)) {
+    pub fn try_send_event_to(&self, conn_id: ConnectionId, event: E) {
+        match self.event_tx.try_send(Addressed(conn_id, event)) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => warn!(client = %client_id, "event queue full; dropping"),
+            Err(TrySendError::Full(_)) => warn!(client = %conn_id, "event queue full; dropping"),
             Err(TrySendError::Disconnected(_)) => debug!("event channel disconnected"),
         }
     }

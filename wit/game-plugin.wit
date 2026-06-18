@@ -28,8 +28,16 @@ world game-plugin {
     /// Return initial properties for a newly spawned entity.
     export on-spawn: func() -> list<tuple<u16, list<u8>>>;
 
+    /// Outcome of a hitscan hit: the target's updated properties (engine merges
+    /// by id, may be a subset) plus whether the target died and the engine
+    /// should respawn it. The engine never interprets props, so death is the
+    /// plugin's call — it raises `respawn` when its own rules say HP reached 0.
+    record hit-result {
+        props: list<tuple<u16, list<u8>>>,
+        respawn: bool,
+    }
+
     /// Called when a hitscan ray hits a target entity.
     /// `target-props` are the target's current properties.
-    /// Returns the updated properties (may be a subset — engine merges by id).
-    export on-hit: func(target-props: list<tuple<u16, list<u8>>>) -> list<tuple<u16, list<u8>>>;
+    export on-hit: func(target-props: list<tuple<u16, list<u8>>>) -> hit-result;
 }
