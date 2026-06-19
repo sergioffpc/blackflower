@@ -1,7 +1,13 @@
+use blackflower_math::{Quat, components::Transform};
+use blackflower_protocol::{EntityDelta, Property};
+use hashbrown::{HashMap, HashSet, hash_map::Keys};
+use hecs::{Entity, World};
 use serde::{Deserialize, Serialize};
+use tracing::{error, info, trace, warn};
 
 pub mod arena;
 pub mod presentation;
+pub mod replication;
 pub mod simulation;
 
 #[repr(transparent)]
@@ -50,4 +56,156 @@ impl EntityIdAllocator {
         self.next += 1;
         EntityId(self.next)
     }
+}
+
+#[derive(Default)]
+pub struct Entities {
+    world: World,
+
+    #[allow(clippy::struct_field_names)]
+    entities: HashMap<EntityId, Entity>,
+
+    properties: HashMap<EntityId, Vec<Property>>,
+}
+
+impl Entities {
+    /// Apply a full-snapshot delta (no baseline): the delta carries every
+    /// field, so `merge_delta(None, ..)` resolves the transform — and skips the
+    /// entity if a field is missing (a server bug), rather than defaulting to a
+    /// degenerate origin/zero-rotation.
+    pub fn apply(&mut self, k: EntityId, v: &EntityDelta) -> Option<Transform> {
+        self.apply_delta(k, v, None)
+    }
+
+    pub fn keys(&self) -> Keys<'_, EntityId, Entity> {
+        self.entities.keys()
+    }
+
+    /// Apply an incremental delta against the entity's current transform.
+    pub fn merge(&mut self, k: EntityId, v: &EntityDelta) -> Option<Transform> {
+        let current = self.transform_of(k);
+        self.apply_delta(k, v, current)
+    }
+
+    /// Shared delta application. Upserts the transform only when the delta
+    /// resolves one (skipping unknown entities with an incomplete delta);
+    /// property changes are merged regardless. Returns the resolved transform,
+    /// or `None` when the entity was skipped.
+    fn apply_delta(
+        &mut self,
+        k: EntityId,
+        v: &EntityDelta,
+        current: Option<Transform>,
+    ) -> Option<Transform> {
+        let transform = merge_delta(current, v);
+        if let Some(t) = transform {
+            self.upsert_entity(k, t);
+        } else {
+            warn!(id = %k, "delta has no transform for unknown entity — skipped");
+        }
+        self.merge_properties(k, v);
+        transform
+    }
+
+    fn merge_properties(&mut self, k: EntityId, v: &EntityDelta) {
+        let entry = self.properties.entry(k).or_default();
+        for id_to_remove in &v.properties.removed_props {
+            entry.retain(|p| p.id != *id_to_remove);
+        }
+        for prop in &v.properties.changed_props {
+            if let Some(existing) = entry.iter_mut().find(|p| p.id == prop.id) {
+                existing.data.clone_from(&prop.data);
+            } else {
+                entry.push(prop.clone());
+            }
+        }
+    }
+
+    pub fn remove(&mut self, k: &EntityId) {
+        if let Some(entity) = self.entities.remove(k)
+            && let Err(e) = self.world.despawn(entity)
+        {
+            warn!(error = %e, id = %k, "failed to despawn entity");
+        }
+        self.properties.remove(k);
+    }
+
+    pub fn retain_present_entities(&mut self, present: &HashSet<EntityId>) {
+        self.entities.retain(|id, entity| {
+            if present.contains(id) {
+                true
+            } else {
+                #[allow(clippy::excessive_nesting)]
+                if let Err(e) = self.world.despawn(*entity) {
+                    warn!(error = %e, id = %id, "failed to despawn entity");
+                }
+                false
+            }
+        });
+        self.properties.retain(|id, _| present.contains(id));
+    }
+
+    #[must_use]
+    pub fn transform_of(&self, id: EntityId) -> Option<Transform> {
+        let entity = *self.entities.get(&id)?;
+        self.world.get::<&Transform>(entity).ok().map(|t| *t)
+    }
+
+    pub fn set_transform(&mut self, id: EntityId, transform: Transform) {
+        let Some(&entity) = self.entities.get(&id) else {
+            return;
+        };
+        if let Ok(mut t) = self.world.get::<&mut Transform>(entity) {
+            *t = transform;
+        }
+    }
+
+    fn upsert_entity(&mut self, id: EntityId, transform: Transform) {
+        if self.entities.contains_key(&id) {
+            self.update_entity(id, transform);
+        } else {
+            self.spawn_entity(id, transform);
+        }
+    }
+
+    fn spawn_entity(&mut self, id: EntityId, transform: Transform) -> Entity {
+        let entity = self.world.spawn((transform,));
+        self.entities.insert(id, entity);
+        info!(id = %id, transform = ?transform, "entity spawned");
+        entity
+    }
+
+    fn update_entity(&mut self, id: EntityId, transform: Transform) {
+        let Some(&entity) = self.entities.get(&id) else {
+            warn!(id = %id, "update requested for unknown entity");
+            return;
+        };
+        if let Ok(mut t) = self.world.get::<&mut Transform>(entity) {
+            *t = transform;
+            trace!(id = %id, transform = ?transform, "entity transform updated");
+        } else if let Err(e) = self.world.insert_one(entity, transform) {
+            error!(error = %e, id = %id, "failed to insert transform");
+        } else {
+            trace!(id = %id, transform = ?transform, "entity transform inserted");
+        }
+    }
+}
+
+/// Merge a partial delta onto an optional current transform. Returns `None`
+/// only when a field is absent from both the delta and the current state,
+/// which indicates a new entity arriving with an incomplete delta (a bug on
+/// the server side).
+fn merge_delta(current: Option<Transform>, delta: &EntityDelta) -> Option<Transform> {
+    let translation = delta
+        .translation
+        .map(Into::into)
+        .or_else(|| current.map(|t| t.translation))?;
+    let rotation = delta
+        .rotation
+        .map(Quat::from_array)
+        .or_else(|| current.map(|t| t.rotation))?;
+    Some(Transform {
+        translation,
+        rotation,
+    })
 }

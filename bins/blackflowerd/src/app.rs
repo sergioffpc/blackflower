@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, path::PathBuf};
 
-use blackflower_authority::{Authority, AuthorityConfig};
+use blackflower_authority::authority::{Authority, AuthorityConfig};
 use blackflower_world::arena::Arena;
 use clap::Parser;
 

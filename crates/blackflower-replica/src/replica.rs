@@ -20,7 +20,7 @@ use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, Request, WorldDelta
 use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::{
     EntityId,
-    presentation::{EntityState, PresentationState, PresentationWorld, interpolate},
+    presentation::{EntityState, PresentationState, PresentationWorld},
 };
 use tracing::{debug, error, warn};
 
@@ -187,7 +187,7 @@ impl Replica {
                 let mut latest_ack: Option<Tick> = None;
                 tick_network_handle.try_recv_snapshots().for_each(|snapshot| {
                     let snap_tick = Tick::from(snapshot.tick);
-                    world.apply_delta(&snapshot, snap_tick);
+                    world.merge(&snapshot, snap_tick);
                     let ack = Tick::from(snapshot.ack);
                     latest_ack = Some(latest_ack.map_or(ack, |cur| cur.max(ack)));
                     snapshot_ack.record(snapshot.tick);
@@ -240,7 +240,7 @@ impl Replica {
                 let local = prediction
                     .local_player()
                     .zip(prediction.local_transform());
-                let state = Arc::new(world.extract(local));
+                let state = Arc::new(world.state(local));
                 if tick.as_u64() % tick_hz == 0 {
                     debug!(tick = %tick, state = ?state, "publish render state");
                 }
@@ -291,7 +291,7 @@ impl Replica {
                 // not drawn (first-person).
                 EntityState::Predicted(t) => camera = Some(*t),
                 EntityState::Interpolated(samples) => {
-                    if let Some(t) = interpolate(samples, target) {
+                    if let Some(t) = samples.interpolate(target) {
                         entities.push(t);
                     }
                 }
