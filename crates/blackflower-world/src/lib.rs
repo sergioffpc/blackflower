@@ -1,7 +1,7 @@
 use blackflower_math::{Quat, components::Transform};
-use blackflower_protocol::EntityDelta;
-use hashbrown::{HashMap, HashSet};
-use hecs::{Entity, World};
+use blackflower_protocol::{EntityDelta, Properties};
+use hashbrown::{HashMap, HashSet, hash_map::Iter};
+use hecs::{ComponentError, ComponentRef, DynamicBundle, Entity, NoSuchEntity, World};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace, warn};
 
@@ -42,17 +42,12 @@ impl std::fmt::Display for EntityId {
 }
 
 #[derive(Debug, Default)]
-pub struct EntityIdAllocator {
+struct EntityIdAllocator {
     next: u64,
 }
 
 impl EntityIdAllocator {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { next: 0 }
-    }
-
-    pub const fn allocate(&mut self) -> EntityId {
+    const fn allocate(&mut self) -> EntityId {
         self.next += 1;
         EntityId(self.next)
     }
@@ -64,9 +59,54 @@ pub struct Entities {
 
     #[allow(clippy::struct_field_names)]
     entities: HashMap<EntityId, Entity>,
+    allocator: EntityIdAllocator,
 }
 
 impl Entities {
+    pub fn get<'a, T: ComponentRef<'a>>(
+        &'a self,
+        entity: Entity,
+    ) -> Result<T::Ref, ComponentError> {
+        self.world.get::<T>(entity)
+    }
+
+    pub fn query<Q: hecs::Query>(&self) -> hecs::QueryBorrow<'_, Q> {
+        self.world.query::<Q>()
+    }
+
+    pub fn query_mut<Q: hecs::Query>(&mut self) -> hecs::QueryMut<'_, Q> {
+        self.world.query_mut::<Q>()
+    }
+
+    pub fn spawn(&mut self, components: impl DynamicBundle) -> EntityId {
+        let entity = self.world.spawn(components);
+        let entity_id = self.allocator.allocate();
+        self.entities.insert(entity_id, entity);
+        entity_id
+    }
+
+    pub fn despawn(&mut self, id: EntityId) {
+        if let Some(entity) = self.entities.remove(&id) {
+            self.world.despawn(entity).ok();
+        }
+    }
+
+    pub fn transform_mut(
+        &mut self,
+        id: EntityId,
+    ) -> Result<hecs::RefMut<'_, Transform>, ComponentError> {
+        let entity = self.entities.get(&id).copied().ok_or(NoSuchEntity)?;
+        self.world.get::<&mut Transform>(entity)
+    }
+
+    pub fn props_mut(
+        &mut self,
+        id: EntityId,
+    ) -> Result<hecs::RefMut<'_, Properties>, ComponentError> {
+        let entity = self.entities.get(&id).copied().ok_or(NoSuchEntity)?;
+        self.world.get::<&mut Properties>(entity)
+    }
+
     /// Apply a full-snapshot delta (no baseline): the delta carries every
     /// field, so `merge_delta(None, ..)` resolves the transform — and skips the
     /// entity if a field is missing (a server bug), rather than defaulting to a
@@ -139,6 +179,14 @@ impl Entities {
         if let Ok(mut t) = self.world.get::<&mut Transform>(entity) {
             *t = transform;
         }
+    }
+
+    // Yields the raw `hecs::Entity` so callers can `get::<T>` components; the
+    // handle is an implementation detail but unavoidable for the current
+    // component-access pattern.
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn iter(&self) -> Iter<'_, EntityId, Entity> {
+        self.entities.iter()
     }
 
     fn upsert_entity(&mut self, id: EntityId, transform: Transform) {

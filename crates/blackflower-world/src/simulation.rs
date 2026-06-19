@@ -1,81 +1,58 @@
 use blackflower_math::components::Transform;
 use blackflower_protocol::{
-    EntityDelta, EntitySnapshot, Property, PropertyDelta, WorldDelta, WorldSnapshot,
+    EntityDelta, EntitySnapshot, Properties, Property, PropertyDelta, WorldDelta, WorldSnapshot,
 };
 use blackflower_time::Tick;
 use hashbrown::HashMap;
-use hecs::{DynamicBundle, Entity, World};
+use hecs::DynamicBundle;
 
-use crate::{EntityId, EntityIdAllocator};
-
-/// Engine-opaque property bag stored per entity.
-/// Encoding of each value is owned by the game plugin — the engine never
-/// interprets the bytes.
-#[derive(Clone, Default)]
-pub struct EntityProps(pub Vec<(u16, Vec<u8>)>);
+use crate::{Entities, EntityId};
 
 #[derive(Default)]
 pub struct SimulationWorld {
-    world: World,
-    allocator: EntityIdAllocator,
-    entities: HashMap<EntityId, Entity>,
+    entities: Entities,
 }
 
 impl SimulationWorld {
     pub fn query<Q: hecs::Query>(&self) -> hecs::QueryBorrow<'_, Q> {
-        self.world.query::<Q>()
+        self.entities.query::<Q>()
     }
 
     pub fn query_mut<Q: hecs::Query>(&mut self) -> hecs::QueryMut<'_, Q> {
-        self.world.query_mut::<Q>()
+        self.entities.query_mut::<Q>()
     }
 
     pub fn spawn(&mut self, components: impl DynamicBundle) -> EntityId {
-        let entity = self.world.spawn(components);
-        let entity_id = self.allocator.allocate();
-        self.entities.insert(entity_id, entity);
-        entity_id
+        self.entities.spawn(components)
     }
 
     pub fn despawn(&mut self, id: EntityId) {
-        if let Some(entity) = self.entities.remove(&id) {
-            self.world.despawn(entity).ok();
-        }
+        self.entities.despawn(id);
     }
 
     pub fn transform_mut(
         &mut self,
         id: EntityId,
     ) -> Result<hecs::RefMut<'_, Transform>, hecs::ComponentError> {
-        let entity = self
-            .entities
-            .get(&id)
-            .copied()
-            .ok_or(hecs::ComponentError::NoSuchEntity)?;
-        self.world.get::<&mut Transform>(entity)
+        self.entities.transform_mut(id)
     }
 
     pub fn props_mut(
         &mut self,
         id: EntityId,
-    ) -> Result<hecs::RefMut<'_, EntityProps>, hecs::ComponentError> {
-        let entity = self
-            .entities
-            .get(&id)
-            .copied()
-            .ok_or(hecs::ComponentError::NoSuchEntity)?;
-        self.world.get::<&mut EntityProps>(entity)
+    ) -> Result<hecs::RefMut<'_, Properties>, hecs::ComponentError> {
+        self.entities.props_mut(id)
     }
 
     /// Hitscan-targetable entities — those carrying both a `Transform` and
-    /// `EntityProps` (i.e. players). Returns `(id, transform)` pairs.
+    /// `Properties` (i.e. players). Returns `(id, transform)` pairs.
     #[must_use]
     pub fn targets(&self) -> Vec<(EntityId, Transform)> {
         self.entities
             .iter()
             .filter_map(|(&id, &entity)| {
-                let transform = self.world.get::<&Transform>(entity).ok()?;
-                self.world.get::<&EntityProps>(entity).ok()?;
+                let transform = self.entities.get::<&Transform>(entity).ok()?;
+                self.entities.get::<&Properties>(entity).ok()?;
                 Some((id, *transform))
             })
             .collect()
@@ -86,18 +63,11 @@ impl SimulationWorld {
             .entities
             .iter()
             .filter_map(|(&id, &entity)| {
-                let transform = self.world.get::<&Transform>(entity).ok()?;
+                let transform = self.entities.get::<&Transform>(entity).ok()?;
                 let props = self
-                    .world
-                    .get::<&EntityProps>(entity)
-                    .map(|p| {
-                        p.0.iter()
-                            .map(|(pid, val)| Property {
-                                id: *pid,
-                                data: val.clone(),
-                            })
-                            .collect()
-                    })
+                    .entities
+                    .get::<&Properties>(entity)
+                    .map(|p| p.to_vec())
                     .unwrap_or_default();
                 Some(EntitySnapshot {
                     id: id.into(),
@@ -195,18 +165,18 @@ fn entity_delta(curr: &EntitySnapshot, base: Option<&EntitySnapshot>) -> Option<
 
 /// Returns `(changed, removed)` props by comparing current vs baseline.
 /// Change detection is byte-exact — the engine does not interpret values.
-fn diff_props(curr: &[Property], base: &[Property]) -> (Vec<Property>, Vec<u16>) {
+fn diff_props(curr: &[Property], base: &[Property]) -> (Properties, Vec<u16>) {
     let mut changed = Vec::new();
     let mut removed = Vec::new();
 
     for base_prop in base {
-        if !curr.iter().any(|p| p.id == base_prop.id) {
-            removed.push(base_prop.id);
+        if !curr.iter().any(|p| p.0 == base_prop.0) {
+            removed.push(base_prop.0);
         }
     }
     for curr_prop in curr {
-        let baseline_val = base.iter().find(|p| p.id == curr_prop.id).map(|p| &p.data);
-        let is_new_or_changed = baseline_val.is_none_or(|v| *v != curr_prop.data);
+        let baseline_val = base.iter().find(|p| p.0 == curr_prop.0).map(|p| &p.1);
+        let is_new_or_changed = baseline_val.is_none_or(|v| *v != curr_prop.1);
         if is_new_or_changed {
             changed.push(curr_prop.clone());
         }

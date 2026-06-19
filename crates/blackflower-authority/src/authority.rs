@@ -13,7 +13,7 @@ use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, RejectReason, Reque
 use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::EntityId;
 use blackflower_world::arena::{Arena, SpawnPoint};
-use blackflower_world::simulation::{EntityProps, SimulationWorld};
+use blackflower_world::simulation::SimulationWorld;
 use hashbrown::HashMap;
 use notify::{
     Event as NotifyEvent, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -319,9 +319,7 @@ impl Authority {
             .as_mut()
             .and_then(|p| p.on_spawn().ok())
             .unwrap_or_default();
-        let entity = self
-            .simulation
-            .spawn((transform, EntityProps(initial_props)));
+        let entity = self.simulation.spawn((transform, initial_props));
         self.slots.insert(
             conn_id,
             SlotState::Playing {
@@ -443,7 +441,7 @@ impl Authority {
     /// declares the target dead, respawn it; otherwise merge the returned
     /// `(id, value)` pairs back into the target by id.
     fn apply_hit(&mut self, shooter: EntityId, target: EntityId) {
-        let Ok(current) = self.simulation.props_mut(target).map(|p| p.0.clone()) else {
+        let Ok(current) = self.simulation.props_mut(target).map(|p| p.clone()) else {
             return;
         };
         let Some(outcome) = self.plugin.as_mut().and_then(|p| p.on_hit(&current).ok()) else {
@@ -456,9 +454,9 @@ impl Authority {
         }
         if let Ok(mut props) = self.simulation.props_mut(target) {
             for (id, value) in outcome.props {
-                match props.0.iter_mut().find(|(pid, _)| *pid == id) {
+                match props.iter_mut().find(|p| p.0 == id) {
                     Some(slot) => slot.1 = value,
-                    None => props.0.push((id, value)),
+                    None => props.push((id, value)),
                 }
             }
         }
@@ -480,7 +478,7 @@ impl Authority {
             *t = transform;
         }
         if let Ok(mut p) = self.simulation.props_mut(target) {
-            p.0 = props;
+            *p = props;
         }
         info!(entity_id = %target, "respawned");
     }

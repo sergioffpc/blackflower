@@ -31,24 +31,19 @@ pub struct EntityDelta {
     pub properties: PropertyDelta,
 }
 
-pub type PropertyId = u16;
-pub type PropertyData = Vec<u8>;
-
-/// An opaque entity property. The engine stores and forwards `value` as raw
-/// bytes without interpreting them — encoding is owned by the game plugin.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Property {
-    pub id: PropertyId,
-    pub data: PropertyData,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PropertyDelta {
     /// Props that changed since the baseline; engine merges by id.
-    pub changed_props: Vec<Property>,
+    pub changed_props: Properties,
     /// Prop ids removed since the baseline.
-    pub removed_props: Vec<PropertyId>,
+    pub removed_props: Vec<u16>,
 }
+
+/// One engine-opaque entity property: `(id, raw bytes)`. The engine stores and
+/// forwards the bytes without interpreting them — encoding is owned by the
+/// game plugin.
+pub type Property = (u16, Vec<u8>);
+pub type Properties = Vec<Property>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorldSnapshot {
@@ -60,7 +55,7 @@ pub struct EntitySnapshot {
     pub id: u64,
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
-    pub properties: Vec<Property>,
+    pub properties: Properties,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
