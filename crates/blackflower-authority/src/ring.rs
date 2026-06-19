@@ -18,14 +18,15 @@ impl Default for SnapshotRing {
 
 impl SnapshotRing {
     pub fn insert(&mut self, tick: Tick, snapshot: WorldSnapshot) {
-        self.entries[tick.as_u64() as usize % RING_SIZE] = Some((tick, snapshot));
+        self.entries[(tick.as_u64() % RING_SIZE as u64) as usize] = Some((tick, snapshot));
     }
 
     pub fn get(&self, tick: Tick) -> Option<&WorldSnapshot> {
         if tick == Tick::ZERO {
             return None;
         }
-        let (stored_tick, snapshot) = self.entries[tick.as_u64() as usize % RING_SIZE].as_ref()?;
+        let (stored_tick, snapshot) =
+            self.entries[(tick.as_u64() % RING_SIZE as u64) as usize].as_ref()?;
         (*stored_tick == tick).then_some(snapshot)
     }
 }

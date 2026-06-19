@@ -68,7 +68,7 @@ impl PresentationWorld {
         let entities = self
             .entities
             .keys()
-            .map(|&id| (id, self.classify(id, local)))
+            .map(|id| (id, self.classify(id, local)))
             .collect();
 
         PresentationState {

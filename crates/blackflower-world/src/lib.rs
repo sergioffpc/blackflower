@@ -1,6 +1,6 @@
 use blackflower_math::{Quat, components::Transform};
-use blackflower_protocol::{EntityDelta, Property};
-use hashbrown::{HashMap, HashSet, hash_map::Keys};
+use blackflower_protocol::EntityDelta;
+use hashbrown::{HashMap, HashSet};
 use hecs::{Entity, World};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace, warn};
@@ -64,8 +64,6 @@ pub struct Entities {
 
     #[allow(clippy::struct_field_names)]
     entities: HashMap<EntityId, Entity>,
-
-    properties: HashMap<EntityId, Vec<Property>>,
 }
 
 impl Entities {
@@ -77,8 +75,8 @@ impl Entities {
         self.apply_delta(k, v, None)
     }
 
-    pub fn keys(&self) -> Keys<'_, EntityId, Entity> {
-        self.entities.keys()
+    pub fn keys(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.entities.keys().copied()
     }
 
     /// Apply an incremental delta against the entity's current transform.
@@ -88,9 +86,9 @@ impl Entities {
     }
 
     /// Shared delta application. Upserts the transform only when the delta
-    /// resolves one (skipping unknown entities with an incomplete delta);
-    /// property changes are merged regardless. Returns the resolved transform,
-    /// or `None` when the entity was skipped.
+    /// resolves one (skipping unknown entities with an incomplete delta).
+    /// Returns the resolved transform, or `None` when the entity was skipped.
+    /// Property deltas are ignored client-side — nothing renders them yet.
     fn apply_delta(
         &mut self,
         k: EntityId,
@@ -103,22 +101,7 @@ impl Entities {
         } else {
             warn!(id = %k, "delta has no transform for unknown entity — skipped");
         }
-        self.merge_properties(k, v);
         transform
-    }
-
-    fn merge_properties(&mut self, k: EntityId, v: &EntityDelta) {
-        let entry = self.properties.entry(k).or_default();
-        for id_to_remove in &v.properties.removed_props {
-            entry.retain(|p| p.id != *id_to_remove);
-        }
-        for prop in &v.properties.changed_props {
-            if let Some(existing) = entry.iter_mut().find(|p| p.id == prop.id) {
-                existing.data.clone_from(&prop.data);
-            } else {
-                entry.push(prop.clone());
-            }
-        }
     }
 
     pub fn remove(&mut self, k: &EntityId) {
@@ -127,7 +110,6 @@ impl Entities {
         {
             warn!(error = %e, id = %k, "failed to despawn entity");
         }
-        self.properties.remove(k);
     }
 
     pub fn retain_present_entities(&mut self, present: &HashSet<EntityId>) {
@@ -142,7 +124,6 @@ impl Entities {
                 false
             }
         });
-        self.properties.retain(|id, _| present.contains(id));
     }
 
     #[must_use]

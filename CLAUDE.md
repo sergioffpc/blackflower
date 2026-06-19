@@ -195,7 +195,7 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - Death is a plugin rule (engine is opaque to HP): WIT `on-hit` returns `hit-result { props, respawn }`. Host exposes `HitOutcome { props, respawn }`.
 - On `respawn`: `Authority::respawn` resets the target's transform (`next_spawn_transform`) + props (`on_spawn`), same `EntityId`. Otherwise props merge by id as before.
 - e1m1 guest sets `respawn` when HP reaches 0.
-- Unit tests: `SnapshotRing` insert/get/eviction + `highest_acked` (in `blackflower-authority`).
+- `SnapshotRing` (insert/get/eviction, keyed by `Tick`) + `highest_acked` live in `blackflower-authority` (`ring.rs` after the module split). No unit tests.
 
 **M5 in progress — aim/look input delivered:**
 - Mouse-look → absolute view angles on the wire: `Command` gains `yaw`/`pitch` (radians, absolute). (`PROTOCOL_VERSION` left at 1 — pre-release, client and server build together.)
