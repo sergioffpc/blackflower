@@ -366,7 +366,10 @@ dependencies = [
 name = "blackflower-audio"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "blackflower-math",
  "kira",
+ "tracing",
 ]
 
 [[package]]
@@ -471,6 +474,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "blackflower-audio",
  "blackflower-gameplay",
  "blackflower-input",
  "blackflower-math",

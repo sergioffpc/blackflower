@@ -20,6 +20,12 @@ world game-plugin {
         angle: f32,
     }
 
+    /// Host-provided event bus. The plugin publishes transient events the
+    /// engine relays to clients (lossy, for audio/VFX). `sound` is an opaque id
+    /// — the client maps it to an asset (e.g. a file name); the engine never
+    /// interprets it.
+    import play-sound: func(sound: string, position: vec3);
+
     /// Pick which map spawn point a player spawns at, given the candidates the
     /// map offers. Returns an index into `candidates`; the engine clamps an
     /// out-of-range result. With no candidates the engine spawns at the origin.
@@ -37,9 +43,15 @@ world game-plugin {
         respawn: bool,
     }
 
-    /// Called when a hitscan ray hits a target entity.
-    /// `target-props` are the target's current properties.
-    export on-hit: func(target-props: list<tuple<u16, list<u8>>>) -> hit-result;
+    /// Called when a player fires (server-authoritative). `shooter-position` is
+    /// where the shot originates. The plugin publishes any fire sound via
+    /// `play-sound`.
+    export on-fire: func(shooter-position: vec3);
+
+    /// Called when a hitscan ray hits a target entity. `target-props` are the
+    /// target's current properties; `target-position` is where it was hit (the
+    /// plugin can publish a hit/death sound there via `play-sound`).
+    export on-hit: func(target-props: list<tuple<u16, list<u8>>>, target-position: vec3) -> hit-result;
 
     /// Serialize the plugin's internal state to opaque bytes so it survives a
     /// hot-reload (the engine reloads the component but keeps the session). The

@@ -21,6 +21,29 @@ pub struct WorldDelta {
     pub baseline: u64,
     pub removed: Box<[u64]>,
     pub entities: Box<[EntityDelta]>,
+    /// Transient game events that occurred on this tick (e.g. for audio). Lossy:
+    /// a dropped delta simply drops its events — fine for one-shot sounds.
+    pub events: Vec<GameEvent>,
+}
+
+/// A transient, plugin-published occurrence the client may react to.
+///
+/// The engine is a pure relay — it never interprets the payload. `position` is
+/// the world location the event happened at (common to every kind); `kind`
+/// carries the category-specific payload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GameEvent {
+    pub kind: GameEventKind,
+    pub position: [f32; 3],
+}
+
+/// Category of a [`GameEvent`]. Each variant's payload is an opaque id the
+/// client maps to an asset. New client-facing event categories (animations,
+/// particles, …) are added as variants here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum GameEventKind {
+    /// Play a one-shot sound with this id.
+    Sound(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

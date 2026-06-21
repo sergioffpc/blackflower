@@ -11,6 +11,7 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-audio.workspace = true
 blackflower-gameplay.workspace = true
 blackflower-input.workspace = true
 blackflower-math.workspace = true

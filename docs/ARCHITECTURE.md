@@ -1,10 +1,10 @@
 # Game Engine — Architecture
 
-Living architecture document for the engine. Quake 2-style (authoritative client/server), with modern advances: archetype-based ECS, QUIC transport, client-side prediction + reconciliation.
+Living architecture document for the engine. Authoritative client/server, with modern advances: archetype-based ECS, QUIC transport, client-side prediction + reconciliation.
 
 **Status:** Active development — M4 implemented (foundations, ECS, QUIC networking, client-side prediction, slot state machine, handshake validation, delta snapshots with ack bitfield, remote interpolation, entity-based arenas + rapier collision, WASM plugin, lag-compensated hitscan + plugin-driven respawn). See [roadmap](#implementation-roadmap) for milestone status.
 **Audience:** author + future contributors.
-**Convention:** each section ends with decisions recorded as embedded ADRs. `**Status: implemented**` means the decision is live in code; `**Status: planned**` means it is a design commitment not yet coded. When a decision is extracted to its own file, it moves to `docs/adr/NNNN-title.md`.
+**Convention:** each section ends with decisions recorded as embedded ADRs. `**Status: implemented**` means the decision is live in code; `**Status: planned**` means it is a design commitment not yet coded.
 
 ---
 
@@ -165,7 +165,7 @@ The processes that run in production and how they communicate.
 
 **Scope:** only NON-predicted rules go in the plugin (`select-spawn`, `on-spawn`, `on-hit`). Predicted rules stay as pure Rust in `blackflower-gameplay::systems` — see ADR 0017 for the boundary and its rationale. Spawn-point *selection* is a rule and lives in the plugin (`select-spawn` picks an index into the candidates the map offers); the *candidate list* is map data the engine derives (`arena.spawn_points()`).
 
-**Status: implemented.** `wit/game-plugin.wit` defines `select-spawn`/`on-spawn`/`on-hit` plus `save-state`/`load-state`; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from CLI). **Hot-reload + state migration (M5):** the authority watches the plugin `.wasm` (`notify` file-watch on the parent dir) and, on the tick thread, reloads it when the file changes — calling `save-state` on the old instance and `load-state` on the new one to carry the plugin's internal state across (opaque bytes; the plugin owns versioning/migration). Entity props live in the engine and survive a reload regardless. A failed reload (bad/partial `.wasm`, migration error) is logged and the current plugin keeps running, so a bad build never drops the session.
+**Status: implemented.** `wit/game-plugin.wit` defines `select-spawn`/`on-spawn`/`on-fire`/`on-hit` plus `save-state`/`load-state`, and a host *import* `play-sound(sound, position)` the plugin calls to publish transient events (audio) the engine relays — the engine has no event semantics, just a sound id + position. `on-fire`/`on-hit` receive world positions so the plugin can place those sounds; `blackflower-gameplay::plugin` hosts the component (wasmtime, wasm32-wasip2); `plugins/e1m1` is the first guest. Loaded only by `blackflowerd` (path from CLI). **Hot-reload + state migration (M5):** the authority watches the plugin `.wasm` (`notify` file-watch on the parent dir) and, on the tick thread, reloads it when the file changes — calling `save-state` on the old instance and `load-state` on the new one to carry the plugin's internal state across (opaque bytes; the plugin owns versioning/migration). Entity props live in the engine and survive a reload regardless. A failed reload (bad/partial `.wasm`, migration error) is logged and the current plugin keeps running, so a bad build never drops the session.
 
 ---
 
@@ -190,7 +190,7 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 
 ### ADR 0018 — Collision: rapier, server-authoritative; entity-based maps
 
-**Decision:** collision lives in `blackflower-physics::collision::CollisionWorld` (rapier3d `KinematicCharacterController` over static cuboid colliders) and runs **only on the server**. The client does not predict collision: it applies the pure movement system and is corrected by snapshots. Maps are entity-based: an arena is an `id` plus a flat list of `MapEntity { classname, props }` (opaque string key/values, Quake style); the engine interprets only the classnames it knows — `solid_brush` (solid `min`/`max`) and `spawn_point` (spawn `origin`) — and passes the rest through untouched.
+**Decision:** collision lives in `blackflower-physics::collision::CollisionWorld` (rapier3d `KinematicCharacterController` over static cuboid colliders) and runs **only on the server**. The client does not predict collision: it applies the pure movement system and is corrected by snapshots. Maps are entity-based: an arena is an `id` plus a flat list of `MapEntity { classname, props }` (opaque string key/values); the engine interprets only the classnames it knows — `solid_brush` (solid `min`/`max`) and `spawn_point` (spawn `origin`) — and passes the rest through untouched.
 
 **Rationale:** per ADR 0017, anything the client predicts must run identically on both sides. Keeping collision server-only avoids putting rapier on the predicted path, which would demand cross-platform bit-determinism (rapier defaults to `simd-stable`, which is non-deterministic). The trade-off is the status quo of mild rubber-banding near walls; acceptable until predicted collision is explicitly wanted. The entity-based map model mirrors real engines and aligns with the opaque-props philosophy (ADR 0017): the engine stays ignorant of gameplay classnames.
 
@@ -293,7 +293,6 @@ The ECS itself (storage, scheduling, change detection) is engine mechanism, not 
 
 - Interpolation for remote entities (currently shown at last-known authoritative position).
 - Extrapolation / dead reckoning for remote entities under packet loss.
-- Audio (`blackflower-audio` is a stub).
 
 ### ADR 0007 — Client-side prediction with rollback-replay
 
@@ -343,7 +342,7 @@ blackflower-replica  → world, network, protocol, tick, gameplay, input, entity
 blackflower-network  → protocol, tick
 blackflower-graphics → math, entity
 blackflower-window
-blackflower-audio    (stub)
+blackflower-audio    → math (kira spatial; used by replica)
 
 blackflowerd → authority, network, protocol, tick, physics, gameplay, input, entity
 blackflowerc → replica, world, network, protocol, tick, input, graphics, window, entity, audio
@@ -520,7 +519,7 @@ blackflower/
 │   ├── blackflowerd/               # dedicated server binary
 │   └── blackflowerc/               # client binary (winit + wgpu)
 ├── crates/
-│   ├── blackflower-audio/          # stub (kira wired, no logic yet)
+│   ├── blackflower-audio/          # kira spatial audio (listener + per-event one-shots)
 │   ├── blackflower-gameplay/       # pure simulation systems + WASM plugin host
 │   ├── blackflower-graphics/       # wgpu renderer, camera, geometry, shader
 │   ├── blackflower-input/          # InputButtons bitflags, InputHandle

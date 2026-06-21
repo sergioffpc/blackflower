@@ -11,7 +11,11 @@ description.workspace = true
 readme.workspace = true
 
 [dependencies]
+blackflower-math.workspace = true
+
+anyhow.workspace = true
 kira.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

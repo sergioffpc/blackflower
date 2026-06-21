@@ -10,13 +10,16 @@ use std::{
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use blackflower_audio::AudioEngine;
 use blackflower_input::{InputHandle, components::InputButtons};
-use blackflower_math::components::Transform;
+use blackflower_math::{Vec3, components::Transform};
 use blackflower_network::{
     client::{self, ClientHandle},
     delay::DelayConfig,
 };
-use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, Request, WorldDelta};
+use blackflower_protocol::{
+    Command, Event, GameEvent, GameEventKind, PROTOCOL_VERSION, Request, WorldDelta,
+};
 use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::{
     EntityId,
@@ -28,6 +31,20 @@ use crate::{
     clock::{ClockEstimate, ClockSync},
     prediction::PredictionState,
 };
+
+/// Play each game event's one-shot sound at its world position (no-op when
+/// audio is unavailable).
+fn play_events(audio: Option<&mut AudioEngine>, events: &[GameEvent]) {
+    let Some(audio) = audio else {
+        return;
+    };
+    for event in events {
+        let position = Vec3::from_array(event.position);
+        match &event.kind {
+            GameEventKind::Sound(id) => audio.play(id, position),
+        }
+    }
+}
 
 type PresentationBuffer = Arc<ArcSwap<PresentationState>>;
 
@@ -180,6 +197,13 @@ impl Replica {
         .name("blackflower-replica::tick".to_owned())
         .spawn(move || {
             let dt = 1.0 / tick_hz as f32;
+            let mut audio = match AudioEngine::new() {
+                Ok(engine) => Some(engine),
+                Err(error) => {
+                    warn!(%error, "audio disabled");
+                    None
+                }
+            };
 
             let result = scheduler.start(|tick, _dt| {
                 let now = Instant::now();
@@ -192,6 +216,7 @@ impl Replica {
                     latest_ack = Some(latest_ack.map_or(ack, |cur| cur.max(ack)));
                     snapshot_ack.record(snapshot.tick);
                     clock_sync.seed_from_snapshot(snap_tick, now);
+                    play_events(audio.as_mut(), &snapshot.events);
                 });
 
                 tick_network_handle.try_recv_events().for_each(|event| match event {
@@ -229,6 +254,13 @@ impl Replica {
                     if let Some(predicted) = prediction.predict(tick, buttons, look, seed, dt) {
                         world.set_transform(local, predicted);
                     }
+                }
+
+                // Listener follows the local player's camera (eye + facing).
+                if let (Some(audio), Some(transform)) =
+                    (audio.as_mut(), prediction.local_transform())
+                {
+                    audio.set_listener(transform.translation, transform.rotation);
                 }
 
                 tick_network_handle.try_send_command(Command {

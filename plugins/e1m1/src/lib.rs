@@ -18,6 +18,11 @@ static NEXT_SPAWN: AtomicUsize = AtomicUsize::new(0);
 /// an older format in `load_state`.
 const STATE_VERSION: u8 = 1;
 
+/// Sound ids the client maps to assets (`assets/sounds/<id>.wav`).
+const SOUND_FIRE: &str = "fire";
+const SOUND_HIT: &str = "hit";
+const SOUND_DEATH: &str = "death";
+
 struct Plugin;
 
 impl Guest for Plugin {
@@ -33,7 +38,11 @@ impl Guest for Plugin {
         vec![(PROP_HP, encode(HP_INITIAL))]
     }
 
-    fn on_hit(target_props: Vec<(u16, Vec<u8>)>) -> HitResult {
+    fn on_fire(shooter_position: Vec3) {
+        play_sound(SOUND_FIRE, shooter_position);
+    }
+
+    fn on_hit(target_props: Vec<(u16, Vec<u8>)>, target_position: Vec3) -> HitResult {
         let mut respawn = false;
         let props = target_props
             .into_iter()
@@ -47,6 +56,8 @@ impl Guest for Plugin {
                 }
             })
             .collect();
+        let sound = if respawn { SOUND_DEATH } else { SOUND_HIT };
+        play_sound(sound, target_position);
         HitResult { props, respawn }
     }
 

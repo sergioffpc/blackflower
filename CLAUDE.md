@@ -53,7 +53,7 @@ Blackflower is a Rust game engine for arena multiplayer shooters (up to 64 playe
 
 - `bins/blackflowerd` — dedicated game server binary
 - `bins/blackflowerc` — game client binary (winit window + wgpu renderer)
-- `crates/blackflower-audio` — audio stub (kira dependency wired, no logic yet)
+- `crates/blackflower-audio` — `AudioEngine`: kira spatial audio. A listener tracks the local player's camera; each `GameEvent` plays a one-shot on a transient per-event spatial track (panned/attenuated by position). Sounds are loaded **by id** (file stem) from `assets/sounds/*.wav` — `play(sound_id, position)`; adding a sound is dropping a file in (no recompile). Init/dir-load failures are non-fatal (runs silent).
 - `crates/blackflower-gameplay` — pure simulation functions (e.g. `apply_player_movement`); run identically on client and server. `plugin` module hosts the WASM Component Model plugin (`Plugin`, wasmtime host)
 - `crates/blackflower-graphics` — rendering: camera, geometry, pipelines, `Renderer` (wgpu/winit)
 - `crates/blackflower-input` — `InputButtons` bitfield, `InputHandle`, produces `Command` per tick
@@ -117,7 +117,7 @@ Gameplay functions must remain pure (no side effects, no RNG) so predict and ser
 ### Protocol types (blackflower-protocol)
 
 - `Command { tick, buttons, yaw, pitch, snapshot_ack_tick, snapshot_ack_bits }` — client input sent as unreliable datagrams; `yaw`/`pitch` are absolute view angles (radians, sent absolute not as deltas); ack fields carry a 32-bit sliding-window of received snapshot ticks
-- `WorldDelta { tick, ack, baseline, removed, entities: Box<[EntityDelta]> }` — server→client datagram; `baseline == 0` = full snapshot, `baseline > 0` = delta against that tick; `ack` is the highest client command tick processed (for prediction reconciliation)
+- `WorldDelta { tick, ack, baseline, removed, entities: Box<[EntityDelta]>, events: Vec<GameEvent> }` — server→client datagram; `baseline == 0` = full snapshot, `baseline > 0` = delta against that tick; `ack` is the highest client command tick processed (for prediction reconciliation); `events` are transient per-tick `GameEvent { kind: GameEventKind, position }` published by the plugin — `GameEventKind` is an extensible enum of client-facing categories (`Sound(id)` today; animations/particles later), payloads opaque to the engine (lossy — a dropped delta drops its events)
 - `EntityDelta { id, translation: Option<[f32;3]>, rotation: Option<[f32;4]> }` — only changed fields are `Some`; change detection via `f32::to_bits()`
 - `WorldSnapshot / EntitySnapshot` — full entity state, used internally by server's `SnapshotRing` (not sent on wire directly)
 - `PROTOCOL_VERSION: u32` — checked during handshake
@@ -212,4 +212,9 @@ Pinned to Rust 1.95.0 via `rust-toolchain.toml`. Cross-compile targets included:
 - `Authority::start` now takes `Option<PathBuf>` (loads the plugin itself + sets up the watcher); `blackflowerd` no longer loads it.
 - e1m1 guest serializes `NEXT_SPAWN` as `[version][u64 LE]`; entity props (HP) live in the engine and survive reloads regardless.
 
-**M5 remaining:** audio, basic editor; fire-rate / edge-detect on `FIRE` (deferred by user).
+**M5 — spatial audio delivered:**
+- **Plugin-published events (event bus):** the WIT world gains an *import* `play-sound(sound: string, position: vec3)` the guest calls, plus `on-fire(shooter-pos)` and `on-hit(props, target-pos)` (positions passed in). The plugin publishes directly to the bus — `PluginState.events` (the wasmtime Store data the import handler writes to). The engine **drains the bus once per tick** in `broadcast_snapshots` (`Plugin::drain_events`), maps `PlaySound`→`GameEvent { kind: GameEventKind::Sound(id), position }`, and attaches it to every client's `WorldDelta`. No engine-side fire/hit/death semantics, no per-hook event plumbing: `on-hit` returns only the engine-actionable `HitOutcome` (props/respawn); sounds go to the bus. `GameEventKind` is extensible (Sound today; animations/particles are future variants — add a `play-*` import + variant). e1m1 publishes `"fire"`/`"hit"`/`"death"`.
+- `blackflower-audio::AudioEngine` (kira): one listener follows the local player's camera; each event plays a one-shot on a transient spatial track (`persist_until_sounds_finish`), panned/attenuated by world position. Sounds loaded by id from `assets/sounds/*.wav`. glam's `mint` feature gives the kira interop — `Vec3`/`Quat` pass straight to kira. The replica tick thread owns the engine, plays `snapshot.events`, updates the listener from the predicted local transform.
+- Non-fatal: no audio device or missing WAVs → runs silent. Sounds expected at `assets/sounds/{fire,hit,death}.wav` (user supplies the files).
+
+**M5 remaining:** basic editor; fire-rate / edge-detect on `FIRE` (deferred by user).

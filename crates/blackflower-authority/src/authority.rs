@@ -9,7 +9,9 @@ use blackflower_network::server::{self, TransportConfig};
 use blackflower_network::{connection::ConnectionId, delay::DelayConfig};
 use blackflower_physics::collision::CollisionWorld;
 use blackflower_physics::components::Velocity;
-use blackflower_protocol::{Command, Event, PROTOCOL_VERSION, RejectReason, Request, WorldDelta};
+use blackflower_protocol::{
+    Command, Event, GameEvent, GameEventKind, PROTOCOL_VERSION, RejectReason, Request, WorldDelta,
+};
 use blackflower_time::{Tick, TickScheduler};
 use blackflower_world::EntityId;
 use blackflower_world::arena::{Arena, SpawnPoint};
@@ -207,6 +209,20 @@ impl Authority {
         let world_snapshot = Arc::new(self.simulation.full_snapshot());
         self.ring.insert(tick, (*world_snapshot).clone());
 
+        // Drain the events the plugin published to the bus this tick and relay
+        // them to every client (the engine never interprets them).
+        let events: Vec<GameEvent> = self
+            .plugin
+            .as_mut()
+            .map(Plugin::drain_events)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| GameEvent {
+                kind: GameEventKind::Sound(s.sound),
+                position: s.position,
+            })
+            .collect();
+
         let clients = self
             .slots
             .iter()
@@ -226,13 +242,14 @@ impl Authority {
 
         for (conn_id, baseline_tick, ack) in clients {
             let baseline = self.ring.get(baseline_tick);
-            let world_delta = SimulationWorld::delta_snapshot(
+            let mut world_delta = SimulationWorld::delta_snapshot(
                 &world_snapshot,
                 baseline,
                 baseline_tick,
                 tick,
                 ack,
             );
+            world_delta.events.clone_from(&events);
             if tick.as_u64().is_multiple_of(self.tick_hz) {
                 debug!(connection_id = ?conn_id, %tick, %baseline_tick, "sending snapshot");
             }
@@ -404,6 +421,13 @@ impl Authority {
         if dir == Vec3::ZERO {
             return;
         }
+        // The plugin owns the fire sound: it publishes to the event bus during
+        // on-fire; the engine drains the bus once per tick (broadcast_snapshots).
+        if let Some(plugin) = self.plugin.as_mut()
+            && let Err(error) = plugin.on_fire(origin.into())
+        {
+            warn!(%error, "plugin on_fire failed");
+        }
 
         let half = Vec3::from_array(PLAYER_HALF_EXTENTS);
         let candidates = self.hit_candidates(shooter, ack_tick);
@@ -439,12 +463,24 @@ impl Authority {
 
     /// Run the target's props through the plugin's `on_hit`. If the plugin
     /// declares the target dead, respawn it; otherwise merge the returned
-    /// `(id, value)` pairs back into the target by id.
+    /// `(id, value)` pairs back into the target by id. Any hit/death sound the
+    /// plugin publishes goes to the event bus (drained in `broadcast_snapshots`).
     fn apply_hit(&mut self, shooter: EntityId, target: EntityId) {
         let Ok(current) = self.simulation.props_mut(target).map(|p| p.clone()) else {
             return;
         };
-        let Some(outcome) = self.plugin.as_mut().and_then(|p| p.on_hit(&current).ok()) else {
+        // Target position, captured before a respawn can move it, passed to the
+        // plugin so it can place its hit/death sound.
+        let position: [f32; 3] = self
+            .simulation
+            .transform_mut(target)
+            .map(|t| t.translation.into())
+            .unwrap_or_default();
+        let Some(outcome) = self
+            .plugin
+            .as_mut()
+            .and_then(|p| p.on_hit(&current, position).ok())
+        else {
             return;
         };
         if outcome.respawn {

@@ -98,6 +98,7 @@ impl SimulationWorld {
                 baseline: 0,
                 removed: Box::default(),
                 entities: current.entities.iter().map(entity_full_delta).collect(),
+                events: Vec::new(),
             };
         };
 
@@ -124,6 +125,7 @@ impl SimulationWorld {
             baseline: baseline_tick.as_u64(),
             removed,
             entities,
+            events: Vec::new(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use std::path::Path;
-use wasmtime::component::{Component, Linker, ResourceTable};
+use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
@@ -19,9 +19,20 @@ pub struct HitOutcome {
     pub respawn: bool,
 }
 
+/// A sound the plugin published via the `play-sound` import, with the world
+/// position to play it at. The `sound` id is opaque — the client maps it to an
+/// asset.
+pub struct PlaySound {
+    pub sound: String,
+    pub position: [f32; 3],
+}
+
 struct PluginState {
     ctx: WasiCtx,
     table: ResourceTable,
+    /// The event bus: sounds the guest published via `play-sound`. The engine
+    /// drains it once per tick (`Plugin::drain_events`).
+    events: Vec<PlaySound>,
 }
 
 impl WasiView for PluginState {
@@ -30,6 +41,15 @@ impl WasiView for PluginState {
             ctx: &mut self.ctx,
             table: &mut self.table,
         }
+    }
+}
+
+impl GamePluginImports for PluginState {
+    fn play_sound(&mut self, sound: String, position: Vec3) {
+        self.events.push(PlaySound {
+            sound,
+            position: [position.x, position.y, position.z],
+        });
     }
 }
 
@@ -53,10 +73,16 @@ impl Plugin {
         let mut linker: Linker<PluginState> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
             .map_err(|e| anyhow::anyhow!("adding WASI to plugin linker: {e}"))?;
+        GamePlugin::add_to_linker::<PluginState, HasSelf<PluginState>>(
+            &mut linker,
+            |state: &mut PluginState| state,
+        )
+        .map_err(|e| anyhow::anyhow!("adding game-plugin imports to linker: {e}"))?;
 
         let state = PluginState {
             ctx: WasiCtxBuilder::new().build(),
             table: ResourceTable::new(),
+            events: Vec::new(),
         };
         let mut store = Store::new(&engine, state);
 
@@ -98,16 +124,36 @@ impl Plugin {
             .map_err(|e| anyhow::anyhow!("plugin on_spawn: {e}"))
     }
 
-    /// Called when a hitscan ray confirms a hit on the target.
-    pub fn on_hit(&mut self, target_props: &PropList) -> anyhow::Result<HitOutcome> {
+    /// Called when a player fires (at `shooter`). The plugin publishes any fire
+    /// sound to the bus via `play-sound`; drain it with [`Plugin::drain_events`].
+    pub fn on_fire(&mut self, shooter: [f32; 3]) -> anyhow::Result<()> {
+        self.bindings
+            .call_on_fire(&mut self.store, to_vec3(shooter))
+            .map_err(|e| anyhow::anyhow!("plugin on_fire: {e}"))
+    }
+
+    /// Called when a hitscan ray confirms a hit on the target (at `target`). Any
+    /// hit/death sound is published to the bus; this returns only the
+    /// engine-actionable outcome (props + respawn).
+    pub fn on_hit(
+        &mut self,
+        target_props: &PropList,
+        target: [f32; 3],
+    ) -> anyhow::Result<HitOutcome> {
         let result = self
             .bindings
-            .call_on_hit(&mut self.store, target_props)
+            .call_on_hit(&mut self.store, target_props, to_vec3(target))
             .map_err(|e| anyhow::anyhow!("plugin on_hit: {e}"))?;
         Ok(HitOutcome {
             props: result.props,
             respawn: result.respawn,
         })
+    }
+
+    /// Drain the events the plugin published to the bus since the last drain.
+    /// The engine relays these once per tick.
+    pub fn drain_events(&mut self) -> Vec<PlaySound> {
+        std::mem::take(&mut self.store.data_mut().events)
     }
 
     /// Serialize the plugin's internal state to opaque bytes (for hot-reload
@@ -124,5 +170,13 @@ impl Plugin {
         self.bindings
             .call_load_state(&mut self.store, state)
             .map_err(|e| anyhow::anyhow!("plugin load_state: {e}"))
+    }
+}
+
+const fn to_vec3(a: [f32; 3]) -> Vec3 {
+    Vec3 {
+        x: a[0],
+        y: a[1],
+        z: a[2],
     }
 }
