@@ -50,6 +50,14 @@ jobs:
           rustfmt --version
           cargo clippy --version
 
+      - name: Install libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libclang-18-dev
+          libclang_path=/usr/lib/llvm-18/lib
+          test -f "$libclang_path/libclang.so"
+          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
       - name: Restore Cargo cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -102,18 +110,31 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Locate libclang on Linux
+      - name: Install libclang on Linux
         if: runner.os == 'Linux'
-        run: echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libclang-18-dev
+          libclang_path=/usr/lib/llvm-18/lib
+          test -f "$libclang_path/libclang.so"
+          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
 
       - name: Locate libclang on macOS
         if: runner.os == 'macOS'
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+        run: |
+          libclang_path="$(brew --prefix llvm@18)/lib"
+          test -f "$libclang_path/libclang.dylib"
+          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
 
       - name: Locate libclang on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '"LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append'
+        run: |
+          $libclangPath = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path "$libclangPath\libclang.dll")) {
+            throw "libclang.dll not found in $libclangPath"
+          }
+          "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Check formatting
         run: cargo fmt --all -- --check
