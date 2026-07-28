@@ -1,14 +1,26 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Fixed-step client prediction and authoritative reconciliation.
+//!
+//! [`PredictionPipeline`] is the only ECS pipeline in this crate. It advances
+//! one predicted tick in either [`PredictionPass::Forward`] or
+//! [`PredictionPass::Resimulation`]. [`ReconciliationCoordinator`] remains
+//! ordinary Rust control flow: it restores an authoritative baseline and asks a
+//! simulation-provided [`ReconciliationDriver`] to run the same prediction pipeline
+//! for each recorded input that follows the baseline.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod history;
+mod pipeline;
+mod reconciliation;
+mod types;
+mod world;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use history::{HistoryError, InputFrame, InputHistory, PredictionFrame, PredictionHistory};
+pub use pipeline::{PredictionPhase, PredictionPhases, PredictionPipeline};
+pub use reconciliation::{
+    AuthoritativeSnapshot, HardResyncReason, ReconciliationCoordinator, ReconciliationDriver,
+    ReconciliationError, ReconciliationOutcome,
+};
+pub use types::{InputSequence, PredictionPass, PredictionTick};
+pub use world::{
+    PREDICTION_TICK_DELTA_SECONDS, PREDICTION_TICK_RATE_HZ, PredictionError, PredictionExecution,
+    PredictionExecutionContext, PredictionWorld,
+};

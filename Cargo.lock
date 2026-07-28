@@ -68,6 +68,12 @@ version = "0.1.0"
 [[package]]
 name = "blackflower-prediction"
 version = "0.1.0"
+dependencies = [
+ "blackflower-ecs",
+ "bytemuck",
+ "strum",
+ "thiserror",
+]
 
 [[package]]
 name = "blackflower-presentation"
