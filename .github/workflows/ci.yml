@@ -91,15 +91,22 @@ jobs:
           rust-version: "1.97.1"
           command: check
 
-  blackflower-ecs-native:
-    name: blackflower-ecs (${{ matrix.os }})
+  native-bindings:
+    name: ${{ matrix.package }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - macos-15
-          - windows-2025
+        include:
+          - package: blackflower-ecs
+            os: ubuntu-24.04
+          - package: blackflower-ecs
+            os: macos-15
+          - package: blackflower-ecs
+            os: windows-2025
+          - package: blackflower-physics
+            os: ubuntu-24.04
+          - package: blackflower-physics
+            os: macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
@@ -140,17 +147,17 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Check observability feature combinations
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.package == 'blackflower-ecs'
         run: |
           cargo check -p blackflower-ecs --no-default-features --locked
           cargo check -p blackflower-ecs --features metrics --locked
           cargo check -p blackflower-ecs --features tracing --locked
 
       - name: Run Clippy
-        run: cargo clippy -p blackflower-ecs --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy -p ${{ matrix.package }} --all-targets --all-features --locked -- -D warnings
 
       - name: Run tests
-        run: cargo test -p blackflower-ecs --all-targets --all-features --locked --no-fail-fast
+        run: cargo test -p ${{ matrix.package }} --all-targets --all-features --locked --no-fail-fast
 
       - name: Run doctests
-        run: cargo test -p blackflower-ecs --doc --all-features --locked
+        run: cargo test -p ${{ matrix.package }} --doc --all-features --locked
