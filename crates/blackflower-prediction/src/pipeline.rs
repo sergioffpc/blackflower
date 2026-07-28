@@ -9,21 +9,21 @@ use strum::IntoStaticStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum PredictionPhase {
     /// Prepare the fixed-tick context and activate state scheduled for this tick.
-    PreparePredictionTick,
-    /// Capture current input or select the recorded input for a re-simulated tick.
-    CapturePredictionInput,
+    PrepareTick,
+    /// Capture current tick inputs or select recorded inputs for a re-simulated tick.
+    CaptureTickInputs,
     /// Convert the captured control frame into deterministic local actions.
-    DerivePredictedActions,
-    /// Advance the subset of motion and physics predicted by the client.
-    SolvePredictedDynamics,
+    DeriveActorActions,
+    /// Advance the subset of rigid-body dynamics predicted by the client.
+    SolveRigidBodyDynamics,
     /// Derive speculative discrete transitions from the predicted facts.
-    DerivePredictedTransitions,
+    DeriveStateTransitions,
     /// Apply accepted speculative transitions to predicted state once.
-    CommitPredictedTransitions,
+    CommitStateTransitions,
     /// Validate and make the completed predicted tick stable for consumers.
-    SealPredictionTick,
-    /// Publish forward outputs; re-simulation suppresses duplicate external effects.
-    PublishPredictionOutputs,
+    SealSimulationTick,
+    /// Submit forward outputs; re-simulation suppresses duplicate external effects.
+    SubmitTickOutputs,
 }
 
 impl PredictionPhase {
@@ -32,14 +32,14 @@ impl PredictionPhase {
 
     /// Normative execution order of prediction phases.
     pub const ORDER: [Self; Self::COUNT] = [
-        Self::PreparePredictionTick,
-        Self::CapturePredictionInput,
-        Self::DerivePredictedActions,
-        Self::SolvePredictedDynamics,
-        Self::DerivePredictedTransitions,
-        Self::CommitPredictedTransitions,
-        Self::SealPredictionTick,
-        Self::PublishPredictionOutputs,
+        Self::PrepareTick,
+        Self::CaptureTickInputs,
+        Self::DeriveActorActions,
+        Self::SolveRigidBodyDynamics,
+        Self::DeriveStateTransitions,
+        Self::CommitStateTransitions,
+        Self::SealSimulationTick,
+        Self::SubmitTickOutputs,
     ];
 
     /// Stable scheduler entity name for this phase.
@@ -52,37 +52,37 @@ impl PredictionPhase {
 /// World-bound handles for every prediction phase.
 #[derive(Debug, Clone, Copy)]
 pub struct PredictionPhases {
-    prepare_prediction_tick: PhaseId,
-    capture_prediction_input: PhaseId,
-    derive_predicted_actions: PhaseId,
-    solve_predicted_dynamics: PhaseId,
-    derive_predicted_transitions: PhaseId,
-    commit_predicted_transitions: PhaseId,
-    seal_prediction_tick: PhaseId,
-    publish_prediction_outputs: PhaseId,
+    prepare_tick: PhaseId,
+    capture_tick_inputs: PhaseId,
+    derive_actor_actions: PhaseId,
+    solve_rigid_body_dynamics: PhaseId,
+    derive_state_transitions: PhaseId,
+    commit_state_transitions: PhaseId,
+    seal_simulation_tick: PhaseId,
+    submit_tick_outputs: PhaseId,
 }
 
 impl PredictionPhases {
     fn register(world: &mut World) -> Result<Self, Error> {
         let [
-            prepare_prediction_tick,
-            capture_prediction_input,
-            derive_predicted_actions,
-            solve_predicted_dynamics,
-            derive_predicted_transitions,
-            commit_predicted_transitions,
-            seal_prediction_tick,
-            publish_prediction_outputs,
+            prepare_tick,
+            capture_tick_inputs,
+            derive_actor_actions,
+            solve_rigid_body_dynamics,
+            derive_state_transitions,
+            commit_state_transitions,
+            seal_simulation_tick,
+            submit_tick_outputs,
         ] = register_phase_chain(world)?;
         Ok(Self {
-            prepare_prediction_tick,
-            capture_prediction_input,
-            derive_predicted_actions,
-            solve_predicted_dynamics,
-            derive_predicted_transitions,
-            commit_predicted_transitions,
-            seal_prediction_tick,
-            publish_prediction_outputs,
+            prepare_tick,
+            capture_tick_inputs,
+            derive_actor_actions,
+            solve_rigid_body_dynamics,
+            derive_state_transitions,
+            commit_state_transitions,
+            seal_simulation_tick,
+            submit_tick_outputs,
         })
     }
 
@@ -90,14 +90,14 @@ impl PredictionPhases {
     #[must_use]
     pub const fn get(self, phase: PredictionPhase) -> PhaseId {
         match phase {
-            PredictionPhase::PreparePredictionTick => self.prepare_prediction_tick,
-            PredictionPhase::CapturePredictionInput => self.capture_prediction_input,
-            PredictionPhase::DerivePredictedActions => self.derive_predicted_actions,
-            PredictionPhase::SolvePredictedDynamics => self.solve_predicted_dynamics,
-            PredictionPhase::DerivePredictedTransitions => self.derive_predicted_transitions,
-            PredictionPhase::CommitPredictedTransitions => self.commit_predicted_transitions,
-            PredictionPhase::SealPredictionTick => self.seal_prediction_tick,
-            PredictionPhase::PublishPredictionOutputs => self.publish_prediction_outputs,
+            PredictionPhase::PrepareTick => self.prepare_tick,
+            PredictionPhase::CaptureTickInputs => self.capture_tick_inputs,
+            PredictionPhase::DeriveActorActions => self.derive_actor_actions,
+            PredictionPhase::SolveRigidBodyDynamics => self.solve_rigid_body_dynamics,
+            PredictionPhase::DeriveStateTransitions => self.derive_state_transitions,
+            PredictionPhase::CommitStateTransitions => self.commit_state_transitions,
+            PredictionPhase::SealSimulationTick => self.seal_simulation_tick,
+            PredictionPhase::SubmitTickOutputs => self.submit_tick_outputs,
         }
     }
 }
@@ -129,7 +129,7 @@ impl PredictionPipeline {
 }
 
 fn register_phase_chain(world: &mut World) -> Result<[PhaseId; PredictionPhase::COUNT], Error> {
-    let first_phase = PredictionPhase::PreparePredictionTick;
+    let first_phase = PredictionPhase::PrepareTick;
     let first = world.create_phase(
         first_phase.name(),
         Some(world.builtin_phase(BuiltinPhase::OnUpdate)),
