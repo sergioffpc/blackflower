@@ -1,0 +1,12 @@
+/target
+/.idea
+
+.DS_Store
+
+.env
+.env.*
+!.env.example
+
+*.flamegraph
+*.profdata
+*.profraw

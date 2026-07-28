@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -eu
+
+hook_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+exec "$hook_directory/pre-commit"

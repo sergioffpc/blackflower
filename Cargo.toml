@@ -1,0 +1,67 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/blackflower",
+    "apps/blackflower-harness",
+    "apps/blackflower-server",
+    "crates/blackflower-ecs",
+    "crates/blackflower-prediction",
+    "crates/blackflower-presentation",
+    "crates/blackflower-simulation",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# Baseline correctness, suspicious-code, style, complexity, and performance
+# checks. The lower priority lets the project-specific rules below take
+# precedence without triggering clippy::lint_groups_priority.
+all = { level = "deny", priority = -1 }
+
+# Runtime reliability. Long-running clients and authoritative servers must
+# propagate failures instead of aborting or silently discarding them.
+expect_used = "deny"
+exit = "deny"
+let_underscore_must_use = "deny"
+map_err_ignore = "deny"
+mem_forget = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+unused_result_ok = "deny"
+
+# Numeric and simulation correctness. Networked state must not change through
+# implicit truncation, wrapping, precision loss, or exact float comparisons.
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_precision_loss = "deny"
+cast_sign_loss = "deny"
+float_cmp = "deny"
+float_cmp_const = "deny"
+lossy_float_literal = "deny"
+unchecked_time_subtraction = "deny"
+
+# Deterministic state and protocol handling. Iteration order and byte order
+# must be explicit, and state-machine matches must account for every variant.
+host_endian_bytes = "deny"
+iter_over_hash_type = "deny"
+wildcard_enum_match_arm = "deny"
+
+# Maintainability and controlled escape hatches.
+allow_attributes_without_reason = "deny"
+dbg_macro = "deny"
+large_types_passed_by_value = "deny"
+multiple_unsafe_ops_per_block = "deny"
+should_panic_without_expect = "deny"
+undocumented_unsafe_blocks = "deny"

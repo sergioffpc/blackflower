@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -eu
+
+commit_message_file=$1
+hook_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+exec "$hook_directory/lib/validate-commit-message.sh" <"$commit_message_file"

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -eu
+
+hook_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(CDPATH= cd -- "$hook_directory/.." && pwd)
+
+printf 'Checking staged changes...\n'
+git diff --cached --check
+
+"$repository_root/scripts/ci.sh" format

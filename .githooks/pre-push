@@ -1,0 +1,52 @@
+#!/bin/sh
+
+set -eu
+
+hook_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(CDPATH= cd -- "$hook_directory/.." && pwd)
+message_validator="$hook_directory/lib/validate-commit-message.sh"
+remote_name=$1
+has_updates=0
+
+printf 'Checking outgoing commit messages...\n'
+
+while read -r local_ref local_oid remote_ref remote_oid
+do
+    case "$local_oid" in
+        0000000000000000000000000000000000000000 | \
+        0000000000000000000000000000000000000000000000000000000000000000)
+            continue
+            ;;
+    esac
+
+    has_updates=1
+
+    case "$remote_oid" in
+        0000000000000000000000000000000000000000 | \
+        0000000000000000000000000000000000000000000000000000000000000000)
+            commit_range=$(git rev-list "$local_oid" --not --remotes="$remote_name")
+            ;;
+        *)
+            commit_range=$(git rev-list "$remote_oid..$local_oid")
+            ;;
+    esac
+
+    for commit_oid in $commit_range
+    do
+        if ! git show --no-patch --format=%B "$commit_oid" |
+            "$message_validator"
+        then
+            subject=$(git show --no-patch --format=%s "$commit_oid")
+            printf 'Push rejected: invalid commit %s: %s\n' \
+                "$commit_oid" "$subject" >&2
+            exit 1
+        fi
+    done
+done
+
+if [ "$has_updates" -eq 0 ]
+then
+    exit 0
+fi
+
+"$repository_root/scripts/ci.sh"
