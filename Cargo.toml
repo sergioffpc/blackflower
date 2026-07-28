@@ -6,6 +6,7 @@ members = [
     "apps/blackflower-server",
     "crates/blackflower-ecs",
     "crates/blackflower-observability",
+    "crates/blackflower-physics",
     "crates/blackflower-prediction",
     "crates/blackflower-presentation",
     "crates/blackflower-simulation",
@@ -22,6 +23,7 @@ publish = false
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
 blackflower-observability = { path = "crates/blackflower-observability" }
+blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
@@ -30,6 +32,8 @@ anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
+cmake = { version = "0.1.58", default-features = false }
+glam = { version = "0.33.2", default-features = false, features = ["std"] }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 proc-macro2 = { version = "1.0.107", default-features = false }

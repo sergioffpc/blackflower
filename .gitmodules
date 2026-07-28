@@ -1,3 +1,6 @@
 [submodule "crates/blackflower-ecs/vendor/flecs"]
 	path = crates/blackflower-ecs/vendor/flecs
 	url = https://github.com/SanderMertens/flecs.git
+[submodule "crates/blackflower-physics/vendor/JoltPhysics"]
+	path = crates/blackflower-physics/vendor/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git
