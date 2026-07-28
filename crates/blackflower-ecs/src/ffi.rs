@@ -1272,6 +1272,11 @@ where
     let Some(context) = context_pointer.cast::<CallbackContext<P, F>>().as_ref() else {
         return;
     };
+    #[cfg(feature = "profiling")]
+    profiling::scope!(
+        "blackflower_ecs::system_callback",
+        context.system_name.as_str()
+    );
     let Some(stage) = NonNull::new(unsafe { iterator.as_ref().world }) else {
         context.failure.record(
             RunError::new(
@@ -1306,6 +1311,11 @@ where
     let Some(context) = context_pointer.cast::<CallbackContext<P, F>>().as_ref() else {
         return;
     };
+    #[cfg(feature = "profiling")]
+    profiling::scope!(
+        "blackflower_ecs::system_callback",
+        context.system_name.as_str()
+    );
     run_system_rows::<P, _>(iterator, context, |iter, entity, item| {
         let iter_ref = unsafe { iter.as_ref() };
         let worker = unsafe { raw::ecs_stage_get_id(iter_ref.world) };

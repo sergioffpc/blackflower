@@ -5,6 +5,7 @@
 //! that pipeline at the fixed simulation delta.
 
 mod pipeline;
+mod telemetry;
 mod world;
 
 pub use pipeline::{

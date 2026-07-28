@@ -9,6 +9,7 @@
 //! own client-only state, but must treat captured simulation state as immutable.
 
 mod pipeline;
+mod telemetry;
 mod types;
 mod world;
 

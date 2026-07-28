@@ -5,6 +5,7 @@ members = [
     "apps/blackflower-harness",
     "apps/blackflower-server",
     "crates/blackflower-ecs",
+    "crates/blackflower-observability",
     "crates/blackflower-prediction",
     "crates/blackflower-presentation",
     "crates/blackflower-simulation",
@@ -20,17 +21,27 @@ publish = false
 [workspace.dependencies]
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
+blackflower-observability = { path = "crates/blackflower-observability" }
+blackflower-prediction = { path = "crates/blackflower-prediction" }
+blackflower-presentation = { path = "crates/blackflower-presentation" }
+blackflower-simulation = { path = "crates/blackflower-simulation" }
 
+anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
+profiling = { version = "1.0.18", default-features = false }
 quote = { version = "1.0.47", default-features = false }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 syn = { version = "3.0.3", default-features = false, features = ["full", "parsing", "printing", "proc-macro"] }
 thiserror = { version = "2.0.19", default-features = false }
-tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing = { version = "0.1.44", default-features = false, features = ["attributes", "release_max_level_info", "std"] }
+tracing-appender = { version = "0.2.5", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
+tracing-tracy = { version = "0.11.4", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
+use crate::telemetry;
+use crate::telemetry::TickObservation;
 use crate::{PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick};
 
 /// Predicted simulation ticks executed per second.
@@ -111,6 +113,7 @@ impl PredictionWorld {
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = PredictionPipeline::register(&mut ecs)?;
         let tick_delta = TickDelta::from_seconds(PREDICTION_TICK_DELTA_SECONDS)?;
+        telemetry::describe_metrics();
         Ok(Self {
             ecs,
             pipeline,
@@ -163,17 +166,38 @@ impl PredictionWorld {
     }
 
     /// Advance the prediction pipeline by exactly one fixed tick.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_prediction",
+            name = "prediction_tick",
+            level = "info",
+            skip_all,
+            fields(
+                tick = tracing::field::Empty,
+                pass = telemetry::pass_name(pass),
+                delta_seconds = f64::from(self.tick_delta.as_seconds()),
+                result = tracing::field::Empty,
+                reason = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn tick(&mut self, pass: PredictionPass) -> Result<bool, PredictionError> {
         let Some(next_tick) = self.current_tick.checked_next() else {
+            telemetry::tick_rejected(pass, "tick_overflow");
             return Err(PredictionError::TickOverflow);
         };
+        #[cfg(feature = "tracing")]
+        tracing::Span::current().record("tick", next_tick.get());
         let previous_execution = self.execution_context.current();
         self.execution_context.set(PredictionExecution {
             tick: next_tick,
             pass,
         });
 
-        match self.ecs.progress(self.tick_delta) {
+        let observation = TickObservation::start(pass);
+        let run_result = self.ecs.progress(self.tick_delta);
+        let result = match run_result {
             Ok(should_continue) => {
                 self.current_tick = next_tick;
                 Ok(should_continue)
@@ -182,7 +206,9 @@ impl PredictionWorld {
                 self.execution_context.set(previous_execution);
                 Err(PredictionError::Run(error))
             }
-        }
+        };
+        observation.finish(&result);
+        result
     }
 
     /// Reset the local timeline after simulation state has been restored to `tick`.

@@ -1,6 +1,7 @@
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
-use crate::{SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline};
+use crate::telemetry::TickObservation;
+use crate::{SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline, telemetry};
 
 /// Fixed duration, in seconds, of one authoritative simulation tick.
 pub const SIMULATION_TICK_DELTA_SECONDS: f32 = 1.0 / 240.0;
@@ -33,6 +34,7 @@ impl SimulationWorld {
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = SimulationPipeline::register(&mut ecs)?;
         let tick_delta = TickDelta::from_seconds(SIMULATION_TICK_DELTA_SECONDS)?;
+        telemetry::describe_metrics();
         Ok(Self {
             ecs,
             pipeline,
@@ -71,7 +73,27 @@ impl SimulationWorld {
     }
 
     /// Advance the authoritative pipeline by exactly one 240 Hz tick.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_simulation",
+            name = "simulation_tick",
+            level = "info",
+            skip_all,
+            fields(
+                delta_seconds = f64::from(self.tick_delta.as_seconds()),
+                result = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn tick(&mut self) -> Result<bool, RunError> {
-        self.ecs.progress(self.tick_delta)
+        let observation = TickObservation::start(self.tick_delta);
+        let result = self.ecs.progress(self.tick_delta);
+        observation.finish(&result);
+
+        #[cfg(feature = "profiling")]
+        profiling::finish_frame!();
+
+        result
     }
 }
