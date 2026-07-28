@@ -1,14 +1,17 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Variable-step client presentation world and its ordered frame phases.
+//!
+//! Client-only systems register themselves in one of the phases exposed by
+//! [`PresentationPipeline`]. [`PresentationWorld`] owns a dedicated ECS world
+//! and advances that pipeline once for each displayed frame.
+//!
+//! Prediction, reconciliation, transport, and concrete rendering or audio
+//! backends remain outside this crate. Presentation systems may mutate their
+//! own client-only state, but must treat captured simulation state as immutable.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod pipeline;
+mod types;
+mod world;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
+pub use types::FrameIndex;
+pub use world::{FrameExecution, FrameExecutionContext, PresentationError, PresentationWorld};
