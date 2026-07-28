@@ -6,7 +6,21 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
+
 [dependencies]
+anyhow.workspace = true
+blackflower-ecs = { workspace = true, features = ["observability"] }
+blackflower-observability.workspace = true
+blackflower-prediction = { workspace = true, features = ["observability"] }
+blackflower-presentation = { workspace = true, features = ["observability"] }
+blackflower-simulation = { workspace = true, features = ["observability"] }
+metrics.workspace = true
+
+[dev-dependencies]
+tracing.workspace = true
 
 [lints]
 workspace = true

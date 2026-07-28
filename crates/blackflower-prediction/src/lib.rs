@@ -10,6 +10,7 @@
 mod history;
 mod pipeline;
 mod reconciliation;
+mod telemetry;
 mod types;
 mod world;
 

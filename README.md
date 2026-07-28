@@ -13,9 +13,30 @@ presentation.
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
+| `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-simulation` | Authoritative fixed-step simulation |
 | `crates/blackflower-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-presentation` | Client-only presentation systems |
+
+## Running the applications
+
+Run the player client:
+
+```sh
+RUST_LOG=info cargo run --package blackflower --locked
+```
+
+Run the authoritative server:
+
+```sh
+RUST_LOG=info cargo run --package blackflower-server --locked
+```
+
+Run the simulation and integration harness:
+
+```sh
+RUST_LOG=info cargo run --package blackflower-harness --locked
+```
 
 ## Engineering principles
 
@@ -60,6 +81,9 @@ Run the same quality checks used by the pre-push hook and CI:
 ```sh
 ./scripts/ci.sh
 ```
+
+See the [observability policy](docs/observability.md) for logging, tracing,
+metrics, profiling, and deterministic diagnostic boundaries.
 
 ## Commit messages
 

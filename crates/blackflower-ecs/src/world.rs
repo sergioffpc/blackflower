@@ -463,10 +463,26 @@ impl World {
     }
 
     /// Advance the selected pipeline by an explicit fixed delta.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_ecs",
+            name = "ecs_tick",
+            level = "info",
+            skip_all,
+            fields(
+                world_id = self.key.0,
+                operation = "progress",
+                delta_seconds = f64::from(delta.as_seconds()),
+                pipeline = tracing::field::Empty,
+                result = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn progress(&mut self, delta: TickDelta) -> Result<bool, RunError> {
-        let observation = TickObservation::start("progress", self.key, delta, None);
+        let observation = TickObservation::start("progress");
         self.failure.clear();
-        let should_continue = observation.in_scope(|| ffi::progress(self.pointer, delta));
+        let should_continue = ffi::progress(self.pointer, delta);
         let result = if let Some(error) = self.failure.take() {
             Err(error)
         } else {
@@ -482,15 +498,30 @@ impl World {
     }
 
     /// Execute a specific pipeline once with an explicit fixed delta.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_ecs",
+            name = "ecs_tick",
+            level = "info",
+            skip_all,
+            fields(
+                world_id = self.key.0,
+                operation = "run_pipeline",
+                delta_seconds = f64::from(delta.as_seconds()),
+                pipeline = pipeline.raw,
+                result = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn run_pipeline(&mut self, pipeline: PipelineId, delta: TickDelta) -> Result<(), RunError> {
         if self.validate_pipeline(pipeline).is_err() {
             telemetry::rejected_pipeline(self.key, pipeline.world);
             return Err(RunError::WrongWorld);
         }
-        let observation =
-            TickObservation::start("run_pipeline", self.key, delta, Some(pipeline.raw));
+        let observation = TickObservation::start("run_pipeline");
         self.failure.clear();
-        observation.in_scope(|| ffi::run_pipeline(self.pointer, pipeline.raw, delta));
+        ffi::run_pipeline(self.pointer, pipeline.raw, delta);
         let result = if let Some(error) = self.failure.take() {
             Err(error)
         } else {

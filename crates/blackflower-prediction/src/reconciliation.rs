@@ -1,6 +1,7 @@
 use std::error::Error as StdError;
 use std::num::NonZeroU64;
 
+use crate::telemetry::{self, ReconciliationObservation};
 use crate::{
     HistoryError, InputFrame, InputHistory, InputSequence, PredictionHistory, PredictionTick,
 };
@@ -141,6 +142,21 @@ impl ReconciliationCoordinator {
     /// All re-simulation preconditions are validated before the driver or histories
     /// are mutated. A driver failure after restoration leaves the caller
     /// responsible for requesting a hard resync.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_prediction",
+            name = "prediction_reconciliation",
+            level = "info",
+            skip_all,
+            fields(
+                authoritative_tick = snapshot.tick.get(),
+                target_tick = tracing::field::Empty,
+                result = tracing::field::Empty,
+                reason = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn reconcile<D, S, I>(
         self,
         driver: &mut D,
@@ -152,7 +168,11 @@ impl ReconciliationCoordinator {
     where
         D: ReconciliationDriver<S, I>,
     {
+        telemetry::describe_metrics();
         let target_tick = driver.current_tick();
+        #[cfg(feature = "tracing")]
+        tracing::Span::current().record("target_tick", target_tick.get());
+        let observation = ReconciliationObservation::start();
         let plan = reconciliation_plan(
             prediction_history,
             input_history,
@@ -161,7 +181,7 @@ impl ReconciliationCoordinator {
             self.max_resimulation_ticks,
             states_match,
         );
-        match plan {
+        let result = match plan {
             Ok(ReconciliationPlan::Converged) => {
                 prediction_history.discard_before(snapshot.tick);
                 input_history.discard_through(snapshot.tick);
@@ -178,7 +198,9 @@ impl ReconciliationCoordinator {
                 target_tick,
             ),
             Err(reason) => Ok(ReconciliationOutcome::HardResyncRequired { reason }),
-        }
+        };
+        observation.finish(&result);
+        result
     }
 }
 

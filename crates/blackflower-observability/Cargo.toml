@@ -1,0 +1,30 @@
+[package]
+name = "blackflower-observability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+profile-with-tracy = [
+    "dep:tracing-tracy",
+    "profiling/profile-with-tracing",
+    "tracing-tracy/enable",
+    "tracing-tracy/ondemand",
+    "tracing-tracy/only-localhost",
+]
+
+[dependencies]
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+profiling.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+tracing-tracy = { workspace = true, optional = true }
+
+[lints]
+workspace = true

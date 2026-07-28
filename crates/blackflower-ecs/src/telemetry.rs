@@ -1,7 +1,7 @@
 #[cfg(feature = "metrics")]
 use crate::ffi;
 use crate::ffi::WorldPtr;
-use crate::ids::{TickDelta, WorldKey};
+use crate::ids::WorldKey;
 
 #[cfg(feature = "tracing")]
 const TARGET: &str = "blackflower_ecs";
@@ -159,46 +159,18 @@ pub(crate) struct TickObservation {
     operation: &'static str,
     #[cfg(feature = "metrics")]
     started: std::time::Instant,
-    #[cfg(feature = "tracing")]
-    span: tracing::Span,
 }
 
 impl TickObservation {
-    pub(crate) fn start(
-        operation: &'static str,
-        world: WorldKey,
-        delta: TickDelta,
-        pipeline: Option<u64>,
-    ) -> Self {
-        #[cfg(not(feature = "tracing"))]
-        let _ = (operation, world, delta, pipeline);
+    pub(crate) fn start(operation: &'static str) -> Self {
+        #[cfg(not(feature = "metrics"))]
+        let _ = operation;
 
         Self {
             #[cfg(feature = "metrics")]
             operation,
             #[cfg(feature = "metrics")]
             started: std::time::Instant::now(),
-            #[cfg(feature = "tracing")]
-            span: tracing::trace_span!(
-                target: TARGET,
-                "ecs_tick",
-                world_id = world.0,
-                operation,
-                delta_seconds = f64::from(delta.as_seconds()),
-                pipeline,
-            ),
-        }
-    }
-
-    pub(crate) fn in_scope<R>(&self, callback: impl FnOnce() -> R) -> R {
-        #[cfg(feature = "tracing")]
-        {
-            self.span.in_scope(callback)
-        }
-
-        #[cfg(not(feature = "tracing"))]
-        {
-            callback()
         }
     }
 
@@ -222,13 +194,7 @@ impl TickObservation {
         state.report(world);
 
         #[cfg(feature = "tracing")]
-        self.span.in_scope(|| {
-            tracing::trace!(
-                target: TARGET,
-                result = outcome.as_str(),
-                "Flecs tick completed",
-            );
-        });
+        tracing::Span::current().record("result", outcome.as_str());
 
         #[cfg(not(feature = "tracing"))]
         let _ = outcome;
@@ -244,7 +210,7 @@ pub(crate) fn world_created(world: WorldKey, workers: u32) {
         target: TARGET,
         world_id = world.0,
         worker_threads = workers,
-        "Flecs world created",
+        "world created",
     );
 
     #[cfg(not(feature = "tracing"))]
@@ -260,7 +226,7 @@ pub(crate) fn world_destroyed(world: WorldKey, workers_started: bool) {
         target: TARGET,
         world_id = world.0,
         workers_started,
-        "Flecs world shut down",
+        "world destroyed",
     );
 
     #[cfg(not(feature = "tracing"))]
@@ -287,7 +253,7 @@ pub(crate) fn resource_registered(
         kind = kind.as_str(),
         name,
         parallel,
-        "Flecs resource registered",
+        "resource registered",
     );
 
     #[cfg(not(feature = "tracing"))]
@@ -314,7 +280,7 @@ pub(crate) fn callback_failed(
         kind = kind.as_str(),
         system,
         error = message,
-        "Rust system callback failed",
+        "callback failed",
     );
 
     #[cfg(not(feature = "tracing"))]
@@ -327,7 +293,8 @@ pub(crate) fn rejected_pipeline(world: WorldKey, pipeline_world: WorldKey) {
         target: TARGET,
         world_id = world.0,
         pipeline_world_id = pipeline_world.0,
-        "pipeline belongs to another Flecs world",
+        reason = "wrong_world",
+        "pipeline rejected",
     );
 
     #[cfg(not(feature = "tracing"))]
@@ -561,7 +528,7 @@ mod tests {
             Ok(())
         })?;
 
-        assert!(events.load(Ordering::Relaxed) >= 3);
+        assert!(events.load(Ordering::Relaxed) >= 2);
         assert_eq!(spans.load(Ordering::Relaxed), 1);
         Ok(())
     }

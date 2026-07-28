@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
+use crate::telemetry;
+use crate::telemetry::FrameObservation;
 use crate::{FrameIndex, PresentationPhase, PresentationPipeline};
 
 #[derive(Debug)]
@@ -86,6 +88,7 @@ impl PresentationWorld {
     /// Turn an existing, independently configured ECS world into a presentation world.
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = PresentationPipeline::register(&mut ecs)?;
+        telemetry::describe_metrics();
         Ok(Self {
             ecs,
             pipeline,
@@ -135,15 +138,35 @@ impl PresentationWorld {
     /// The frame index is committed only after every phase succeeds. In
     /// particular, a failure in `SubmitBackendCommands` prevents
     /// `CommitFrameHistory` from running and leaves the frame index unchanged.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            target = "blackflower_presentation",
+            name = "presentation_frame",
+            level = "info",
+            skip_all,
+            fields(
+                frame = tracing::field::Empty,
+                delta_seconds = f64::from(delta.as_seconds()),
+                result = tracing::field::Empty,
+                reason = tracing::field::Empty,
+            ),
+        )
+    )]
     pub fn frame(&mut self, delta: TickDelta) -> Result<bool, PresentationError> {
         let Some(next_frame) = self.current_frame.checked_next() else {
+            telemetry::frame_rejected("frame_index_overflow");
             return Err(PresentationError::FrameIndexOverflow);
         };
+        #[cfg(feature = "tracing")]
+        tracing::Span::current().record("frame", next_frame.get());
         let previous_execution = self.execution_context.current();
         self.execution_context
             .set(FrameExecution { frame: next_frame });
 
-        match self.ecs.progress(delta) {
+        let observation = FrameObservation::start(delta);
+        let run_result = self.ecs.progress(delta);
+        let result = match run_result {
             Ok(should_continue) => {
                 self.current_frame = next_frame;
                 Ok(should_continue)
@@ -152,6 +175,12 @@ impl PresentationWorld {
                 self.execution_context.set(previous_execution);
                 Err(PresentationError::Run(error))
             }
-        }
+        };
+        observation.finish(&result);
+
+        #[cfg(feature = "profiling")]
+        profiling::finish_frame!();
+
+        result
     }
 }
