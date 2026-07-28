@@ -17,6 +17,20 @@ rust-version = "1.97.1"
 license = "MIT"
 publish = false
 
+[workspace.dependencies]
+blackflower-ecs = { path = "crates/blackflower-ecs" }
+blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
+
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
+cc = { version = "1.4.0", default-features = false }
+metrics = { version = "0.24.6", default-features = false }
+proc-macro2 = { version = "1.0.107", default-features = false }
+quote = { version = "1.0.47", default-features = false }
+syn = { version = "3.0.3", default-features = false, features = ["full", "parsing", "printing", "proc-macro"] }
+thiserror = { version = "2.0.19", default-features = false }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"

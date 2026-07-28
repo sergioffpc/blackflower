@@ -33,6 +33,22 @@ Install [rustup](https://rustup.rs/). The repository pins Rust `1.97.1` with the
 minimal toolchain profile and installs the `rustfmt` and `clippy` components
 automatically.
 
+Clone with the vendored native dependencies:
+
+```sh
+git clone --recurse-submodules https://github.com/sergioffpc/blackflower.git
+```
+
+If the repository is already cloned, initialize them with:
+
+```sh
+git submodule update --init --recursive
+```
+
+Building `blackflower-ecs` also requires a C compiler and libclang. See the
+[crate-specific setup](crates/blackflower-ecs/README.md) for platform details
+and the pinned Flecs revision.
+
 Enable the versioned Git hooks after cloning:
 
 ```sh

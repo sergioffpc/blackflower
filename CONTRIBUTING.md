@@ -53,9 +53,9 @@ single-line commit message. Every commit pushed to `main` is still validated.
 
 ## Dependencies
 
-Declare dependencies shared by multiple packages in the root
-`[workspace.dependencies]` table and inherit them from member manifests. Keep
-default features disabled unless they are explicitly required.
+Declare every package dependency in the root `[workspace.dependencies]` table
+and inherit it from member manifests with `workspace = true`. Keep default
+features disabled unless they are explicitly required.
 
 All dependencies must pass the policy in `deny.toml`. New license or source
 exceptions must be specific and document their reason.

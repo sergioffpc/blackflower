@@ -1,14 +1,33 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#![doc = include_str!("../README.md")]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod component;
+mod error;
+mod ffi;
+mod ids;
+mod pipeline;
+mod query;
+mod system;
+mod telemetry;
+mod world;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use blackflower_ecs_derive::{Component, Tag};
+pub use component::{Component, Tag};
+pub use error::{Error, ProjectionError, RunError, SystemResult};
+pub use ffi::{
+    Commands, Optional, PairMut, PairRead, PairRef, PairWrite, ParallelContext, Projection, Read,
+    SystemContext, Write,
+};
+pub use ids::{
+    BuiltinPhase, ComponentId, EntityId, PhaseId, PipelineId, SystemId, TagId, TickDelta,
+};
+pub use pipeline::PipelineBuilder;
+pub use query::{Query, QueryBuilder};
+pub use system::{ProjectedSystemBuilder, SystemBuilder};
+pub use world::{World, WorldBuilder};
+
+/// The Flecs version compiled into this crate.
+pub const FLECS_VERSION: (u32, u32, u32) = (
+    ffi::raw::FLECS_VERSION_MAJOR,
+    ffi::raw::FLECS_VERSION_MINOR,
+    ffi::raw::FLECS_VERSION_PATCH,
+);

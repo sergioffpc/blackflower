@@ -34,6 +34,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          submodules: recursive
 
       - name: Validate commit messages
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.actor != 'dependabot[bot]')
@@ -74,9 +75,61 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Audit dependencies
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           rust-version: "1.97.1"
           command: check
+
+  blackflower-ecs-native:
+    name: blackflower-ecs (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository and Flecs
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Locate libclang on Linux
+        if: runner.os == 'Linux'
+        run: echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+
+      - name: Locate libclang on macOS
+        if: runner.os == 'macOS'
+        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Locate libclang on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append'
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check observability feature combinations
+        if: runner.os == 'Linux'
+        run: |
+          cargo check -p blackflower-ecs --no-default-features --locked
+          cargo check -p blackflower-ecs --features metrics --locked
+          cargo check -p blackflower-ecs --features tracing --locked
+
+      - name: Run Clippy
+        run: cargo clippy -p blackflower-ecs --all-targets --all-features --locked -- -D warnings
+
+      - name: Run tests
+        run: cargo test -p blackflower-ecs --all-targets --all-features --locked --no-fail-fast
+
+      - name: Run doctests
+        run: cargo test -p blackflower-ecs --doc --all-features --locked
