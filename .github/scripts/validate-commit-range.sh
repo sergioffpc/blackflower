@@ -20,10 +20,37 @@ esac
 git rev-list --reverse "$revision_range" |
 while read -r commit_oid
 do
-    if ! git show --no-patch --format=%B "$commit_oid" |
+    subject=$(git show --no-patch --format=%s "$commit_oid")
+    author_name=$(git show --no-patch --format=%an "$commit_oid")
+    author_email=$(git show --no-patch --format=%ae "$commit_oid")
+
+    is_dependabot_commit=false
+    if [ "$author_name" = 'dependabot[bot]' ]
+    then
+        case "$author_email" in
+            *'dependabot[bot]@users.noreply.github.com')
+                is_dependabot_commit=true
+                ;;
+        esac
+    fi
+
+    if [ "$is_dependabot_commit" = true ]
+    then
+        case "$subject" in
+            'chore(deps): '*)
+                message=$subject
+                ;;
+            *)
+                message=$(git show --no-patch --format=%B "$commit_oid")
+                ;;
+        esac
+    else
+        message=$(git show --no-patch --format=%B "$commit_oid")
+    fi
+
+    if ! printf '%s\n' "$message" |
         "$message_validator"
     then
-        subject=$(git show --no-patch --format=%s "$commit_oid")
         printf 'Invalid commit %s: %s\n' "$commit_oid" "$subject" >&2
         exit 1
     fi
