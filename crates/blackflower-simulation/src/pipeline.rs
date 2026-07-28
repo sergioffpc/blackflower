@@ -37,7 +37,7 @@ const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(AI_UPDATE_RATE_HZ))
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum SimulationPhase {
     /// Prepare the fixed-tick context and activate state scheduled for this tick.
-    PrepareSimulationTick,
+    PrepareTick,
     /// Capture an immutable, canonical set of in-memory inputs for this tick.
     CaptureTickInputs,
     /// Derive actor actions from the captured human, bot, and instructor inputs.
@@ -55,15 +55,15 @@ pub enum SimulationPhase {
     /// Produce versioned collision, navigation, acoustic, and visibility updates.
     UpdateSpatialStructures,
     /// Validate, hash, and make the authoritative tick state immutable.
-    SealSimulationTick,
+    SealTick,
     /// Build bot perception from accumulated visual and acoustic observations.
     UpdateBotPerception,
     /// Update bot objectives, navigation paths, and tactical decisions.
     PlanBotTactics,
     /// Convert current bot plans into the same control frames used by humans.
     EmitBotControlFrames,
-    /// Publish tick outputs to in-memory consumers.
-    PublishTickOutputs,
+    /// Submit tick outputs to in-memory consumers.
+    SubmitTickOutputs,
 }
 
 impl SimulationPhase {
@@ -72,7 +72,7 @@ impl SimulationPhase {
 
     /// Normative execution order of the authoritative simulation phases.
     pub const ORDER: [Self; Self::COUNT] = [
-        Self::PrepareSimulationTick,
+        Self::PrepareTick,
         Self::CaptureTickInputs,
         Self::DeriveActorActions,
         Self::SolveRigidBodyDynamics,
@@ -81,11 +81,11 @@ impl SimulationPhase {
         Self::DeriveStateTransitions,
         Self::CommitStateTransitions,
         Self::UpdateSpatialStructures,
-        Self::SealSimulationTick,
+        Self::SealTick,
         Self::UpdateBotPerception,
         Self::PlanBotTactics,
         Self::EmitBotControlFrames,
-        Self::PublishTickOutputs,
+        Self::SubmitTickOutputs,
     ];
 
     /// Stable scheduler entity name for this phase.
@@ -98,7 +98,7 @@ impl SimulationPhase {
 /// World-bound handles for every authoritative simulation phase.
 #[derive(Debug, Clone, Copy)]
 pub struct SimulationPhases {
-    prepare_simulation_tick: PhaseId,
+    prepare_tick: PhaseId,
     capture_tick_inputs: PhaseId,
     derive_actor_actions: PhaseId,
     solve_rigid_body_dynamics: PhaseId,
@@ -107,17 +107,17 @@ pub struct SimulationPhases {
     derive_state_transitions: PhaseId,
     commit_state_transitions: PhaseId,
     update_spatial_structures: PhaseId,
-    seal_simulation_tick: PhaseId,
+    seal_tick: PhaseId,
     update_bot_perception: PhaseId,
     plan_bot_tactics: PhaseId,
     emit_bot_control_frames: PhaseId,
-    publish_tick_outputs: PhaseId,
+    submit_tick_outputs: PhaseId,
 }
 
 impl SimulationPhases {
     fn register(world: &mut World) -> Result<Self, Error> {
         let [
-            prepare_simulation_tick,
+            prepare_tick,
             capture_tick_inputs,
             derive_actor_actions,
             solve_rigid_body_dynamics,
@@ -126,14 +126,14 @@ impl SimulationPhases {
             derive_state_transitions,
             commit_state_transitions,
             update_spatial_structures,
-            seal_simulation_tick,
+            seal_tick,
             update_bot_perception,
             plan_bot_tactics,
             emit_bot_control_frames,
-            publish_tick_outputs,
+            submit_tick_outputs,
         ] = register_phase_chain(world)?;
         Ok(Self {
-            prepare_simulation_tick,
+            prepare_tick,
             capture_tick_inputs,
             derive_actor_actions,
             solve_rigid_body_dynamics,
@@ -142,11 +142,11 @@ impl SimulationPhases {
             derive_state_transitions,
             commit_state_transitions,
             update_spatial_structures,
-            seal_simulation_tick,
+            seal_tick,
             update_bot_perception,
             plan_bot_tactics,
             emit_bot_control_frames,
-            publish_tick_outputs,
+            submit_tick_outputs,
         })
     }
 
@@ -154,7 +154,7 @@ impl SimulationPhases {
     #[must_use]
     pub const fn get(self, phase: SimulationPhase) -> PhaseId {
         match phase {
-            SimulationPhase::PrepareSimulationTick => self.prepare_simulation_tick,
+            SimulationPhase::PrepareTick => self.prepare_tick,
             SimulationPhase::CaptureTickInputs => self.capture_tick_inputs,
             SimulationPhase::DeriveActorActions => self.derive_actor_actions,
             SimulationPhase::SolveRigidBodyDynamics => self.solve_rigid_body_dynamics,
@@ -163,11 +163,11 @@ impl SimulationPhases {
             SimulationPhase::DeriveStateTransitions => self.derive_state_transitions,
             SimulationPhase::CommitStateTransitions => self.commit_state_transitions,
             SimulationPhase::UpdateSpatialStructures => self.update_spatial_structures,
-            SimulationPhase::SealSimulationTick => self.seal_simulation_tick,
+            SimulationPhase::SealTick => self.seal_tick,
             SimulationPhase::UpdateBotPerception => self.update_bot_perception,
             SimulationPhase::PlanBotTactics => self.plan_bot_tactics,
             SimulationPhase::EmitBotControlFrames => self.emit_bot_control_frames,
-            SimulationPhase::PublishTickOutputs => self.publish_tick_outputs,
+            SimulationPhase::SubmitTickOutputs => self.submit_tick_outputs,
         }
     }
 }
@@ -207,7 +207,7 @@ impl SimulationPipeline {
 }
 
 fn register_phase_chain(world: &mut World) -> Result<[PhaseId; SimulationPhase::COUNT], Error> {
-    let first_phase = SimulationPhase::PrepareSimulationTick;
+    let first_phase = SimulationPhase::PrepareTick;
     let first = world.create_phase(
         first_phase.name(),
         Some(world.builtin_phase(BuiltinPhase::OnUpdate)),
