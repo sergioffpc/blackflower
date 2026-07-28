@@ -21,7 +21,7 @@ fn phase_names_and_scheduling_intervals_are_stable() {
     assert_eq!(
         SimulationPhase::ORDER.map(SimulationPhase::name),
         [
-            "PrepareSimulationTick",
+            "PrepareTick",
             "CaptureTickInputs",
             "DeriveActorActions",
             "SolveRigidBodyDynamics",
@@ -30,11 +30,11 @@ fn phase_names_and_scheduling_intervals_are_stable() {
             "DeriveStateTransitions",
             "CommitStateTransitions",
             "UpdateSpatialStructures",
-            "SealSimulationTick",
+            "SealTick",
             "UpdateBotPerception",
             "PlanBotTactics",
             "EmitBotControlFrames",
-            "PublishTickOutputs",
+            "SubmitTickOutputs",
         ]
     );
     assert_eq!(CONTROL_FRAME_INTERVAL_TICKS, 4);
@@ -87,11 +87,11 @@ fn simulation_world_owns_the_pipeline_and_advances_at_the_fixed_rate() -> TestRe
 
     let observed_delta = Arc::new(Mutex::new(None));
     let observed_delta_by_system = Arc::clone(&observed_delta);
-    let prepare_simulation_tick = simulation.phase(SimulationPhase::PrepareSimulationTick);
+    let prepare_tick = simulation.phase(SimulationPhase::PrepareTick);
     simulation
         .ecs_mut()
         .system("RecordSimulationTickDelta", "Probe")?
-        .phase(prepare_simulation_tick)?
+        .phase(prepare_tick)?
         .project(Read::<Probe>::field(0))?
         .each(move |context, _entity, _probe| {
             let mut observed_delta = observed_delta_by_system

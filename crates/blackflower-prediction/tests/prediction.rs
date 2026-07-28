@@ -31,14 +31,14 @@ fn phase_names_are_stable() {
     assert_eq!(
         PredictionPhase::ORDER.map(PredictionPhase::name),
         [
-            "PreparePredictionTick",
-            "CapturePredictionInput",
-            "DerivePredictedActions",
-            "SolvePredictedDynamics",
-            "DerivePredictedTransitions",
-            "CommitPredictedTransitions",
-            "SealPredictionTick",
-            "PublishPredictionOutputs",
+            "PrepareTick",
+            "CaptureTickInputs",
+            "DeriveActorActions",
+            "SolveRigidBodyDynamics",
+            "DeriveStateTransitions",
+            "CommitStateTransitions",
+            "SealSimulationTick",
+            "SubmitTickOutputs",
         ]
     );
 }
@@ -88,11 +88,11 @@ fn prediction_world_exposes_forward_and_resimulation_passes() -> TestResult {
     let execution_context = prediction.execution_context();
     let observed = Arc::new(Mutex::new(Vec::new()));
     let observed_by_system = Arc::clone(&observed);
-    let prepare_prediction_tick = prediction.phase(PredictionPhase::PreparePredictionTick);
+    let prepare_tick = prediction.phase(PredictionPhase::PrepareTick);
     prediction
         .ecs_mut()
         .system("RecordPredictionExecution", "Probe")?
-        .phase(prepare_prediction_tick)?
+        .phase(prepare_tick)?
         .project(Read::<Probe>::field(0))?
         .each(move |context, _entity, _probe| {
             let mut observed = observed_by_system
@@ -408,11 +408,11 @@ impl TestDriver {
         let execution = prediction.execution_context();
         let observed = Arc::new(Mutex::new(Vec::new()));
         let observed_by_system = Arc::clone(&observed);
-        let solve_predicted_dynamics = prediction.phase(PredictionPhase::SolvePredictedDynamics);
+        let solve_rigid_body_dynamics = prediction.phase(PredictionPhase::SolveRigidBodyDynamics);
         prediction
             .ecs_mut()
             .system("IntegratePredictedMovement", "Position, Movement")?
-            .phase(solve_predicted_dynamics)?
+            .phase(solve_rigid_body_dynamics)?
             .project((Write::<Position>::field(0), Read::<Movement>::field(1)))?
             .each(move |_context, _entity, (position, movement)| {
                 position.0 += movement.0;

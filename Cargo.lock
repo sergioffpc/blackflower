@@ -78,6 +78,12 @@ dependencies = [
 [[package]]
 name = "blackflower-presentation"
 version = "0.1.0"
+dependencies = [
+ "blackflower-ecs",
+ "bytemuck",
+ "strum",
+ "thiserror",
+]
 
 [[package]]
 name = "blackflower-server"
