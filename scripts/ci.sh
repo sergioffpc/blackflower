@@ -15,12 +15,12 @@ check_format() {
 
 run_clippy() {
     printf 'Running Clippy...\n'
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 }
 
 run_tests() {
     printf 'Running tests...\n'
-    cargo test --workspace --all-targets --locked
+    cargo test --workspace --all-targets --all-features --locked
 }
 
 case "$mode" in
