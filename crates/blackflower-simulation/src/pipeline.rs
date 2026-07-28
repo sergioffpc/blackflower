@@ -116,76 +116,22 @@ pub struct SimulationPhases {
 
 impl SimulationPhases {
     fn register(world: &mut World) -> Result<Self, Error> {
-        let prepare_simulation_tick = world.create_phase(
-            SimulationPhase::PrepareSimulationTick.name(),
-            Some(world.builtin_phase(BuiltinPhase::OnUpdate)),
-        )?;
-        let capture_tick_inputs = create_phase_after(
-            world,
-            SimulationPhase::CaptureTickInputs,
+        let [
             prepare_simulation_tick,
-        )?;
-        let derive_actor_actions = create_phase_after(
-            world,
-            SimulationPhase::DeriveActorActions,
             capture_tick_inputs,
-        )?;
-        let solve_rigid_body_dynamics = create_phase_after(
-            world,
-            SimulationPhase::SolveRigidBodyDynamics,
             derive_actor_actions,
-        )?;
-        let solve_physical_phenomena = create_phase_after(
-            world,
-            SimulationPhase::SolvePhysicalPhenomena,
             solve_rigid_body_dynamics,
-        )?;
-        let solve_acoustics = create_phase_after(
-            world,
-            SimulationPhase::SolveAcoustics,
             solve_physical_phenomena,
-        )?;
-        let derive_state_transitions = create_phase_after(
-            world,
-            SimulationPhase::DeriveStateTransitions,
             solve_acoustics,
-        )?;
-        let commit_state_transitions = create_phase_after(
-            world,
-            SimulationPhase::CommitStateTransitions,
             derive_state_transitions,
-        )?;
-        let update_spatial_structures = create_phase_after(
-            world,
-            SimulationPhase::UpdateSpatialStructures,
             commit_state_transitions,
-        )?;
-        let seal_simulation_tick = create_phase_after(
-            world,
-            SimulationPhase::SealSimulationTick,
             update_spatial_structures,
-        )?;
-        let update_bot_perception = create_phase_after(
-            world,
-            SimulationPhase::UpdateBotPerception,
             seal_simulation_tick,
-        )?;
-        let plan_bot_tactics = create_phase_after(
-            world,
-            SimulationPhase::PlanBotTactics,
             update_bot_perception,
-        )?;
-        let emit_bot_control_frames = create_phase_after(
-            world,
-            SimulationPhase::EmitBotControlFrames,
             plan_bot_tactics,
-        )?;
-        let publish_tick_outputs = create_phase_after(
-            world,
-            SimulationPhase::PublishTickOutputs,
             emit_bot_control_frames,
-        )?;
-
+            publish_tick_outputs,
+        ] = register_phase_chain(world)?;
         Ok(Self {
             prepare_simulation_tick,
             capture_tick_inputs,
@@ -258,6 +204,26 @@ impl SimulationPipeline {
     pub const fn phase(self, phase: SimulationPhase) -> PhaseId {
         self.phases.get(phase)
     }
+}
+
+fn register_phase_chain(world: &mut World) -> Result<[PhaseId; SimulationPhase::COUNT], Error> {
+    let first_phase = SimulationPhase::PrepareSimulationTick;
+    let first = world.create_phase(
+        first_phase.name(),
+        Some(world.builtin_phase(BuiltinPhase::OnUpdate)),
+    )?;
+    let mut registered = [first; SimulationPhase::COUNT];
+    let mut previous = first;
+    for (slot, phase) in registered
+        .iter_mut()
+        .skip(1)
+        .zip(SimulationPhase::ORDER.into_iter().skip(1))
+    {
+        let current = create_phase_after(world, phase, previous)?;
+        *slot = current;
+        previous = current;
+    }
+    Ok(registered)
 }
 
 fn create_phase_after(

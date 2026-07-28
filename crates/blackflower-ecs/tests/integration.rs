@@ -5,8 +5,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{
-    BuiltinPhase, Component, Error, Optional, PairRead, PairWrite, ProjectionError, Read, RunError,
-    SystemResult, Tag, TickDelta, World, WorldBuilder, Write,
+    BuiltinPhase, Component, ComponentId, EntityId, Error, Optional, PairRead, PairWrite, PhaseId,
+    ProjectionError, Read, RunError, SystemResult, Tag, TagId, TickDelta, World, WorldBuilder,
+    Write,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -34,6 +35,26 @@ struct Weight {
 
 #[derive(Tag)]
 struct Active;
+
+struct DropMarker(Arc<AtomicBool>);
+
+impl Drop for DropMarker {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+struct PanickingDrop;
+
+impl Drop for PanickingDrop {
+    #[allow(
+        clippy::panic,
+        reason = "the FFI context destructor must be tested with an intentional panic"
+    )]
+    fn drop(&mut self) {
+        panic!("caught context destructor panic");
+    }
+}
 
 #[test]
 fn abi_world_entities_components_and_tags() -> TestResult {
@@ -136,6 +157,17 @@ fn query_projects_read_write_optional_sparse_and_pairs() -> TestResult {
     world.insert_pair(first, weight, target_a, Weight { value: 10 })?;
     world.insert_pair(first, weight, target_b, Weight { value: 20 })?;
 
+    verify_optional_projection(&mut world, position, first, second)?;
+    verify_tag_projection(&mut world, active, first)?;
+    verify_pair_projection(&mut world, weight, first, target_a, target_b)
+}
+
+fn verify_optional_projection(
+    world: &mut World,
+    position: ComponentId<Position>,
+    first: EntityId,
+    second: EntityId,
+) -> TestResult {
     let mut optional_count = 0_u32;
     let mut query = world.query("Position, ?Velocity")?.project((
         Write::<Position>::field(0),
@@ -157,7 +189,10 @@ fn query_projects_read_write_optional_sparse_and_pairs() -> TestResult {
         world.get(second, position)?.map(|value| value.x.to_bits()),
         Some(5.0_f32.to_bits())
     );
+    Ok(())
+}
 
+fn verify_tag_projection(world: &mut World, _active: TagId<Active>, first: EntityId) -> TestResult {
     let mut tagged = Vec::new();
     let mut tagged_query = world
         .query("Position, Active")?
@@ -165,7 +200,16 @@ fn query_projects_read_write_optional_sparse_and_pairs() -> TestResult {
     tagged_query.each(|entity, _position| tagged.push(entity))?;
     drop(tagged_query);
     assert_eq!(tagged, vec![first]);
+    Ok(())
+}
 
+fn verify_pair_projection(
+    world: &mut World,
+    weight: ComponentId<Weight>,
+    first: EntityId,
+    target_a: EntityId,
+    target_b: EntityId,
+) -> TestResult {
     let mut pair_writes = world
         .query("(Weight, *)")?
         .project(PairWrite::<Weight>::field(0))?;
@@ -308,6 +352,28 @@ fn systems_use_fixed_delta_and_custom_phase_order() -> TestResult {
         Some(world.builtin_phase(BuiltinPhase::OnUpdate)),
     )?;
     let phase_b = world.create_phase("ObservePhase", Some(phase_a))?;
+    let order = register_ordered_systems(&mut world, phase_a, phase_b)?;
+
+    let delta = TickDelta::from_seconds(0.25)?;
+    assert!(world.progress(delta)?);
+    assert_eq!(
+        world.get(entity, position)?.map(|value| value.x.to_bits()),
+        Some(0.5_f32.to_bits())
+    );
+    let observed = order
+        .lock()
+        .map_err(|_error| io::Error::other("order lock poisoned"))?;
+    assert_eq!(observed.as_slice(), ["integrate", "observe"]);
+    drop(observed);
+
+    verify_custom_pipeline(&mut world, entity, position, delta)
+}
+
+fn register_ordered_systems(
+    world: &mut World,
+    phase_a: PhaseId,
+    phase_b: PhaseId,
+) -> Result<Arc<Mutex<Vec<&'static str>>>, Box<dyn StdError>> {
     let order = Arc::new(Mutex::new(Vec::new()));
     let integrate_order = Arc::clone(&order);
     world
@@ -336,18 +402,15 @@ fn systems_use_fixed_delta_and_custom_phase_order() -> TestResult {
             Ok(())
         })?;
 
-    let delta = TickDelta::from_seconds(0.25)?;
-    assert!(world.progress(delta)?);
-    assert_eq!(
-        world.get(entity, position)?.map(|value| value.x.to_bits()),
-        Some(0.5_f32.to_bits())
-    );
-    let order = order
-        .lock()
-        .map_err(|_error| io::Error::other("order lock poisoned"))?;
-    assert_eq!(order.as_slice(), ["integrate", "observe"]);
-    drop(order);
+    Ok(order)
+}
 
+fn verify_custom_pipeline(
+    world: &mut World,
+    entity: EntityId,
+    position: ComponentId<Position>,
+    delta: TickDelta,
+) -> TestResult {
     let pipeline = world
         .pipeline("SimulationPipeline", "flecs.system.System")?
         .build()?;
@@ -412,20 +475,9 @@ fn run_parallel_workload(workers: NonZeroU32) -> Result<Vec<u32>, Box<dyn StdErr
 }
 
 #[test]
-#[allow(
-    clippy::panic,
-    reason = "the FFI trampoline must be tested with an intentional Rust panic"
-)]
-fn callback_errors_panics_and_context_drop_are_contained() -> TestResult {
+fn callback_errors_and_context_drop_are_contained() -> TestResult {
     let dropped = Arc::new(AtomicBool::new(false));
     {
-        struct DropMarker(Arc<AtomicBool>);
-        impl Drop for DropMarker {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::Release);
-            }
-        }
-
         let mut world = World::new()?;
         let position = world.register_component::<Position>()?;
         let entity = world.spawn()?;
@@ -465,7 +517,15 @@ fn callback_errors_panics_and_context_drop_are_contained() -> TestResult {
         assert_eq!(callbacks.load(Ordering::Relaxed), 1);
     }
     assert!(dropped.load(Ordering::Acquire));
+    Ok(())
+}
 
+#[test]
+#[allow(
+    clippy::panic,
+    reason = "the FFI trampoline must be tested with an intentional Rust panic"
+)]
+fn callback_panics_are_contained() -> TestResult {
     let mut panic_world = World::new()?;
     let position = panic_world.register_component::<Position>()?;
     let entity = panic_world.spawn()?;
@@ -487,14 +547,11 @@ fn callback_errors_panics_and_context_drop_are_contained() -> TestResult {
             .message()
             .is_some_and(|value| value.contains("caught panic"))
     );
+    Ok(())
+}
 
-    struct PanickingDrop;
-    impl Drop for PanickingDrop {
-        fn drop(&mut self) {
-            panic!("caught context destructor panic");
-        }
-    }
-
+#[test]
+fn callback_context_drop_panics_are_contained() -> TestResult {
     let mut drop_world = World::new()?;
     let position = drop_world.register_component::<Position>()?;
     let entity = drop_world.spawn()?;

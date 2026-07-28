@@ -347,6 +347,14 @@ fn update_aggregate_gauge(name: &'static str, previous: f64, current: f64) {
 
 #[cfg(feature = "metrics")]
 fn describe_metrics() {
+    describe_gauge_metrics();
+    describe_counter_metrics();
+    describe_tick_histograms();
+    describe_flecs_histograms();
+}
+
+#[cfg(feature = "metrics")]
+fn describe_gauge_metrics() {
     use metrics::Unit;
 
     metrics::describe_gauge!(
@@ -379,6 +387,12 @@ fn describe_metrics() {
         Unit::Count,
         "Outstanding allocations reported by the Flecs process",
     );
+}
+
+#[cfg(feature = "metrics")]
+fn describe_counter_metrics() {
+    use metrics::Unit;
+
     metrics::describe_counter!(
         "blackflower_ecs_ticks_total",
         Unit::Count,
@@ -394,6 +408,12 @@ fn describe_metrics() {
         Unit::Count,
         "First Rust callback failure recorded in a tick",
     );
+}
+
+#[cfg(feature = "metrics")]
+fn describe_tick_histograms() {
+    use metrics::Unit;
+
     metrics::describe_histogram!(
         "blackflower_ecs_tick_duration_seconds",
         Unit::Seconds,
@@ -419,6 +439,12 @@ fn describe_metrics() {
         Unit::Count,
         "Flecs pipeline rebuilds performed in a tick",
     );
+}
+
+#[cfg(feature = "metrics")]
+fn describe_flecs_histograms() {
+    use metrics::Unit;
+
     metrics::describe_histogram!(
         "blackflower_ecs_tick_flecs_frame_time_seconds",
         Unit::Seconds,

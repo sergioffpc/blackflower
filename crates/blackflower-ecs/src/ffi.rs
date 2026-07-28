@@ -752,69 +752,93 @@ fn resolve_fields(
     let iter = unsafe { iterator.0.as_ref() };
     let mut resolved = Vec::with_capacity(specs.len());
     for spec in specs {
-        if spec.index < 0 || spec.index >= iter.field_count {
-            return Err(Error::Projection(ProjectionError::FieldOutOfRange(
-                spec.index,
-            )));
-        }
-
-        let is_set = unsafe { raw::ecs_field_is_set(iterator.0.as_ptr(), spec.index) };
-        if !is_set {
-            if spec.optional {
-                resolved.push(ResolvedField {
-                    spec: *spec,
-                    pointer: None,
-                    pair: None,
-                });
-                continue;
-            }
-            return Err(Error::Projection(ProjectionError::RequiredFieldMissing(
-                spec.index,
-            )));
-        }
-
-        validate_access(iterator, *spec)?;
-        let field_id = unsafe { raw::ecs_field_id(iterator.0.as_ptr(), spec.index) };
-        let is_pair = unsafe { raw::ecs_id_is_pair(field_id) };
-        if is_pair != (spec.shape == Shape::Pair) {
-            return Err(Error::Projection(ProjectionError::UnexpectedPair(
-                spec.index,
-            )));
-        }
-
-        let real_world = NonNull::new(iter.real_world)
-            .or_else(|| NonNull::new(iter.world))
-            .ok_or(Error::Projection(ProjectionError::NullField(spec.index)))?;
-        let actual_type = if is_pair {
-            unsafe { raw::ecs_get_typeid(real_world.as_ptr(), field_id) }
-        } else {
-            field_id
-        };
-        if actual_type != spec.component {
-            return Err(Error::Projection(ProjectionError::ComponentMismatch(
-                spec.index,
-            )));
-        }
-        if unsafe { raw::ecs_field_size(iterator.0.as_ptr(), spec.index) } != spec.size {
-            return Err(Error::Projection(ProjectionError::SizeMismatch(spec.index)));
-        }
-
-        let pointer = field_pointer(iterator, iter, *spec, row)?;
-        if pointer.as_ptr().addr() % spec.alignment != 0 {
-            return Err(Error::Projection(ProjectionError::AlignmentMismatch(
-                spec.index,
-            )));
-        }
-
-        let pair = is_pair.then(|| pair_parts(real_world, field_id));
-        resolved.push(ResolvedField {
-            spec: *spec,
-            pointer: Some(pointer),
-            pair,
-        });
+        resolved.push(resolve_field(iterator, iter, row, *spec)?);
     }
     validate_aliases(&resolved)?;
     Ok(resolved)
+}
+
+fn resolve_field(
+    iterator: IterPtr,
+    iter: &raw::ecs_iter_t,
+    row: i32,
+    spec: FieldSpec,
+) -> Result<ResolvedField, Error> {
+    if spec.index < 0 || spec.index >= iter.field_count {
+        return Err(Error::Projection(ProjectionError::FieldOutOfRange(
+            spec.index,
+        )));
+    }
+    if unsafe { raw::ecs_field_is_set(iterator.0.as_ptr(), spec.index) } {
+        resolve_present_field(iterator, iter, row, spec)
+    } else if spec.optional {
+        Ok(ResolvedField {
+            spec,
+            pointer: None,
+            pair: None,
+        })
+    } else {
+        Err(Error::Projection(ProjectionError::RequiredFieldMissing(
+            spec.index,
+        )))
+    }
+}
+
+fn resolve_present_field(
+    iterator: IterPtr,
+    iter: &raw::ecs_iter_t,
+    row: i32,
+    spec: FieldSpec,
+) -> Result<ResolvedField, Error> {
+    validate_access(iterator, spec)?;
+    let field_id = unsafe { raw::ecs_field_id(iterator.0.as_ptr(), spec.index) };
+    let is_pair = unsafe { raw::ecs_id_is_pair(field_id) };
+    if is_pair != (spec.shape == Shape::Pair) {
+        return Err(Error::Projection(ProjectionError::UnexpectedPair(
+            spec.index,
+        )));
+    }
+
+    let real_world = NonNull::new(iter.real_world)
+        .or_else(|| NonNull::new(iter.world))
+        .ok_or(Error::Projection(ProjectionError::NullField(spec.index)))?;
+    validate_field_type(iterator, spec, real_world, field_id, is_pair)?;
+
+    let pointer = field_pointer(iterator, iter, spec, row)?;
+    if pointer.as_ptr().addr() % spec.alignment != 0 {
+        return Err(Error::Projection(ProjectionError::AlignmentMismatch(
+            spec.index,
+        )));
+    }
+
+    Ok(ResolvedField {
+        spec,
+        pointer: Some(pointer),
+        pair: is_pair.then(|| pair_parts(real_world, field_id)),
+    })
+}
+
+fn validate_field_type(
+    iterator: IterPtr,
+    spec: FieldSpec,
+    real_world: NonNull<raw::ecs_world_t>,
+    field_id: u64,
+    is_pair: bool,
+) -> Result<(), Error> {
+    let actual_type = if is_pair {
+        unsafe { raw::ecs_get_typeid(real_world.as_ptr(), field_id) }
+    } else {
+        field_id
+    };
+    if actual_type != spec.component {
+        return Err(Error::Projection(ProjectionError::ComponentMismatch(
+            spec.index,
+        )));
+    }
+    if unsafe { raw::ecs_field_size(iterator.0.as_ptr(), spec.index) } != spec.size {
+        return Err(Error::Projection(ProjectionError::SizeMismatch(spec.index)));
+    }
+    Ok(())
 }
 
 fn field_pointer(
@@ -1314,50 +1338,64 @@ fn run_system_rows<P, F>(
         if context.failure.has_failed() {
             return;
         }
-        let row_index = match usize::try_from(row) {
-            Ok(index) => index,
-            Err(error) => {
-                context.failure.record(
-                    RunError::new(context.system_name.clone(), error.to_string()),
-                    CallbackFailureKind::Internal,
-                );
-                return;
-            }
-        };
-        let entity_raw = unsafe { *iter.entities.add(row_index) };
-        let resolved = match resolve_fields(iter_ptr, row, &context.specs) {
-            Ok(fields) => fields,
-            Err(error) => {
-                context.failure.record(
-                    RunError::new(context.system_name.clone(), error.to_string()),
-                    CallbackFailureKind::Projection,
-                );
-                return;
-            }
-        };
-        let item = unsafe { P::materialize(&resolved, context.world) };
-        let entity = EntityId {
-            raw: entity_raw,
-            world: context.world,
-        };
-        let result = catch_unwind(AssertUnwindSafe(|| callback(iterator, entity, item)));
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                context.failure.record(
-                    RunError::new(context.system_name.clone(), error.to_string()),
-                    CallbackFailureKind::Error,
-                );
-                return;
-            }
-            Err(payload) => {
-                context.failure.record(
-                    RunError::new(context.system_name.clone(), panic_message(payload.as_ref())),
-                    CallbackFailureKind::Panic,
-                );
-                return;
-            }
+        if let Err(failure) = run_system_row(iterator, iter_ptr, iter, row, context, &callback) {
+            context.failure.record(failure.error, failure.kind);
+            return;
         }
+    }
+}
+
+struct SystemRowFailure {
+    error: RunError,
+    kind: CallbackFailureKind,
+}
+
+fn run_system_row<P, F>(
+    iterator: NonNull<raw::ecs_iter_t>,
+    iter_ptr: IterPtr,
+    iter: &raw::ecs_iter_t,
+    row: i32,
+    context: &CallbackContext<P, impl Sized>,
+    callback: &F,
+) -> Result<(), SystemRowFailure>
+where
+    P: Projection,
+    F: for<'a> Fn(NonNull<raw::ecs_iter_t>, EntityId, P::Item<'a>) -> SystemResult,
+{
+    let row_index = usize::try_from(row).map_err(|error| {
+        system_row_failure(context, error.to_string(), CallbackFailureKind::Internal)
+    })?;
+    let entity = EntityId {
+        raw: unsafe { *iter.entities.add(row_index) },
+        world: context.world,
+    };
+    let resolved = resolve_fields(iter_ptr, row, &context.specs).map_err(|error| {
+        system_row_failure(context, error.to_string(), CallbackFailureKind::Projection)
+    })?;
+    let item = unsafe { P::materialize(&resolved, context.world) };
+    match catch_unwind(AssertUnwindSafe(|| callback(iterator, entity, item))) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(system_row_failure(
+            context,
+            error.to_string(),
+            CallbackFailureKind::Error,
+        )),
+        Err(payload) => Err(system_row_failure(
+            context,
+            panic_message(payload.as_ref()),
+            CallbackFailureKind::Panic,
+        )),
+    }
+}
+
+fn system_row_failure<P>(
+    context: &CallbackContext<P, impl Sized>,
+    message: String,
+    kind: CallbackFailureKind,
+) -> SystemRowFailure {
+    SystemRowFailure {
+        error: RunError::new(context.system_name.clone(), message),
+        kind,
     }
 }
 
