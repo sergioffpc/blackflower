@@ -13,3 +13,6 @@
 [submodule "crates/blackflower-navigation/vendor/recastnavigation"]
 	path = crates/blackflower-navigation/vendor/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
+[submodule "crates/blackflower-render/vendor/openvdb"]
+	path = crates/blackflower-render/vendor/openvdb
+	url = https://github.com/AcademySoftwareFoundation/openvdb.git
