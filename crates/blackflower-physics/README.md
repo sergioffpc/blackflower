@@ -49,15 +49,16 @@ git add crates/blackflower-physics/vendor/JoltPhysics
 
 The initial surface supports worlds, sphere and box bodies, body lifetime,
 position, linear velocity, broad-phase optimization and fixed simulation
-steps. `Vec3A` and `Quat` are the SIMD-backed `glam` types, re-exported by this
-crate:
+steps. The API uses the SIMD-backed `glam::Vec3A` and `glam::Quat` types
+directly; consumers must import them from `glam`:
 
 ```rust
 use std::num::NonZeroU32;
 
 use blackflower_physics::{
-    BodySettings, MotionType, Shape, StepDelta, Vec3A, World,
+    BodySettings, MotionType, Shape, StepDelta, World,
 };
+use glam::Vec3A;
 
 # fn example() -> Result<(), blackflower_physics::Error> {
 let mut world = World::new()?;
