@@ -182,6 +182,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-render"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cmake",
+ "glam",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-server"
 version = "0.1.0"
 dependencies = [

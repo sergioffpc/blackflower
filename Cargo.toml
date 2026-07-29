@@ -12,6 +12,7 @@ members = [
     "crates/blackflower-physics",
     "crates/blackflower-prediction",
     "crates/blackflower-presentation",
+    "crates/blackflower-render",
     "crates/blackflower-simulation",
 ]
 
@@ -32,6 +33,7 @@ blackflower-observability = { path = "crates/blackflower-observability" }
 blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-presentation = { path = "crates/blackflower-presentation" }
+blackflower-render = { path = "crates/blackflower-render" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
 
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
@@ -39,7 +41,7 @@ bindgen = { version = "0.72.1", default-features = false, features = ["runtime"]
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
-glam = { version = "0.33.2", default-features = false, features = ["std"] }
+glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
 libloading = { version = "0.8.9", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
