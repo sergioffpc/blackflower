@@ -1,0 +1,19 @@
+[package]
+name = "blackflower-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+links = "phonon"
+
+[dependencies]
+glam.workspace = true
+libloading.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+bindgen.workspace = true
+
+[lints]
+workspace = true
