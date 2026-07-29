@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
   merge_group:
     types:
@@ -92,6 +93,13 @@ jobs:
           command: check
 
   native-bindings:
+    if: >-
+      (github.event_name == 'pull_request' &&
+      github.base_ref == 'main' &&
+      (startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'hotfix/'))) ||
+      (github.event_name == 'merge_group' &&
+      github.event.merge_group.base_ref == 'refs/heads/main')
     name: ${{ matrix.package }} (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -197,3 +205,39 @@ jobs:
 
       - name: Run doctests
         run: cargo test -p ${{ matrix.package }} --doc --all-features --locked
+
+  native-bindings-result:
+    if: >-
+      always() &&
+      ((github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'merge_group' &&
+      github.event.merge_group.base_ref == 'refs/heads/main'))
+    name: Native bindings
+    needs:
+      - native-bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate release branch
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            release/*|hotfix/*)
+              ;;
+            *)
+              echo "Pull requests to main must come from a release/* or hotfix/* branch." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Require successful native bindings matrix
+        env:
+          MATRIX_RESULT: ${{ needs.native-bindings.result }}
+        run: |
+          if [ "$MATRIX_RESULT" != "success" ]; then
+            echo "Native bindings matrix result: $MATRIX_RESULT" >&2
+            exit 1
+          fi
