@@ -122,6 +122,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-navigation"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cmake",
+ "glam",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-observability"
 version = "0.1.0"
 dependencies = [

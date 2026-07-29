@@ -10,3 +10,6 @@
 [submodule "crates/blackflower-audio/vendor/steam-audio-sdk"]
 	path = crates/blackflower-audio/vendor/steam-audio-sdk
 	url = https://github.com/ValveSoftware/steam-audio.git
+[submodule "crates/blackflower-navigation/vendor/recastnavigation"]
+	path = crates/blackflower-navigation/vendor/recastnavigation
+	url = https://github.com/recastnavigation/recastnavigation.git

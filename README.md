@@ -13,6 +13,7 @@ presentation.
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
+| `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-simulation` | Authoritative fixed-step simulation |
 | `crates/blackflower-prediction` | Client prediction and reconciliation |
