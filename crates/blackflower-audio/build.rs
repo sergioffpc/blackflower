@@ -326,6 +326,7 @@ fn build_steam_audio(
     libraries: &NativeLibraries,
 ) -> Result<PathBuf, Box<dyn Error>> {
     let source = stage_source(Path::new(SDK_ROOT), out_dir, "steam-audio")?;
+    patch_steam_audio_linux_abi(&source)?;
     let output = out_dir.join("native/steam-audio");
     let mut config = base_config(&source, &output, profile);
     config
@@ -353,6 +354,25 @@ fn build_steam_audio(
         .define("ZLIB_LIBRARY", &libraries.zlib_library);
     let destination = config.build();
     find_static_library(&destination, "phonon", "phonon")
+}
+
+fn patch_steam_audio_linux_abi(source: &Path) -> Result<(), Box<dyn Error>> {
+    if env::var("CARGO_CFG_TARGET_OS")? != "linux" {
+        return Ok(());
+    }
+
+    const LEGACY_ABI_OPTION: &str = "        add_compile_options(-fabi-version=6)\n";
+    let cmake_path = source.join("CMakeLists.txt");
+    let contents = fs::read_to_string(&cmake_path)?;
+    let occurrences = contents.matches(LEGACY_ABI_OPTION).count();
+    if occurrences != 1 {
+        return Err(
+            format!("expected one Steam Audio legacy GCC ABI option, found {occurrences}").into(),
+        );
+    }
+
+    fs::write(cmake_path, contents.replacen(LEGACY_ABI_OPTION, "", 1))?;
+    Ok(())
 }
 
 fn static_crt_setting() -> &'static str {
