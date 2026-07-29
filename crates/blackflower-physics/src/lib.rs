@@ -7,7 +7,6 @@ mod types;
 mod world;
 
 pub use error::{Error, UpdateError};
-pub use glam::{Quat, Vec3A};
 pub use ids::BodyId;
 pub use types::{BodySettings, MotionType, Shape, StepDelta};
 pub use world::{World, WorldBuilder};

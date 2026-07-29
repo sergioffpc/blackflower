@@ -1,8 +1,6 @@
+use blackflower_physics::{BodySettings, Error, MotionType, Shape, StepDelta, World, jolt_version};
+use glam::{Quat, Vec3A};
 use std::num::NonZeroU32;
-
-use blackflower_physics::{
-    BodySettings, Error, MotionType, Quat, Shape, StepDelta, Vec3A, World, jolt_version,
-};
 
 #[test]
 fn bindings_report_the_pinned_jolt_version() {
