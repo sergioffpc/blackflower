@@ -1,5 +1,7 @@
 use blackflower_ecs::{RunError, TickDelta};
 
+use crate::SimulationPhase;
+
 pub(crate) struct TickObservation {
     #[cfg(feature = "metrics")]
     started: std::time::Instant,
@@ -44,6 +46,26 @@ impl TickObservation {
     }
 }
 
+pub(crate) fn system_executed(phase: SimulationPhase, system: &'static str) {
+    #[cfg(feature = "metrics")]
+    metrics::counter!(
+        "blackflower_simulation_system_executions_total",
+        "phase" => phase.name(),
+    )
+    .increment(1);
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        target: "blackflower_simulation",
+        phase = phase.name(),
+        system,
+        "system executed",
+    );
+
+    #[cfg(not(any(feature = "metrics", feature = "tracing")))]
+    let _ = (phase, system);
+}
+
 pub(crate) fn describe_metrics() {
     #[cfg(feature = "metrics")]
     {
@@ -58,6 +80,11 @@ pub(crate) fn describe_metrics() {
             "blackflower_simulation_deadline_misses_total",
             Unit::Count,
             "Authoritative simulation ticks that exceeded their fixed-step budget",
+        );
+        metrics::describe_counter!(
+            "blackflower_simulation_system_executions_total",
+            Unit::Count,
+            "Authoritative simulation system executions by phase",
         );
         metrics::describe_histogram!(
             "blackflower_simulation_tick_duration_seconds",

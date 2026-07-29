@@ -5,6 +5,7 @@
 //! that pipeline at the fixed simulation delta.
 
 mod pipeline;
+mod systems;
 mod telemetry;
 mod world;
 
@@ -13,4 +14,5 @@ pub use pipeline::{
     CONTROL_FRAME_RATE_HZ, INPUT_TIMEOUT_TICKS, SIMULATION_TICK_RATE_HZ, SNAPSHOT_INTERVAL_TICKS,
     SNAPSHOT_RATE_HZ, SimulationPhase, SimulationPhases, SimulationPipeline,
 };
+pub use systems::PrepareTickSystem;
 pub use world::{SIMULATION_TICK_DELTA_SECONDS, SimulationWorld};

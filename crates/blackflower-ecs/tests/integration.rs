@@ -36,6 +36,9 @@ struct Weight {
 #[derive(Tag)]
 struct Active;
 
+#[derive(Tag)]
+struct GlobalSystemDriver;
+
 struct DropMarker(Arc<AtomicBool>);
 
 impl Drop for DropMarker {
@@ -367,6 +370,30 @@ fn systems_use_fixed_delta_and_custom_phase_order() -> TestResult {
     drop(observed);
 
     verify_custom_pipeline(&mut world, entity, position, delta)
+}
+
+#[test]
+fn unit_projection_supports_tag_only_systems() -> TestResult {
+    let mut world = World::new()?;
+    let driver = world.register_tag::<GlobalSystemDriver>()?;
+    let entity = world.spawn()?;
+    world.add_tag(entity, driver)?;
+
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed_executions = Arc::clone(&executions);
+    let update_phase = world.builtin_phase(BuiltinPhase::OnUpdate);
+    world
+        .system("ObserveGlobalSystem", "GlobalSystemDriver")?
+        .phase(update_phase)?
+        .project(())?
+        .each(move |_context, _entity, ()| {
+            observed_executions.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        })?;
+
+    assert!(world.progress(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    assert_eq!(executions.load(Ordering::Relaxed), 1);
+    Ok(())
 }
 
 fn register_ordered_systems(
