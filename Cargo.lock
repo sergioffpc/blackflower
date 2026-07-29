@@ -74,6 +74,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-audio"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "glam",
+ "libloading",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-ecs"
 version = "0.1.0"
 dependencies = [
@@ -83,6 +93,7 @@ dependencies = [
  "cc",
  "metrics",
  "profiling",
+ "strum",
  "thiserror",
  "tracing",
 ]

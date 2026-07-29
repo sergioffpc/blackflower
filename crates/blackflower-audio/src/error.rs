@@ -1,0 +1,85 @@
+use std::path::PathBuf;
+
+use crate::ffi::Status;
+
+/// Errors produced while initializing or using Steam Audio.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The pinned Steam Audio shared library could not be loaded.
+    #[error("failed to load Steam Audio SDK 4.8.1 from {path:?}")]
+    LibraryLoad {
+        /// Path to the shared library.
+        path: PathBuf,
+        /// Dynamic-loader failure.
+        #[source]
+        source: libloading::Error,
+    },
+    /// Steam Audio rejected an operation.
+    #[error("Steam Audio operation {operation} failed")]
+    NativeFailure {
+        /// Name of the rejected operation.
+        operation: &'static str,
+    },
+    /// Steam Audio could not allocate native memory.
+    #[error("Steam Audio operation {operation} ran out of memory")]
+    OutOfMemory {
+        /// Name of the rejected operation.
+        operation: &'static str,
+    },
+    /// Steam Audio could not initialize an external dependency.
+    #[error("Steam Audio operation {operation} could not initialize a dependency")]
+    NativeInitialization {
+        /// Name of the rejected operation.
+        operation: &'static str,
+    },
+    /// Steam Audio returned a value outside its documented contract.
+    #[error("Steam Audio violated the native API contract during {operation}")]
+    NativeContract {
+        /// Name of the operation.
+        operation: &'static str,
+    },
+    /// Sampling rate and frame size must be non-zero.
+    #[error("{field} must be non-zero")]
+    ZeroAudioSetting {
+        /// Setting name.
+        field: &'static str,
+    },
+    /// Sampling rate or frame size is outside the native signed 32-bit range.
+    #[error("{field} value {value} exceeds the Steam Audio API range")]
+    AudioSettingOutOfRange {
+        /// Setting name.
+        field: &'static str,
+        /// Rejected value.
+        value: u32,
+    },
+    /// A source direction must be finite and non-zero.
+    #[error("binaural source direction must be finite and non-zero")]
+    InvalidDirection,
+    /// Spatial blend must be a finite value between zero and one.
+    #[error("spatial blend must be finite and between 0 and 1")]
+    InvalidSpatialBlend,
+    /// A processing buffer does not match the configured frame size.
+    #[error("{buffer} contains {actual} samples; expected {expected}")]
+    FrameLength {
+        /// Buffer role.
+        buffer: &'static str,
+        /// Configured frame size.
+        expected: usize,
+        /// Supplied length.
+        actual: usize,
+    },
+    /// An HRTF belongs to another Steam Audio context.
+    #[error("HRTF belongs to another Steam Audio context")]
+    WrongContext,
+}
+
+impl Error {
+    pub(crate) const fn from_status(operation: &'static str, status: Status) -> Self {
+        match status {
+            Status::Failure => Self::NativeFailure { operation },
+            Status::OutOfMemory => Self::OutOfMemory { operation },
+            Status::Initialization => Self::NativeInitialization { operation },
+            Status::ContractViolation => Self::NativeContract { operation },
+        }
+    }
+}

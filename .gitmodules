@@ -7,3 +7,6 @@
 [submodule "crates/blackflower-animation/vendor/ozz-animation"]
 	path = crates/blackflower-animation/vendor/ozz-animation
 	url = https://github.com/guillaumeblanc/ozz-animation.git
+[submodule "crates/blackflower-audio/vendor/steam-audio-sdk"]
+	path = crates/blackflower-audio/vendor/steam-audio-sdk
+	url = https://github.com/ValveSoftware/steam-audio.git

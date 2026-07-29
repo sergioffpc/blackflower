@@ -1,3 +1,5 @@
+use strum::IntoStaticStr;
+
 #[cfg(feature = "metrics")]
 use crate::ffi;
 use crate::ffi::WorldPtr;
@@ -6,7 +8,8 @@ use crate::ids::WorldKey;
 #[cfg(feature = "tracing")]
 const TARGET: &str = "blackflower_ecs";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum ResourceKind {
     Component,
     Tag,
@@ -17,18 +20,13 @@ pub(crate) enum ResourceKind {
 
 impl ResourceKind {
     #[cfg(any(feature = "metrics", feature = "tracing"))]
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Component => "component",
-            Self::Tag => "tag",
-            Self::System => "system",
-            Self::Pipeline => "pipeline",
-            Self::Phase => "phase",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum CallbackFailureKind {
     Error,
     Panic,
@@ -38,17 +36,13 @@ pub(crate) enum CallbackFailureKind {
 
 impl CallbackFailureKind {
     #[cfg(any(feature = "metrics", feature = "tracing"))]
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Error => "error",
-            Self::Panic => "panic",
-            Self::Projection => "projection",
-            Self::Internal => "internal",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum TickOutcome {
     Completed,
     Continued,
@@ -58,13 +52,8 @@ pub(crate) enum TickOutcome {
 
 impl TickOutcome {
     #[cfg(any(feature = "metrics", feature = "tracing"))]
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Continued => "continued",
-            Self::Stopped => "stopped",
-            Self::Failed => "failed",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
