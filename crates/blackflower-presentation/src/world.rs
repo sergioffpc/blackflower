@@ -5,7 +5,7 @@ use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
 use crate::telemetry;
 use crate::telemetry::FrameObservation;
-use crate::{FrameIndex, PresentationPhase, PresentationPipeline};
+use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
 
 #[derive(Debug)]
 struct ExecutionState {
@@ -88,12 +88,14 @@ impl PresentationWorld {
     /// Turn an existing, independently configured ECS world into a presentation world.
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = PresentationPipeline::register(&mut ecs)?;
+        let execution_context = FrameExecutionContext::new();
+        systems::register(&mut ecs, pipeline, execution_context.clone())?;
         telemetry::describe_metrics();
         Ok(Self {
             ecs,
             pipeline,
             current_frame: FrameIndex::ZERO,
-            execution_context: FrameExecutionContext::new(),
+            execution_context,
         })
     }
 

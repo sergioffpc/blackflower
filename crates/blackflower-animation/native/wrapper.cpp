@@ -1,6 +1,9 @@
 #include "wrapper.h"
 
 #include <ozz/animation/runtime/animation.h>
+#include <ozz/animation/runtime/blending_job.h>
+#include <ozz/animation/runtime/ik_aim_job.h>
+#include <ozz/animation/runtime/ik_two_bone_job.h>
 #include <ozz/animation/runtime/local_to_model_job.h>
 #include <ozz/animation/runtime/sampling_job.h>
 #include <ozz/animation/runtime/skeleton.h>
@@ -8,6 +11,7 @@
 #include <ozz/base/io/archive.h>
 #include <ozz/base/io/stream.h>
 #include <ozz/base/maths/simd_math.h>
+#include <ozz/base/maths/simd_quaternion.h>
 #include <ozz/base/maths/soa_transform.h>
 #include <ozz/base/span.h>
 
@@ -99,6 +103,112 @@ bool pose_matches(
             == static_cast<size_t>(skeleton->value.num_soa_joints())
         && pose->models.size()
             == static_cast<size_t>(skeleton->value.num_joints());
+}
+
+bool finite3(const float value[3]) {
+    return std::isfinite(value[0])
+        && std::isfinite(value[1])
+        && std::isfinite(value[2]);
+}
+
+bool finite4(const float value[4]) {
+    return finite3(value) && std::isfinite(value[3]);
+}
+
+void store_lanes(ozz::math::SimdFloat4 value, float lanes[4]) {
+    ozz::math::StorePtrU(value, lanes);
+}
+
+ozz::math::SimdFloat4 load_lanes(const float lanes[4]) {
+    return ozz::math::simd_float4::Load(
+        lanes[0], lanes[1], lanes[2], lanes[3]);
+}
+
+void multiply_joint_rotation(
+    uint32_t joint,
+    const ozz::math::SimdQuaternion &correction,
+    ozz::span<ozz::math::SoaTransform> transforms) {
+    ozz::math::SoaTransform &transform = transforms[joint / 4U];
+    ozz::math::SimdQuaternion rotations[4];
+    ozz::math::Transpose4x4(&transform.rotation.x, &rotations->xyzw);
+    rotations[joint & 3U] = rotations[joint & 3U] * correction;
+    ozz::math::Transpose4x4(&rotations->xyzw, &transform.rotation.x);
+}
+
+void copy_local_group(
+    const ozz::math::SoaTransform &source,
+    size_t first_joint,
+    size_t joint_count,
+    BFAnimationTransform *out_transforms) {
+    float tx[4], ty[4], tz[4];
+    float rx[4], ry[4], rz[4], rw[4];
+    float sx[4], sy[4], sz[4];
+    store_lanes(source.translation.x, tx);
+    store_lanes(source.translation.y, ty);
+    store_lanes(source.translation.z, tz);
+    store_lanes(source.rotation.x, rx);
+    store_lanes(source.rotation.y, ry);
+    store_lanes(source.rotation.z, rz);
+    store_lanes(source.rotation.w, rw);
+    store_lanes(source.scale.x, sx);
+    store_lanes(source.scale.y, sy);
+    store_lanes(source.scale.z, sz);
+    for (size_t lane = 0; lane < 4 && first_joint + lane < joint_count; ++lane) {
+        BFAnimationTransform &target = out_transforms[first_joint + lane];
+        target.translation[0] = tx[lane];
+        target.translation[1] = ty[lane];
+        target.translation[2] = tz[lane];
+        target.rotation[0] = rx[lane];
+        target.rotation[1] = ry[lane];
+        target.rotation[2] = rz[lane];
+        target.rotation[3] = rw[lane];
+        target.scale[0] = sx[lane];
+        target.scale[1] = sy[lane];
+        target.scale[2] = sz[lane];
+    }
+}
+
+void set_local_group(
+    const BFAnimationTransform *transforms,
+    size_t first_joint,
+    size_t joint_count,
+    ozz::math::SoaTransform *target) {
+    float tx[4], ty[4], tz[4];
+    float rx[4], ry[4], rz[4], rw[4];
+    float sx[4], sy[4], sz[4];
+    store_lanes(target->translation.x, tx);
+    store_lanes(target->translation.y, ty);
+    store_lanes(target->translation.z, tz);
+    store_lanes(target->rotation.x, rx);
+    store_lanes(target->rotation.y, ry);
+    store_lanes(target->rotation.z, rz);
+    store_lanes(target->rotation.w, rw);
+    store_lanes(target->scale.x, sx);
+    store_lanes(target->scale.y, sy);
+    store_lanes(target->scale.z, sz);
+    for (size_t lane = 0; lane < 4 && first_joint + lane < joint_count; ++lane) {
+        const BFAnimationTransform &source = transforms[first_joint + lane];
+        tx[lane] = source.translation[0];
+        ty[lane] = source.translation[1];
+        tz[lane] = source.translation[2];
+        rx[lane] = source.rotation[0];
+        ry[lane] = source.rotation[1];
+        rz[lane] = source.rotation[2];
+        rw[lane] = source.rotation[3];
+        sx[lane] = source.scale[0];
+        sy[lane] = source.scale[1];
+        sz[lane] = source.scale[2];
+    }
+    target->translation.x = load_lanes(tx);
+    target->translation.y = load_lanes(ty);
+    target->translation.z = load_lanes(tz);
+    target->rotation.x = load_lanes(rx);
+    target->rotation.y = load_lanes(ry);
+    target->rotation.z = load_lanes(rz);
+    target->rotation.w = load_lanes(rw);
+    target->scale.x = load_lanes(sx);
+    target->scale.y = load_lanes(sy);
+    target->scale.z = load_lanes(sz);
 }
 
 } // namespace
@@ -345,6 +455,215 @@ extern "C" int32_t bf_animation_pose_sample(
         return BF_ANIMATION_STATUS_JOB_FAILED;
     }
     return update_models(skeleton, pose);
+}
+
+extern "C" int32_t bf_animation_pose_blend(
+    const BFAnimationSkeleton *skeleton,
+    const BFAnimationBlendLayer *layers,
+    size_t layer_count,
+    float threshold,
+    BFAnimationPose *pose) {
+    if (skeleton == nullptr || pose == nullptr
+        || (layer_count > 0 && layers == nullptr)) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!pose_matches(skeleton, pose)
+        || !std::isfinite(threshold) || threshold <= 0.0F) {
+        return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        using Layer = ozz::animation::BlendingJob::Layer;
+        ozz::vector<Layer> normal_layers;
+        ozz::vector<Layer> additive_layers;
+        ozz::vector<ozz::vector<ozz::math::SimdFloat4>> weight_buffers(
+            layer_count);
+        normal_layers.reserve(layer_count);
+        additive_layers.reserve(layer_count);
+        const size_t joint_count =
+            static_cast<size_t>(skeleton->value.num_joints());
+        const size_t soa_count =
+            static_cast<size_t>(skeleton->value.num_soa_joints());
+        for (size_t index = 0; index < layer_count; ++index) {
+            const BFAnimationBlendLayer &source = layers[index];
+            if (source.pose == nullptr || source.pose == pose
+                || !pose_matches(skeleton, source.pose)
+                || !std::isfinite(source.weight) || source.weight < 0.0F) {
+                return BF_ANIMATION_STATUS_INCOMPATIBLE;
+            }
+            Layer layer;
+            layer.weight = source.weight;
+            layer.transform = ozz::make_span(source.pose->locals);
+            if (source.joint_weight_count != 0) {
+                if (source.joint_weights == nullptr
+                    || source.joint_weight_count != joint_count) {
+                    return BF_ANIMATION_STATUS_INCOMPATIBLE;
+                }
+                auto &buffer = weight_buffers[index];
+                buffer.resize(soa_count);
+                for (size_t group = 0; group < soa_count; ++group) {
+                    float values[4] = {1.0F, 1.0F, 1.0F, 1.0F};
+                    for (size_t lane = 0; lane < 4; ++lane) {
+                        const size_t joint = group * 4 + lane;
+                        if (joint < joint_count) {
+                            const float weight = source.joint_weights[joint];
+                            if (!std::isfinite(weight)
+                                || weight < 0.0F || weight > 1.0F) {
+                                return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+                            }
+                            values[lane] = weight;
+                        }
+                    }
+                    buffer[group] = load_lanes(values);
+                }
+                layer.joint_weights = ozz::make_span(buffer);
+            }
+            if (source.additive == 0) {
+                normal_layers.push_back(layer);
+            } else {
+                additive_layers.push_back(layer);
+            }
+        }
+
+        ozz::animation::BlendingJob job;
+        job.threshold = threshold;
+        job.layers = ozz::make_span(normal_layers);
+        job.additive_layers = ozz::make_span(additive_layers);
+        job.rest_pose = skeleton->value.joint_rest_poses();
+        job.output = ozz::make_span(pose->locals);
+        if (!job.Run()) {
+            return BF_ANIMATION_STATUS_JOB_FAILED;
+        }
+        return update_models(skeleton, pose);
+    });
+}
+
+extern "C" int32_t bf_animation_pose_copy_local_transforms(
+    const BFAnimationPose *pose,
+    BFAnimationTransform *out_transforms,
+    size_t transform_count) {
+    if (pose == nullptr || out_transforms == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (transform_count != pose->models.size()) {
+        return BF_ANIMATION_STATUS_INCOMPATIBLE;
+    }
+    for (size_t group = 0; group < pose->locals.size(); ++group) {
+        copy_local_group(
+            pose->locals[group], group * 4, transform_count, out_transforms);
+    }
+    return BF_ANIMATION_STATUS_OK;
+}
+
+extern "C" int32_t bf_animation_pose_set_local_transforms(
+    const BFAnimationSkeleton *skeleton,
+    const BFAnimationTransform *transforms,
+    size_t transform_count,
+    BFAnimationPose *pose) {
+    if (skeleton == nullptr || transforms == nullptr || pose == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!pose_matches(skeleton, pose) || transform_count != pose->models.size()) {
+        return BF_ANIMATION_STATUS_INCOMPATIBLE;
+    }
+    for (size_t joint = 0; joint < transform_count; ++joint) {
+        const BFAnimationTransform &transform = transforms[joint];
+        if (!finite3(transform.translation)
+            || !finite4(transform.rotation)
+            || !finite3(transform.scale)) {
+            return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (size_t group = 0; group < pose->locals.size(); ++group) {
+        set_local_group(
+            transforms, group * 4, transform_count, &pose->locals[group]);
+    }
+    return update_models(skeleton, pose);
+}
+
+extern "C" int32_t bf_animation_pose_apply_aim_ik(
+    const BFAnimationSkeleton *skeleton,
+    const BFAnimationAimIk *configuration,
+    BFAnimationPose *pose,
+    uint8_t *out_reached) {
+    if (skeleton == nullptr || configuration == nullptr
+        || pose == nullptr || out_reached == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!pose_matches(skeleton, pose)
+        || configuration->joint >= pose->models.size()) {
+        return BF_ANIMATION_STATUS_INDEX_OUT_OF_RANGE;
+    }
+    ozz::animation::IKAimJob job;
+    job.target = ozz::math::simd_float4::Load3PtrU(configuration->target);
+    job.forward = ozz::math::simd_float4::Load3PtrU(configuration->forward);
+    job.offset = ozz::math::simd_float4::Load3PtrU(configuration->offset);
+    job.up = ozz::math::simd_float4::Load3PtrU(configuration->up);
+    job.pole_vector =
+        ozz::math::simd_float4::Load3PtrU(configuration->pole_vector);
+    job.twist_angle = configuration->twist_angle;
+    job.weight = configuration->weight;
+    job.joint = &pose->models[configuration->joint];
+    ozz::math::SimdQuaternion correction;
+    job.joint_correction = &correction;
+    bool reached = false;
+    job.reached = &reached;
+    if (!job.Run()) {
+        return BF_ANIMATION_STATUS_JOB_FAILED;
+    }
+    multiply_joint_rotation(
+        configuration->joint, correction, ozz::make_span(pose->locals));
+    const int32_t status = update_models(skeleton, pose);
+    *out_reached = reached ? 1U : 0U;
+    return status;
+}
+
+extern "C" int32_t bf_animation_pose_apply_two_bone_ik(
+    const BFAnimationSkeleton *skeleton,
+    const BFAnimationTwoBoneIk *configuration,
+    BFAnimationPose *pose,
+    uint8_t *out_reached) {
+    if (skeleton == nullptr || configuration == nullptr
+        || pose == nullptr || out_reached == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!pose_matches(skeleton, pose)
+        || configuration->start_joint >= pose->models.size()
+        || configuration->middle_joint >= pose->models.size()
+        || configuration->end_joint >= pose->models.size()) {
+        return BF_ANIMATION_STATUS_INDEX_OUT_OF_RANGE;
+    }
+    ozz::animation::IKTwoBoneJob job;
+    job.target = ozz::math::simd_float4::Load3PtrU(configuration->target);
+    job.mid_axis =
+        ozz::math::simd_float4::Load3PtrU(configuration->middle_axis);
+    job.pole_vector =
+        ozz::math::simd_float4::Load3PtrU(configuration->pole_vector);
+    job.twist_angle = configuration->twist_angle;
+    job.soften = configuration->soften;
+    job.weight = configuration->weight;
+    job.start_joint = &pose->models[configuration->start_joint];
+    job.mid_joint = &pose->models[configuration->middle_joint];
+    job.end_joint = &pose->models[configuration->end_joint];
+    ozz::math::SimdQuaternion start_correction;
+    ozz::math::SimdQuaternion middle_correction;
+    job.start_joint_correction = &start_correction;
+    job.mid_joint_correction = &middle_correction;
+    bool reached = false;
+    job.reached = &reached;
+    if (!job.Run()) {
+        return BF_ANIMATION_STATUS_JOB_FAILED;
+    }
+    multiply_joint_rotation(
+        configuration->start_joint,
+        start_correction,
+        ozz::make_span(pose->locals));
+    multiply_joint_rotation(
+        configuration->middle_joint,
+        middle_correction,
+        ozz::make_span(pose->locals));
+    const int32_t status = update_models(skeleton, pose);
+    *out_reached = reached ? 1U : 0U;
+    return status;
 }
 
 extern "C" int32_t bf_animation_pose_copy_model_matrices(

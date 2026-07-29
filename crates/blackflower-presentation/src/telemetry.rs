@@ -1,6 +1,6 @@
 use blackflower_ecs::TickDelta;
 
-use crate::PresentationError;
+use crate::{FrameExecution, PresentationError, PresentationPhase};
 
 pub(crate) struct FrameObservation {
     #[cfg(feature = "metrics")]
@@ -66,6 +66,31 @@ pub(crate) fn frame_rejected(reason: &'static str) {
     let _ = reason;
 }
 
+pub(crate) fn system_executed(
+    phase: PresentationPhase,
+    system: &'static str,
+    execution: FrameExecution,
+) {
+    #[cfg(feature = "metrics")]
+    metrics::counter!(
+        "blackflower_presentation_system_executions_total",
+        "phase" => phase.name(),
+    )
+    .increment(1);
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        target: "blackflower_presentation",
+        phase = phase.name(),
+        system,
+        frame = execution.frame.get(),
+        "system executed",
+    );
+
+    #[cfg(not(any(feature = "metrics", feature = "tracing")))]
+    let _ = (phase, system, execution);
+}
+
 pub(crate) fn describe_metrics() {
     #[cfg(feature = "metrics")]
     {
@@ -75,6 +100,11 @@ pub(crate) fn describe_metrics() {
             "blackflower_presentation_frames_total",
             Unit::Count,
             "Client presentation frame executions",
+        );
+        metrics::describe_counter!(
+            "blackflower_presentation_system_executions_total",
+            Unit::Count,
+            "Client presentation system executions by phase",
         );
         metrics::describe_histogram!(
             "blackflower_presentation_frame_duration_seconds",

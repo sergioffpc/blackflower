@@ -9,10 +9,17 @@
 //! own client-only state, but must treat captured simulation state as immutable.
 
 mod pipeline;
+mod systems;
 mod telemetry;
 mod types;
 mod world;
 
 pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
+pub use systems::{
+    BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
+    EvaluateAnimationPosesSystem, PrepareFrameSystem, ResolveSceneGraphSystem,
+    SampleRenderTimelineSystem, SubmitBackendCommandsSystem, UpdateCamerasAndListenersSystem,
+    UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
+};
 pub use types::FrameIndex;
 pub use world::{FrameExecution, FrameExecutionContext, PresentationError, PresentationWorld};
