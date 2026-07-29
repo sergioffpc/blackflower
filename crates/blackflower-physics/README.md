@@ -47,10 +47,11 @@ git add crates/blackflower-physics/vendor/JoltPhysics
 
 ## Safe API
 
-The initial surface supports worlds, sphere and box bodies, body lifetime,
-position, linear velocity, broad-phase optimization and fixed simulation
-steps. The API uses the SIMD-backed `glam::Vec3A` and `glam::Quat` types
-directly; consumers must import them from `glam`:
+The safe surface supports worlds, sphere, box and capsule bodies, body
+lifetime, transforms, linear and angular velocity, forces, torques, impulses,
+rigid-body character controllers, contact manifolds, broad-phase optimization
+and fixed simulation steps. The API uses the SIMD-backed `glam::Vec3A` and
+`glam::Quat` types directly; consumers must import them from `glam`:
 
 ```rust
 use std::num::NonZeroU32;
@@ -78,6 +79,12 @@ world.step(
     StepDelta::from_seconds(1.0 / 60.0)?,
     NonZeroU32::MIN,
 )?;
+
+for contact in world.contact_events()? {
+    if let Some(manifold) = contact.manifold {
+        assert!(manifold.normal.is_finite());
+    }
+}
 # Ok(())
 # }
 ```
@@ -85,3 +92,15 @@ world.step(
 `BodyId` values are tied to their creating world and stale handles are
 rejected. `World` is neither `Send` nor `Sync`; Jolt's worker pool remains an
 internal implementation detail of `World::step`.
+
+Forces and torques accumulate until the next step. Impulses affect velocity
+immediately. These commands affect dynamic bodies and are ignored by Jolt for
+other motion types. `contact_events` returns an owned, canonically ordered
+snapshot of the callbacks produced by the latest step; added and persisted
+contacts contain owned manifold data, while removed contacts identify only the
+body/sub-shape pair.
+
+`CharacterSettings` creates Jolt's rigid-body capsule character. Set its desired
+velocity before `World::step`, then call `refresh_character_ground_state` after
+the step before reading `character_state`. Character handles own their
+underlying bodies, so their lifetime ends through `destroy_character`.

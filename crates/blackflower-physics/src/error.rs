@@ -25,12 +25,39 @@ pub enum Error {
     /// A shape dimension must be finite and strictly positive.
     #[error("shape dimensions must be finite and strictly positive")]
     InvalidShape,
+    /// The rigid-body character controller requires a capsule shape.
+    #[error("character controller requires a capsule shape")]
+    InvalidCharacterShape,
+    /// Character mass must be finite and strictly positive.
+    #[error("character mass must be finite and strictly positive")]
+    InvalidCharacterMass,
+    /// Character friction must be finite and non-negative.
+    #[error("character friction must be finite and non-negative")]
+    InvalidCharacterFriction,
+    /// Character gravity factor must be finite.
+    #[error("character gravity factor must be finite")]
+    InvalidCharacterGravityFactor,
+    /// Character slope angle must be finite and between zero and pi over two.
+    #[error("character slope angle must be between zero and pi over two")]
+    InvalidCharacterSlopeAngle,
+    /// Ground separation must be finite and non-negative.
+    #[error("character ground separation must be finite and non-negative")]
+    InvalidCharacterGroundSeparation,
     /// A body handle belongs to another physics world.
     #[error("body handle belongs to another physics world")]
     WrongWorld,
+    /// A character handle belongs to another physics world.
+    #[error("character handle belongs to another physics world")]
+    WrongCharacterWorld,
     /// A body handle is stale or no longer exists.
     #[error("body no longer exists")]
     BodyNotFound,
+    /// A character handle is stale or no longer exists.
+    #[error("character controller no longer exists")]
+    CharacterNotFound,
+    /// A body must be destroyed through its owning character controller.
+    #[error("body is owned by a character controller")]
+    BodyOwnedByCharacter,
     /// The configured body capacity has been exhausted.
     #[error("physics world body capacity exhausted")]
     BodyCapacityExhausted,

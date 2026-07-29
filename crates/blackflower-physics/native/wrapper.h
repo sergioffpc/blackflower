@@ -13,10 +13,21 @@ extern "C" {
 #define BF_PHYSICS_STATUS_INITIALIZATION_FAILED 3
 #define BF_PHYSICS_STATUS_BODY_CAPACITY_EXHAUSTED 4
 #define BF_PHYSICS_STATUS_BODY_NOT_FOUND 5
+#define BF_PHYSICS_STATUS_CHARACTER_NOT_FOUND 6
+#define BF_PHYSICS_STATUS_BODY_OWNED_BY_CHARACTER 7
 
 #define BF_PHYSICS_MOTION_STATIC 0
 #define BF_PHYSICS_MOTION_KINEMATIC 1
 #define BF_PHYSICS_MOTION_DYNAMIC 2
+
+#define BF_PHYSICS_CONTACT_ADDED 0
+#define BF_PHYSICS_CONTACT_PERSISTED 1
+#define BF_PHYSICS_CONTACT_REMOVED 2
+
+#define BF_PHYSICS_GROUND_ON_GROUND 0
+#define BF_PHYSICS_GROUND_ON_STEEP_GROUND 1
+#define BF_PHYSICS_GROUND_NOT_SUPPORTED 2
+#define BF_PHYSICS_GROUND_IN_AIR 3
 
 #define BF_PHYSICS_UPDATE_MANIFOLD_CACHE_FULL (1u << 0)
 #define BF_PHYSICS_UPDATE_BODY_PAIR_CACHE_FULL (1u << 1)
@@ -58,6 +69,50 @@ typedef struct BFPhysicsBodySettings {
     uint8_t active;
 } BFPhysicsBodySettings;
 
+typedef struct BFPhysicsCharacterSettings {
+    BFPhysicsVec3 position;
+    BFPhysicsQuat rotation;
+    float capsule_half_height;
+    float capsule_radius;
+    float mass;
+    float friction;
+    float gravity_factor;
+    float max_slope_angle_radians;
+    uint8_t active;
+} BFPhysicsCharacterSettings;
+
+typedef struct BFPhysicsCharacterState {
+    uint32_t body_id;
+    BFPhysicsVec3 position;
+    BFPhysicsQuat rotation;
+    BFPhysicsVec3 linear_velocity;
+    uint32_t ground_state;
+    uint32_t ground_body_id;
+    uint32_t ground_sub_shape_id;
+    BFPhysicsVec3 ground_position;
+    BFPhysicsVec3 ground_normal;
+    BFPhysicsVec3 ground_velocity;
+} BFPhysicsCharacterState;
+
+typedef struct BFPhysicsContactEvent {
+    uint32_t kind;
+    uint32_t body1_id;
+    uint32_t body2_id;
+    uint32_t sub_shape1_id;
+    uint32_t sub_shape2_id;
+    BFPhysicsVec3 normal;
+    float penetration_depth;
+    float combined_friction;
+    float combined_restitution;
+    uint8_t is_sensor;
+    uint32_t point_count;
+} BFPhysicsContactEvent;
+
+typedef struct BFPhysicsContactPoint {
+    BFPhysicsVec3 position_on1;
+    BFPhysicsVec3 position_on2;
+} BFPhysicsContactPoint;
+
 BFPhysicsVersion bf_physics_jolt_version(void);
 
 int32_t bf_physics_world_create(
@@ -75,6 +130,12 @@ int32_t bf_physics_world_create_box_body(
     const BFPhysicsBodySettings *settings,
     BFPhysicsVec3 half_extent,
     uint32_t *out_body_id);
+int32_t bf_physics_world_create_capsule_body(
+    BFPhysicsWorld *world,
+    const BFPhysicsBodySettings *settings,
+    float half_height,
+    float radius,
+    uint32_t *out_body_id);
 int32_t bf_physics_world_destroy_body(BFPhysicsWorld *world, uint32_t body_id);
 int32_t bf_physics_world_body_exists(
     const BFPhysicsWorld *world,
@@ -88,6 +149,14 @@ int32_t bf_physics_world_body_position(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 *out_position);
+int32_t bf_physics_world_body_rotation(
+    const BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsQuat *out_rotation);
+int32_t bf_physics_world_set_body_rotation(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsQuat rotation);
 int32_t bf_physics_world_body_linear_velocity(
     const BFPhysicsWorld *world,
     uint32_t body_id,
@@ -96,6 +165,73 @@ int32_t bf_physics_world_set_body_linear_velocity(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 velocity);
+int32_t bf_physics_world_body_angular_velocity(
+    const BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 *out_velocity);
+int32_t bf_physics_world_set_body_angular_velocity(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 velocity);
+int32_t bf_physics_world_add_body_force(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 force);
+int32_t bf_physics_world_add_body_force_at_point(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 force,
+    BFPhysicsVec3 point);
+int32_t bf_physics_world_add_body_torque(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 torque);
+int32_t bf_physics_world_add_body_impulse(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 impulse);
+int32_t bf_physics_world_add_body_impulse_at_point(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 impulse,
+    BFPhysicsVec3 point);
+int32_t bf_physics_world_add_body_angular_impulse(
+    BFPhysicsWorld *world,
+    uint32_t body_id,
+    BFPhysicsVec3 impulse);
+
+int32_t bf_physics_world_create_character(
+    BFPhysicsWorld *world,
+    const BFPhysicsCharacterSettings *settings,
+    uint32_t *out_character_id);
+int32_t bf_physics_world_destroy_character(
+    BFPhysicsWorld *world,
+    uint32_t character_id);
+int32_t bf_physics_world_set_character_linear_velocity(
+    BFPhysicsWorld *world,
+    uint32_t character_id,
+    BFPhysicsVec3 velocity);
+int32_t bf_physics_world_refresh_character_ground_state(
+    BFPhysicsWorld *world,
+    uint32_t character_id,
+    float max_separation_distance);
+int32_t bf_physics_world_character_state(
+    const BFPhysicsWorld *world,
+    uint32_t character_id,
+    BFPhysicsCharacterState *out_state);
+
+int32_t bf_physics_world_contact_event_count(
+    const BFPhysicsWorld *world,
+    uint32_t *out_count);
+int32_t bf_physics_world_contact_event(
+    const BFPhysicsWorld *world,
+    uint32_t event_index,
+    BFPhysicsContactEvent *out_event);
+int32_t bf_physics_world_contact_point(
+    const BFPhysicsWorld *world,
+    uint32_t event_index,
+    uint32_t point_index,
+    BFPhysicsContactPoint *out_point);
 
 void bf_physics_world_optimize_broad_phase(BFPhysicsWorld *world);
 int32_t bf_physics_world_update(

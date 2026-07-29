@@ -11,8 +11,9 @@
 
 use std::ptr::NonNull;
 
-use glam::Vec3A;
+use glam::{Quat, Vec3A};
 
+use crate::character::CharacterSettings;
 use crate::types::{BodySettings, ShapeKind};
 
 #[allow(
@@ -42,6 +43,8 @@ pub(crate) enum Status {
     InitializationFailed,
     BodyCapacityExhausted,
     BodyNotFound,
+    CharacterNotFound,
+    BodyOwnedByCharacter,
     ContractViolation,
 }
 
@@ -54,6 +57,11 @@ pub(crate) struct WorldConfig {
     pub(crate) max_body_pairs: u32,
     pub(crate) max_contact_constraints: u32,
     pub(crate) worker_threads: i32,
+}
+
+pub(crate) struct RawContactEvent {
+    pub(crate) event: raw::BFPhysicsContactEvent,
+    pub(crate) points: Vec<raw::BFPhysicsContactPoint>,
 }
 
 pub(crate) fn jolt_version() -> (u32, u32, u32) {
@@ -84,12 +92,7 @@ pub(crate) fn destroy_world(world: WorldPtr) {
 pub(crate) fn create_body(world: WorldPtr, settings: BodySettings) -> Result<u32, Status> {
     let raw_settings = raw::BFPhysicsBodySettings {
         position: raw_vec(settings.position),
-        rotation: raw::BFPhysicsQuat {
-            x: settings.rotation.x,
-            y: settings.rotation.y,
-            z: settings.rotation.z,
-            w: settings.rotation.w,
-        },
+        rotation: raw_quat(settings.rotation),
         motion_type: settings.motion_type.raw(),
         active: u8::from(settings.active),
     };
@@ -108,6 +111,18 @@ pub(crate) fn create_body(world: WorldPtr, settings: BodySettings) -> Result<u32
                 world.0.as_ptr(),
                 &raw const raw_settings,
                 raw_vec(half_extent),
+                &raw mut body,
+            )
+        },
+        ShapeKind::Capsule {
+            half_height,
+            radius,
+        } => unsafe {
+            raw::bf_physics_world_create_capsule_body(
+                world.0.as_ptr(),
+                &raw const raw_settings,
+                half_height,
+                radius,
                 &raw mut body,
             )
         },
@@ -145,6 +160,21 @@ pub(crate) fn body_position(world: WorldPtr, body: u32) -> Result<Vec3A, Status>
     Ok(safe_vec(position))
 }
 
+pub(crate) fn body_rotation(world: WorldPtr, body: u32) -> Result<Quat, Status> {
+    let mut rotation = raw::BFPhysicsQuat::default();
+    let status =
+        unsafe { raw::bf_physics_world_body_rotation(world.0.as_ptr(), body, &raw mut rotation) };
+    check(status)?;
+    Ok(safe_quat(rotation))
+}
+
+pub(crate) fn set_body_rotation(world: WorldPtr, body: u32, rotation: Quat) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_set_body_rotation(world.0.as_ptr(), body, raw_quat(rotation))
+    };
+    check(status)
+}
+
 pub(crate) fn body_linear_velocity(world: WorldPtr, body: u32) -> Result<Vec3A, Status> {
     let mut velocity = raw::BFPhysicsVec3::default();
     let status = unsafe {
@@ -163,6 +193,209 @@ pub(crate) fn set_body_linear_velocity(
         raw::bf_physics_world_set_body_linear_velocity(world.0.as_ptr(), body, raw_vec(velocity))
     };
     check(status)
+}
+
+pub(crate) fn body_angular_velocity(world: WorldPtr, body: u32) -> Result<Vec3A, Status> {
+    let mut velocity = raw::BFPhysicsVec3::default();
+    let status = unsafe {
+        raw::bf_physics_world_body_angular_velocity(world.0.as_ptr(), body, &raw mut velocity)
+    };
+    check(status)?;
+    Ok(safe_vec(velocity))
+}
+
+pub(crate) fn set_body_angular_velocity(
+    world: WorldPtr,
+    body: u32,
+    velocity: Vec3A,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_set_body_angular_velocity(world.0.as_ptr(), body, raw_vec(velocity))
+    };
+    check(status)
+}
+
+pub(crate) fn add_body_force(world: WorldPtr, body: u32, force: Vec3A) -> Result<(), Status> {
+    let status =
+        unsafe { raw::bf_physics_world_add_body_force(world.0.as_ptr(), body, raw_vec(force)) };
+    check(status)
+}
+
+pub(crate) fn add_body_force_at_point(
+    world: WorldPtr,
+    body: u32,
+    force: Vec3A,
+    point: Vec3A,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_add_body_force_at_point(
+            world.0.as_ptr(),
+            body,
+            raw_vec(force),
+            raw_vec(point),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn add_body_torque(world: WorldPtr, body: u32, torque: Vec3A) -> Result<(), Status> {
+    let status =
+        unsafe { raw::bf_physics_world_add_body_torque(world.0.as_ptr(), body, raw_vec(torque)) };
+    check(status)
+}
+
+pub(crate) fn add_body_impulse(world: WorldPtr, body: u32, impulse: Vec3A) -> Result<(), Status> {
+    let status =
+        unsafe { raw::bf_physics_world_add_body_impulse(world.0.as_ptr(), body, raw_vec(impulse)) };
+    check(status)
+}
+
+pub(crate) fn add_body_impulse_at_point(
+    world: WorldPtr,
+    body: u32,
+    impulse: Vec3A,
+    point: Vec3A,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_add_body_impulse_at_point(
+            world.0.as_ptr(),
+            body,
+            raw_vec(impulse),
+            raw_vec(point),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn add_body_angular_impulse(
+    world: WorldPtr,
+    body: u32,
+    impulse: Vec3A,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_add_body_angular_impulse(world.0.as_ptr(), body, raw_vec(impulse))
+    };
+    check(status)
+}
+
+pub(crate) fn create_character(
+    world: WorldPtr,
+    settings: CharacterSettings,
+) -> Result<u32, Status> {
+    let settings = raw::BFPhysicsCharacterSettings {
+        position: raw_vec(settings.position),
+        rotation: raw_quat(settings.rotation),
+        capsule_half_height: settings.capsule_half_height,
+        capsule_radius: settings.capsule_radius,
+        mass: settings.mass,
+        friction: settings.friction,
+        gravity_factor: settings.gravity_factor,
+        max_slope_angle_radians: settings.max_slope_angle_radians,
+        active: u8::from(settings.active),
+    };
+    let mut character = u32::MAX;
+    let status = unsafe {
+        raw::bf_physics_world_create_character(
+            world.0.as_ptr(),
+            &raw const settings,
+            &raw mut character,
+        )
+    };
+    check(status)?;
+    Ok(character)
+}
+
+pub(crate) fn destroy_character(world: WorldPtr, character: u32) -> Result<(), Status> {
+    let status = unsafe { raw::bf_physics_world_destroy_character(world.0.as_ptr(), character) };
+    check(status)
+}
+
+pub(crate) fn set_character_linear_velocity(
+    world: WorldPtr,
+    character: u32,
+    velocity: Vec3A,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_set_character_linear_velocity(
+            world.0.as_ptr(),
+            character,
+            raw_vec(velocity),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn refresh_character_ground_state(
+    world: WorldPtr,
+    character: u32,
+    max_separation_distance: f32,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_physics_world_refresh_character_ground_state(
+            world.0.as_ptr(),
+            character,
+            max_separation_distance,
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn character_state(
+    world: WorldPtr,
+    character: u32,
+) -> Result<raw::BFPhysicsCharacterState, Status> {
+    let mut state = raw::BFPhysicsCharacterState::default();
+    let status = unsafe {
+        raw::bf_physics_world_character_state(world.0.as_ptr(), character, &raw mut state)
+    };
+    check(status)?;
+    Ok(state)
+}
+
+pub(crate) fn contact_events(world: WorldPtr) -> Result<Vec<RawContactEvent>, Status> {
+    let mut count = 0;
+    let status =
+        unsafe { raw::bf_physics_world_contact_event_count(world.0.as_ptr(), &raw mut count) };
+    check(status)?;
+    let capacity = usize::try_from(count).map_err(|_error| Status::ContractViolation)?;
+    let mut events = Vec::with_capacity(capacity);
+    for event_index in 0..count {
+        events.push(contact_event(world, event_index)?);
+    }
+    Ok(events)
+}
+
+fn contact_event(world: WorldPtr, event_index: u32) -> Result<RawContactEvent, Status> {
+    let mut event = raw::BFPhysicsContactEvent::default();
+    let status = unsafe {
+        raw::bf_physics_world_contact_event(world.0.as_ptr(), event_index, &raw mut event)
+    };
+    check(status)?;
+    let capacity =
+        usize::try_from(event.point_count).map_err(|_error| Status::ContractViolation)?;
+    let mut points = Vec::with_capacity(capacity);
+    for point_index in 0..event.point_count {
+        points.push(contact_point(world, event_index, point_index)?);
+    }
+    Ok(RawContactEvent { event, points })
+}
+
+fn contact_point(
+    world: WorldPtr,
+    event_index: u32,
+    point_index: u32,
+) -> Result<raw::BFPhysicsContactPoint, Status> {
+    let mut point = raw::BFPhysicsContactPoint::default();
+    let status = unsafe {
+        raw::bf_physics_world_contact_point(
+            world.0.as_ptr(),
+            event_index,
+            point_index,
+            &raw mut point,
+        )
+    };
+    check(status)?;
+    Ok(point)
 }
 
 pub(crate) fn optimize_broad_phase(world: WorldPtr) {
@@ -197,6 +430,8 @@ fn check(status: i32) -> Result<(), Status> {
         raw::BF_PHYSICS_STATUS_INITIALIZATION_FAILED => Err(Status::InitializationFailed),
         raw::BF_PHYSICS_STATUS_BODY_CAPACITY_EXHAUSTED => Err(Status::BodyCapacityExhausted),
         raw::BF_PHYSICS_STATUS_BODY_NOT_FOUND => Err(Status::BodyNotFound),
+        raw::BF_PHYSICS_STATUS_CHARACTER_NOT_FOUND => Err(Status::CharacterNotFound),
+        raw::BF_PHYSICS_STATUS_BODY_OWNED_BY_CHARACTER => Err(Status::BodyOwnedByCharacter),
         _ => Err(Status::ContractViolation),
     }
 }
@@ -209,6 +444,19 @@ fn raw_vec(value: Vec3A) -> raw::BFPhysicsVec3 {
     }
 }
 
-fn safe_vec(value: raw::BFPhysicsVec3) -> Vec3A {
+pub(crate) fn safe_vec(value: raw::BFPhysicsVec3) -> Vec3A {
     Vec3A::new(value.x, value.y, value.z)
+}
+
+fn raw_quat(value: Quat) -> raw::BFPhysicsQuat {
+    raw::BFPhysicsQuat {
+        x: value.x,
+        y: value.y,
+        z: value.z,
+        w: value.w,
+    }
+}
+
+pub(crate) fn safe_quat(value: raw::BFPhysicsQuat) -> Quat {
+    Quat::from_xyzw(value.x, value.y, value.z, value.w)
 }
