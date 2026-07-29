@@ -18,6 +18,7 @@ members = [
     "crates/blackflower-presentation",
     "crates/blackflower-rendering",
     "crates/blackflower-rendering-volumes",
+    "crates/blackflower-replication",
     "crates/blackflower-scripting",
     "crates/blackflower-simulation",
 ]
@@ -44,6 +45,7 @@ blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
+blackflower-replication = { path = "crates/blackflower-replication" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
 

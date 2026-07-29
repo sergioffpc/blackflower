@@ -217,6 +217,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-replication"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-scripting"
 version = "0.1.0"
 dependencies = [
