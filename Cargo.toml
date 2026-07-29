@@ -7,6 +7,7 @@ members = [
     "crates/blackflower-animation",
     "crates/blackflower-audio",
     "crates/blackflower-ecs",
+    "crates/blackflower-navigation",
     "crates/blackflower-observability",
     "crates/blackflower-physics",
     "crates/blackflower-prediction",
@@ -26,6 +27,7 @@ blackflower-animation = { path = "crates/blackflower-animation" }
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
+blackflower-navigation = { path = "crates/blackflower-navigation" }
 blackflower-observability = { path = "crates/blackflower-observability" }
 blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-prediction = { path = "crates/blackflower-prediction" }
