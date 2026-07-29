@@ -14,7 +14,7 @@ Every predicted tick uses the same `PredictionPipeline` in either
    dynamics;
 5. `DeriveStateTransitions` derives speculative state transitions;
 6. `CommitStateTransitions` commits accepted transitions once;
-7. `SealSimulationTick` seals and validates the completed predicted tick;
+7. `SealTick` seals and validates the completed predicted tick;
 8. `SubmitTickOutputs` submits outputs, suppressing duplicate external effects
    during re-simulation.
 

@@ -10,6 +10,7 @@
 mod history;
 mod pipeline;
 mod reconciliation;
+mod systems;
 mod telemetry;
 mod types;
 mod world;
@@ -19,6 +20,11 @@ pub use pipeline::{PredictionPhase, PredictionPhases, PredictionPipeline};
 pub use reconciliation::{
     AuthoritativeSnapshot, HardResyncReason, ReconciliationCoordinator, ReconciliationDriver,
     ReconciliationError, ReconciliationOutcome,
+};
+pub use systems::{
+    CaptureTickInputsSystem, CommitStateTransitionsSystem, DeriveActorActionsSystem,
+    DeriveStateTransitionsSystem, PrepareTickSystem, SealTickSystem, SolveRigidBodyDynamicsSystem,
+    SubmitTickOutputsSystem,
 };
 pub use types::{InputSequence, PredictionPass, PredictionTick};
 pub use world::{

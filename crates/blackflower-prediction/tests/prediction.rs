@@ -5,10 +5,13 @@ use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{Component, ComponentId, EntityId, Read, TickDelta, World, Write};
 use blackflower_prediction::{
-    AuthoritativeSnapshot, HardResyncReason, HistoryError, InputFrame, InputHistory, InputSequence,
-    PREDICTION_TICK_DELTA_SECONDS, PredictionError, PredictionExecution, PredictionHistory,
-    PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick, PredictionWorld,
-    ReconciliationCoordinator, ReconciliationDriver, ReconciliationOutcome,
+    AuthoritativeSnapshot, CaptureTickInputsSystem, CommitStateTransitionsSystem,
+    DeriveActorActionsSystem, DeriveStateTransitionsSystem, HardResyncReason, HistoryError,
+    InputFrame, InputHistory, InputSequence, PREDICTION_TICK_DELTA_SECONDS, PredictionError,
+    PredictionExecution, PredictionHistory, PredictionPass, PredictionPhase, PredictionPipeline,
+    PredictionTick, PredictionWorld, PrepareTickSystem, ReconciliationCoordinator,
+    ReconciliationDriver, ReconciliationOutcome, SealTickSystem, SolveRigidBodyDynamicsSystem,
+    SubmitTickOutputsSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -37,8 +40,105 @@ fn phase_names_are_stable() {
             "SolveRigidBodyDynamics",
             "DeriveStateTransitions",
             "CommitStateTransitions",
-            "SealSimulationTick",
+            "SealTick",
             "SubmitTickOutputs",
+        ]
+    );
+}
+
+#[test]
+fn prepare_tick_system_names_are_stable() {
+    assert_eq!(
+        PrepareTickSystem::ORDER.map(PrepareTickSystem::name),
+        ["OpenTick", "ActivateScheduledCommits"]
+    );
+}
+
+#[test]
+fn capture_tick_inputs_system_names_are_stable() {
+    assert_eq!(
+        CaptureTickInputsSystem::ORDER.map(CaptureTickInputsSystem::name),
+        ["CaptureActorControlFrames"]
+    );
+}
+
+#[test]
+fn derive_actor_actions_system_names_are_stable() {
+    assert_eq!(
+        DeriveActorActionsSystem::ORDER.map(DeriveActorActionsSystem::name),
+        [
+            "DeriveLocomotionActions",
+            "DeriveWeaponActions",
+            "DeriveInteractionActions",
+        ]
+    );
+}
+
+#[test]
+fn solve_rigid_body_dynamics_system_names_are_stable() {
+    assert_eq!(
+        SolveRigidBodyDynamicsSystem::ORDER.map(SolveRigidBodyDynamicsSystem::name),
+        [
+            "ApplyCharacterControllerInputs",
+            "ApplyRigidBodyInputs",
+            "AdvanceRigidBodyWorld",
+            "RefreshCharacterGroundState",
+            "CaptureRigidBodyState",
+            "CaptureCharacterState",
+            "CaptureContactFacts",
+        ]
+    );
+}
+
+#[test]
+fn derive_state_transitions_system_names_are_stable() {
+    assert_eq!(
+        DeriveStateTransitionsSystem::ORDER.map(DeriveStateTransitionsSystem::name),
+        [
+            "DeriveActorConditionTransitions",
+            "DeriveWeaponStateTransitions",
+            "DeriveInventoryStateTransitions",
+            "DeriveWorldObjectStateTransitions",
+            "CanonicalizeTransitionCandidates",
+        ]
+    );
+}
+
+#[test]
+fn commit_state_transitions_system_names_are_stable() {
+    assert_eq!(
+        CommitStateTransitionsSystem::ORDER.map(CommitStateTransitionsSystem::name),
+        [
+            "EvaluateTransitionPreconditions",
+            "ResolveTransitionConflicts",
+            "BuildTransitionCommit",
+            "ValidateTransitionCommit",
+            "CommitAcceptedTransitions",
+            "CaptureCommittedTransitions",
+        ]
+    );
+}
+
+#[test]
+fn seal_tick_system_names_are_stable() {
+    assert_eq!(
+        SealTickSystem::ORDER.map(SealTickSystem::name),
+        [
+            "ValidatePredictedState",
+            "ComputePredictedStateHash",
+            "SealPredictedState",
+        ]
+    );
+}
+
+#[test]
+fn submit_tick_outputs_system_names_are_stable() {
+    assert_eq!(
+        SubmitTickOutputsSystem::ORDER.map(SubmitTickOutputsSystem::name),
+        [
+            "BuildTickOutputBatch",
+            "SuppressResimulationEffects",
+            "SubmitTickOutputBatch",
         ]
     );
 }
