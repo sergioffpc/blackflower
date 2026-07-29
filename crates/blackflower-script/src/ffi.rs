@@ -37,6 +37,22 @@ pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/luau_bindings.rs"));
 }
 
+trait MatchesCInt {
+    fn matches_c_int(self, value: i32) -> bool;
+}
+
+impl MatchesCInt for i32 {
+    fn matches_c_int(self, value: i32) -> bool {
+        self == value
+    }
+}
+
+impl MatchesCInt for u32 {
+    fn matches_c_int(self, value: i32) -> bool {
+        u32::try_from(value).is_ok_and(|value| self == value)
+    }
+}
+
 pub(crate) fn luau_version() -> (u32, u32, u32) {
     let version = unsafe { raw::bf_script_luau_version() };
     (version.major, version.minor, version.patch)
@@ -72,16 +88,16 @@ pub(crate) fn compile(source: &str, options: CompileOptions) -> Result<Vec<u8>, 
 
 fn check_compile_status(status: i32) -> Result<(), Error> {
     match status {
-        value if value == raw::BF_SCRIPT_STATUS_OK.cast_signed() => Ok(()),
-        value if value == raw::BF_SCRIPT_STATUS_OUT_OF_MEMORY.cast_signed() => {
+        value if raw::BF_SCRIPT_STATUS_OK.matches_c_int(value) => Ok(()),
+        value if raw::BF_SCRIPT_STATUS_OUT_OF_MEMORY.matches_c_int(value) => {
             Err(Error::OutOfMemory)
         }
-        value if value == raw::BF_SCRIPT_STATUS_COMPILER_FAILED.cast_signed() => {
+        value if raw::BF_SCRIPT_STATUS_COMPILER_FAILED.matches_c_int(value) => {
             Err(Error::CompilerFailure)
         }
         value
-            if value == raw::BF_SCRIPT_STATUS_NULL_POINTER.cast_signed()
-                || value == raw::BF_SCRIPT_STATUS_INVALID_ARGUMENT.cast_signed() =>
+            if raw::BF_SCRIPT_STATUS_NULL_POINTER.matches_c_int(value)
+                || raw::BF_SCRIPT_STATUS_INVALID_ARGUMENT.matches_c_int(value) =>
         {
             Err(Error::NativeContract)
         }
@@ -96,12 +112,12 @@ impl State {
         let pointer = NonNull::new(unsafe { raw::luaL_newstate() }).ok_or(Error::OutOfMemory)?;
         let state = Self(pointer);
         let status = unsafe { raw::bf_script_initialize(state.pointer(), random_seed) };
-        if status == raw::lua_Status_LUA_OK.cast_signed() {
+        if raw::lua_Status_LUA_OK.matches_c_int(status) {
             return Ok(state);
         }
 
         let message = state.error_message(-1);
-        if status == raw::lua_Status_LUA_ERRMEM.cast_signed() {
+        if raw::lua_Status_LUA_ERRMEM.matches_c_int(status) {
             Err(Error::OutOfMemory)
         } else {
             Err(Error::Initialization(message))
@@ -123,8 +139,8 @@ impl State {
                 0,
             )
         };
-        if load_status != raw::lua_Status_LUA_OK.cast_signed() {
-            let error = if load_status == raw::lua_Status_LUA_ERRMEM.cast_signed() {
+        if !raw::lua_Status_LUA_OK.matches_c_int(load_status) {
+            let error = if raw::lua_Status_LUA_ERRMEM.matches_c_int(load_status) {
                 Error::OutOfMemory
             } else {
                 Error::Compile(self.error_message(-1))
@@ -134,8 +150,8 @@ impl State {
         }
 
         let call_status = unsafe { raw::lua_pcall(self.pointer(), 0, raw::LUA_MULTRET, 0) };
-        if call_status != raw::lua_Status_LUA_OK.cast_signed() {
-            let error = if call_status == raw::lua_Status_LUA_ERRMEM.cast_signed() {
+        if !raw::lua_Status_LUA_OK.matches_c_int(call_status) {
+            let error = if raw::lua_Status_LUA_ERRMEM.matches_c_int(call_status) {
                 Error::OutOfMemory
             } else {
                 Error::Runtime(self.error_message(-1))
@@ -168,16 +184,14 @@ impl State {
     fn read_value(&self, stack_index: i32, result_index: usize) -> Result<Value, Error> {
         let value_type = unsafe { raw::lua_type(self.pointer(), stack_index) };
         match value_type {
-            value if value == raw::lua_Type_LUA_TNIL.cast_signed() => Ok(Value::Nil),
-            value if value == raw::lua_Type_LUA_TBOOLEAN.cast_signed() => Ok(Value::Boolean(
+            value if raw::lua_Type_LUA_TNIL.matches_c_int(value) => Ok(Value::Nil),
+            value if raw::lua_Type_LUA_TBOOLEAN.matches_c_int(value) => Ok(Value::Boolean(
                 unsafe { raw::lua_toboolean(self.pointer(), stack_index) } != 0,
             )),
-            value if value == raw::lua_Type_LUA_TNUMBER.cast_signed() => {
-                Ok(Value::Number(unsafe {
-                    raw::lua_tonumberx(self.pointer(), stack_index, std::ptr::null_mut())
-                }))
-            }
-            value if value == raw::lua_Type_LUA_TINTEGER.cast_signed() => {
+            value if raw::lua_Type_LUA_TNUMBER.matches_c_int(value) => Ok(Value::Number(unsafe {
+                raw::lua_tonumberx(self.pointer(), stack_index, std::ptr::null_mut())
+            })),
+            value if raw::lua_Type_LUA_TINTEGER.matches_c_int(value) => {
                 let mut is_integer = 0;
                 let integer = unsafe {
                     raw::lua_tointeger64(self.pointer(), stack_index, &raw mut is_integer)
@@ -188,10 +202,10 @@ impl State {
                     Ok(Value::Integer(integer))
                 }
             }
-            value if value == raw::lua_Type_LUA_TSTRING.cast_signed() => {
+            value if raw::lua_Type_LUA_TSTRING.matches_c_int(value) => {
                 self.read_string(stack_index).map(Value::String)
             }
-            value if value == raw::lua_Type_LUA_TVECTOR.cast_signed() => {
+            value if raw::lua_Type_LUA_TVECTOR.matches_c_int(value) => {
                 let pointer = NonNull::new(
                     unsafe { raw::lua_tovector(self.pointer(), stack_index) }.cast_mut(),
                 )
