@@ -182,7 +182,9 @@ fn base_config(source: &Path, output: &Path, profile: &str) -> cmake::Config {
         .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
     if env::var_os("CARGO_CFG_TARGET_ENV").as_deref() == Some(OsStr::new("msvc")) {
-        config.define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime());
+        config
+            .cxxflag("/EHsc")
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime());
     }
     config
 }
@@ -371,6 +373,7 @@ fn patch_steam_audio_linux_abi(source: &Path) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    fs::remove_file(&cmake_path)?;
     fs::write(cmake_path, contents.replacen(LEGACY_ABI_OPTION, "", 1))?;
     Ok(())
 }
