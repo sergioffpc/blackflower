@@ -16,3 +16,6 @@
 [submodule "crates/blackflower-render/vendor/openvdb"]
 	path = crates/blackflower-render/vendor/openvdb
 	url = https://github.com/AcademySoftwareFoundation/openvdb.git
+[submodule "crates/blackflower-script/vendor/luau"]
+	path = crates/blackflower-script/vendor/luau
+	url = https://github.com/luau-lang/luau.git
