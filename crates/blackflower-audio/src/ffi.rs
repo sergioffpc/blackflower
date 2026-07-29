@@ -1,7 +1,7 @@
 #![allow(
     unsafe_code,
     unsafe_op_in_unsafe_fn,
-    reason = "all raw Steam Audio calls and dynamic-library loading are isolated in this private module"
+    reason = "all raw calls into the statically linked Steam Audio C API are isolated in this private module"
 )]
 #![allow(
     clippy::multiple_unsafe_ops_per_block,
@@ -9,9 +9,7 @@
     reason = "all unsafe operations are confined to the reviewed Steam Audio FFI boundary"
 )]
 
-use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::sync::Arc;
 
 use glam::Vec3A;
 
@@ -49,9 +47,6 @@ pub(crate) enum Status {
     ContractViolation,
 }
 
-#[derive(Clone)]
-pub(crate) struct Api(Arc<raw::SteamAudioApi>);
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContextPtr(NonNull<raw::_IPLContext_t>);
 
@@ -69,38 +64,7 @@ unsafe impl Send for HrtfPtr {}
 unsafe impl Sync for HrtfPtr {}
 unsafe impl Send for BinauralEffectPtr {}
 
-pub(crate) fn default_library_path() -> PathBuf {
-    std::env::var_os("BLACKFLOWER_STEAM_AUDIO_LIBRARY")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(platform_library_name()))
-}
-
-pub(crate) fn load(path: &Path) -> Result<Api, libloading::Error> {
-    let api = unsafe { raw::SteamAudioApi::new(path) }?;
-    Ok(Api(Arc::new(api)))
-}
-
-#[cfg(target_os = "linux")]
-const fn platform_library_name() -> &'static str {
-    "libphonon.so"
-}
-
-#[cfg(target_os = "macos")]
-const fn platform_library_name() -> &'static str {
-    "libphonon.dylib"
-}
-
-#[cfg(target_os = "windows")]
-const fn platform_library_name() -> &'static str {
-    "phonon.dll"
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-const fn platform_library_name() -> &'static str {
-    "phonon"
-}
-
-pub(crate) fn create_context(api: &Api) -> Result<ContextPtr, Status> {
+pub(crate) fn create_context() -> Result<ContextPtr, Status> {
     let mut settings = raw::IPLContextSettings {
         version: STEAM_AUDIO_VERSION_PACKED,
         logCallback: None,
@@ -110,20 +74,19 @@ pub(crate) fn create_context(api: &Api) -> Result<ContextPtr, Status> {
         flags: 0,
     };
     let mut pointer = std::ptr::null_mut();
-    let status = unsafe { api.0.iplContextCreate(&raw mut settings, &raw mut pointer) };
+    let status = unsafe { raw::iplContextCreate(&raw mut settings, &raw mut pointer) };
     check(status)?;
     NonNull::new(pointer)
         .map(ContextPtr)
         .ok_or(Status::ContractViolation)
 }
 
-pub(crate) fn destroy_context(api: &Api, context: ContextPtr) {
+pub(crate) fn destroy_context(context: ContextPtr) {
     let mut pointer = context.0.as_ptr();
-    unsafe { api.0.iplContextRelease(&raw mut pointer) };
+    unsafe { raw::iplContextRelease(&raw mut pointer) };
 }
 
 pub(crate) fn create_default_hrtf(
-    api: &Api,
     context: ContextPtr,
     audio: AudioSettings,
 ) -> Result<HrtfPtr, Status> {
@@ -138,7 +101,7 @@ pub(crate) fn create_default_hrtf(
     };
     let mut pointer = std::ptr::null_mut();
     let status = unsafe {
-        api.0.iplHRTFCreate(
+        raw::iplHRTFCreate(
             context.0.as_ptr(),
             &raw mut audio,
             &raw mut settings,
@@ -151,13 +114,12 @@ pub(crate) fn create_default_hrtf(
         .ok_or(Status::ContractViolation)
 }
 
-pub(crate) fn destroy_hrtf(api: &Api, hrtf: HrtfPtr) {
+pub(crate) fn destroy_hrtf(hrtf: HrtfPtr) {
     let mut pointer = hrtf.0.as_ptr();
-    unsafe { api.0.iplHRTFRelease(&raw mut pointer) };
+    unsafe { raw::iplHRTFRelease(&raw mut pointer) };
 }
 
 pub(crate) fn create_binaural_effect(
-    api: &Api,
     context: ContextPtr,
     hrtf: HrtfPtr,
     audio: AudioSettings,
@@ -168,7 +130,7 @@ pub(crate) fn create_binaural_effect(
     };
     let mut pointer = std::ptr::null_mut();
     let status = unsafe {
-        api.0.iplBinauralEffectCreate(
+        raw::iplBinauralEffectCreate(
             context.0.as_ptr(),
             &raw mut audio,
             &raw mut settings,
@@ -181,13 +143,13 @@ pub(crate) fn create_binaural_effect(
         .ok_or(Status::ContractViolation)
 }
 
-pub(crate) fn destroy_binaural_effect(api: &Api, effect: BinauralEffectPtr) {
+pub(crate) fn destroy_binaural_effect(effect: BinauralEffectPtr) {
     let mut pointer = effect.0.as_ptr();
-    unsafe { api.0.iplBinauralEffectRelease(&raw mut pointer) };
+    unsafe { raw::iplBinauralEffectRelease(&raw mut pointer) };
 }
 
-pub(crate) fn reset_binaural_effect(api: &Api, effect: BinauralEffectPtr) {
-    unsafe { api.0.iplBinauralEffectReset(effect.0.as_ptr()) };
+pub(crate) fn reset_binaural_effect(effect: BinauralEffectPtr) {
+    unsafe { raw::iplBinauralEffectReset(effect.0.as_ptr()) };
 }
 
 #[allow(
@@ -195,7 +157,6 @@ pub(crate) fn reset_binaural_effect(api: &Api, effect: BinauralEffectPtr) {
     reason = "the private FFI adapter names each Steam Audio input and output buffer explicitly"
 )]
 pub(crate) fn apply_binaural_effect(
-    api: &Api,
     effect: BinauralEffectPtr,
     hrtf: HrtfPtr,
     audio: AudioSettings,
@@ -224,7 +185,7 @@ pub(crate) fn apply_binaural_effect(
         peakDelays: std::ptr::null_mut(),
     };
     let state = unsafe {
-        api.0.iplBinauralEffectApply(
+        raw::iplBinauralEffectApply(
             effect.0.as_ptr(),
             &raw mut effect_params,
             &raw mut input_buffer,
@@ -235,7 +196,6 @@ pub(crate) fn apply_binaural_effect(
 }
 
 pub(crate) fn get_binaural_tail(
-    api: &Api,
     effect: BinauralEffectPtr,
     audio: AudioSettings,
     output_left: &mut [f32],
@@ -247,15 +207,12 @@ pub(crate) fn get_binaural_tail(
         numSamples: audio.raw_frame_size(),
         data: output_channels.as_mut_ptr(),
     };
-    let state = unsafe {
-        api.0
-            .iplBinauralEffectGetTail(effect.0.as_ptr(), &raw mut output_buffer)
-    };
+    let state = unsafe { raw::iplBinauralEffectGetTail(effect.0.as_ptr(), &raw mut output_buffer) };
     tail_state(state)
 }
 
-pub(crate) fn binaural_tail_size(api: &Api, effect: BinauralEffectPtr) -> i32 {
-    unsafe { api.0.iplBinauralEffectGetTailSize(effect.0.as_ptr()) }
+pub(crate) fn binaural_tail_size(effect: BinauralEffectPtr) -> i32 {
+    unsafe { raw::iplBinauralEffectGetTailSize(effect.0.as_ptr()) }
 }
 
 fn raw_audio_settings(settings: AudioSettings) -> raw::IPLAudioSettings {

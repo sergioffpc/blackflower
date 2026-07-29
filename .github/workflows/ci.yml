@@ -113,6 +113,12 @@ jobs:
             os: macos-15
           - package: blackflower-animation
             os: windows-2025
+          - package: blackflower-audio
+            os: ubuntu-24.04
+          - package: blackflower-audio
+            os: macos-15
+          - package: blackflower-audio
+            os: windows-2025
           - package: blackflower-navigation
             os: ubuntu-24.04
           - package: blackflower-navigation

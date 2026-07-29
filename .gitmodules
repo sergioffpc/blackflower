@@ -7,9 +7,21 @@
 [submodule "crates/blackflower-animation/vendor/ozz-animation"]
 	path = crates/blackflower-animation/vendor/ozz-animation
 	url = https://github.com/guillaumeblanc/ozz-animation.git
+[submodule "crates/blackflower-audio/vendor/flatbuffers"]
+	path = crates/blackflower-audio/vendor/flatbuffers
+	url = https://github.com/google/flatbuffers.git
+[submodule "crates/blackflower-audio/vendor/libmysofa"]
+	path = crates/blackflower-audio/vendor/libmysofa
+	url = https://github.com/hoene/libmysofa.git
+[submodule "crates/blackflower-audio/vendor/pffft"]
+	path = crates/blackflower-audio/vendor/pffft
+	url = https://github.com/marton78/pffft.git
 [submodule "crates/blackflower-audio/vendor/steam-audio-sdk"]
 	path = crates/blackflower-audio/vendor/steam-audio-sdk
 	url = https://github.com/ValveSoftware/steam-audio.git
+[submodule "crates/blackflower-audio/vendor/zlib"]
+	path = crates/blackflower-audio/vendor/zlib
+	url = https://github.com/madler/zlib.git
 [submodule "crates/blackflower-navigation/vendor/recastnavigation"]
 	path = crates/blackflower-navigation/vendor/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git

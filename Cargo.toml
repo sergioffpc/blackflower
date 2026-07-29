@@ -44,7 +44,6 @@ bytemuck = { version = "1.25.2", default-features = false, features = ["derive"]
 cc = { version = "1.4.0", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
-libloading = { version = "0.8.9", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
