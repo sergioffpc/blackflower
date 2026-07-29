@@ -46,8 +46,9 @@ The Steam Audio stack is static, while the operating-system and C/C++ runtime
 follow the Rust target's normal policy. For example, a default macOS executable
 still uses the system `libc++` and `libSystem`; a Windows target with
 `crt-static` makes the native CMake builds use the matching static MSVC runtime.
-MSVC dependencies use CMake's `Release` configuration even for Cargo debug
-builds so they link the same non-debug CRT selected by the Rust target.
+MSVC dependencies use CMake's `RelWithDebInfo` configuration even for Cargo
+debug builds so they link the same non-debug CRT selected by the Rust target
+without enabling link-time code generation inside archives embedded by Cargo.
 
 ## Pinned source
 

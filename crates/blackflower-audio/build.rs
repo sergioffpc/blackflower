@@ -72,7 +72,7 @@ fn require_path(path: &Path) -> Result<(), Box<dyn Error>> {
 
 fn native_profile() -> &'static str {
     if env::var_os("CARGO_CFG_TARGET_ENV").as_deref() == Some(OsStr::new("msvc")) {
-        "Release"
+        "RelWithDebInfo"
     } else if env::var_os("DEBUG").as_deref() == Some(OsStr::new("true")) {
         "Debug"
     } else {
