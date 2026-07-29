@@ -54,20 +54,20 @@ impl MatchesCInt for u32 {
 }
 
 pub(crate) fn luau_version() -> (u32, u32, u32) {
-    let version = unsafe { raw::bf_script_luau_version() };
+    let version = unsafe { raw::bf_scripting_luau_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn compile(source: &str, options: CompileOptions) -> Result<Vec<u8>, Error> {
-    let options = raw::BFScriptCompileOptions {
+    let options = raw::BFScriptingCompileOptions {
         optimization_level: options.optimization as i32,
         debug_level: options.debug as i32,
         type_info_level: options.type_info as i32,
         coverage_level: options.coverage as i32,
     };
-    let mut bytecode = raw::BFScriptBytecode::default();
+    let mut bytecode = raw::BFScriptingBytecode::default();
     let status = unsafe {
-        raw::bf_script_compile(
+        raw::bf_scripting_compile(
             source.as_ptr().cast(),
             source.len(),
             &raw const options,
@@ -78,11 +78,11 @@ pub(crate) fn compile(source: &str, options: CompileOptions) -> Result<Vec<u8>, 
 
     let pointer = NonNull::new(bytecode.data).ok_or(Error::NativeContract)?;
     if bytecode.size == 0 {
-        unsafe { raw::bf_script_bytecode_free(pointer.as_ptr().cast()) };
+        unsafe { raw::bf_scripting_bytecode_free(pointer.as_ptr().cast()) };
         return Err(Error::NativeContract);
     }
     let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), bytecode.size) }.to_vec();
-    unsafe { raw::bf_script_bytecode_free(pointer.as_ptr().cast()) };
+    unsafe { raw::bf_scripting_bytecode_free(pointer.as_ptr().cast()) };
     Ok(bytes)
 }
 
@@ -95,31 +95,31 @@ fn sandbox_library_mask(policy: SandboxPolicy) -> u32 {
 
 const fn raw_library_mask(library: Library) -> u32 {
     match library {
-        Library::Base => raw::BF_SCRIPT_LIBRARY_BASE,
-        Library::Coroutine => raw::BF_SCRIPT_LIBRARY_COROUTINE,
-        Library::Table => raw::BF_SCRIPT_LIBRARY_TABLE,
-        Library::String => raw::BF_SCRIPT_LIBRARY_STRING,
-        Library::Math => raw::BF_SCRIPT_LIBRARY_MATH,
-        Library::Utf8 => raw::BF_SCRIPT_LIBRARY_UTF8,
-        Library::Bit32 => raw::BF_SCRIPT_LIBRARY_BIT32,
-        Library::Buffer => raw::BF_SCRIPT_LIBRARY_BUFFER,
-        Library::Vector => raw::BF_SCRIPT_LIBRARY_VECTOR,
-        Library::Integer => raw::BF_SCRIPT_LIBRARY_INTEGER,
+        Library::Base => raw::BF_SCRIPTING_LIBRARY_BASE,
+        Library::Coroutine => raw::BF_SCRIPTING_LIBRARY_COROUTINE,
+        Library::Table => raw::BF_SCRIPTING_LIBRARY_TABLE,
+        Library::String => raw::BF_SCRIPTING_LIBRARY_STRING,
+        Library::Math => raw::BF_SCRIPTING_LIBRARY_MATH,
+        Library::Utf8 => raw::BF_SCRIPTING_LIBRARY_UTF8,
+        Library::Bit32 => raw::BF_SCRIPTING_LIBRARY_BIT32,
+        Library::Buffer => raw::BF_SCRIPTING_LIBRARY_BUFFER,
+        Library::Vector => raw::BF_SCRIPTING_LIBRARY_VECTOR,
+        Library::Integer => raw::BF_SCRIPTING_LIBRARY_INTEGER,
     }
 }
 
 fn check_compile_status(status: i32) -> Result<(), Error> {
     match status {
-        value if raw::BF_SCRIPT_STATUS_OK.matches_c_int(value) => Ok(()),
-        value if raw::BF_SCRIPT_STATUS_OUT_OF_MEMORY.matches_c_int(value) => {
+        value if raw::BF_SCRIPTING_STATUS_OK.matches_c_int(value) => Ok(()),
+        value if raw::BF_SCRIPTING_STATUS_OUT_OF_MEMORY.matches_c_int(value) => {
             Err(Error::OutOfMemory)
         }
-        value if raw::BF_SCRIPT_STATUS_COMPILER_FAILED.matches_c_int(value) => {
+        value if raw::BF_SCRIPTING_STATUS_COMPILER_FAILED.matches_c_int(value) => {
             Err(Error::CompilerFailure)
         }
         value
-            if raw::BF_SCRIPT_STATUS_NULL_POINTER.matches_c_int(value)
-                || raw::BF_SCRIPT_STATUS_INVALID_ARGUMENT.matches_c_int(value) =>
+            if raw::BF_SCRIPTING_STATUS_NULL_POINTER.matches_c_int(value)
+                || raw::BF_SCRIPTING_STATUS_INVALID_ARGUMENT.matches_c_int(value) =>
         {
             Err(Error::NativeContract)
         }
@@ -127,17 +127,18 @@ fn check_compile_status(status: i32) -> Result<(), Error> {
     }
 }
 
-pub(crate) struct State(raw::BFScriptRuntime);
+pub(crate) struct State(raw::BFScriptingRuntime);
 
 impl State {
     pub(crate) fn new(config: RuntimeConfig) -> Result<Self, Error> {
-        let mut runtime = raw::BFScriptRuntime::default();
-        let creation_status =
-            unsafe { raw::bf_script_runtime_new(config.vm_memory_limit_bytes(), &raw mut runtime) };
-        if raw::BF_SCRIPT_STATUS_OUT_OF_MEMORY.matches_c_int(creation_status) {
+        let mut runtime = raw::BFScriptingRuntime::default();
+        let creation_status = unsafe {
+            raw::bf_scripting_runtime_new(config.vm_memory_limit_bytes(), &raw mut runtime)
+        };
+        if raw::BF_SCRIPTING_STATUS_OUT_OF_MEMORY.matches_c_int(creation_status) {
             return Err(Error::OutOfMemory);
         }
-        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(creation_status) {
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(creation_status) {
             return Err(Error::NativeContract);
         }
 
@@ -146,7 +147,7 @@ impl State {
             return Err(Error::NativeContract);
         }
         let status = unsafe {
-            raw::bf_script_initialize(
+            raw::bf_scripting_initialize(
                 state.pointer(),
                 config.random_seed(),
                 sandbox_library_mask(config.sandbox_policy()),
@@ -191,19 +192,19 @@ impl State {
         }
 
         let begin_status =
-            unsafe { raw::bf_script_begin_execution(self.pointer(), execution_fuel) };
-        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(begin_status) {
+            unsafe { raw::bf_scripting_begin_execution(self.pointer(), execution_fuel) };
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(begin_status) {
             unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(Error::NativeContract);
         }
 
         let call_status = unsafe { raw::lua_pcall(self.pointer(), 0, raw::LUA_MULTRET, 0) };
-        let end_status = unsafe { raw::bf_script_end_execution(self.pointer()) };
-        if raw::BF_SCRIPT_STATUS_EXECUTION_LIMIT.matches_c_int(end_status) {
+        let end_status = unsafe { raw::bf_scripting_end_execution(self.pointer()) };
+        if raw::BF_SCRIPTING_STATUS_EXECUTION_LIMIT.matches_c_int(end_status) {
             unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(Error::ExecutionLimit);
         }
-        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(end_status) {
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(end_status) {
             unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(Error::NativeContract);
         }
@@ -223,7 +224,7 @@ impl State {
     }
 
     pub(crate) fn memory_usage(&self) -> MemoryUsage {
-        let usage = unsafe { raw::bf_script_runtime_memory_usage(&raw const self.0) };
+        let usage = unsafe { raw::bf_scripting_runtime_memory_usage(&raw const self.0) };
         MemoryUsage {
             current_bytes: usage.current_bytes,
             peak_bytes: usage.peak_bytes,
@@ -326,6 +327,6 @@ impl State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        unsafe { raw::bf_script_runtime_free(&raw mut self.0) };
+        unsafe { raw::bf_scripting_runtime_free(&raw mut self.0) };
     }
 }

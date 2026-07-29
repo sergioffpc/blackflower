@@ -131,17 +131,17 @@ jobs:
             os: macos-15
           - package: blackflower-navigation
             os: windows-2025
-          - package: blackflower-render
+          - package: blackflower-rendering-volumes
             os: ubuntu-24.04
-          - package: blackflower-render
+          - package: blackflower-rendering-volumes
             os: macos-15
-          - package: blackflower-render
+          - package: blackflower-rendering-volumes
             os: windows-2025
-          - package: blackflower-script
+          - package: blackflower-scripting
             os: ubuntu-24.04
-          - package: blackflower-script
+          - package: blackflower-scripting
             os: macos-15
-          - package: blackflower-script
+          - package: blackflower-scripting
             os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

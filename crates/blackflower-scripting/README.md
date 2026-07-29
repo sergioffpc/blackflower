@@ -1,4 +1,4 @@
-# blackflower-script
+# blackflower-scripting
 
 Safe Rust ownership over a statically linked
 [Luau 0.731](https://github.com/luau-lang/luau/releases/tag/0.731) compiler and
@@ -33,9 +33,9 @@ submodule, update the version constants in `native/CMakeLists.txt`, and commit
 the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-script/vendor/luau fetch --tags origin
-git -C crates/blackflower-script/vendor/luau checkout 0.731
-git add crates/blackflower-script/vendor/luau
+git -C crates/blackflower-scripting/vendor/luau fetch --tags origin
+git -C crates/blackflower-scripting/vendor/luau checkout 0.731
+git add crates/blackflower-scripting/vendor/luau
 ```
 
 ## Runtime API
@@ -44,11 +44,11 @@ The initial safe surface compiles source, loads bytecode, executes chunks, and
 copies primitive results out of the VM:
 
 ```rust
-use blackflower_script::{
+use blackflower_scripting::{
     Library, Runtime, RuntimeConfig, SandboxPolicy, Value,
 };
 
-# fn example() -> Result<(), blackflower_script::Error> {
+# fn example() -> Result<(), blackflower_scripting::Error> {
 let libraries = SandboxPolicy::standard()
     .with_library(Library::Coroutine, false)
     .with_library(Library::Buffer, false);

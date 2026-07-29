@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-struct BFRenderNanoVdb {
+struct BFRenderingVolumesNanoVdb {
     std::vector<nanovdb::GridHandle<nanovdb::HostBuffer>> handles;
     std::vector<const nanovdb::GridData *> grids;
 };
@@ -110,7 +110,7 @@ static_assert(std::is_trivially_copyable_v<RawFileMetadata>);
 
 #define BF_ASSERT_GRID_TYPE(name, upstream)                                      \
     static_assert(                                                              \
-        BF_RENDER_NANOVDB_GRID_TYPE_##name ==                                   \
+        BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_##name ==                                   \
         static_cast<std::uint32_t>(nanovdb::GridType::upstream))
 
 BF_ASSERT_GRID_TYPE(UNKNOWN, Unknown);
@@ -143,7 +143,7 @@ BF_ASSERT_GRID_TYPE(UINT8, UInt8);
 
 #define BF_ASSERT_GRID_CLASS(name, upstream)                                    \
     static_assert(                                                              \
-        BF_RENDER_NANOVDB_GRID_CLASS_##name ==                                  \
+        BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_##name ==                                  \
         static_cast<std::uint32_t>(nanovdb::GridClass::upstream))
 
 BF_ASSERT_GRID_CLASS(UNKNOWN, Unknown);
@@ -245,7 +245,7 @@ std::int32_t preflight_raw(const std::uint8_t *data, std::size_t size)
     while (offset < size) {
         RawGridHeader header{};
         if (!preflight_grid(data, size, offset, nullptr, &header)) {
-            return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         if (offset == 0) {
             grid_count = header.grid_count;
@@ -253,14 +253,14 @@ std::int32_t preflight_raw(const std::uint8_t *data, std::size_t size)
         if (header.grid_count != grid_count ||
             header.grid_index != grid_index ||
             header.grid_index >= grid_count) {
-            return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         offset += static_cast<std::size_t>(header.grid_size);
         ++grid_index;
     }
     return offset == size && grid_index == grid_count
-        ? BF_RENDER_NANOVDB_STATUS_OK
-        : BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+        ? BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK
+        : BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
 }
 
 std::int32_t preflight_file(const std::uint8_t *data, std::size_t size)
@@ -273,11 +273,11 @@ std::int32_t preflight_file(const std::uint8_t *data, std::size_t size)
              header.magic != NANOVDB_MAGIC_NUMB) ||
             !is_compatible_version(header.version) ||
             header.grid_count == 0) {
-            return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         if (header.codec !=
             static_cast<std::uint16_t>(nanovdb::io::Codec::NONE)) {
-            return BF_RENDER_NANOVDB_STATUS_UNSUPPORTED_COMPRESSION;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_UNSUPPORTED_COMPRESSION;
         }
         offset += sizeof(header);
 
@@ -286,7 +286,7 @@ std::int32_t preflight_file(const std::uint8_t *data, std::size_t size)
         for (std::uint16_t index = 0; index < header.grid_count; ++index) {
             RawFileMetadata grid{};
             if (!read_pod(data, size, offset, &grid)) {
-                return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+                return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
             }
             offset += sizeof(grid);
             if (!is_compatible_version(grid.version) ||
@@ -297,7 +297,7 @@ std::int32_t preflight_file(const std::uint8_t *data, std::size_t size)
                 !is_valid_grid_kind(grid.grid_type, grid.grid_class) ||
                 !range_fits(offset, grid.name_size, size) ||
                 data[offset + grid.name_size - 1] != '\0') {
-                return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+                return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
             }
             offset += grid.name_size;
             metadata.push_back(grid);
@@ -306,20 +306,20 @@ std::int32_t preflight_file(const std::uint8_t *data, std::size_t size)
         for (const RawFileMetadata &grid : metadata) {
             RawGridHeader grid_header{};
             if (!preflight_grid(data, size, offset, &grid, &grid_header)) {
-                return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+                return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
             }
             offset += static_cast<std::size_t>(grid.file_size);
         }
     }
-    return offset == size ? BF_RENDER_NANOVDB_STATUS_OK
-                          : BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+    return offset == size ? BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK
+                          : BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
 }
 
 std::int32_t preflight(const std::uint8_t *data, std::size_t size)
 {
     std::uint64_t magic = 0;
     if (!read_pod(data, size, 0, &magic)) {
-        return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
     }
     if (magic == NANOVDB_MAGIC_GRID) {
         return preflight_raw(data, size);
@@ -327,11 +327,11 @@ std::int32_t preflight(const std::uint8_t *data, std::size_t size)
     if (magic == NANOVDB_MAGIC_FILE || magic == NANOVDB_MAGIC_NUMB) {
         return preflight_file(data, size);
     }
-    return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
 }
 
 const nanovdb::GridData *find_grid(
-    const BFRenderNanoVdb *handle,
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index)
 {
     if (handle == nullptr || grid_index >= handle->grids.size()) {
@@ -340,17 +340,17 @@ const nanovdb::GridData *find_grid(
     return handle->grids[grid_index];
 }
 
-BFRenderNanoVdbVec3d to_native_vec(const nanovdb::Vec3d &value)
+BFRenderingVolumesNanoVdbVec3d to_native_vec(const nanovdb::Vec3d &value)
 {
     return {value[0], value[1], value[2]};
 }
 
-nanovdb::Vec3d to_nanovdb_vec(BFRenderNanoVdbVec3d value)
+nanovdb::Vec3d to_nanovdb_vec(BFRenderingVolumesNanoVdbVec3d value)
 {
     return {value.x, value.y, value.z};
 }
 
-BFRenderNanoVdbCoord to_native_coord(const nanovdb::Coord &value)
+BFRenderingVolumesNanoVdbCoord to_native_coord(const nanovdb::Coord &value)
 {
     return {value[0], value[1], value[2]};
 }
@@ -358,7 +358,7 @@ BFRenderNanoVdbCoord to_native_coord(const nanovdb::Coord &value)
 template <typename BuildT>
 std::int32_t float_voxel(
     const nanovdb::GridData *grid_data,
-    BFRenderNanoVdbCoord coordinate,
+    BFRenderingVolumesNanoVdbCoord coordinate,
     float *out_value,
     std::uint8_t *out_active)
 {
@@ -368,13 +368,13 @@ std::int32_t float_voxel(
     const nanovdb::Coord index(coordinate.x, coordinate.y, coordinate.z);
     *out_value = accessor.getValue(index);
     *out_active = accessor.isActive(index) ? 1 : 0;
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
 template <typename BuildT>
 std::int32_t sample_float_world(
     const nanovdb::GridData *grid_data,
-    BFRenderNanoVdbVec3d position,
+    BFRenderingVolumesNanoVdbVec3d position,
     float *out_value)
 {
     const auto *grid =
@@ -383,7 +383,7 @@ std::int32_t sample_float_world(
     const nanovdb::math::SampleFromVoxels<decltype(accessor), 1, false> sampler(
         accessor);
     *out_value = sampler(grid->worldToIndex(to_nanovdb_vec(position)));
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
 template <typename Operation, typename... Arguments>
@@ -414,7 +414,7 @@ std::int32_t dispatch_float_grid(
             grid,
             std::forward<Arguments>(arguments)...);
     default:
-        return BF_RENDER_NANOVDB_STATUS_TYPE_MISMATCH;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_TYPE_MISMATCH;
     }
 }
 
@@ -422,7 +422,7 @@ struct FloatVoxelOperation {
     template <typename BuildT>
     std::int32_t operator()(
         const nanovdb::GridData *grid,
-        BFRenderNanoVdbCoord coordinate,
+        BFRenderingVolumesNanoVdbCoord coordinate,
         float *out_value,
         std::uint8_t *out_active) const
     {
@@ -434,7 +434,7 @@ struct SampleFloatOperation {
     template <typename BuildT>
     std::int32_t operator()(
         const nanovdb::GridData *grid,
-        BFRenderNanoVdbVec3d position,
+        BFRenderingVolumesNanoVdbVec3d position,
         float *out_value) const
     {
         return sample_float_world<BuildT>(grid, position, out_value);
@@ -443,7 +443,7 @@ struct SampleFloatOperation {
 
 } // namespace
 
-extern "C" BFRenderNanoVdbVersion bf_render_openvdb_version(void)
+extern "C" BFRenderingVolumesNanoVdbVersion bf_rendering_volumes_openvdb_version(void)
 {
     return {
         BF_OPENVDB_VERSION_MAJOR,
@@ -452,7 +452,7 @@ extern "C" BFRenderNanoVdbVersion bf_render_openvdb_version(void)
     };
 }
 
-extern "C" BFRenderNanoVdbVersion bf_render_nanovdb_version(void)
+extern "C" BFRenderingVolumesNanoVdbVersion bf_rendering_volumes_nanovdb_version(void)
 {
     return {
         NANOVDB_MAJOR_VERSION_NUMBER,
@@ -461,25 +461,25 @@ extern "C" BFRenderNanoVdbVersion bf_render_nanovdb_version(void)
     };
 }
 
-extern "C" std::int32_t bf_render_nanovdb_load(
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_load(
     const std::uint8_t *data,
     std::size_t size,
-    BFRenderNanoVdb **out_handle)
+    BFRenderingVolumesNanoVdb **out_handle)
 {
     if (out_handle == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     *out_handle = nullptr;
     if (data == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     if (size == 0) {
-        return BF_RENDER_NANOVDB_STATUS_INVALID_ARGUMENT;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ARGUMENT;
     }
 
     try {
         const std::int32_t preflight_status = preflight(data, size);
-        if (preflight_status != BF_RENDER_NANOVDB_STATUS_OK) {
+        if (preflight_status != BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK) {
             return preflight_status;
         }
 
@@ -487,18 +487,18 @@ extern "C" std::int32_t bf_render_nanovdb_load(
         std::istringstream stream(bytes, std::ios::in | std::ios::binary);
         auto handles = nanovdb::io::readGrids(stream);
         if (handles.empty()) {
-            return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         for (const auto &handle : handles) {
             if (!nanovdb::tools::validateGrids(
                     handle,
                     nanovdb::CheckMode::Half,
                     false)) {
-                return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+                return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
             }
         }
 
-        auto owner = std::make_unique<BFRenderNanoVdb>();
+        auto owner = std::make_unique<BFRenderingVolumesNanoVdb>();
         owner->handles = std::move(handles);
         std::size_t grid_count = 0;
         for (const auto &handle : owner->handles) {
@@ -506,7 +506,7 @@ extern "C" std::int32_t bf_render_nanovdb_load(
         }
         if (grid_count == 0 ||
             grid_count > std::numeric_limits<std::uint32_t>::max()) {
-            return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+            return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         owner->grids.reserve(grid_count);
         for (const auto &handle : owner->handles) {
@@ -515,56 +515,56 @@ extern "C" std::int32_t bf_render_nanovdb_load(
             }
         }
         *out_handle = owner.release();
-        return BF_RENDER_NANOVDB_STATUS_OK;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
     } catch (const std::bad_alloc &) {
-        return BF_RENDER_NANOVDB_STATUS_OUT_OF_MEMORY;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OUT_OF_MEMORY;
     } catch (const std::exception &) {
-        return BF_RENDER_NANOVDB_STATUS_INVALID_ASSET;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
     } catch (...) {
-        return BF_RENDER_NANOVDB_STATUS_NATIVE_FAILURE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NATIVE_FAILURE;
     }
 }
 
-extern "C" void bf_render_nanovdb_destroy(BFRenderNanoVdb *handle)
+extern "C" void bf_rendering_volumes_nanovdb_destroy(BFRenderingVolumesNanoVdb *handle)
 {
     delete handle;
 }
 
-extern "C" std::uint32_t bf_render_nanovdb_grid_count(
-    const BFRenderNanoVdb *handle)
+extern "C" std::uint32_t bf_rendering_volumes_nanovdb_grid_count(
+    const BFRenderingVolumesNanoVdb *handle)
 {
     return handle == nullptr ? 0 : static_cast<std::uint32_t>(handle->grids.size());
 }
 
-extern "C" std::int32_t bf_render_nanovdb_grid_name(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_grid_name(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
     const char **out_name,
     std::size_t *out_length)
 {
     if (handle == nullptr || out_name == nullptr || out_length == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
     *out_name = grid->gridName();
     *out_length = std::strlen(*out_name);
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
-extern "C" std::int32_t bf_render_nanovdb_grid_info(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_grid_info(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
-    BFRenderNanoVdbGridInfo *out_info)
+    BFRenderingVolumesNanoVdbGridInfo *out_info)
 {
     if (handle == nullptr || out_info == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
 
     const nanovdb::GridMetaData metadata(grid);
@@ -582,57 +582,57 @@ extern "C" std::int32_t bf_render_nanovdb_grid_info(
         to_native_vec(metadata.voxelSize()),
         metadata.isEmpty() ? std::uint8_t{1} : std::uint8_t{0},
     };
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
-extern "C" std::int32_t bf_render_nanovdb_index_to_world(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_index_to_world(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
-    BFRenderNanoVdbVec3d position,
-    BFRenderNanoVdbVec3d *out_position)
+    BFRenderingVolumesNanoVdbVec3d position,
+    BFRenderingVolumesNanoVdbVec3d *out_position)
 {
     if (handle == nullptr || out_position == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
     *out_position = to_native_vec(grid->applyMap(to_nanovdb_vec(position)));
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
-extern "C" std::int32_t bf_render_nanovdb_world_to_index(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_world_to_index(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
-    BFRenderNanoVdbVec3d position,
-    BFRenderNanoVdbVec3d *out_position)
+    BFRenderingVolumesNanoVdbVec3d position,
+    BFRenderingVolumesNanoVdbVec3d *out_position)
 {
     if (handle == nullptr || out_position == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
     *out_position =
         to_native_vec(grid->applyInverseMap(to_nanovdb_vec(position)));
-    return BF_RENDER_NANOVDB_STATUS_OK;
+    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK;
 }
 
-extern "C" std::int32_t bf_render_nanovdb_float_voxel(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_float_voxel(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
-    BFRenderNanoVdbCoord coordinate,
+    BFRenderingVolumesNanoVdbCoord coordinate,
     float *out_value,
     std::uint8_t *out_active)
 {
     if (handle == nullptr || out_value == nullptr || out_active == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
     return dispatch_float_grid(
         grid,
@@ -642,18 +642,18 @@ extern "C" std::int32_t bf_render_nanovdb_float_voxel(
         out_active);
 }
 
-extern "C" std::int32_t bf_render_nanovdb_sample_float_world(
-    const BFRenderNanoVdb *handle,
+extern "C" std::int32_t bf_rendering_volumes_nanovdb_sample_float_world(
+    const BFRenderingVolumesNanoVdb *handle,
     std::uint32_t grid_index,
-    BFRenderNanoVdbVec3d position,
+    BFRenderingVolumesNanoVdbVec3d position,
     float *out_value)
 {
     if (handle == nullptr || out_value == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_NULL_POINTER;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_NULL_POINTER;
     }
     const nanovdb::GridData *grid = find_grid(handle, grid_index);
     if (grid == nullptr) {
-        return BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
+        return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE;
     }
     return dispatch_float_grid(
         grid,

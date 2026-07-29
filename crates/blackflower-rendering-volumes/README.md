@@ -1,4 +1,4 @@
-# blackflower-render
+# blackflower-rendering-volumes
 
 Safe Rust ownership and CPU sampling for VDB assets, backed by the standalone
 volume runtime included in
@@ -37,15 +37,15 @@ To deliberately update OpenVDB, fetch and check out a reviewed release in the
 submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-render/vendor/openvdb fetch --tags origin
-git -C crates/blackflower-render/vendor/openvdb checkout v13.0.0
-git add crates/blackflower-render/vendor/openvdb
+git -C crates/blackflower-rendering-volumes/vendor/openvdb fetch --tags origin
+git -C crates/blackflower-rendering-volumes/vendor/openvdb checkout v13.0.0
+git add crates/blackflower-rendering-volumes/vendor/openvdb
 ```
 
 ## Runtime API
 
 The loader accepts raw VDB grid buffers and uncompressed `.nvdb` files.
-Compressed ZIP and BLOSC files are rejected so the render runtime stays free
+Compressed ZIP and BLOSC files are rejected so the volume runtime stays free
 of system compression dependencies. The content cooker should emit raw or
 `Codec::NONE` assets with checksums enabled.
 
@@ -53,16 +53,18 @@ VDB assets are trusted, versioned runtime content. They are not a sandboxed
 format and must not be accepted directly from untrusted peers.
 
 ```rust,no_run
-use blackflower_render::Vdb;
+use blackflower_rendering_volumes::Vdb;
 use glam::{DVec3, IVec3};
 
 # fn cooked_volume() -> Vec<u8> { Vec::new() }
-# fn example() -> Result<(), blackflower_render::Error> {
+# fn example() -> Result<(), blackflower_rendering_volumes::Error> {
 let asset = Vdb::from_bytes(&cooked_volume())?;
-let grid = asset.grid(0).ok_or(blackflower_render::Error::InvalidAsset)?;
+let grid = asset
+    .grid(0)
+    .ok_or(blackflower_rendering_volumes::Error::InvalidAsset)?;
 let density = grid
     .as_float()
-    .ok_or(blackflower_render::Error::InvalidAsset)?;
+    .ok_or(blackflower_rendering_volumes::Error::InvalidAsset)?;
 
 let voxel = density.voxel(IVec3::new(4, 8, 12))?;
 let filtered = density.sample_world(DVec3::new(1.25, 2.5, 3.75))?;

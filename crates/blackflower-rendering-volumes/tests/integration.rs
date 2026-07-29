@@ -1,4 +1,6 @@
-use blackflower_render::{Error, GridClass, GridType, Vdb, openvdb_version, vdb_version};
+use blackflower_rendering_volumes::{
+    Error, GridClass, GridType, Vdb, openvdb_version, vdb_version,
+};
 use glam::{DVec3, IVec3};
 
 const RAW_GRID: &[u8] = include_bytes!("fixtures/empty_float_grid.raw.nvdb");
