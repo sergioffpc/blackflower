@@ -17,10 +17,13 @@ presentation.
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
+| `crates/blackflower-networking` | Shared networking primitives |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-simulation` | Authoritative fixed-step simulation |
 | `crates/blackflower-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-presentation` | Client-only presentation systems |
+| `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
+| `crates/blackflower-scripting` | Sandboxed Luau compilation and execution |
 
 ## Running the applications
 
@@ -75,8 +78,10 @@ audio crates also require CMake and compile their native dependencies
 statically from pinned submodules. See the
 [audio facade](crates/blackflower-audio/README.md),
 [spatial audio setup](crates/blackflower-audio-spatial/README.md),
-[voice audio setup](crates/blackflower-audio-voice/README.md), and
-[ECS setup](crates/blackflower-ecs/README.md) for details.
+[voice audio setup](crates/blackflower-audio-voice/README.md),
+[ECS setup](crates/blackflower-ecs/README.md),
+[rendering volumes setup](crates/blackflower-rendering-volumes/README.md), and
+[scripting setup](crates/blackflower-scripting/README.md) for details.
 
 Enable the versioned Git hooks after cloning:
 

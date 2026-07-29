@@ -25,11 +25,11 @@
 [submodule "crates/blackflower-navigation/vendor/recastnavigation"]
 	path = crates/blackflower-navigation/vendor/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
-[submodule "crates/blackflower-render/vendor/openvdb"]
-	path = crates/blackflower-render/vendor/openvdb
+[submodule "crates/blackflower-rendering-volumes/vendor/openvdb"]
+	path = crates/blackflower-rendering-volumes/vendor/openvdb
 	url = https://github.com/AcademySoftwareFoundation/openvdb.git
-[submodule "crates/blackflower-script/vendor/luau"]
-	path = crates/blackflower-script/vendor/luau
+[submodule "crates/blackflower-scripting/vendor/luau"]
+	path = crates/blackflower-scripting/vendor/luau
 	url = https://github.com/luau-lang/luau.git
 [submodule "crates/blackflower-audio-voice/vendor/opus"]
 	path = crates/blackflower-audio-voice/vendor/opus

@@ -149,6 +149,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-networking"
+version = "0.1.0"
+
+[[package]]
 name = "blackflower-observability"
 version = "0.1.0"
 dependencies = [
@@ -199,7 +203,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-render"
+name = "blackflower-rendering-volumes"
 version = "0.1.0"
 dependencies = [
  "bindgen",
@@ -209,7 +213,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-script"
+name = "blackflower-scripting"
 version = "0.1.0"
 dependencies = [
  "bindgen",

@@ -1,6 +1,6 @@
 use std::error::Error as StdError;
 
-use blackflower_script::{
+use blackflower_scripting::{
     CompileOptions, Error, Library, Runtime, RuntimeConfig, SandboxPolicy, Value, compile,
     luau_version,
 };

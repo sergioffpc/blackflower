@@ -49,7 +49,7 @@ pub(crate) enum Status {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct HandlePtr(NonNull<raw::BFRenderNanoVdb>);
+pub(crate) struct HandlePtr(NonNull<raw::BFRenderingVolumesNanoVdb>);
 
 // SAFETY: the native handle is immutable after construction, owns its buffers,
 // and creates a fresh NanoVDB read accessor for every sampling call.
@@ -59,19 +59,20 @@ unsafe impl Send for HandlePtr {}
 unsafe impl Sync for HandlePtr {}
 
 pub(crate) fn openvdb_version() -> (u32, u32, u32) {
-    let version = unsafe { raw::bf_render_openvdb_version() };
+    let version = unsafe { raw::bf_rendering_volumes_openvdb_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn vdb_version() -> (u32, u32, u32) {
-    let version = unsafe { raw::bf_render_nanovdb_version() };
+    let version = unsafe { raw::bf_rendering_volumes_nanovdb_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn load(bytes: &[u8]) -> Result<HandlePtr, Status> {
     let mut pointer = std::ptr::null_mut();
-    let status =
-        unsafe { raw::bf_render_nanovdb_load(bytes.as_ptr(), bytes.len(), &raw mut pointer) };
+    let status = unsafe {
+        raw::bf_rendering_volumes_nanovdb_load(bytes.as_ptr(), bytes.len(), &raw mut pointer)
+    };
     check(status)?;
     NonNull::new(pointer)
         .map(HandlePtr)
@@ -79,23 +80,24 @@ pub(crate) fn load(bytes: &[u8]) -> Result<HandlePtr, Status> {
 }
 
 pub(crate) fn destroy(handle: HandlePtr) {
-    unsafe { raw::bf_render_nanovdb_destroy(handle.0.as_ptr()) };
+    unsafe { raw::bf_rendering_volumes_nanovdb_destroy(handle.0.as_ptr()) };
 }
 
 pub(crate) fn grid_count(handle: HandlePtr) -> u32 {
-    unsafe { raw::bf_render_nanovdb_grid_count(handle.0.as_ptr()) }
+    unsafe { raw::bf_rendering_volumes_nanovdb_grid_count(handle.0.as_ptr()) }
 }
 
 pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadata, Status> {
-    let mut raw_info = raw::BFRenderNanoVdbGridInfo::default();
-    let status =
-        unsafe { raw::bf_render_nanovdb_grid_info(handle.0.as_ptr(), index, &raw mut raw_info) };
+    let mut raw_info = raw::BFRenderingVolumesNanoVdbGridInfo::default();
+    let status = unsafe {
+        raw::bf_rendering_volumes_nanovdb_grid_info(handle.0.as_ptr(), index, &raw mut raw_info)
+    };
     check(status)?;
 
     let mut name_pointer = std::ptr::null();
     let mut name_length = 0;
     let status = unsafe {
-        raw::bf_render_nanovdb_grid_name(
+        raw::bf_rendering_volumes_nanovdb_grid_name(
             handle.0.as_ptr(),
             index,
             &raw mut name_pointer,
@@ -135,7 +137,7 @@ pub(crate) fn index_to_world(
     position: DVec3,
 ) -> Result<DVec3, Status> {
     transform(
-        raw::bf_render_nanovdb_index_to_world,
+        raw::bf_rendering_volumes_nanovdb_index_to_world,
         handle,
         index,
         position,
@@ -148,7 +150,7 @@ pub(crate) fn world_to_index(
     position: DVec3,
 ) -> Result<DVec3, Status> {
     transform(
-        raw::bf_render_nanovdb_world_to_index,
+        raw::bf_rendering_volumes_nanovdb_world_to_index,
         handle,
         index,
         position,
@@ -163,10 +165,10 @@ pub(crate) fn float_voxel(
     let mut value = 0.0;
     let mut active = 0;
     let status = unsafe {
-        raw::bf_render_nanovdb_float_voxel(
+        raw::bf_rendering_volumes_nanovdb_float_voxel(
             handle.0.as_ptr(),
             index,
-            raw::BFRenderNanoVdbCoord {
+            raw::BFRenderingVolumesNanoVdbCoord {
                 x: coordinate.x,
                 y: coordinate.y,
                 z: coordinate.z,
@@ -186,7 +188,7 @@ pub(crate) fn sample_float_world(
 ) -> Result<f32, Status> {
     let mut value = 0.0;
     let status = unsafe {
-        raw::bf_render_nanovdb_sample_float_world(
+        raw::bf_rendering_volumes_nanovdb_sample_float_world(
             handle.0.as_ptr(),
             index,
             raw_vec(position),
@@ -199,16 +201,16 @@ pub(crate) fn sample_float_world(
 
 fn transform(
     function: unsafe extern "C" fn(
-        *const raw::BFRenderNanoVdb,
+        *const raw::BFRenderingVolumesNanoVdb,
         u32,
-        raw::BFRenderNanoVdbVec3d,
-        *mut raw::BFRenderNanoVdbVec3d,
+        raw::BFRenderingVolumesNanoVdbVec3d,
+        *mut raw::BFRenderingVolumesNanoVdbVec3d,
     ) -> i32,
     handle: HandlePtr,
     index: u32,
     position: DVec3,
 ) -> Result<DVec3, Status> {
-    let mut output = raw::BFRenderNanoVdbVec3d::default();
+    let mut output = raw::BFRenderingVolumesNanoVdbVec3d::default();
     let status = unsafe { function(handle.0.as_ptr(), index, raw_vec(position), &raw mut output) };
     check(status)?;
     Ok(safe_vec(output))
@@ -219,79 +221,79 @@ fn check(status: i32) -> Result<(), Status> {
         return Err(Status::ContractViolation);
     };
     match status {
-        raw::BF_RENDER_NANOVDB_STATUS_OK => Ok(()),
-        raw::BF_RENDER_NANOVDB_STATUS_INVALID_ARGUMENT => Err(Status::InvalidArgument),
-        raw::BF_RENDER_NANOVDB_STATUS_INVALID_ASSET => Err(Status::InvalidAsset),
-        raw::BF_RENDER_NANOVDB_STATUS_UNSUPPORTED_COMPRESSION => {
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_OK => Ok(()),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ARGUMENT => Err(Status::InvalidArgument),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET => Err(Status::InvalidAsset),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_UNSUPPORTED_COMPRESSION => {
             Err(Status::UnsupportedCompression)
         }
-        raw::BF_RENDER_NANOVDB_STATUS_OUT_OF_MEMORY => Err(Status::OutOfMemory),
-        raw::BF_RENDER_NANOVDB_STATUS_INDEX_OUT_OF_RANGE => Err(Status::IndexOutOfRange),
-        raw::BF_RENDER_NANOVDB_STATUS_TYPE_MISMATCH => Err(Status::TypeMismatch),
-        raw::BF_RENDER_NANOVDB_STATUS_NATIVE_FAILURE => Err(Status::NativeFailure),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_OUT_OF_MEMORY => Err(Status::OutOfMemory),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_INDEX_OUT_OF_RANGE => Err(Status::IndexOutOfRange),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_TYPE_MISMATCH => Err(Status::TypeMismatch),
+        raw::BF_RENDERING_VOLUMES_NANOVDB_STATUS_NATIVE_FAILURE => Err(Status::NativeFailure),
         _ => Err(Status::ContractViolation),
     }
 }
 
 const fn grid_type_from_raw(value: u32) -> Option<GridType> {
     Some(match value {
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_UNKNOWN => GridType::Unknown,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_FLOAT => GridType::Float,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_DOUBLE => GridType::Double,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT16 => GridType::Int16,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT32 => GridType::Int32,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT64 => GridType::Int64,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3F => GridType::Vec3f,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3D => GridType::Vec3d,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_MASK => GridType::Mask,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_HALF => GridType::Half,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT32 => GridType::UInt32,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_BOOLEAN => GridType::Boolean,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_RGBA8 => GridType::Rgba8,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP4 => GridType::Fp4,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP8 => GridType::Fp8,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP16 => GridType::Fp16,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_FPN => GridType::FpN,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4F => GridType::Vec4f,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4D => GridType::Vec4d,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_INDEX => GridType::Index,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_ON_INDEX => GridType::OnIndex,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_POINT_INDEX => GridType::PointIndex,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U8 => GridType::Vec3u8,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U16 => GridType::Vec3u16,
-        raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT8 => GridType::UInt8,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_UNKNOWN => GridType::Unknown,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_FLOAT => GridType::Float,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_DOUBLE => GridType::Double,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_INT16 => GridType::Int16,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_INT32 => GridType::Int32,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_INT64 => GridType::Int64,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC3F => GridType::Vec3f,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC3D => GridType::Vec3d,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_MASK => GridType::Mask,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_HALF => GridType::Half,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_UINT32 => GridType::UInt32,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_BOOLEAN => GridType::Boolean,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_RGBA8 => GridType::Rgba8,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_FP4 => GridType::Fp4,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_FP8 => GridType::Fp8,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_FP16 => GridType::Fp16,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_FPN => GridType::FpN,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC4F => GridType::Vec4f,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC4D => GridType::Vec4d,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_INDEX => GridType::Index,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_ON_INDEX => GridType::OnIndex,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_POINT_INDEX => GridType::PointIndex,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC3U8 => GridType::Vec3u8,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_VEC3U16 => GridType::Vec3u16,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_TYPE_UINT8 => GridType::UInt8,
         _ => return None,
     })
 }
 
 const fn grid_class_from_raw(value: u32) -> Option<GridClass> {
     Some(match value {
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_UNKNOWN => GridClass::Unknown,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_LEVEL_SET => GridClass::LevelSet,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_FOG_VOLUME => GridClass::FogVolume,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_STAGGERED => GridClass::Staggered,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_INDEX => GridClass::PointIndex,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_DATA => GridClass::PointData,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_TOPOLOGY => GridClass::Topology,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_VOXEL_VOLUME => GridClass::VoxelVolume,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_INDEX_GRID => GridClass::IndexGrid,
-        raw::BF_RENDER_NANOVDB_GRID_CLASS_TENSOR_GRID => GridClass::TensorGrid,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_UNKNOWN => GridClass::Unknown,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_LEVEL_SET => GridClass::LevelSet,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_FOG_VOLUME => GridClass::FogVolume,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_STAGGERED => GridClass::Staggered,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_POINT_INDEX => GridClass::PointIndex,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_POINT_DATA => GridClass::PointData,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_TOPOLOGY => GridClass::Topology,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_VOXEL_VOLUME => GridClass::VoxelVolume,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_INDEX_GRID => GridClass::IndexGrid,
+        raw::BF_RENDERING_VOLUMES_NANOVDB_GRID_CLASS_TENSOR_GRID => GridClass::TensorGrid,
         _ => return None,
     })
 }
 
-const fn raw_vec(value: DVec3) -> raw::BFRenderNanoVdbVec3d {
-    raw::BFRenderNanoVdbVec3d {
+const fn raw_vec(value: DVec3) -> raw::BFRenderingVolumesNanoVdbVec3d {
+    raw::BFRenderingVolumesNanoVdbVec3d {
         x: value.x,
         y: value.y,
         z: value.z,
     }
 }
 
-const fn safe_vec(value: raw::BFRenderNanoVdbVec3d) -> DVec3 {
+const fn safe_vec(value: raw::BFRenderingVolumesNanoVdbVec3d) -> DVec3 {
     DVec3::new(value.x, value.y, value.z)
 }
 
-const fn safe_coord(value: raw::BFRenderNanoVdbCoord) -> IVec3 {
+const fn safe_coord(value: raw::BFRenderingVolumesNanoVdbCoord) -> IVec3 {
     IVec3::new(value.x, value.y, value.z)
 }
