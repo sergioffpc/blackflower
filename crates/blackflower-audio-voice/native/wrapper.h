@@ -1,0 +1,6 @@
+#ifndef BLACKFLOWER_AUDIO_VOICE_WRAPPER_H
+#define BLACKFLOWER_AUDIO_VOICE_WRAPPER_H
+
+#include <opus.h>
+
+#endif
