@@ -111,6 +111,7 @@ The initial domain metrics are:
 | Metric | Meaning |
 | --- | --- |
 | `blackflower_simulation_ticks_total{result}` | Authoritative tick outcomes |
+| `blackflower_simulation_system_executions_total{phase}` | Authoritative system executions aggregated by phase |
 | `blackflower_simulation_tick_duration_seconds` | Authoritative tick compute time |
 | `blackflower_simulation_deadline_misses_total` | Tick compute time above the fixed-step budget |
 | `blackflower_prediction_ticks_total{pass,result}` | Forward and re-simulated prediction outcomes |

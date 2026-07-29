@@ -703,6 +703,18 @@ impl<F: FieldProjection> Projection for F {
     }
 }
 
+impl sealed::Sealed for () {}
+
+impl Projection for () {
+    type Item<'a> = ();
+
+    fn specs(&self, _resolve: &dyn Fn(TypeId) -> Option<u64>) -> Result<Vec<FieldSpec>, Error> {
+        Ok(Vec::new())
+    }
+
+    unsafe fn materialize<'a>(_resolved: &'a [ResolvedField], _world: WorldKey) -> Self::Item<'a> {}
+}
+
 macro_rules! impl_projection_tuple {
     ($(($type:ident, $index:tt)),+ $(,)?) => {
         impl<$($type: FieldProjection),+> sealed::Sealed for ($($type,)+) {}

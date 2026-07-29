@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_simulation::{
-    AI_UPDATE_INTERVAL_TICKS, CONTROL_FRAME_INTERVAL_TICKS, INPUT_TIMEOUT_TICKS,
+    AI_UPDATE_INTERVAL_TICKS, CONTROL_FRAME_INTERVAL_TICKS, INPUT_TIMEOUT_TICKS, PrepareTickSystem,
     SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS, SimulationPhase, SimulationPipeline,
     SimulationWorld,
 };
@@ -41,6 +41,14 @@ fn phase_names_and_scheduling_intervals_are_stable() {
     assert_eq!(SNAPSHOT_INTERVAL_TICKS, 8);
     assert_eq!(AI_UPDATE_INTERVAL_TICKS, 48);
     assert_eq!(INPUT_TIMEOUT_TICKS, 240);
+}
+
+#[test]
+fn prepare_tick_system_names_are_stable() {
+    assert_eq!(
+        PrepareTickSystem::ORDER.map(PrepareTickSystem::name),
+        ["OpenTick", "ActivateScheduledCommits"]
+    );
 }
 
 #[test]

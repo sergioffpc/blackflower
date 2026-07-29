@@ -110,7 +110,8 @@ Query field indexes are zero-based indexes into the Flecs DSL expression.
 `Read<T>`, `Write<T>`, `Optional<F>`, `PairRead<T>` and `PairWrite<T>` perform
 runtime checks before references are materialized. Terms can remain
 unprojected, so predicates, tags and other DSL-only constraints do not need a
-Rust field marker.
+Rust field marker. Use the unit projection `()` when every term is
+unprojected, such as for a system driven only by a tag.
 
 `World` is neither `Send` nor `Sync`. `parallel_each` gives Flecs a
 `Send + Sync` callback but exposes only the projected data for the current

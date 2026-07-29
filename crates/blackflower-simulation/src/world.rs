@@ -1,7 +1,7 @@
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
 use crate::telemetry::TickObservation;
-use crate::{SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline, telemetry};
+use crate::{SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline, systems, telemetry};
 
 /// Fixed duration, in seconds, of one authoritative simulation tick.
 pub const SIMULATION_TICK_DELTA_SECONDS: f32 = 1.0 / 240.0;
@@ -33,6 +33,7 @@ impl SimulationWorld {
     /// created through [`World::builder`].
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = SimulationPipeline::register(&mut ecs)?;
+        systems::register(&mut ecs, pipeline)?;
         let tick_delta = TickDelta::from_seconds(SIMULATION_TICK_DELTA_SECONDS)?;
         telemetry::describe_metrics();
         Ok(Self {
