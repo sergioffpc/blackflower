@@ -6,17 +6,17 @@ use crate::error::Error;
 use crate::ffi::{self, Status};
 use crate::types::{FloatVoxel, GridMetadata};
 
-/// Immutable ownership of one or more NanoVDB grids.
+/// Immutable ownership of one or more VDB grids.
 #[derive(Debug)]
-pub struct NanoVdb {
+pub struct Vdb {
     pointer: ffi::HandlePtr,
     metadata: Box<[GridMetadata]>,
 }
 
-impl NanoVdb {
-    /// Load all grids from trusted uncompressed `.nvdb` or raw NanoVDB bytes.
+impl Vdb {
+    /// Load all grids from trusted uncompressed `.nvdb` or raw VDB bytes.
     ///
-    /// NanoVDB is a runtime asset format, not a sandboxed interchange format.
+    /// VDB is a runtime asset format, not a sandboxed interchange format.
     /// Only load content produced by the matching trusted content pipeline.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let pointer = ffi::load(bytes).map_err(map_load)?;
@@ -74,16 +74,16 @@ impl NanoVdb {
     }
 }
 
-impl Drop for NanoVdb {
+impl Drop for Vdb {
     fn drop(&mut self) {
         ffi::destroy(self.pointer);
     }
 }
 
-/// A borrowed immutable NanoVDB grid.
+/// A borrowed immutable VDB grid.
 #[derive(Debug, Clone, Copy)]
 pub struct Grid<'a> {
-    owner: &'a NanoVdb,
+    owner: &'a Vdb,
     index: u32,
     metadata: &'a GridMetadata,
 }
@@ -118,7 +118,7 @@ impl<'a> Grid<'a> {
     }
 }
 
-/// A borrowed Float, Fp4, Fp8, Fp16, or FpN NanoVDB grid.
+/// A borrowed Float, Fp4, Fp8, Fp16, or FpN VDB grid.
 #[derive(Debug, Clone, Copy)]
 pub struct FloatGrid<'a> {
     grid: Grid<'a>,
@@ -144,10 +144,10 @@ impl<'a> FloatGrid<'a> {
     }
 }
 
-/// Iterator over the grids in a [`NanoVdb`] asset.
+/// Iterator over the grids in a [`Vdb`] asset.
 #[derive(Debug, Clone)]
 pub struct GridIter<'a> {
-    owner: &'a NanoVdb,
+    owner: &'a Vdb,
     indices: std::ops::Range<usize>,
 }
 

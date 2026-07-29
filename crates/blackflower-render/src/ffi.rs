@@ -63,7 +63,7 @@ pub(crate) fn openvdb_version() -> (u32, u32, u32) {
     (version.major, version.minor, version.patch)
 }
 
-pub(crate) fn nanovdb_version() -> (u32, u32, u32) {
+pub(crate) fn vdb_version() -> (u32, u32, u32) {
     let version = unsafe { raw::bf_render_nanovdb_version() };
     (version.major, version.minor, version.patch)
 }
@@ -108,8 +108,8 @@ pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadat
         .map_err(|_error| Status::InvalidAsset)?
         .to_owned();
 
-    let grid_type = GridType::from_raw(raw_info.grid_type).ok_or(Status::ContractViolation)?;
-    let grid_class = GridClass::from_raw(raw_info.grid_class).ok_or(Status::ContractViolation)?;
+    let grid_type = grid_type_from_raw(raw_info.grid_type).ok_or(Status::ContractViolation)?;
+    let grid_class = grid_class_from_raw(raw_info.grid_class).ok_or(Status::ContractViolation)?;
     let empty = raw_info.is_empty != 0;
     Ok(GridMetadata {
         name,
@@ -231,6 +231,53 @@ fn check(status: i32) -> Result<(), Status> {
         raw::BF_RENDER_NANOVDB_STATUS_NATIVE_FAILURE => Err(Status::NativeFailure),
         _ => Err(Status::ContractViolation),
     }
+}
+
+const fn grid_type_from_raw(value: u32) -> Option<GridType> {
+    Some(match value {
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_UNKNOWN => GridType::Unknown,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_FLOAT => GridType::Float,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_DOUBLE => GridType::Double,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT16 => GridType::Int16,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT32 => GridType::Int32,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_INT64 => GridType::Int64,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3F => GridType::Vec3f,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3D => GridType::Vec3d,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_MASK => GridType::Mask,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_HALF => GridType::Half,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT32 => GridType::UInt32,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_BOOLEAN => GridType::Boolean,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_RGBA8 => GridType::Rgba8,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP4 => GridType::Fp4,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP8 => GridType::Fp8,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_FP16 => GridType::Fp16,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_FPN => GridType::FpN,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4F => GridType::Vec4f,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4D => GridType::Vec4d,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_INDEX => GridType::Index,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_ON_INDEX => GridType::OnIndex,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_POINT_INDEX => GridType::PointIndex,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U8 => GridType::Vec3u8,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U16 => GridType::Vec3u16,
+        raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT8 => GridType::UInt8,
+        _ => return None,
+    })
+}
+
+const fn grid_class_from_raw(value: u32) -> Option<GridClass> {
+    Some(match value {
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_UNKNOWN => GridClass::Unknown,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_LEVEL_SET => GridClass::LevelSet,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_FOG_VOLUME => GridClass::FogVolume,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_STAGGERED => GridClass::Staggered,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_INDEX => GridClass::PointIndex,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_DATA => GridClass::PointData,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_TOPOLOGY => GridClass::Topology,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_VOXEL_VOLUME => GridClass::VoxelVolume,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_INDEX_GRID => GridClass::IndexGrid,
+        raw::BF_RENDER_NANOVDB_GRID_CLASS_TENSOR_GRID => GridClass::TensorGrid,
+        _ => return None,
+    })
 }
 
 const fn raw_vec(value: DVec3) -> raw::BFRenderNanoVdbVec3d {

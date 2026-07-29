@@ -1,17 +1,18 @@
 # blackflower-render
 
-Safe Rust ownership and CPU sampling over the header-only
-[NanoVDB included in OpenVDB 13.0.0](https://github.com/AcademySoftwareFoundation/openvdb/releases/tag/v13.0.0).
+Safe Rust ownership and CPU sampling for VDB assets, backed by the standalone
+volume runtime included in
+[OpenVDB 13.0.0](https://github.com/AcademySoftwareFoundation/openvdb/releases/tag/v13.0.0).
 The upstream source is pinned as the Git submodule `vendor/openvdb` at commit
 `7c03e1f084873cd1b3422c7ff7aec6ee681b3b38`.
 
-The crate compiles only NanoVDB's standalone headers. It does not build the
+The crate compiles only the standalone volume headers. It does not build the
 OpenVDB core library and therefore does not add Boost, TBB, Blosc, or OpenEXR
 to the game runtime. Generated declarations and every `unsafe` operation remain
 private, behind the stable C ABI in `native/wrapper.h`.
 
-OpenVDB 13.0.0 ships NanoVDB binary format 32.9.0. Both versions are exposed
-separately by `openvdb_version` and `nanovdb_version`.
+The pinned runtime uses VDB binary format 32.9.0. The upstream and format
+versions are exposed separately by `openvdb_version` and `vdb_version`.
 
 ## Checkout and prerequisites
 
@@ -43,21 +44,21 @@ git add crates/blackflower-render/vendor/openvdb
 
 ## Runtime API
 
-The loader accepts raw NanoVDB grid buffers and uncompressed `.nvdb` files.
+The loader accepts raw VDB grid buffers and uncompressed `.nvdb` files.
 Compressed ZIP and BLOSC files are rejected so the render runtime stays free
 of system compression dependencies. The content cooker should emit raw or
-`Codec::NONE` assets with NanoVDB's checksum enabled.
+`Codec::NONE` assets with checksums enabled.
 
-NanoVDB assets are trusted, versioned runtime content. They are not a sandboxed
+VDB assets are trusted, versioned runtime content. They are not a sandboxed
 format and must not be accepted directly from untrusted peers.
 
 ```rust,no_run
-use blackflower_render::NanoVdb;
+use blackflower_render::Vdb;
 use glam::{DVec3, IVec3};
 
 # fn cooked_volume() -> Vec<u8> { Vec::new() }
 # fn example() -> Result<(), blackflower_render::Error> {
-let asset = NanoVdb::from_bytes(&cooked_volume())?;
+let asset = Vdb::from_bytes(&cooked_volume())?;
 let grid = asset.grid(0).ok_or(blackflower_render::Error::InvalidAsset)?;
 let density = grid
     .as_float()

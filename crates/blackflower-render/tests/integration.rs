@@ -1,4 +1,4 @@
-use blackflower_render::{Error, GridClass, GridType, NanoVdb, nanovdb_version, openvdb_version};
+use blackflower_render::{Error, GridClass, GridType, Vdb, openvdb_version, vdb_version};
 use glam::{DVec3, IVec3};
 
 const RAW_GRID: &[u8] = include_bytes!("fixtures/empty_float_grid.raw.nvdb");
@@ -7,23 +7,23 @@ const FILE_GRID: &[u8] = include_bytes!("fixtures/empty_float_grid.nvdb");
 #[test]
 fn bindings_report_pinned_versions() {
     assert_eq!(openvdb_version(), (13, 0, 0));
-    assert_eq!(nanovdb_version(), (32, 9, 0));
+    assert_eq!(vdb_version(), (32, 9, 0));
 }
 
 #[test]
 fn invalid_assets_are_rejected() {
-    assert!(matches!(NanoVdb::from_bytes(&[]), Err(Error::InvalidAsset)));
+    assert!(matches!(Vdb::from_bytes(&[]), Err(Error::InvalidAsset)));
     assert!(matches!(
-        NanoVdb::from_bytes(&RAW_GRID[..128]),
+        Vdb::from_bytes(&RAW_GRID[..128]),
         Err(Error::InvalidAsset)
     ));
 }
 
 #[test]
 fn raw_grid_supports_metadata_transforms_and_float_sampling() -> Result<(), Error> {
-    assert_send_sync::<NanoVdb>();
+    assert_send_sync::<Vdb>();
 
-    let asset = NanoVdb::from_bytes(RAW_GRID)?;
+    let asset = Vdb::from_bytes(RAW_GRID)?;
     assert_eq!(asset.len(), 1);
     assert!(!asset.is_empty());
     assert_eq!(asset.grids().len(), 1);
@@ -57,7 +57,7 @@ fn raw_grid_supports_metadata_transforms_and_float_sampling() -> Result<(), Erro
 
 #[test]
 fn uncompressed_file_container_loads() -> Result<(), Error> {
-    let asset = NanoVdb::from_bytes(FILE_GRID)?;
+    let asset = Vdb::from_bytes(FILE_GRID)?;
     let grid = asset.grid(0).ok_or(Error::NativeContract)?;
     assert_eq!(grid.metadata().name(), "density");
     assert!(grid.as_float().is_some());
