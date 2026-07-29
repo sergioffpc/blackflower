@@ -44,10 +44,20 @@ The initial safe surface compiles source, loads bytecode, executes chunks, and
 copies primitive results out of the VM:
 
 ```rust
-use blackflower_script::{Runtime, Value};
+use blackflower_script::{
+    Library, Runtime, RuntimeConfig, SandboxPolicy, Value,
+};
 
 # fn example() -> Result<(), blackflower_script::Error> {
-let mut runtime = Runtime::with_seed(7)?;
+let libraries = SandboxPolicy::standard()
+    .with_library(Library::Coroutine, false)
+    .with_library(Library::Buffer, false);
+let config = RuntimeConfig::default()
+    .with_random_seed(7)
+    .with_vm_memory_limit_bytes(8 * 1024 * 1024)
+    .with_execution_fuel(50_000)
+    .with_sandbox_policy(libraries);
+let mut runtime = Runtime::with_config(config)?;
 let values = runtime.execute(
     "policy.luau",
     "local roll = math.random(1, 6); return roll >= 4, vector.create(1, 2, 3)",
@@ -64,10 +74,24 @@ module loader is registered. Builtin libraries are frozen through
 `luaL_sandbox`, each runtime receives a writable sandbox global table, and
 `math.random` is seeded explicitly.
 
+`RuntimeConfig::default()` limits each VM to 16 MiB and restores 100,000 fuel
+units before every execution. Fuel counts interruptible VM safepoints such as
+loop back-edges and calls rather than individual bytecode instructions. The
+allocator rejects growth above the configured ceiling; `Runtime::memory_usage`
+reports current, peak, and limit values. Exhaustion is reported as
+`Error::ExecutionLimit` or `Error::OutOfMemory`, and the runtime remains usable
+for subsequent chunks.
+
+The library policy is an allowlist. It can remove any of the safe standard
+libraries supported by the crate, but it can never enable `os`, `debug`,
+filesystem, networking, or module loading.
+
 Luau bytecode is not a stable interchange format. Cooked bytecode must carry
 the exact Luau/content compatibility identity and be rejected by consumers
 using another VM version.
 
-This binding does not yet enforce memory or execution budgets and must not run
-untrusted scripts. Tables, functions, userdata, buffers, and host callbacks are
-also intentionally outside the initial safe value surface.
+The VM memory ceiling does not cover the standalone C++ compiler used by
+`compile`. Cook untrusted source in a separately constrained worker and run
+only size-capped, identity-checked bytecode in the authoritative simulator.
+Tables, functions, userdata, buffers, and host callbacks remain intentionally
+outside the initial safe result surface.

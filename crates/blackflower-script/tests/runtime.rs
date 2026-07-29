@@ -1,6 +1,9 @@
 use std::error::Error as StdError;
 
-use blackflower_script::{CompileOptions, Error, Runtime, Value, compile, luau_version};
+use blackflower_script::{
+    CompileOptions, Error, Library, Runtime, RuntimeConfig, SandboxPolicy, Value, compile,
+    luau_version,
+};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -73,6 +76,99 @@ fn excludes_nondeterministic_and_debug_libraries() -> TestResult {
             Value::Boolean(true),
             Value::Boolean(true)
         ]
+    );
+    Ok(())
+}
+
+#[test]
+fn configures_the_safe_library_allowlist() -> TestResult {
+    let policy = SandboxPolicy::empty()
+        .with_library(Library::Base, true)
+        .with_library(Library::Math, true);
+    let config = RuntimeConfig::default()
+        .with_random_seed(31)
+        .with_sandbox_policy(policy);
+    let mut runtime = Runtime::with_config(config)?;
+
+    assert_eq!(
+        runtime.execute(
+            "library-policy.luau",
+            "return math ~= nil, table == nil, string == nil, vector == nil"
+        )?,
+        vec![
+            Value::Boolean(true),
+            Value::Boolean(true),
+            Value::Boolean(true),
+            Value::Boolean(true)
+        ]
+    );
+    assert!(runtime.config().sandbox_policy().allows(Library::Math));
+    assert!(!runtime.config().sandbox_policy().allows(Library::Table));
+    Ok(())
+}
+
+#[test]
+fn rejects_zero_resource_limits() {
+    assert!(matches!(
+        Runtime::with_config(RuntimeConfig::default().with_vm_memory_limit_bytes(0)),
+        Err(Error::InvalidMemoryLimit)
+    ));
+    assert!(matches!(
+        Runtime::with_config(RuntimeConfig::default().with_execution_fuel(0)),
+        Err(Error::InvalidExecutionFuel)
+    ));
+    assert!(matches!(
+        Runtime::with_config(RuntimeConfig::default().with_vm_memory_limit_bytes(1)),
+        Err(Error::OutOfMemory)
+    ));
+}
+
+#[test]
+fn interrupts_execution_when_fuel_is_exhausted() -> TestResult {
+    let config = RuntimeConfig::default().with_execution_fuel(16);
+    let mut runtime = Runtime::with_config(config)?;
+
+    assert_eq!(
+        runtime.execute("fuel-limit.luau", "while true do end"),
+        Err(Error::ExecutionLimit)
+    );
+    assert_eq!(
+        runtime.execute(
+            "caught-fuel-limit.luau",
+            "return pcall(function() while true do end end)"
+        ),
+        Err(Error::ExecutionLimit)
+    );
+    assert_eq!(
+        runtime.execute("after-fuel-limit.luau", "return true")?,
+        vec![Value::Boolean(true)]
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_vm_allocations_above_the_memory_limit() -> TestResult {
+    const MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
+
+    let config = RuntimeConfig::default().with_vm_memory_limit_bytes(MEMORY_LIMIT_BYTES);
+    let mut runtime = Runtime::with_config(config)?;
+    let initial_usage = runtime.memory_usage();
+    assert_eq!(initial_usage.limit_bytes, MEMORY_LIMIT_BYTES);
+    assert!(initial_usage.current_bytes < initial_usage.limit_bytes);
+
+    assert_eq!(
+        runtime.execute(
+            "memory-limit.luau",
+            "return string.rep(\"x\", 8 * 1024 * 1024)"
+        ),
+        Err(Error::OutOfMemory)
+    );
+    let usage = runtime.memory_usage();
+    assert!(usage.current_bytes <= usage.limit_bytes);
+    assert!(usage.peak_bytes <= usage.limit_bytes);
+    assert_eq!(
+        runtime.execute("after-memory-limit.luau", "return true")?,
+        vec![Value::Boolean(true)]
     );
     Ok(())
 }

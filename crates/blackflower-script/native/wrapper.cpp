@@ -2,13 +2,30 @@
 
 #include "luacode.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <new>
 
 namespace {
 
+struct RuntimeContext {
+    size_t current_bytes;
+    size_t peak_bytes;
+    size_t limit_bytes;
+    uint64_t remaining_fuel;
+    bool execution_active;
+    bool execution_limit_reached;
+};
+
 struct InitializeContext {
     int32_t random_seed;
+    uint32_t libraries;
+};
+
+struct LibraryRegistration {
+    uint32_t mask;
+    const char *name;
+    lua_CFunction open;
 };
 
 void open_library(lua_State *state, const char *name, lua_CFunction function) {
@@ -17,26 +34,91 @@ void open_library(lua_State *state, const char *name, lua_CFunction function) {
     lua_call(state, 1, 0);
 }
 
+RuntimeContext *runtime_context(lua_State *state) {
+    if (state == nullptr) {
+        return nullptr;
+    }
+    return static_cast<RuntimeContext *>(lua_callbacks(state)->userdata);
+}
+
+void *limited_alloc(
+    void *userdata,
+    void *pointer,
+    size_t old_size,
+    size_t new_size) {
+    auto *context = static_cast<RuntimeContext *>(userdata);
+    if (context == nullptr || old_size > context->current_bytes) {
+        return nullptr;
+    }
+
+    const size_t retained_bytes = context->current_bytes - old_size;
+    if (new_size == 0) {
+        std::free(pointer);
+        context->current_bytes = retained_bytes;
+        return nullptr;
+    }
+    if (new_size > context->limit_bytes - retained_bytes) {
+        return nullptr;
+    }
+
+    void *result = std::realloc(pointer, new_size);
+    if (result == nullptr) {
+        return nullptr;
+    }
+
+    context->current_bytes = retained_bytes + new_size;
+    context->peak_bytes =
+        std::max(context->peak_bytes, context->current_bytes);
+    return result;
+}
+
+void execution_interrupt(lua_State *state, int gc) {
+    if (gc >= 0) {
+        return;
+    }
+
+    RuntimeContext *context = runtime_context(state);
+    if (context == nullptr || !context->execution_active) {
+        return;
+    }
+    if (context->remaining_fuel > 0) {
+        --context->remaining_fuel;
+        return;
+    }
+
+    context->execution_limit_reached = true;
+    luaL_error(state, "execution fuel exhausted");
+}
+
 int initialize_runtime(lua_State *state) {
     const auto *context =
         static_cast<const InitializeContext *>(lua_touserdata(state, 1));
 
-    open_library(state, "", luaopen_base);
-    open_library(state, LUA_COLIBNAME, luaopen_coroutine);
-    open_library(state, LUA_TABLIBNAME, luaopen_table);
-    open_library(state, LUA_STRLIBNAME, luaopen_string);
-    open_library(state, LUA_MATHLIBNAME, luaopen_math);
-    open_library(state, LUA_UTF8LIBNAME, luaopen_utf8);
-    open_library(state, LUA_BITLIBNAME, luaopen_bit32);
-    open_library(state, LUA_BUFFERLIBNAME, luaopen_buffer);
-    open_library(state, LUA_VECLIBNAME, luaopen_vector);
-    open_library(state, LUA_INTLIBNAME, luaopen_integer);
+    const LibraryRegistration registrations[] = {
+        {BF_SCRIPT_LIBRARY_BASE, "", luaopen_base},
+        {BF_SCRIPT_LIBRARY_COROUTINE, LUA_COLIBNAME, luaopen_coroutine},
+        {BF_SCRIPT_LIBRARY_TABLE, LUA_TABLIBNAME, luaopen_table},
+        {BF_SCRIPT_LIBRARY_STRING, LUA_STRLIBNAME, luaopen_string},
+        {BF_SCRIPT_LIBRARY_MATH, LUA_MATHLIBNAME, luaopen_math},
+        {BF_SCRIPT_LIBRARY_UTF8, LUA_UTF8LIBNAME, luaopen_utf8},
+        {BF_SCRIPT_LIBRARY_BIT32, LUA_BITLIBNAME, luaopen_bit32},
+        {BF_SCRIPT_LIBRARY_BUFFER, LUA_BUFFERLIBNAME, luaopen_buffer},
+        {BF_SCRIPT_LIBRARY_VECTOR, LUA_VECLIBNAME, luaopen_vector},
+        {BF_SCRIPT_LIBRARY_INTEGER, LUA_INTLIBNAME, luaopen_integer},
+    };
+    for (const LibraryRegistration &registration : registrations) {
+        if ((context->libraries & registration.mask) != 0) {
+            open_library(state, registration.name, registration.open);
+        }
+    }
 
-    lua_getglobal(state, LUA_MATHLIBNAME);
-    lua_getfield(state, -1, "randomseed");
-    lua_pushinteger(state, context->random_seed);
-    lua_call(state, 1, 0);
-    lua_pop(state, 1);
+    if ((context->libraries & BF_SCRIPT_LIBRARY_MATH) != 0) {
+        lua_getglobal(state, LUA_MATHLIBNAME);
+        lua_getfield(state, -1, "randomseed");
+        lua_pushinteger(state, context->random_seed);
+        lua_call(state, 1, 0);
+        lua_pop(state, 1);
+    }
 
     luaL_sandbox(state);
     luaL_sandboxthread(state);
@@ -62,12 +144,120 @@ extern "C" BFScriptVersion bf_script_luau_version() {
     };
 }
 
-extern "C" int32_t bf_script_initialize(lua_State *state, int32_t random_seed) {
+extern "C" int32_t bf_script_runtime_new(
+    size_t memory_limit_bytes,
+    BFScriptRuntime *out_runtime) {
+    if (out_runtime == nullptr) {
+        return BF_SCRIPT_STATUS_NULL_POINTER;
+    }
+    out_runtime->state = nullptr;
+    out_runtime->context = nullptr;
+    if (memory_limit_bytes == 0) {
+        return BF_SCRIPT_STATUS_INVALID_ARGUMENT;
+    }
+
+    auto *context = new (std::nothrow) RuntimeContext {
+        0,
+        0,
+        memory_limit_bytes,
+        0,
+        false,
+        false,
+    };
+    if (context == nullptr) {
+        return BF_SCRIPT_STATUS_OUT_OF_MEMORY;
+    }
+
+    lua_State *state = lua_newstate(limited_alloc, context);
+    if (state == nullptr) {
+        delete context;
+        return BF_SCRIPT_STATUS_OUT_OF_MEMORY;
+    }
+
+    lua_callbacks(state)->userdata = context;
+    out_runtime->state = state;
+    out_runtime->context = context;
+    return BF_SCRIPT_STATUS_OK;
+}
+
+extern "C" void bf_script_runtime_free(BFScriptRuntime *runtime) {
+    if (runtime == nullptr) {
+        return;
+    }
+
+    auto *context = static_cast<RuntimeContext *>(runtime->context);
+    if (runtime->state != nullptr) {
+        lua_callbacks(runtime->state)->interrupt = nullptr;
+        lua_close(runtime->state);
+    }
+    delete context;
+    runtime->state = nullptr;
+    runtime->context = nullptr;
+}
+
+extern "C" BFScriptMemoryUsage bf_script_runtime_memory_usage(
+    const BFScriptRuntime *runtime) {
+    if (runtime == nullptr || runtime->context == nullptr) {
+        return BFScriptMemoryUsage {0, 0, 0};
+    }
+
+    const auto *context =
+        static_cast<const RuntimeContext *>(runtime->context);
+    return BFScriptMemoryUsage {
+        context->current_bytes,
+        context->peak_bytes,
+        context->limit_bytes,
+    };
+}
+
+extern "C" int32_t bf_script_initialize(
+    lua_State *state,
+    int32_t random_seed,
+    uint32_t libraries) {
     if (state == nullptr) {
         return LUA_ERRRUN;
     }
-    InitializeContext context {random_seed};
+    if ((libraries & ~BF_SCRIPT_LIBRARY_ALL) != 0) {
+        return BF_SCRIPT_STATUS_INVALID_ARGUMENT;
+    }
+
+    InitializeContext context {random_seed, libraries};
     return lua_cpcall(state, initialize_runtime, &context);
+}
+
+extern "C" int32_t bf_script_begin_execution(
+    lua_State *state,
+    uint64_t fuel) {
+    RuntimeContext *context = runtime_context(state);
+    if (context == nullptr) {
+        return BF_SCRIPT_STATUS_NULL_POINTER;
+    }
+    if (fuel == 0 || context->execution_active) {
+        return BF_SCRIPT_STATUS_INVALID_ARGUMENT;
+    }
+
+    context->remaining_fuel = fuel;
+    context->execution_active = true;
+    context->execution_limit_reached = false;
+    lua_callbacks(state)->interrupt = execution_interrupt;
+    return BF_SCRIPT_STATUS_OK;
+}
+
+extern "C" int32_t bf_script_end_execution(lua_State *state) {
+    RuntimeContext *context = runtime_context(state);
+    if (context == nullptr) {
+        return BF_SCRIPT_STATUS_NULL_POINTER;
+    }
+    if (!context->execution_active) {
+        return BF_SCRIPT_STATUS_INVALID_ARGUMENT;
+    }
+
+    lua_callbacks(state)->interrupt = nullptr;
+    context->remaining_fuel = 0;
+    context->execution_active = false;
+    return context->execution_limit_reached
+        ? BF_SCRIPT_STATUS_EXECUTION_LIMIT
+        : BF_SCRIPT_STATUS_OK;
 }
 
 extern "C" int32_t bf_script_compile(

@@ -102,6 +102,9 @@ impl Bytecode {
 ///
 /// Luau encodes syntax errors into the returned bytecode. They are reported as
 /// [`Error::Compile`] when a [`crate::Runtime`] loads that bytecode.
+///
+/// Compilation runs outside any [`crate::RuntimeConfig`] VM allocator limit.
+/// Compile untrusted source in a separately constrained cooker or worker.
 pub fn compile(source: &str, options: CompileOptions) -> Result<Bytecode, Error> {
     ffi::compile(source, options).map(Bytecode::from_vec)
 }

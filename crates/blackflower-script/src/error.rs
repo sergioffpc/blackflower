@@ -1,9 +1,18 @@
 /// Errors produced while compiling or executing Luau.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    /// A runtime was configured without any VM memory.
+    #[error("Luau VM memory limit must be greater than zero")]
+    InvalidMemoryLimit,
+    /// A runtime was configured without any execution fuel.
+    #[error("Luau execution fuel must be greater than zero")]
+    InvalidExecutionFuel,
     /// The native compiler or VM could not allocate memory.
     #[error("Luau allocation failed")]
     OutOfMemory,
+    /// A chunk exhausted its configured VM safepoint fuel.
+    #[error("Luau execution fuel exhausted")]
+    ExecutionLimit,
     /// The VM could not initialize its deterministic standard library.
     #[error("Luau runtime initialization failed: {0}")]
     Initialization(String),
