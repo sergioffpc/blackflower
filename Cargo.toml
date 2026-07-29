@@ -6,6 +6,8 @@ members = [
     "apps/blackflower-server",
     "crates/blackflower-animation",
     "crates/blackflower-audio",
+    "crates/blackflower-audio-spatial",
+    "crates/blackflower-audio-voice",
     "crates/blackflower-ecs",
     "crates/blackflower-navigation",
     "crates/blackflower-observability",
@@ -27,6 +29,8 @@ publish = false
 [workspace.dependencies]
 blackflower-animation = { path = "crates/blackflower-animation" }
 blackflower-audio = { path = "crates/blackflower-audio" }
+blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
+blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
 blackflower-navigation = { path = "crates/blackflower-navigation" }

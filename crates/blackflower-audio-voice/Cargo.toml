@@ -1,14 +1,18 @@
 [package]
-name = "blackflower-audio"
+name = "blackflower-audio-voice"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+links = "opus"
 
 [dependencies]
-blackflower-audio-spatial.workspace = true
-blackflower-audio-voice.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+bindgen.workspace = true
+cmake.workspace = true
 
 [lints]
 workspace = true

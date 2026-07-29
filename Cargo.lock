@@ -77,9 +77,26 @@ dependencies = [
 name = "blackflower-audio"
 version = "0.1.0"
 dependencies = [
+ "blackflower-audio-spatial",
+ "blackflower-audio-voice",
+]
+
+[[package]]
+name = "blackflower-audio-spatial"
+version = "0.1.0"
+dependencies = [
  "bindgen",
  "cmake",
  "glam",
+ "thiserror",
+]
+
+[[package]]
+name = "blackflower-audio-voice"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cmake",
  "thiserror",
 ]
 
