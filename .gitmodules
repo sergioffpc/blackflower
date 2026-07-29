@@ -4,3 +4,6 @@
 [submodule "crates/blackflower-physics/vendor/JoltPhysics"]
 	path = crates/blackflower-physics/vendor/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "crates/blackflower-animation/vendor/ozz-animation"]
+	path = crates/blackflower-animation/vendor/ozz-animation
+	url = https://github.com/guillaumeblanc/ozz-animation.git

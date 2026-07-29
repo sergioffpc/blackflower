@@ -107,11 +107,17 @@ jobs:
             os: ubuntu-24.04
           - package: blackflower-physics
             os: macos-15
+          - package: blackflower-animation
+            os: ubuntu-24.04
+          - package: blackflower-animation
+            os: macos-15
+          - package: blackflower-animation
+            os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
     steps:
-      - name: Check out repository and Flecs
+      - name: Check out repository and native submodules
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false

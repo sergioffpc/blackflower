@@ -4,6 +4,7 @@ members = [
     "apps/blackflower",
     "apps/blackflower-harness",
     "apps/blackflower-server",
+    "crates/blackflower-animation",
     "crates/blackflower-ecs",
     "crates/blackflower-observability",
     "crates/blackflower-physics",
@@ -20,6 +21,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+blackflower-animation = { path = "crates/blackflower-animation" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs/derive" }
 blackflower-observability = { path = "crates/blackflower-observability" }
