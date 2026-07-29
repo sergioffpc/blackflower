@@ -9,6 +9,7 @@ pub struct Shape(ShapeKind);
 pub(crate) enum ShapeKind {
     Sphere { radius: f32 },
     Box { half_extent: Vec3A },
+    Capsule { half_height: f32, radius: f32 },
 }
 
 impl Shape {
@@ -26,6 +27,18 @@ impl Shape {
         validate_vector(half_extent).map_err(|_error| Error::InvalidShape)?;
         if half_extent.x > 0.0 && half_extent.y > 0.0 && half_extent.z > 0.0 {
             Ok(Self(ShapeKind::Box { half_extent }))
+        } else {
+            Err(Error::InvalidShape)
+        }
+    }
+
+    /// Construct a Y-axis capsule from its cylinder half-height and radius.
+    pub fn capsule(half_height: f32, radius: f32) -> Result<Self, Error> {
+        if half_height.is_finite() && half_height > 0.0 && radius.is_finite() && radius > 0.0 {
+            Ok(Self(ShapeKind::Capsule {
+                half_height,
+                radius,
+            }))
         } else {
             Err(Error::InvalidShape)
         }
@@ -129,7 +142,7 @@ pub(crate) fn validate_vector(value: Vec3A) -> Result<Vec3A, Error> {
     }
 }
 
-fn validate_rotation(value: Quat) -> Result<Quat, Error> {
+pub(crate) fn validate_rotation(value: Quat) -> Result<Quat, Error> {
     if value.is_finite() && value.is_normalized() {
         Ok(value)
     } else {

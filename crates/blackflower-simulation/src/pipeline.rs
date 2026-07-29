@@ -40,7 +40,7 @@ pub enum SimulationPhase {
     PrepareTick,
     /// Capture an immutable, canonical set of in-memory inputs for this tick.
     CaptureTickInputs,
-    /// Derive actor actions from the captured human, bot, and instructor inputs.
+    /// Derive actor actions from the captured human and bot inputs.
     DeriveActorActions,
     /// Advance characters, rigid bodies, constraints, and collision response.
     SolveRigidBodyDynamics,
@@ -48,7 +48,7 @@ pub enum SimulationPhase {
     SolvePhysicalPhenomena,
     /// Propagate sound emissions through the active acoustic structure.
     SolveAcoustics,
-    /// Derive discrete state transitions from physical and exercise facts.
+    /// Derive canonical candidates for discrete state changes from actions and facts.
     DeriveStateTransitions,
     /// Resolve conflicts and apply accepted discrete state transitions once.
     CommitStateTransitions,

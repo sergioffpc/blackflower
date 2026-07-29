@@ -60,6 +60,15 @@ pub enum Error {
     /// An HRTF belongs to another Steam Audio context.
     #[error("HRTF belongs to another Steam Audio context")]
     WrongContext,
+    /// An acoustic material coefficient is not a finite fraction.
+    #[error("acoustic material coefficients must be finite values between 0 and 1")]
+    InvalidAcousticMaterial,
+    /// Acoustic scene geometry is empty or contains invalid indices or vertices.
+    #[error("invalid acoustic scene geometry")]
+    InvalidSceneGeometry,
+    /// Acoustic scene geometry exceeds Steam Audio's signed 32-bit limits.
+    #[error("acoustic scene geometry exceeds Steam Audio limits")]
+    SceneGeometryCountOutOfRange,
 }
 
 impl Error {

@@ -180,6 +180,74 @@ int32_t own_navmesh(dtNavMesh *value, BFNavigationNavMesh **out_navmesh) {
     return BF_NAVIGATION_STATUS_OK;
 }
 
+int32_t restore_tile(
+    dtNavMesh *navmesh,
+    BFNavigationTileRef reference,
+    unsigned char *data,
+    int data_size,
+    int32_t replacement_status) {
+    BFNavigationTileRef restored_reference = 0;
+    const dtStatus status = navmesh->addTile(
+        data,
+        data_size,
+        DT_TILE_FREE_DATA,
+        reference,
+        &restored_reference);
+    if (dtStatusSucceed(status) && restored_reference == reference) {
+        return replacement_status;
+    }
+    if (dtStatusFailed(status)) {
+        dtFree(data);
+    }
+    return BF_NAVIGATION_STATUS_QUERY_FAILED;
+}
+
+int32_t replace_tile_data(
+    dtNavMesh *navmesh,
+    BFNavigationTileRef reference,
+    const uint8_t *data,
+    size_t data_size,
+    BFNavigationTileRef *out_reference) {
+    const dtMeshTile *old_tile = navmesh->getTileByRef(reference);
+    if (old_tile == nullptr) {
+        return BF_NAVIGATION_STATUS_INVALID_ARGUMENT;
+    }
+    const int old_data_size = old_tile->dataSize;
+    unsigned char *old_data =
+        copy_tile_data(old_tile->data, static_cast<size_t>(old_data_size));
+    unsigned char *new_data = copy_tile_data(data, data_size);
+    if (old_data == nullptr || new_data == nullptr) {
+        dtFree(old_data);
+        dtFree(new_data);
+        return BF_NAVIGATION_STATUS_OUT_OF_MEMORY;
+    }
+    dtStatus status = navmesh->removeTile(reference, nullptr, nullptr);
+    if (dtStatusFailed(status)) {
+        dtFree(old_data);
+        dtFree(new_data);
+        return map_status(status);
+    }
+    status = navmesh->addTile(
+        new_data,
+        static_cast<int>(data_size),
+        DT_TILE_FREE_DATA,
+        reference,
+        out_reference);
+    if (dtStatusSucceed(status) && *out_reference == reference) {
+        dtFree(old_data);
+        return BF_NAVIGATION_STATUS_OK;
+    }
+    const int32_t replacement_status =
+        dtStatusFailed(status) ? map_status(status) : BF_NAVIGATION_STATUS_QUERY_FAILED;
+    if (dtStatusSucceed(status)) {
+        navmesh->removeTile(*out_reference, nullptr, nullptr);
+        *out_reference = 0;
+    } else {
+        dtFree(new_data);
+    }
+    return restore_tile(navmesh, reference, old_data, old_data_size, replacement_status);
+}
+
 } // namespace
 
 extern "C" BFNavigationVersion bf_navigation_recast_version() {
@@ -287,6 +355,31 @@ extern "C" int32_t bf_navigation_navmesh_add_tile(
         dtFree(owned_data);
     }
     return map_status(status);
+}
+
+extern "C" int32_t bf_navigation_navmesh_remove_tile(
+    BFNavigationNavMesh *navmesh,
+    BFNavigationTileRef reference) {
+    if (navmesh == nullptr) {
+        return BF_NAVIGATION_STATUS_NULL_POINTER;
+    }
+    return map_status(navmesh->value->removeTile(reference, nullptr, nullptr));
+}
+
+extern "C" int32_t bf_navigation_navmesh_replace_tile(
+    BFNavigationNavMesh *navmesh,
+    BFNavigationTileRef reference,
+    const uint8_t *data,
+    size_t data_size,
+    BFNavigationTileRef *out_reference) {
+    if (navmesh == nullptr || out_reference == nullptr) {
+        return BF_NAVIGATION_STATUS_NULL_POINTER;
+    }
+    *out_reference = 0;
+    if (!valid_tile_data(data, data_size)) {
+        return BF_NAVIGATION_STATUS_INVALID_NAVMESH_DATA;
+    }
+    return replace_tile_data(navmesh->value, reference, data, data_size, out_reference);
 }
 
 extern "C" int32_t bf_navigation_query_create(

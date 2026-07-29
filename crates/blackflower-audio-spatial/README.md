@@ -6,10 +6,11 @@ The complete C API declarations are generated from the pinned `phonon.h` at
 build time. Raw declarations, statically linked native calls and every `unsafe`
 operation stay inside the private `ffi` module.
 
-The initial safe vertical slice creates a context, uses Steam Audio's built-in
-HRTF and processes fixed-size mono PCM frames into deinterleaved stereo with one
-stateful `BinauralEffect` per source. It deliberately does not yet implement
-device output, decoding, mixing, scene geometry, occlusion or reflections.
+The safe API creates a context, manages committed acoustic scene geometry, uses
+Steam Audio's built-in HRTF and processes fixed-size mono PCM frames into
+deinterleaved stereo with one stateful `BinauralEffect` per source. Device
+output, decoding, mixing, occlusion evaluation and reflections remain outside
+this crate.
 
 ## Static native build
 

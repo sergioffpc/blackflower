@@ -142,6 +142,70 @@ fn tiled_runtime_copies_and_owns_cooked_tiles() -> Result<(), Error> {
 }
 
 #[test]
+fn tiled_runtime_replaces_and_removes_cooked_tiles() -> Result<(), Error> {
+    let params = NavMeshParams::new(Vec3A::ZERO, 10.0, 10.0, NonZeroU32::MIN, NonZeroU32::MIN)?;
+    let mut navmesh = NavMesh::tiled(params)?;
+    let tile = navmesh.add_tile(fixture::QUAD_NAVMESH_TILE)?;
+
+    let replaced = navmesh.replace_tile(tile, fixture::QUAD_NAVMESH_TILE)?;
+    assert_eq!(replaced, tile);
+    assert!(
+        navmesh
+            .query()?
+            .nearest_point(
+                Vec3A::new(0.5, 0.0, 0.5),
+                Vec3A::splat(1.0),
+                &QueryFilter::default(),
+            )?
+            .is_some()
+    );
+
+    assert!(matches!(
+        navmesh.replace_tile(tile, &[0; 128]),
+        Err(Error::InvalidNavMeshData)
+    ));
+    assert!(
+        navmesh
+            .query()?
+            .nearest_point(
+                Vec3A::new(0.5, 0.0, 0.5),
+                Vec3A::splat(1.0),
+                &QueryFilter::default(),
+            )?
+            .is_some()
+    );
+
+    navmesh.remove_tile(tile)?;
+    assert!(
+        navmesh
+            .query()?
+            .nearest_point(
+                Vec3A::new(0.5, 0.0, 0.5),
+                Vec3A::splat(1.0),
+                &QueryFilter::default(),
+            )?
+            .is_none()
+    );
+    assert!(matches!(navmesh.remove_tile(tile), Err(Error::InvalidTile)));
+    Ok(())
+}
+
+#[test]
+fn tile_mutation_rejects_handles_from_another_navmesh() -> Result<(), Error> {
+    let params = NavMeshParams::new(Vec3A::ZERO, 10.0, 10.0, NonZeroU32::MIN, NonZeroU32::MIN)?;
+    let mut first = NavMesh::tiled(params)?;
+    let tile = first.add_tile(fixture::QUAD_NAVMESH_TILE)?;
+    let mut second = NavMesh::tiled(params)?;
+
+    assert!(matches!(second.remove_tile(tile), Err(Error::WrongNavMesh)));
+    assert!(matches!(
+        second.replace_tile(tile, fixture::QUAD_NAVMESH_TILE),
+        Err(Error::WrongNavMesh)
+    ));
+    Ok(())
+}
+
+#[test]
 fn query_result_capacities_fail_explicitly() -> Result<(), Error> {
     let navmesh = NavMesh::from_tile_data(fixture::QUAD_NAVMESH_TILE)?;
     let query = navmesh

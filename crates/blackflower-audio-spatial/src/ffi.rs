@@ -13,6 +13,7 @@ use std::ptr::NonNull;
 
 use glam::Vec3A;
 
+use crate::AcousticMaterial;
 use crate::types::{AudioSettings, BinauralParams, Interpolation, TailState};
 
 #[allow(
@@ -56,6 +57,12 @@ pub(crate) struct HrtfPtr(NonNull<raw::_IPLHRTF_t>);
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BinauralEffectPtr(NonNull<raw::_IPLBinauralEffect_t>);
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ScenePtr(NonNull<raw::_IPLScene_t>);
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StaticMeshPtr(NonNull<raw::_IPLStaticMesh_t>);
+
 // Steam Audio documents its API objects as reference-counted and usable from
 // multiple threads. Safe methods still require `&mut` for stateful effects.
 unsafe impl Send for ContextPtr {}
@@ -84,6 +91,85 @@ pub(crate) fn create_context() -> Result<ContextPtr, Status> {
 pub(crate) fn destroy_context(context: ContextPtr) {
     let mut pointer = context.0.as_ptr();
     unsafe { raw::iplContextRelease(&raw mut pointer) };
+}
+
+pub(crate) fn create_scene(context: ContextPtr) -> Result<ScenePtr, Status> {
+    let mut settings = raw::IPLSceneSettings {
+        type_: raw::IPL_SCENETYPE_DEFAULT,
+        closestHitCallback: None,
+        anyHitCallback: None,
+        batchedClosestHitCallback: None,
+        batchedAnyHitCallback: None,
+        userData: std::ptr::null_mut(),
+        embreeDevice: std::ptr::null_mut(),
+        radeonRaysDevice: std::ptr::null_mut(),
+    };
+    let mut pointer = std::ptr::null_mut();
+    let status =
+        unsafe { raw::iplSceneCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer) };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ScenePtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn destroy_scene(scene: ScenePtr) {
+    let mut pointer = scene.0.as_ptr();
+    unsafe { raw::iplSceneRelease(&raw mut pointer) };
+}
+
+pub(crate) fn commit_scene(scene: ScenePtr) {
+    unsafe { raw::iplSceneCommit(scene.0.as_ptr()) };
+}
+
+pub(crate) fn create_static_mesh(
+    scene: ScenePtr,
+    vertices: &[Vec3A],
+    triangles: &[[i32; 3]],
+    material_indices: &[i32],
+    materials: &[AcousticMaterial],
+) -> Result<StaticMeshPtr, Status> {
+    let mut vertices = vertices.iter().copied().map(raw_vec).collect::<Vec<_>>();
+    let mut triangles = triangles
+        .iter()
+        .copied()
+        .map(|indices| raw::IPLTriangle { indices })
+        .collect::<Vec<_>>();
+    let mut material_indices = material_indices.to_vec();
+    let mut materials = materials
+        .iter()
+        .copied()
+        .map(raw_material)
+        .collect::<Vec<_>>();
+    let mut settings = raw::IPLStaticMeshSettings {
+        numVertices: native_len(vertices.len()),
+        numTriangles: native_len(triangles.len()),
+        numMaterials: native_len(materials.len()),
+        vertices: vertices.as_mut_ptr(),
+        triangles: triangles.as_mut_ptr(),
+        materialIndices: material_indices.as_mut_ptr(),
+        materials: materials.as_mut_ptr(),
+    };
+    let mut pointer = std::ptr::null_mut();
+    let status =
+        unsafe { raw::iplStaticMeshCreate(scene.0.as_ptr(), &raw mut settings, &raw mut pointer) };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(StaticMeshPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn destroy_static_mesh(mesh: StaticMeshPtr) {
+    let mut pointer = mesh.0.as_ptr();
+    unsafe { raw::iplStaticMeshRelease(&raw mut pointer) };
+}
+
+pub(crate) fn add_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
+    unsafe { raw::iplStaticMeshAdd(mesh.0.as_ptr(), scene.0.as_ptr()) };
+}
+
+pub(crate) fn remove_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
+    unsafe { raw::iplStaticMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
 pub(crate) fn create_default_hrtf(
@@ -228,6 +314,19 @@ fn raw_vec(value: Vec3A) -> raw::IPLVector3 {
         y: value.y,
         z: value.z,
     }
+}
+
+fn raw_material(material: AcousticMaterial) -> raw::IPLMaterial {
+    raw::IPLMaterial {
+        absorption: material.absorption(),
+        scattering: material.scattering(),
+        transmission: material.transmission(),
+    }
+}
+
+fn native_len(len: usize) -> i32 {
+    i32::try_from(len)
+        .unwrap_or_else(|_error| unreachable!("scene geometry validates native lengths"))
 }
 
 const fn raw_interpolation(interpolation: Interpolation) -> raw::IPLHRTFInterpolation {

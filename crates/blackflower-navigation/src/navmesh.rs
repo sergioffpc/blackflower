@@ -116,6 +116,23 @@ impl NavMesh {
         })
     }
 
+    /// Remove a cooked tile from this tiled navigation mesh.
+    pub fn remove_tile(&mut self, tile: TileRef) -> Result<(), Error> {
+        self.validate_tile_owner(tile)?;
+        ffi::remove_tile(self.pointer, tile.raw).map_err(map_remove_tile_status)
+    }
+
+    /// Replace a cooked tile while preserving its stable Detour reference.
+    pub fn replace_tile(&mut self, tile: TileRef, data: &[u8]) -> Result<TileRef, Error> {
+        self.validate_tile_owner(tile)?;
+        let raw =
+            ffi::replace_tile(self.pointer, tile.raw, data).map_err(map_replace_tile_status)?;
+        Ok(TileRef {
+            raw,
+            navmesh: self.key,
+        })
+    }
+
     /// Test whether a tile reference was created by this navigation mesh.
     #[must_use]
     pub const fn owns_tile(&self, tile: TileRef) -> bool {
@@ -131,6 +148,14 @@ impl NavMesh {
     #[must_use]
     pub const fn query_builder(&self) -> QueryBuilder<'_> {
         QueryBuilder::new(self)
+    }
+
+    fn validate_tile_owner(&self, tile: TileRef) -> Result<(), Error> {
+        if self.owns_tile(tile) {
+            Ok(())
+        } else {
+            Err(Error::WrongNavMesh)
+        }
     }
 
     fn from_pointer(pointer: ffi::NavMeshPtr) -> Self {
@@ -179,5 +204,29 @@ const fn map_add_tile_status(status: Status) -> Error {
         Status::InitializationFailed | Status::QueryFailed | Status::ContractViolation => {
             Error::NativeContract
         }
+    }
+}
+
+const fn map_remove_tile_status(status: Status) -> Error {
+    match status {
+        Status::InvalidArgument => Error::InvalidTile,
+        Status::OutOfMemory
+        | Status::InvalidNavMeshData
+        | Status::InitializationFailed
+        | Status::TileAlreadyOccupied
+        | Status::QueryFailed
+        | Status::ContractViolation => Error::NativeContract,
+    }
+}
+
+const fn map_replace_tile_status(status: Status) -> Error {
+    match status {
+        Status::InvalidNavMeshData => Error::InvalidNavMeshData,
+        Status::InvalidArgument => Error::InvalidTile,
+        Status::OutOfMemory => Error::AllocationFailed,
+        Status::InitializationFailed
+        | Status::TileAlreadyOccupied
+        | Status::QueryFailed
+        | Status::ContractViolation => Error::NativeContract,
     }
 }

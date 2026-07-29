@@ -1,5 +1,6 @@
 use blackflower_audio_spatial::{
-    AudioSettings, BinauralParams, Context, Error, STEAM_AUDIO_VERSION, TailState, Vec3A,
+    AcousticMaterial, AcousticTriangle, AudioSettings, BinauralParams, Context, Error,
+    STEAM_AUDIO_VERSION, TailState, Vec3A,
 };
 
 const FRAME_SIZE: usize = 256;
@@ -64,6 +65,49 @@ fn safe_api_rejects_invalid_directions_and_frame_lengths() -> Result<(), Error> 
             expected: FRAME_SIZE,
             actual
         }) if actual == FRAME_SIZE - 1
+    ));
+    Ok(())
+}
+
+#[test]
+fn default_scene_commits_static_acoustic_geometry() -> Result<(), Error> {
+    let mut context = Context::new()?;
+    let mut scene = context.create_scene()?;
+    let material = AcousticMaterial::new([0.1, 0.2, 0.3], 0.05, [0.01, 0.02, 0.03])?;
+    let mut mesh = scene.create_static_mesh(
+        &[Vec3A::ZERO, Vec3A::X, Vec3A::Y],
+        &[AcousticTriangle::new(0, 1, 2)],
+        &[0],
+        &[material],
+    )?;
+
+    mesh.add();
+    assert!(mesh.is_added());
+    scene.commit();
+    mesh.remove();
+    assert!(!mesh.is_added());
+    scene.commit();
+    Ok(())
+}
+
+#[test]
+fn acoustic_scene_rejects_invalid_materials_and_geometry() -> Result<(), Error> {
+    assert!(matches!(
+        AcousticMaterial::new([0.1, f32::NAN, 0.3], 0.05, [0.01, 0.02, 0.03]),
+        Err(Error::InvalidAcousticMaterial)
+    ));
+
+    let mut context = Context::new()?;
+    let mut scene = context.create_scene()?;
+    let material = AcousticMaterial::new([0.1, 0.2, 0.3], 0.05, [0.01, 0.02, 0.03])?;
+    assert!(matches!(
+        scene.create_static_mesh(
+            &[Vec3A::ZERO, Vec3A::X, Vec3A::Y],
+            &[AcousticTriangle::new(0, 1, 3)],
+            &[0],
+            &[material],
+        ),
+        Err(Error::InvalidSceneGeometry)
     ));
     Ok(())
 }

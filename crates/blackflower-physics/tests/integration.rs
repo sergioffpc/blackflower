@@ -1,4 +1,7 @@
-use blackflower_physics::{BodySettings, Error, MotionType, Shape, StepDelta, World, jolt_version};
+use blackflower_physics::{
+    BodySettings, CharacterSettings, ContactEventKind, Error, GroundState, MotionType, Shape,
+    StepDelta, World, jolt_version,
+};
 use glam::{Quat, Vec3A};
 use std::num::NonZeroU32;
 
@@ -59,6 +62,10 @@ fn safe_values_reject_invalid_native_inputs() -> Result<(), Error> {
         StepDelta::from_seconds(f32::INFINITY),
         Err(Error::InvalidStepDelta),
     );
+    assert_eq!(
+        CharacterSettings::new(Shape::sphere(0.5)?),
+        Err(Error::InvalidCharacterShape),
+    );
 
     let settings = BodySettings::new(Shape::sphere(0.5)?, MotionType::Dynamic);
     assert_eq!(
@@ -87,6 +94,140 @@ fn configured_body_capacity_is_enforced() -> Result<(), Error> {
     assert_eq!(
         world.create_body(settings),
         Err(Error::BodyCapacityExhausted),
+    );
+    Ok(())
+}
+
+#[test]
+fn bodies_expose_rotation_angular_motion_and_force_commands() -> Result<(), Error> {
+    let mut world = World::new()?;
+    let body = world.create_body(BodySettings::new(
+        Shape::cuboid(Vec3A::splat(0.5))?,
+        MotionType::Dynamic,
+    ))?;
+    let rotation = Quat::from_rotation_y(0.5);
+
+    world.set_rotation(body, rotation)?;
+    world.set_angular_velocity(body, Vec3A::new(0.0, 1.0, 0.0))?;
+    world.add_force(body, Vec3A::new(2.0, 0.0, 0.0))?;
+    world.add_force_at_point(body, Vec3A::new(0.0, 0.0, 1.0), Vec3A::X)?;
+    world.add_torque(body, Vec3A::new(0.0, 1.0, 0.0))?;
+    world.add_impulse(body, Vec3A::new(1.0, 0.0, 0.0))?;
+    world.add_impulse_at_point(body, Vec3A::Y, Vec3A::X)?;
+    world.add_angular_impulse(body, Vec3A::new(0.0, 0.5, 0.0))?;
+
+    assert!(world.rotation(body)?.dot(rotation).abs() > 0.999);
+    assert!(world.angular_velocity(body)?.length() > 0.0);
+    assert!(world.linear_velocity(body)?.length() > 0.0);
+    Ok(())
+}
+
+#[test]
+fn contact_events_capture_manifold_geometry() -> Result<(), Error> {
+    let mut world = World::new()?;
+    let floor = world.create_body(
+        BodySettings::new(
+            Shape::cuboid(Vec3A::new(2.0, 0.5, 2.0))?,
+            MotionType::Static,
+        )
+        .with_position(Vec3A::new(0.0, -0.5, 0.0))?,
+    )?;
+    let sphere = world.create_body(
+        BodySettings::new(Shape::sphere(0.5)?, MotionType::Dynamic)
+            .with_position(Vec3A::new(0.0, 0.4, 0.0))?,
+    )?;
+
+    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    let contacts = world.contact_events()?;
+    let contact = contacts
+        .iter()
+        .find(|contact| contact.body1 == floor && contact.body2 == sphere)
+        .ok_or(Error::NativeContract)?;
+    let manifold = contact.manifold.as_ref().ok_or(Error::NativeContract)?;
+
+    assert_eq!(contact.kind, ContactEventKind::Added);
+    assert!(manifold.normal.is_finite());
+    assert!(!manifold.points.is_empty());
+
+    world.destroy_body(sphere)?;
+    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    let removed = world
+        .contact_events()?
+        .into_iter()
+        .find(|contact| contact.body1 == floor && contact.body2 == sphere)
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(removed.kind, ContactEventKind::Removed);
+    assert!(removed.manifold.is_none());
+    Ok(())
+}
+
+#[test]
+fn ray_casts_capture_closest_visibility_hits() -> Result<(), Error> {
+    let mut world = World::new()?;
+    let near = world.create_body(
+        BodySettings::new(Shape::sphere(0.5)?, MotionType::Static)
+            .with_position(Vec3A::new(0.0, 0.0, 2.0))?,
+    )?;
+    world.create_body(
+        BodySettings::new(Shape::sphere(0.5)?, MotionType::Static)
+            .with_position(Vec3A::new(0.0, 0.0, 4.0))?,
+    )?;
+
+    let hit = world
+        .cast_ray(Vec3A::ZERO, Vec3A::new(0.0, 0.0, 10.0))?
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(hit.body, near);
+    assert!((hit.fraction - 0.15).abs() < 0.001);
+    assert!(hit.position.abs_diff_eq(Vec3A::new(0.0, 0.0, 1.5), 0.001));
+    assert!(hit.normal.abs_diff_eq(Vec3A::NEG_Z, 0.001));
+    assert!(
+        world
+            .cast_ray(Vec3A::ZERO, Vec3A::new(10.0, 0.0, 0.0))?
+            .is_none()
+    );
+    assert_eq!(
+        world.cast_ray(Vec3A::ZERO, Vec3A::ZERO),
+        Err(Error::InvalidRay)
+    );
+    Ok(())
+}
+
+#[test]
+fn rigid_body_character_reports_ground_state_and_owns_its_body() -> Result<(), Error> {
+    let mut world = World::new()?;
+    world.create_body(
+        BodySettings::new(
+            Shape::cuboid(Vec3A::new(10.0, 0.5, 10.0))?,
+            MotionType::Static,
+        )
+        .with_position(Vec3A::new(0.0, -0.5, 0.0))?,
+    )?;
+    let character = world.create_character(
+        CharacterSettings::new(Shape::capsule(0.5, 0.5)?)?
+            .with_position(Vec3A::new(0.0, 2.0, 0.0))?,
+    )?;
+    world.set_character_linear_velocity(character, Vec3A::new(1.0, 0.0, 0.0))?;
+    let delta = StepDelta::from_seconds(1.0 / 60.0)?;
+
+    for _step in 0..120 {
+        world.step(delta, NonZeroU32::MIN)?;
+        world.refresh_character_ground_state(character, 0.05)?;
+    }
+    let state = world.character_state(character)?;
+
+    assert_eq!(state.body, character.body());
+    assert_eq!(state.ground.state, GroundState::OnGround);
+    assert!(state.ground.body.is_some());
+    assert_eq!(
+        world.destroy_body(character.body()),
+        Err(Error::BodyOwnedByCharacter)
+    );
+    assert!(world.is_character_alive(character)?);
+    world.destroy_character(character)?;
+    assert!(!world.is_character_alive(character)?);
+    assert_eq!(
+        world.character_state(character),
+        Err(Error::CharacterNotFound)
     );
     Ok(())
 }
