@@ -5,8 +5,11 @@ use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_presentation::{
-    FrameExecution, FrameIndex, PresentationError, PresentationPhase, PresentationPipeline,
-    PresentationWorld,
+    BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
+    EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, PrepareFrameSystem,
+    PresentationError, PresentationPhase, PresentationPipeline, PresentationWorld,
+    ResolveSceneGraphSystem, SampleRenderTimelineSystem, SubmitBackendCommandsSystem,
+    UpdateCamerasAndListenersSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -32,6 +35,156 @@ fn phase_names_are_stable() {
             "BuildBackendCommands",
             "SubmitBackendCommands",
             "CommitFrameHistory",
+        ]
+    );
+}
+
+#[test]
+fn prepare_frame_system_names_are_stable() {
+    assert_eq!(
+        PrepareFrameSystem::ORDER.map(PrepareFrameSystem::name),
+        ["OpenFrame", "ResetFrameTransientStorage"]
+    );
+}
+
+#[test]
+fn capture_frame_inputs_system_names_are_stable() {
+    assert_eq!(
+        CaptureFrameInputsSystem::ORDER.map(CaptureFrameInputsSystem::name),
+        [
+            "CaptureLocalPredictionState",
+            "CaptureRemoteSnapshotHistory",
+            "CaptureSimulationEvents",
+            "CaptureFrameConfiguration",
+        ]
+    );
+}
+
+#[test]
+fn update_scene_proxies_system_names_are_stable() {
+    assert_eq!(
+        UpdateSceneProxiesSystem::ORDER.map(UpdateSceneProxiesSystem::name),
+        [
+            "CreateMissingSceneProxies",
+            "RefreshSceneProxyBindings",
+            "RetireStaleSceneProxies",
+        ]
+    );
+}
+
+#[test]
+fn sample_render_timeline_system_names_are_stable() {
+    assert_eq!(
+        SampleRenderTimelineSystem::ORDER.map(SampleRenderTimelineSystem::name),
+        [
+            "ResolveRenderTime",
+            "SampleLocalPrediction",
+            "InterpolateRemoteSnapshots",
+            "SmoothReconciliationCorrections",
+        ]
+    );
+}
+
+#[test]
+fn update_cameras_and_listeners_system_names_are_stable() {
+    assert_eq!(
+        UpdateCamerasAndListenersSystem::ORDER.map(UpdateCamerasAndListenersSystem::name),
+        [
+            "SelectActiveViews",
+            "UpdateViewportLayouts",
+            "UpdateCameraRigs",
+            "UpdateCameraProjections",
+            "UpdateSpatialAudioListeners",
+        ]
+    );
+}
+
+#[test]
+fn evaluate_animation_poses_system_names_are_stable() {
+    assert_eq!(
+        EvaluateAnimationPosesSystem::ORDER.map(EvaluateAnimationPosesSystem::name),
+        [
+            "UpdateAnimationParameters",
+            "EvaluateAnimationGraphs",
+            "SampleAnimationClips",
+            "BlendAnimationLayers",
+            "ApplyProceduralPoseModifiers",
+            "SolveInverseKinematics",
+            "ConvertLocalPoseToModelSpace",
+            "CollectAnimationEvents",
+        ]
+    );
+}
+
+#[test]
+fn resolve_scene_graph_system_names_are_stable() {
+    assert_eq!(
+        ResolveSceneGraphSystem::ORDER.map(ResolveSceneGraphSystem::name),
+        [
+            "ResolveSceneHierarchy",
+            "ApplySkeletonPoseTransforms",
+            "ResolveSocketTransforms",
+            "ResolveAttachmentTransforms",
+            "PropagateWorldTransforms",
+        ]
+    );
+}
+
+#[test]
+fn update_effects_and_feedback_system_names_are_stable() {
+    assert_eq!(
+        UpdateEffectsAndFeedbackSystem::ORDER.map(UpdateEffectsAndFeedbackSystem::name),
+        [
+            "ResolvePresentationCues",
+            "AdvanceVisualEffects",
+            "UpdateSpatialAudioEmitters",
+            "UpdateUserInterface",
+            "AdvanceHapticFeedback",
+        ]
+    );
+}
+
+#[test]
+fn build_backend_commands_system_names_are_stable() {
+    assert_eq!(
+        BuildBackendCommandsSystem::ORDER.map(BuildBackendCommandsSystem::name),
+        [
+            "BuildVisibilitySets",
+            "BuildRenderingCommands",
+            "BuildAudioCommands",
+            "BuildUserInterfaceCommands",
+            "BuildHapticCommands",
+            "SealBackendCommands",
+        ]
+    );
+}
+
+#[test]
+fn submit_backend_commands_system_names_are_stable() {
+    assert_eq!(
+        SubmitBackendCommandsSystem::ORDER.map(SubmitBackendCommandsSystem::name),
+        [
+            "SubmitRenderingCommands",
+            "SubmitUserInterfaceCommands",
+            "SubmitAudioCommands",
+            "SubmitHapticCommands",
+            "PresentViewportFrames",
+        ]
+    );
+}
+
+#[test]
+fn commit_frame_history_system_names_are_stable() {
+    assert_eq!(
+        CommitFrameHistorySystem::ORDER.map(CommitFrameHistorySystem::name),
+        [
+            "CommitSceneTransformHistory",
+            "CommitAnimationHistory",
+            "CommitCameraAndListenerHistory",
+            "CommitEffectsAndFeedbackHistory",
+            "RetireConsumedEvents",
+            "ReleaseCapturedFrameInputs",
+            "RecycleSubmittedBackendCommands",
         ]
     );
 }
