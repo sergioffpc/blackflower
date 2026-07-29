@@ -203,6 +203,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-rendering"
+version = "0.1.0"
+
+[[package]]
 name = "blackflower-rendering-volumes"
 version = "0.1.0"
 dependencies = [
