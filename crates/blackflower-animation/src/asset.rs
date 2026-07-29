@@ -81,6 +81,21 @@ impl Skeleton {
     pub fn joint_parent(&self, joint: usize) -> Option<Option<usize>> {
         self.parents.get(joint).copied()
     }
+
+    pub(crate) fn contains_joint(&self, joint: usize) -> bool {
+        joint < self.joint_count()
+    }
+
+    pub(crate) fn is_ancestor(&self, ancestor: usize, descendant: usize) -> bool {
+        let mut current = self.parents.get(descendant).copied().flatten();
+        while let Some(joint) = current {
+            if joint == ancestor {
+                return true;
+            }
+            current = self.parents[joint];
+        }
+        false
+    }
 }
 
 impl Drop for Skeleton {

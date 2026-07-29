@@ -34,6 +34,37 @@ pub(crate) mod raw {
 }
 
 pub(crate) type Matrix = raw::BFAnimationMatrix;
+pub(crate) type Transform = raw::BFAnimationTransform;
+
+pub(crate) struct BlendLayer<'a> {
+    pub(crate) pose: PosePtr,
+    pub(crate) joint_weights: Option<&'a [f32]>,
+    pub(crate) weight: f32,
+    pub(crate) additive: bool,
+}
+
+pub(crate) struct AimIk {
+    pub(crate) joint: u32,
+    pub(crate) target: [f32; 3],
+    pub(crate) forward: [f32; 3],
+    pub(crate) offset: [f32; 3],
+    pub(crate) up: [f32; 3],
+    pub(crate) pole_vector: [f32; 3],
+    pub(crate) twist_angle: f32,
+    pub(crate) weight: f32,
+}
+
+pub(crate) struct TwoBoneIk {
+    pub(crate) start_joint: u32,
+    pub(crate) middle_joint: u32,
+    pub(crate) end_joint: u32,
+    pub(crate) target: [f32; 3],
+    pub(crate) middle_axis: [f32; 3],
+    pub(crate) pole_vector: [f32; 3],
+    pub(crate) twist_angle: f32,
+    pub(crate) soften: f32,
+    pub(crate) weight: f32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Status {
@@ -227,6 +258,134 @@ pub(crate) fn sample_pose(
         )
     };
     check(status)
+}
+
+pub(crate) fn blend_pose(
+    skeleton: SkeletonPtr,
+    layers: &[BlendLayer<'_>],
+    threshold: f32,
+    pose: PosePtr,
+) -> Result<(), Status> {
+    let native_layers = layers
+        .iter()
+        .map(|layer| {
+            let (joint_weights, joint_weight_count) = layer
+                .joint_weights
+                .map_or((std::ptr::null(), 0), |weights| {
+                    (weights.as_ptr(), weights.len())
+                });
+            raw::BFAnimationBlendLayer {
+                pose: layer.pose.0.as_ptr(),
+                joint_weights,
+                joint_weight_count,
+                weight: layer.weight,
+                additive: u8::from(layer.additive),
+            }
+        })
+        .collect::<Vec<_>>();
+    let status = unsafe {
+        raw::bf_animation_pose_blend(
+            skeleton.0.as_ptr(),
+            native_layers.as_ptr(),
+            native_layers.len(),
+            threshold,
+            pose.0.as_ptr(),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn empty_transforms(count: usize) -> Box<[Transform]> {
+    std::iter::repeat_with(Transform::default)
+        .take(count)
+        .collect()
+}
+
+pub(crate) fn copy_local_transforms(
+    pose: PosePtr,
+    transforms: &mut [Transform],
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_animation_pose_copy_local_transforms(
+            pose.0.as_ptr(),
+            transforms.as_mut_ptr(),
+            transforms.len(),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn set_local_transforms(
+    skeleton: SkeletonPtr,
+    transforms: &[Transform],
+    pose: PosePtr,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_animation_pose_set_local_transforms(
+            skeleton.0.as_ptr(),
+            transforms.as_ptr(),
+            transforms.len(),
+            pose.0.as_ptr(),
+        )
+    };
+    check(status)
+}
+
+pub(crate) fn apply_aim_ik(
+    skeleton: SkeletonPtr,
+    configuration: &AimIk,
+    pose: PosePtr,
+) -> Result<bool, Status> {
+    let native = raw::BFAnimationAimIk {
+        joint: configuration.joint,
+        target: configuration.target,
+        forward: configuration.forward,
+        offset: configuration.offset,
+        up: configuration.up,
+        pole_vector: configuration.pole_vector,
+        twist_angle: configuration.twist_angle,
+        weight: configuration.weight,
+    };
+    let mut reached = 0;
+    let status = unsafe {
+        raw::bf_animation_pose_apply_aim_ik(
+            skeleton.0.as_ptr(),
+            &raw const native,
+            pose.0.as_ptr(),
+            &raw mut reached,
+        )
+    };
+    check(status)?;
+    Ok(reached != 0)
+}
+
+pub(crate) fn apply_two_bone_ik(
+    skeleton: SkeletonPtr,
+    configuration: &TwoBoneIk,
+    pose: PosePtr,
+) -> Result<bool, Status> {
+    let native = raw::BFAnimationTwoBoneIk {
+        start_joint: configuration.start_joint,
+        middle_joint: configuration.middle_joint,
+        end_joint: configuration.end_joint,
+        target: configuration.target,
+        middle_axis: configuration.middle_axis,
+        pole_vector: configuration.pole_vector,
+        twist_angle: configuration.twist_angle,
+        soften: configuration.soften,
+        weight: configuration.weight,
+    };
+    let mut reached = 0;
+    let status = unsafe {
+        raw::bf_animation_pose_apply_two_bone_ik(
+            skeleton.0.as_ptr(),
+            &raw const native,
+            pose.0.as_ptr(),
+            &raw mut reached,
+        )
+    };
+    check(status)?;
+    Ok(reached != 0)
 }
 
 pub(crate) fn empty_matrices(count: usize) -> Box<[Matrix]> {

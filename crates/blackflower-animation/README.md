@@ -10,11 +10,17 @@ declarations and every `unsafe` operation in a private `ffi` module. A small C
 ABI implemented by `native/wrapper.cpp` isolates Rust from ozz's C++ ABI,
 SIMD layouts, archive types and ownership rules.
 
-The initial runtime surface loads optimized skeleton and animation `.ozz`
-archives, reuses ozz sampling contexts, evaluates local poses and exposes
-model-space joint matrices as `glam::Mat4`. Skeletons and clips are immutable
-and can be shared between threads. Each character owns a mutable
-`SamplingContext` and `Pose`.
+The runtime surface loads optimized skeleton and animation `.ozz` archives,
+reuses ozz sampling contexts, evaluates local poses, blends normal, additive
+and per-joint weighted layers, applies aim and two-bone IK, and exposes local
+joint transforms plus model-space matrices. Skeletons and clips are immutable
+and can be shared between threads. Each character owns mutable sampling
+contexts and poses.
+
+Host-driven animation graphs and marker tracks are implemented in Rust. The
+graph advances state timing and explicit crossfades; gameplay or policy code
+still decides which registered transition to request. Marker tracks report
+deterministically ordered timeline crossings, including wrapped playback.
 
 Offline importers and the `*2ozz` conversion tools are deliberately not linked
 into the game runtime. Produce trusted runtime archives in the content
@@ -79,3 +85,28 @@ for model_matrix in pose.model_matrices() {
 # Ok(())
 # }
 ```
+
+Blending accepts distinct input and output poses:
+
+```rust,no_run
+use blackflower_animation::{BlendLayer, Error, Pose, Skeleton};
+
+# fn blend(skeleton: &Skeleton, first: &Pose, second: &Pose) -> Result<(), Error> {
+let mut output = Pose::new(skeleton)?;
+let layers = [
+    BlendLayer::normal(first, 0.25)?,
+    BlendLayer::normal(second, 0.75)?,
+];
+output.blend(skeleton, &layers, 0.1)?;
+# Ok(())
+# }
+```
+
+Procedural systems can edit validated local transforms with
+`Pose::set_local_transform` or `Pose::set_local_transforms`. Aim and two-bone
+jobs use model-space targets and update both the local pose and cached
+model-space matrices without exposing Ozz SIMD layouts.
+
+`AnimationGraph` deliberately contains no gameplay conditions and owns no
+clips. Its evaluation returns state identifiers, normalized sampling ratios and
+blend weights that the presentation layer maps to immutable animation assets.

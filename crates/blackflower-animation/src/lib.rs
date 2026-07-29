@@ -1,18 +1,26 @@
 #![doc = include_str!("../README.md")]
 
 mod asset;
+mod blend;
 mod context;
 mod error;
 mod ffi;
+mod graph;
+mod ik;
+mod marker;
 mod pose;
 mod types;
 
 pub use asset::{Animation, Skeleton};
+pub use blend::{BlendLayer, BlendMode};
 pub use context::SamplingContext;
 pub use error::Error;
 pub use glam::Mat4;
+pub use graph::{AnimationGraph, AnimationState, AnimationStateId, GraphEvaluation, GraphLayer};
+pub use ik::{AimIk, IkOutcome, TwoBoneIk};
+pub use marker::{AnimationMarker, MarkerTrack};
 pub use pose::Pose;
-pub use types::SamplingRatio;
+pub use types::{JointTransform, SamplingRatio};
 
 /// The ozz-animation version compiled into this crate.
 #[must_use]
