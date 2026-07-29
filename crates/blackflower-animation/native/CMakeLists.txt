@@ -13,6 +13,8 @@ set(ozz_build_samples OFF CACHE BOOL "" FORCE)
 set(ozz_build_tests OFF CACHE BOOL "" FORCE)
 set(ozz_build_tools OFF CACHE BOOL "" FORCE)
 
+add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/EHsc>)
+
 add_subdirectory(
     "${CMAKE_CURRENT_LIST_DIR}/../vendor/ozz-animation"
     "${CMAKE_CURRENT_BINARY_DIR}/ozz"
