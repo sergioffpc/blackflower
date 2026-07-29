@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod compile;
+mod config;
 mod error;
 mod ffi;
 mod runtime;
@@ -8,6 +9,10 @@ mod value;
 
 pub use compile::{
     Bytecode, CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel, compile,
+};
+pub use config::{
+    DEFAULT_EXECUTION_FUEL, DEFAULT_VM_MEMORY_LIMIT_BYTES, Library, MemoryUsage, RuntimeConfig,
+    SandboxPolicy,
 };
 pub use error::Error;
 pub use runtime::Runtime;

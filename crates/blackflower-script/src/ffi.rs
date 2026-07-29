@@ -14,7 +14,7 @@ use std::ptr::NonNull;
 use std::slice;
 
 use crate::compile::CompileOptions;
-use crate::{Error, Value};
+use crate::{Error, Library, MemoryUsage, RuntimeConfig, SandboxPolicy, Value};
 
 #[allow(
     dead_code,
@@ -86,6 +86,28 @@ pub(crate) fn compile(source: &str, options: CompileOptions) -> Result<Vec<u8>, 
     Ok(bytes)
 }
 
+fn sandbox_library_mask(policy: SandboxPolicy) -> u32 {
+    Library::ALL
+        .into_iter()
+        .filter_map(|library| policy.allows(library).then_some(raw_library_mask(library)))
+        .fold(0, |libraries, library| libraries | library)
+}
+
+const fn raw_library_mask(library: Library) -> u32 {
+    match library {
+        Library::Base => raw::BF_SCRIPT_LIBRARY_BASE,
+        Library::Coroutine => raw::BF_SCRIPT_LIBRARY_COROUTINE,
+        Library::Table => raw::BF_SCRIPT_LIBRARY_TABLE,
+        Library::String => raw::BF_SCRIPT_LIBRARY_STRING,
+        Library::Math => raw::BF_SCRIPT_LIBRARY_MATH,
+        Library::Utf8 => raw::BF_SCRIPT_LIBRARY_UTF8,
+        Library::Bit32 => raw::BF_SCRIPT_LIBRARY_BIT32,
+        Library::Buffer => raw::BF_SCRIPT_LIBRARY_BUFFER,
+        Library::Vector => raw::BF_SCRIPT_LIBRARY_VECTOR,
+        Library::Integer => raw::BF_SCRIPT_LIBRARY_INTEGER,
+    }
+}
+
 fn check_compile_status(status: i32) -> Result<(), Error> {
     match status {
         value if raw::BF_SCRIPT_STATUS_OK.matches_c_int(value) => Ok(()),
@@ -105,13 +127,31 @@ fn check_compile_status(status: i32) -> Result<(), Error> {
     }
 }
 
-pub(crate) struct State(NonNull<raw::lua_State>);
+pub(crate) struct State(raw::BFScriptRuntime);
 
 impl State {
-    pub(crate) fn new(random_seed: i32) -> Result<Self, Error> {
-        let pointer = NonNull::new(unsafe { raw::luaL_newstate() }).ok_or(Error::OutOfMemory)?;
-        let state = Self(pointer);
-        let status = unsafe { raw::bf_script_initialize(state.pointer(), random_seed) };
+    pub(crate) fn new(config: RuntimeConfig) -> Result<Self, Error> {
+        let mut runtime = raw::BFScriptRuntime::default();
+        let creation_status =
+            unsafe { raw::bf_script_runtime_new(config.vm_memory_limit_bytes(), &raw mut runtime) };
+        if raw::BF_SCRIPT_STATUS_OUT_OF_MEMORY.matches_c_int(creation_status) {
+            return Err(Error::OutOfMemory);
+        }
+        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(creation_status) {
+            return Err(Error::NativeContract);
+        }
+
+        let state = Self(runtime);
+        if NonNull::new(state.pointer()).is_none() {
+            return Err(Error::NativeContract);
+        }
+        let status = unsafe {
+            raw::bf_script_initialize(
+                state.pointer(),
+                config.random_seed(),
+                sandbox_library_mask(config.sandbox_policy()),
+            )
+        };
         if raw::lua_Status_LUA_OK.matches_c_int(status) {
             return Ok(state);
         }
@@ -128,6 +168,7 @@ impl State {
         &mut self,
         chunk_name: &CString,
         bytecode: &[u8],
+        execution_fuel: u64,
     ) -> Result<Vec<Value>, Error> {
         let base = unsafe { raw::lua_gettop(self.pointer()) };
         let load_status = unsafe {
@@ -149,7 +190,23 @@ impl State {
             return Err(error);
         }
 
+        let begin_status =
+            unsafe { raw::bf_script_begin_execution(self.pointer(), execution_fuel) };
+        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(begin_status) {
+            unsafe { raw::lua_settop(self.pointer(), base) };
+            return Err(Error::NativeContract);
+        }
+
         let call_status = unsafe { raw::lua_pcall(self.pointer(), 0, raw::LUA_MULTRET, 0) };
+        let end_status = unsafe { raw::bf_script_end_execution(self.pointer()) };
+        if raw::BF_SCRIPT_STATUS_EXECUTION_LIMIT.matches_c_int(end_status) {
+            unsafe { raw::lua_settop(self.pointer(), base) };
+            return Err(Error::ExecutionLimit);
+        }
+        if !raw::BF_SCRIPT_STATUS_OK.matches_c_int(end_status) {
+            unsafe { raw::lua_settop(self.pointer(), base) };
+            return Err(Error::NativeContract);
+        }
         if !raw::lua_Status_LUA_OK.matches_c_int(call_status) {
             let error = if raw::lua_Status_LUA_ERRMEM.matches_c_int(call_status) {
                 Error::OutOfMemory
@@ -163,6 +220,15 @@ impl State {
         let results = self.collect_results(base);
         unsafe { raw::lua_settop(self.pointer(), base) };
         results
+    }
+
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let usage = unsafe { raw::bf_script_runtime_memory_usage(&raw const self.0) };
+        MemoryUsage {
+            current_bytes: usage.current_bytes,
+            peak_bytes: usage.peak_bytes,
+            limit_bytes: usage.limit_bytes,
+        }
     }
 
     fn collect_results(&self, base: i32) -> Result<Vec<Value>, Error> {
@@ -254,12 +320,12 @@ impl State {
     }
 
     const fn pointer(&self) -> *mut raw::lua_State {
-        self.0.as_ptr()
+        self.0.state
     }
 }
 
 impl Drop for State {
     fn drop(&mut self) {
-        unsafe { raw::lua_close(self.pointer()) };
+        unsafe { raw::bf_script_runtime_free(&raw mut self.0) };
     }
 }
