@@ -6,7 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const EXPECTED_OPUS_TAG: &str = "v1.5.2";
+const EXPECTED_OPUS_VERSION: &str = "1.5.2";
 const EXPECTED_OPUS_COMMIT: &str = "ddbe48383984d56acd9e1ab6a090c54ca6b735a6";
 const OPUS_ROOT: &str = "vendor/opus";
 const OPUS_INCLUDE: &str = "vendor/opus/include";
@@ -45,24 +45,36 @@ fn require_path(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn verify_opus_revision() -> Result<(), Box<dyn Error>> {
-    let commit = git_output(&["rev-parse", "HEAD"])?;
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let opus_root = manifest_dir.join(OPUS_ROOT);
+    let repository_root = PathBuf::from(git_output(&opus_root, &["rev-parse", "--show-toplevel"])?);
+    if repository_root.canonicalize()? != opus_root.canonicalize()? {
+        return Err(format!(
+            "{} is not an initialized Git submodule",
+            opus_root.display()
+        )
+        .into());
+    }
+
+    let commit = git_output(&opus_root, &["rev-parse", "HEAD"])?;
     if commit != EXPECTED_OPUS_COMMIT {
         return Err(
             format!("Opus submodule commit is {commit}; expected {EXPECTED_OPUS_COMMIT}").into(),
         );
     }
 
-    let tag = git_output(&["describe", "--tags", "--exact-match"])?;
-    if tag != EXPECTED_OPUS_TAG {
-        return Err(format!("Opus submodule tag is {tag}; expected {EXPECTED_OPUS_TAG}").into());
-    }
     Ok(())
 }
 
-fn git_output(arguments: &[&str]) -> Result<String, Box<dyn Error>> {
+fn git_output(repository: &Path, arguments: &[&str]) -> Result<String, Box<dyn Error>> {
     let output = Command::new("git")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
         .arg("-C")
-        .arg(OPUS_ROOT)
+        .arg(repository)
         .args(arguments)
         .output()?;
     if !output.status.success() {
@@ -115,7 +127,9 @@ fn build_opus(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
         .profile(native_profile())
         .build_target("opus")
         .define("BUILD_SHARED_LIBS", "OFF")
+        .define("CMAKE_DISABLE_FIND_PACKAGE_Git", "ON")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
+        .define("OPUS_PACKAGE_VERSION", EXPECTED_OPUS_VERSION)
         .define("OPUS_BUILD_SHARED_LIBRARY", "OFF")
         .define("OPUS_BUILD_TESTING", "OFF")
         .define("OPUS_BUILD_PROGRAMS", "OFF")
