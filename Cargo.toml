@@ -13,6 +13,7 @@ members = [
     "crates/blackflower-prediction",
     "crates/blackflower-presentation",
     "crates/blackflower-render",
+    "crates/blackflower-script",
     "crates/blackflower-simulation",
 ]
 
@@ -34,6 +35,7 @@ blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-render = { path = "crates/blackflower-render" }
+blackflower-script = { path = "crates/blackflower-script" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
 
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }

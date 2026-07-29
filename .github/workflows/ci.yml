@@ -131,6 +131,12 @@ jobs:
             os: macos-15
           - package: blackflower-render
             os: windows-2025
+          - package: blackflower-script
+            os: ubuntu-24.04
+          - package: blackflower-script
+            os: macos-15
+          - package: blackflower-script
+            os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
