@@ -1,15 +1,79 @@
 #![cfg(all(feature = "metrics", feature = "tracing"))]
 
 use std::error::Error as StdError;
-use std::sync::Arc;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use blackflower_simulation::SimulationWorld;
 use metrics::{Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
+use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata as TracingMetadata, Subscriber};
 
 type TestResult = Result<(), Box<dyn StdError>>;
+
+const EXPECTED_SYSTEM_ORDER: [&str; 59] = [
+    "OpenTick",
+    "ActivateScheduledCommits",
+    "CaptureActorControlFrames",
+    "DeriveLocomotionActions",
+    "DeriveWeaponActions",
+    "DeriveInteractionActions",
+    "ApplyCharacterControllerInputs",
+    "ApplyRigidBodyInputs",
+    "AdvanceRigidBodyWorld",
+    "RefreshCharacterGroundState",
+    "CaptureRigidBodyState",
+    "CaptureCharacterState",
+    "CaptureContactFacts",
+    "AdvanceBallistics",
+    "ResolveExplosions",
+    "ResolveMaterialResponses",
+    "AdvanceFire",
+    "AdvanceSmoke",
+    "QueueRigidBodyEffects",
+    "CapturePhenomenonFacts",
+    "CaptureSoundEmissions",
+    "ResolveAcousticPaths",
+    "AdvanceAcousticPropagation",
+    "BuildAcousticObservations",
+    "CaptureAcousticFacts",
+    "DeriveActorConditionTransitions",
+    "DeriveWeaponStateTransitions",
+    "DeriveInventoryStateTransitions",
+    "DeriveWorldObjectStateTransitions",
+    "DerivePhenomenonLifecycleTransitions",
+    "CanonicalizeTransitionCandidates",
+    "EvaluateTransitionPreconditions",
+    "ResolveTransitionConflicts",
+    "BuildTransitionCommit",
+    "ValidateTransitionCommit",
+    "CommitAcceptedTransitions",
+    "CaptureCommittedTransitions",
+    "DeriveSpatialStructureChanges",
+    "UpdateCollisionStructure",
+    "UpdateNavigationStructure",
+    "UpdateAcousticStructure",
+    "UpdateVisibilityStructure",
+    "PublishSpatialStructureVersions",
+    "CaptureSpatialStructureFacts",
+    "ValidateAuthoritativeState",
+    "ComputeAuthoritativeStateHash",
+    "SealAuthoritativeState",
+    "BuildBotVisualObservations",
+    "CollectBotAcousticObservations",
+    "UpdateBotPerceptionState",
+    "SelectBotObjectives",
+    "BuildBotTacticalPlans",
+    "UpdateBotNavigationPaths",
+    "FollowBotNavigationPaths",
+    "BuildBotControlFrames",
+    "QueueBotControlFrames",
+    "BuildTickOutputBatch",
+    "BuildDueSnapshotOutput",
+    "SubmitTickOutputBatch",
+];
 
 #[derive(Debug, Default)]
 struct RecordingRecorder {
@@ -43,6 +107,7 @@ impl Recorder for RecordingRecorder {
 #[derive(Clone)]
 struct CountingSubscriber {
     simulation_events: Arc<AtomicUsize>,
+    simulation_systems: Arc<Mutex<Vec<String>>>,
     next_span_id: Arc<AtomicU64>,
 }
 
@@ -63,6 +128,9 @@ impl Subscriber for CountingSubscriber {
     fn event(&self, event: &Event<'_>) {
         if event.metadata().target() == "blackflower_simulation" {
             self.simulation_events.fetch_add(1, Ordering::Relaxed);
+            event.record(&mut SystemVisitor {
+                systems: &self.simulation_systems,
+            });
         }
     }
 
@@ -71,13 +139,31 @@ impl Subscriber for CountingSubscriber {
     fn exit(&self, _span: &Id) {}
 }
 
+struct SystemVisitor<'a> {
+    systems: &'a Mutex<Vec<String>>,
+}
+
+impl Visit for SystemVisitor<'_> {
+    fn record_debug(&mut self, _field: &Field, _value: &dyn fmt::Debug) {}
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "system"
+            && let Ok(mut systems) = self.systems.lock()
+        {
+            systems.push(value.to_owned());
+        }
+    }
+}
+
 #[test]
-fn prepare_tick_stubs_emit_observability_signals() -> TestResult {
+fn registered_simulation_systems_emit_observability_signals() -> TestResult {
     let recorder = RecordingRecorder::default();
     let system_executions = Arc::clone(&recorder.system_executions);
     let simulation_events = Arc::new(AtomicUsize::new(0));
+    let simulation_systems = Arc::new(Mutex::new(Vec::new()));
     let subscriber = CountingSubscriber {
         simulation_events: Arc::clone(&simulation_events),
+        simulation_systems: Arc::clone(&simulation_systems),
         next_span_id: Arc::new(AtomicU64::new(0)),
     };
 
@@ -89,7 +175,13 @@ fn prepare_tick_stubs_emit_observability_signals() -> TestResult {
         })
     })?;
 
-    assert_eq!(system_executions.load(Ordering::Relaxed), 2);
-    assert!(simulation_events.load(Ordering::Relaxed) >= 2);
+    assert_eq!(system_executions.load(Ordering::Relaxed), 59);
+    assert!(simulation_events.load(Ordering::Relaxed) >= 59);
+    assert_eq!(
+        *simulation_systems
+            .lock()
+            .map_err(|_error| std::io::Error::other("system order lock poisoned"))?,
+        EXPECTED_SYSTEM_ORDER,
+    );
     Ok(())
 }

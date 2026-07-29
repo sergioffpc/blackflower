@@ -243,6 +243,7 @@ dependencies = [
  "metrics",
  "profiling",
  "strum",
+ "thiserror",
  "tracing",
 ]
 
