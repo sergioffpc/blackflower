@@ -2,7 +2,10 @@ use std::error::Error as StdError;
 
 #[cfg(any(feature = "metrics", feature = "tracing"))]
 use crate::HardResyncReason;
-use crate::{PredictionError, PredictionPass, ReconciliationError, ReconciliationOutcome};
+use crate::{
+    PredictionError, PredictionExecution, PredictionPass, PredictionPhase, ReconciliationError,
+    ReconciliationOutcome,
+};
 
 pub(crate) struct TickObservation {
     #[cfg(feature = "metrics")]
@@ -143,6 +146,33 @@ pub(crate) fn tick_rejected(pass: PredictionPass, reason: &'static str) {
     let _ = (pass, reason);
 }
 
+pub(crate) fn system_executed(
+    phase: PredictionPhase,
+    system: &'static str,
+    execution: PredictionExecution,
+) {
+    #[cfg(feature = "metrics")]
+    metrics::counter!(
+        "blackflower_prediction_system_executions_total",
+        "phase" => phase.name(),
+        "pass" => pass_name(execution.pass),
+    )
+    .increment(1);
+
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        target: "blackflower_prediction",
+        phase = phase.name(),
+        system,
+        tick = execution.tick.get(),
+        pass = pass_name(execution.pass),
+        "system executed",
+    );
+
+    #[cfg(not(any(feature = "metrics", feature = "tracing")))]
+    let _ = (phase, system, execution);
+}
+
 pub(crate) fn describe_metrics() {
     #[cfg(feature = "metrics")]
     {
@@ -157,6 +187,11 @@ pub(crate) fn describe_metrics() {
             "blackflower_prediction_reconciliations_total",
             Unit::Count,
             "Authoritative prediction reconciliation attempts",
+        );
+        metrics::describe_counter!(
+            "blackflower_prediction_system_executions_total",
+            Unit::Count,
+            "Prediction system executions by phase and pass",
         );
         metrics::describe_histogram!(
             "blackflower_prediction_tick_duration_seconds",

@@ -5,7 +5,7 @@ use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
 use crate::telemetry;
 use crate::telemetry::TickObservation;
-use crate::{PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick};
+use crate::{PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick, systems};
 
 /// Predicted simulation ticks executed per second.
 pub const PREDICTION_TICK_RATE_HZ: u64 = 240;
@@ -112,6 +112,8 @@ impl PredictionWorld {
     /// Turn an existing, independently configured ECS world into a prediction world.
     pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
         let pipeline = PredictionPipeline::register(&mut ecs)?;
+        let execution_context = PredictionExecutionContext::new();
+        systems::register(&mut ecs, pipeline, execution_context.clone())?;
         let tick_delta = TickDelta::from_seconds(PREDICTION_TICK_DELTA_SECONDS)?;
         telemetry::describe_metrics();
         Ok(Self {
@@ -119,7 +121,7 @@ impl PredictionWorld {
             pipeline,
             tick_delta,
             current_tick: PredictionTick::ZERO,
-            execution_context: PredictionExecutionContext::new(),
+            execution_context,
         })
     }
 

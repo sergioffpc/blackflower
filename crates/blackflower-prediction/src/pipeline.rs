@@ -21,7 +21,7 @@ pub enum PredictionPhase {
     /// Apply accepted speculative transitions to predicted state once.
     CommitStateTransitions,
     /// Validate and make the completed predicted tick stable for consumers.
-    SealSimulationTick,
+    SealTick,
     /// Submit forward outputs; re-simulation suppresses duplicate external effects.
     SubmitTickOutputs,
 }
@@ -38,7 +38,7 @@ impl PredictionPhase {
         Self::SolveRigidBodyDynamics,
         Self::DeriveStateTransitions,
         Self::CommitStateTransitions,
-        Self::SealSimulationTick,
+        Self::SealTick,
         Self::SubmitTickOutputs,
     ];
 
@@ -58,7 +58,7 @@ pub struct PredictionPhases {
     solve_rigid_body_dynamics: PhaseId,
     derive_state_transitions: PhaseId,
     commit_state_transitions: PhaseId,
-    seal_simulation_tick: PhaseId,
+    seal_tick: PhaseId,
     submit_tick_outputs: PhaseId,
 }
 
@@ -71,7 +71,7 @@ impl PredictionPhases {
             solve_rigid_body_dynamics,
             derive_state_transitions,
             commit_state_transitions,
-            seal_simulation_tick,
+            seal_tick,
             submit_tick_outputs,
         ] = register_phase_chain(world)?;
         Ok(Self {
@@ -81,7 +81,7 @@ impl PredictionPhases {
             solve_rigid_body_dynamics,
             derive_state_transitions,
             commit_state_transitions,
-            seal_simulation_tick,
+            seal_tick,
             submit_tick_outputs,
         })
     }
@@ -96,7 +96,7 @@ impl PredictionPhases {
             PredictionPhase::SolveRigidBodyDynamics => self.solve_rigid_body_dynamics,
             PredictionPhase::DeriveStateTransitions => self.derive_state_transitions,
             PredictionPhase::CommitStateTransitions => self.commit_state_transitions,
-            PredictionPhase::SealSimulationTick => self.seal_simulation_tick,
+            PredictionPhase::SealTick => self.seal_tick,
             PredictionPhase::SubmitTickOutputs => self.submit_tick_outputs,
         }
     }
