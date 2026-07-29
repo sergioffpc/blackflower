@@ -88,6 +88,15 @@ int32_t bf_navigation_navmesh_add_tile(
     size_t data_size,
     BFNavigationTileRef desired_reference,
     BFNavigationTileRef *out_reference);
+int32_t bf_navigation_navmesh_remove_tile(
+    BFNavigationNavMesh *navmesh,
+    BFNavigationTileRef reference);
+int32_t bf_navigation_navmesh_replace_tile(
+    BFNavigationNavMesh *navmesh,
+    BFNavigationTileRef reference,
+    const uint8_t *data,
+    size_t data_size,
+    BFNavigationTileRef *out_reference);
 
 int32_t bf_navigation_query_create(
     const BFNavigationNavMesh *navmesh,

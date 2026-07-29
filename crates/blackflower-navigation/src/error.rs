@@ -46,9 +46,12 @@ pub enum Error {
     /// No traversable polygon was found around the requested path end.
     #[error("no navigation polygon found around the path end")]
     EndPolygonNotFound,
-    /// A polygon handle belongs to a different navigation mesh.
-    #[error("polygon handle belongs to a different navigation mesh")]
+    /// A polygon or tile handle belongs to a different navigation mesh.
+    #[error("navigation handle belongs to a different navigation mesh")]
     WrongNavMesh,
+    /// A tile handle is stale or no longer exists in its navigation mesh.
+    #[error("navigation tile handle is invalid")]
+    InvalidTile,
     /// A polygon handle is no longer valid for its navigation mesh.
     #[error("navigation polygon handle is invalid")]
     InvalidPolygon,

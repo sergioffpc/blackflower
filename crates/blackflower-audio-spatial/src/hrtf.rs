@@ -6,8 +6,8 @@ use crate::error::Error;
 use crate::ffi;
 use crate::types::{AudioSettings, BinauralParams, TailState};
 
-struct ContextInner {
-    pointer: ffi::ContextPtr,
+pub(crate) struct ContextInner {
+    pub(crate) pointer: ffi::ContextPtr,
 }
 
 impl Drop for ContextInner {
@@ -18,7 +18,7 @@ impl Drop for ContextInner {
 
 /// Owning handle for one statically linked Steam Audio context.
 pub struct Context {
-    inner: Arc<ContextInner>,
+    pub(crate) inner: Arc<ContextInner>,
 }
 
 impl Context {
@@ -57,6 +57,11 @@ impl Context {
             hrtf: Arc::clone(&hrtf.inner),
             not_sync: PhantomData,
         })
+    }
+
+    /// Create a mutable scene using Steam Audio's built-in ray tracer.
+    pub fn create_scene(&mut self) -> Result<crate::Scene, Error> {
+        crate::Scene::new(Arc::clone(&self.inner))
     }
 }
 

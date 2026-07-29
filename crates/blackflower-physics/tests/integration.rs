@@ -162,6 +162,37 @@ fn contact_events_capture_manifold_geometry() -> Result<(), Error> {
 }
 
 #[test]
+fn ray_casts_capture_closest_visibility_hits() -> Result<(), Error> {
+    let mut world = World::new()?;
+    let near = world.create_body(
+        BodySettings::new(Shape::sphere(0.5)?, MotionType::Static)
+            .with_position(Vec3A::new(0.0, 0.0, 2.0))?,
+    )?;
+    world.create_body(
+        BodySettings::new(Shape::sphere(0.5)?, MotionType::Static)
+            .with_position(Vec3A::new(0.0, 0.0, 4.0))?,
+    )?;
+
+    let hit = world
+        .cast_ray(Vec3A::ZERO, Vec3A::new(0.0, 0.0, 10.0))?
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(hit.body, near);
+    assert!((hit.fraction - 0.15).abs() < 0.001);
+    assert!(hit.position.abs_diff_eq(Vec3A::new(0.0, 0.0, 1.5), 0.001));
+    assert!(hit.normal.abs_diff_eq(Vec3A::NEG_Z, 0.001));
+    assert!(
+        world
+            .cast_ray(Vec3A::ZERO, Vec3A::new(10.0, 0.0, 0.0))?
+            .is_none()
+    );
+    assert_eq!(
+        world.cast_ray(Vec3A::ZERO, Vec3A::ZERO),
+        Err(Error::InvalidRay)
+    );
+    Ok(())
+}
+
+#[test]
 fn rigid_body_character_reports_ground_state_and_owns_its_body() -> Result<(), Error> {
     let mut world = World::new()?;
     world.create_body(

@@ -19,6 +19,9 @@ pub enum Error {
     /// A vector must contain only finite components.
     #[error("vector components must be finite")]
     InvalidVector,
+    /// A ray segment must have finite endpoints and non-zero length.
+    #[error("ray segment must have finite endpoints and non-zero length")]
+    InvalidRay,
     /// A quaternion must be finite and normalized.
     #[error("quaternion must be finite and normalized")]
     InvalidRotation,

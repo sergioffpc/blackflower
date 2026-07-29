@@ -64,6 +64,8 @@ pub(crate) struct RawContactEvent {
     pub(crate) points: Vec<raw::BFPhysicsContactPoint>,
 }
 
+pub(crate) struct RawRayHit(pub(crate) raw::BFPhysicsRayHit);
+
 pub(crate) fn jolt_version() -> (u32, u32, u32) {
     let version = unsafe { raw::bf_physics_jolt_version() };
     (version.major, version.minor, version.patch)
@@ -378,6 +380,30 @@ fn contact_event(world: WorldPtr, event_index: u32) -> Result<RawContactEvent, S
         points.push(contact_point(world, event_index, point_index)?);
     }
     Ok(RawContactEvent { event, points })
+}
+
+pub(crate) fn cast_ray(
+    world: WorldPtr,
+    origin: Vec3A,
+    displacement: Vec3A,
+) -> Result<Option<RawRayHit>, Status> {
+    let mut has_hit = 0;
+    let mut hit = raw::BFPhysicsRayHit::default();
+    let status = unsafe {
+        raw::bf_physics_world_cast_ray(
+            world.0.as_ptr(),
+            raw_vec(origin),
+            raw_vec(displacement),
+            &raw mut has_hit,
+            &raw mut hit,
+        )
+    };
+    check(status)?;
+    match has_hit {
+        0 => Ok(None),
+        1 => Ok(Some(RawRayHit(hit))),
+        _ => Err(Status::ContractViolation),
+    }
 }
 
 fn contact_point(

@@ -10,6 +10,7 @@ use crate::contact::{ContactEvent, event_from_raw};
 use crate::error::{Error, UpdateError};
 use crate::ffi::{self, Status};
 use crate::ids::{BodyId, CharacterId, WorldKey};
+use crate::raycast::{RayHit, hit_from_raw};
 use crate::types::{BodySettings, StepDelta, validate_rotation, validate_vector};
 
 const DEFAULT_MAX_BODIES: u32 = 1_024;
@@ -315,6 +316,21 @@ impl World {
             .into_iter()
             .map(|event| event_from_raw(event, self.key))
             .collect()
+    }
+
+    /// Return the closest rigid-body hit between two finite world-space points.
+    pub fn cast_ray(&self, origin: Vec3A, end: Vec3A) -> Result<Option<RayHit>, Error> {
+        let displacement = end - origin;
+        if !origin.is_finite()
+            || !end.is_finite()
+            || !displacement.is_finite()
+            || displacement.length_squared() <= 0.0
+        {
+            return Err(Error::InvalidRay);
+        }
+        ffi::cast_ray(self.pointer, origin, displacement)
+            .map_err(map_status)
+            .map(|hit| hit.map(|hit| hit_from_raw(hit, self.key)))
     }
 
     /// Optimize the broad phase after adding a large batch of bodies.

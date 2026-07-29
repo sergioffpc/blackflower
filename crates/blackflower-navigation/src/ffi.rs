@@ -142,6 +142,34 @@ pub(crate) fn add_tile(navmesh: NavMeshPtr, data: &[u8]) -> Result<u32, Status> 
     }
 }
 
+pub(crate) fn remove_tile(navmesh: NavMeshPtr, reference: u32) -> Result<(), Status> {
+    let status = unsafe { raw::bf_navigation_navmesh_remove_tile(navmesh.0.as_ptr(), reference) };
+    check(status)
+}
+
+pub(crate) fn replace_tile(
+    navmesh: NavMeshPtr,
+    reference: u32,
+    data: &[u8],
+) -> Result<u32, Status> {
+    let mut replaced_reference = 0;
+    let status = unsafe {
+        raw::bf_navigation_navmesh_replace_tile(
+            navmesh.0.as_ptr(),
+            reference,
+            data.as_ptr(),
+            data.len(),
+            &raw mut replaced_reference,
+        )
+    };
+    check(status)?;
+    if replaced_reference == 0 {
+        Err(Status::ContractViolation)
+    } else {
+        Ok(replaced_reference)
+    }
+}
+
 pub(crate) fn create_query(navmesh: NavMeshPtr, max_nodes: u32) -> Result<QueryPtr, Status> {
     let mut pointer = std::ptr::null_mut();
     let status =

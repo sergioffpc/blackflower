@@ -6,10 +6,13 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Character/Character.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
@@ -962,6 +965,43 @@ extern "C" int32_t bf_physics_world_contact_point(
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
     *out_point = record->points[point_index];
+    return BF_PHYSICS_STATUS_OK;
+}
+
+extern "C" int32_t bf_physics_world_cast_ray(
+    const BFPhysicsWorld *world,
+    BFPhysicsVec3 origin,
+    BFPhysicsVec3 displacement,
+    uint8_t *out_has_hit,
+    BFPhysicsRayHit *out_hit) {
+    if (world == nullptr || out_has_hit == nullptr || out_hit == nullptr) {
+        return BF_PHYSICS_STATUS_NULL_POINTER;
+    }
+    *out_has_hit = 0;
+    *out_hit = BFPhysicsRayHit {};
+    if (!finite(origin) || !finite(displacement) || to_vec3(displacement).LengthSq() <= 0.0F) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+
+    const RRayCast ray(to_rvec3(origin), to_vec3(displacement));
+    RayCastResult result;
+    if (!world->system.GetNarrowPhaseQuery().CastRay(ray, result)) {
+        return BF_PHYSICS_STATUS_OK;
+    }
+
+    BodyLockRead lock(world->system.GetBodyLockInterface(), result.mBodyID);
+    if (!lock.Succeeded()) {
+        return BF_PHYSICS_STATUS_BODY_NOT_FOUND;
+    }
+    const RVec3 position = ray.GetPointOnRay(result.mFraction);
+    const Vec3 normal =
+        lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, position);
+    out_hit->body_id = result.mBodyID.GetIndexAndSequenceNumber();
+    out_hit->sub_shape_id = result.mSubShapeID2.GetValue();
+    out_hit->fraction = result.mFraction;
+    out_hit->position = from_jolt(position);
+    out_hit->normal = from_jolt(normal);
+    *out_has_hit = 1;
     return BF_PHYSICS_STATUS_OK;
 }
 

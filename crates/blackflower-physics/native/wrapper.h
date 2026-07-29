@@ -113,6 +113,14 @@ typedef struct BFPhysicsContactPoint {
     BFPhysicsVec3 position_on2;
 } BFPhysicsContactPoint;
 
+typedef struct BFPhysicsRayHit {
+    uint32_t body_id;
+    uint32_t sub_shape_id;
+    float fraction;
+    BFPhysicsVec3 position;
+    BFPhysicsVec3 normal;
+} BFPhysicsRayHit;
+
 BFPhysicsVersion bf_physics_jolt_version(void);
 
 int32_t bf_physics_world_create(
@@ -232,6 +240,12 @@ int32_t bf_physics_world_contact_point(
     uint32_t event_index,
     uint32_t point_index,
     BFPhysicsContactPoint *out_point);
+int32_t bf_physics_world_cast_ray(
+    const BFPhysicsWorld *world,
+    BFPhysicsVec3 origin,
+    BFPhysicsVec3 displacement,
+    uint8_t *out_has_hit,
+    BFPhysicsRayHit *out_hit);
 
 void bf_physics_world_optimize_broad_phase(BFPhysicsWorld *world);
 int32_t bf_physics_world_update(
