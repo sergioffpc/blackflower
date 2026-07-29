@@ -31,7 +31,7 @@ pub type IndexBounds = Bounds3<IVec3>;
 /// Active-value bounds in world space.
 pub type WorldBounds = Bounds3<DVec3>;
 
-/// Value encoding stored by a NanoVDB grid.
+/// Value encoding stored by a VDB grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GridType {
@@ -71,40 +71,9 @@ impl GridType {
             Self::Float | Self::Fp4 | Self::Fp8 | Self::Fp16 | Self::FpN
         )
     }
-
-    pub(crate) const fn from_raw(value: u32) -> Option<Self> {
-        Some(match value {
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_UNKNOWN => Self::Unknown,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_FLOAT => Self::Float,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_DOUBLE => Self::Double,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_INT16 => Self::Int16,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_INT32 => Self::Int32,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_INT64 => Self::Int64,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3F => Self::Vec3f,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3D => Self::Vec3d,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_MASK => Self::Mask,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_HALF => Self::Half,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT32 => Self::UInt32,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_BOOLEAN => Self::Boolean,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_RGBA8 => Self::Rgba8,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_FP4 => Self::Fp4,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_FP8 => Self::Fp8,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_FP16 => Self::Fp16,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_FPN => Self::FpN,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4F => Self::Vec4f,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC4D => Self::Vec4d,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_INDEX => Self::Index,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_ON_INDEX => Self::OnIndex,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_POINT_INDEX => Self::PointIndex,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U8 => Self::Vec3u8,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_VEC3U16 => Self::Vec3u16,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_TYPE_UINT8 => Self::UInt8,
-            _ => return None,
-        })
-    }
 }
 
-/// Semantic class assigned to a NanoVDB grid.
+/// Semantic class assigned to a VDB grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GridClass {
@@ -120,25 +89,7 @@ pub enum GridClass {
     TensorGrid,
 }
 
-impl GridClass {
-    pub(crate) const fn from_raw(value: u32) -> Option<Self> {
-        Some(match value {
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_UNKNOWN => Self::Unknown,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_LEVEL_SET => Self::LevelSet,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_FOG_VOLUME => Self::FogVolume,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_STAGGERED => Self::Staggered,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_INDEX => Self::PointIndex,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_POINT_DATA => Self::PointData,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_TOPOLOGY => Self::Topology,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_VOXEL_VOLUME => Self::VoxelVolume,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_INDEX_GRID => Self::IndexGrid,
-            crate::ffi::raw::BF_RENDER_NANOVDB_GRID_CLASS_TENSOR_GRID => Self::TensorGrid,
-            _ => return None,
-        })
-    }
-}
-
-/// Immutable metadata copied from one NanoVDB grid.
+/// Immutable metadata copied from one VDB grid.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridMetadata {
     pub(crate) name: String,
