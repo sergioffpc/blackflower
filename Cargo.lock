@@ -64,6 +64,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-animation"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cmake",
+ "glam",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-audio"
 version = "0.1.0"
 dependencies = [
