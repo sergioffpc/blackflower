@@ -73,6 +73,7 @@ dependencies = [
  "cc",
  "metrics",
  "profiling",
+ "strum",
  "thiserror",
  "tracing",
 ]
