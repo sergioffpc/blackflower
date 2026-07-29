@@ -34,7 +34,12 @@ do
         esac
     fi
 
-    if [ "$is_dependabot_commit" = true ]
+    if git rev-parse --verify "$commit_oid^2" >/dev/null 2>&1
+    then
+        # GitHub adds the PR title as a merge commit body. Validate only the
+        # generated merge subject, which the shared validator explicitly accepts.
+        message=$subject
+    elif [ "$is_dependabot_commit" = true ]
     then
         case "$subject" in
             'chore(deps): '*)
