@@ -1,14 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-mod error;
-mod ffi;
-mod hrtf;
-mod types;
+/// Spatial audio processing backed by Steam Audio.
+pub use blackflower_audio_spatial as spatial;
 
-pub use error::Error;
-pub use glam::Vec3A;
-pub use hrtf::{BinauralEffect, Context, Hrtf};
-pub use types::{AudioSettings, BinauralParams, Interpolation, TailState};
-
-/// The Steam Audio SDK version whose source and headers are pinned.
-pub const STEAM_AUDIO_VERSION: (u32, u32, u32) = (4, 8, 1);
+/// Real-time voice encoding and decoding backed by Opus.
+pub use blackflower_audio_voice as voice;

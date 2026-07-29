@@ -208,7 +208,7 @@ fn build_flatbuffers(out_dir: &Path, profile: &str) -> Result<(PathBuf, PathBuf)
     let target = env::var("TARGET")?;
     if host != target {
         let flatc = env::var_os("BLACKFLOWER_FLATC").ok_or(
-            "cross-compiling blackflower-audio requires BLACKFLOWER_FLATC to name a \
+            "cross-compiling blackflower-audio-spatial requires BLACKFLOWER_FLATC to name a \
              host executable built from the pinned FlatBuffers source",
         )?;
         return Ok((

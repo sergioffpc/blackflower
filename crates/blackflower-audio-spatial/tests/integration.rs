@@ -1,4 +1,4 @@
-use blackflower_audio::{
+use blackflower_audio_spatial::{
     AudioSettings, BinauralParams, Context, Error, STEAM_AUDIO_VERSION, TailState, Vec3A,
 };
 
@@ -8,7 +8,7 @@ const FRAME_SIZE_U32: u32 = 256;
 #[test]
 fn bindings_report_the_pinned_steam_audio_version() {
     assert_eq!(STEAM_AUDIO_VERSION, (4, 8, 1));
-    assert_send::<blackflower_audio::BinauralEffect>();
+    assert_send::<blackflower_audio_spatial::BinauralEffect>();
 }
 
 #[test]

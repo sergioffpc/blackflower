@@ -1,14 +1,19 @@
 [package]
-name = "blackflower-audio"
+name = "blackflower-audio-spatial"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+links = "phonon"
 
 [dependencies]
-blackflower-audio-spatial.workspace = true
-blackflower-audio-voice.workspace = true
+glam.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+bindgen.workspace = true
+cmake.workspace = true
 
 [lints]
 workspace = true
