@@ -1,19 +1,8 @@
-use std::path::PathBuf;
-
 use crate::ffi::Status;
 
 /// Errors produced while initializing or using Steam Audio.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The pinned Steam Audio shared library could not be loaded.
-    #[error("failed to load Steam Audio SDK 4.8.1 from {path:?}")]
-    LibraryLoad {
-        /// Path to the shared library.
-        path: PathBuf,
-        /// Dynamic-loader failure.
-        #[source]
-        source: libloading::Error,
-    },
     /// Steam Audio rejected an operation.
     #[error("Steam Audio operation {operation} failed")]
     NativeFailure {

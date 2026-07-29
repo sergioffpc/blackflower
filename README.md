@@ -12,6 +12,7 @@ presentation.
 | `apps/blackflower` | Player client executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
+| `crates/blackflower-audio` | Statically linked Steam Audio HRTF processing |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
@@ -67,9 +68,11 @@ If the repository is already cloned, initialize them with:
 git submodule update --init --recursive
 ```
 
-Building `blackflower-ecs` also requires a C compiler and libclang. See the
-[crate-specific setup](crates/blackflower-ecs/README.md) for platform details
-and the pinned Flecs revision.
+Native crates require a C/C++ compiler and libclang. The audio crate also
+requires CMake and compiles Steam Audio, PFFFT, libmysofa and zlib statically
+from pinned submodules. See the
+[audio setup](crates/blackflower-audio/README.md) and
+[ECS setup](crates/blackflower-ecs/README.md) for details.
 
 Enable the versioned Git hooks after cloning:
 

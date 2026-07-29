@@ -13,10 +13,6 @@ fn bindings_report_the_pinned_steam_audio_version() {
 
 #[test]
 fn default_hrtf_spatializes_a_mono_impulse() -> Result<(), Error> {
-    if !native_sdk_is_configured() {
-        return Ok(());
-    }
-
     let settings = test_settings()?;
     let mut context = Context::new()?;
     let hrtf = context.create_default_hrtf(settings)?;
@@ -46,9 +42,6 @@ fn safe_api_rejects_invalid_directions_and_frame_lengths() -> Result<(), Error> 
         BinauralParams::new(Vec3A::ZERO),
         Err(Error::InvalidDirection)
     ));
-    if !native_sdk_is_configured() {
-        return Ok(());
-    }
 
     let settings = test_settings()?;
     let mut context = Context::new()?;
@@ -77,10 +70,6 @@ fn safe_api_rejects_invalid_directions_and_frame_lengths() -> Result<(), Error> 
 
 fn test_settings() -> Result<AudioSettings, Error> {
     AudioSettings::new(48_000, FRAME_SIZE_U32)
-}
-
-fn native_sdk_is_configured() -> bool {
-    std::env::var_os("BLACKFLOWER_STEAM_AUDIO_LIBRARY").is_some()
 }
 
 const fn assert_send<T: Send>() {}

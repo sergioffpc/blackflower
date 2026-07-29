@@ -78,8 +78,8 @@ name = "blackflower-audio"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cmake",
  "glam",
- "libloading",
  "thiserror",
 ]
 
