@@ -13,7 +13,7 @@ pub enum Error {
     Launch(#[source] std::io::Error),
     #[error("volume cooker failed with status {status:?}: {stderr}")]
     ToolFailed { status: Option<i32>, stderr: String },
-    #[error("failed to read cooked volume `{path}`")]
+    #[error("failed to read cooked volume `{}`", path.display())]
     ReadOutput {
         path: PathBuf,
         #[source]
