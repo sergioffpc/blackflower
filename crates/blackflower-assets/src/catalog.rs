@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AssetId, ContentHash, ProfileHash, ProfileName, RecipeHash};
 
 /// Current embedded JSON catalog schema.
-pub const ASSET_CATALOG_SCHEMA: u32 = 2;
+pub const ASSET_CATALOG_SCHEMA: u32 = 1;
 
 /// Runtime representation used to decode an asset object.
 #[non_exhaustive]
@@ -14,6 +14,10 @@ pub enum AssetKind {
     Blob,
     /// Bytecode produced for the pinned Luau virtual machine.
     LuauBytecode,
+    /// Naga-validated SPIR-V produced by the pinned Slang compiler.
+    ShaderModule,
+    /// KTX2 two-dimensional texture with Blackflower semantic metadata.
+    Texture2d,
 }
 
 /// Runtime domains that consume an asset.
@@ -40,6 +44,16 @@ pub struct ToolchainIdentity {
     pub archive: String,
     /// Luau compiler and bytecode version.
     pub luau: String,
+    /// Slang compiler version used to emit shader modules.
+    pub slang: String,
+    /// Naga version used to validate shader modules.
+    pub naga: String,
+    /// KTX-Software version used to encode and transcode textures.
+    pub ktx: String,
+    /// Image decoder and half-float conversion versions.
+    pub texture_decoder: String,
+    /// Host platform participating in native BasisU output identity.
+    pub texture_encoder_platform: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.
@@ -62,7 +76,7 @@ pub struct AssetRecord {
     pub kind: AssetKind,
     /// Runtime audience.
     pub audience: AssetAudience,
-    /// Cooker-derived runtime requirements, empty for Stage 0 blobs.
+    /// Cooker-derived runtime requirements.
     pub dependencies: Vec<AssetId>,
     /// Hash of final cooked bytes.
     pub content_hash: ContentHash,

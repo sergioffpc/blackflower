@@ -27,7 +27,7 @@ jobs:
   quality:
     name: Quality
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -102,7 +102,7 @@ jobs:
           - macos-15
           - windows-2025
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -110,8 +110,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Initialize Luau submodule
-        run: git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
+      - name: Initialize asset compiler submodules
+        run: |
+          git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
+          git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
+          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
+          git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
 
       - name: Set up Rust toolchain
         run: |
@@ -158,13 +162,13 @@ jobs:
             ${{ runner.os }}-assets-
 
       - name: Run asset Clippy
-        run: cargo clippy --package blackflower-assets --package xtask --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy --package blackflower-assets --package blackflower-rendering-textures --package xtask --all-targets --all-features --locked -- -D warnings
 
       - name: Run asset tests and golden cook
-        run: cargo test --package blackflower-assets --package xtask --all-targets --all-features --locked --no-fail-fast
+        run: cargo test --package blackflower-assets --package blackflower-rendering-textures --package xtask --all-targets --all-features --locked --no-fail-fast
 
       - name: Run asset doctests
-        run: cargo test --package blackflower-assets --package xtask --doc --all-features --locked
+        run: cargo test --package blackflower-assets --package blackflower-rendering-textures --package xtask --doc --all-features --locked
 
   native-bindings:
     if: >-
@@ -219,14 +223,26 @@ jobs:
             os: macos-15
           - package: blackflower-rendering-volumes
             os: windows-2025
+          - package: blackflower-rendering-textures
+            os: ubuntu-24.04
+          - package: blackflower-rendering-textures
+            os: macos-15
+          - package: blackflower-rendering-textures
+            os: windows-2025
           - package: blackflower-scripting
             os: ubuntu-24.04
           - package: blackflower-scripting
             os: macos-15
           - package: blackflower-scripting
             os: windows-2025
+          - package: blackflower-shader-compiler
+            os: ubuntu-24.04
+          - package: blackflower-shader-compiler
+            os: macos-15
+          - package: blackflower-shader-compiler
+            os: windows-2025
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository and native submodules

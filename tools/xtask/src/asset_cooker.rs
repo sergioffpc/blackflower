@@ -3,9 +3,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::Context;
 use blackflower_assets::{AssetAudience, AssetId, AssetKind, Bytes, ContentHash, RecipeHash};
 use blackflower_scripting::{compile, luau_version};
+use blackflower_shader_compiler::{compile as compile_shader, slang_version};
+use naga::front::spv;
+use naga::valid::{Capabilities, ValidationFlags, Validator};
 
 use crate::manifest::{AssetSource, LoadedAsset, Repository};
 use crate::profile::CookingProfile;
+use crate::texture_cooker;
+
+pub(crate) const HALF_VERSION: &str = "2.7.1";
+pub(crate) const IMAGE_VERSION: &str = "0.25.10";
+pub(crate) const NAGA_VERSION: &str = "30.0.0";
 
 #[derive(Debug)]
 pub(crate) struct CookedAsset {
@@ -57,7 +65,32 @@ fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<
                 .context("Luau compiler rejected source")?;
             Ok(Bytes::from(bytecode.into_bytes()))
         }
+        AssetSource::Shader(manifest) => {
+            let text =
+                std::str::from_utf8(&source.source_bytes).context("Slang source is not UTF-8")?;
+            let options = profile.shaders.compile_options(manifest.stage.into());
+            let source_name = format!("{}/{}", source.manifest.id.as_str(), source.source_relative);
+            let spirv = compile_shader(&source_name, text, &manifest.entry_point, options)
+                .context("Slang compiler rejected source")?;
+            validate_spirv(&spirv)?;
+            Ok(spirv)
+        }
+        AssetSource::Texture(manifest) => texture_cooker::cook(source, manifest, profile.textures),
     }
+}
+
+fn validate_spirv(bytes: &[u8]) -> anyhow::Result<()> {
+    let options = spv::Options {
+        adjust_coordinate_space: false,
+        strict_capabilities: true,
+        block_ctx_dump_prefix: None,
+    };
+    let module =
+        spv::parse_u8_slice(bytes, &options).context("Naga rejected generated SPIR-V syntax")?;
+    Validator::new(ValidationFlags::all(), Capabilities::empty())
+        .validate(&module)
+        .context("Naga rejected generated SPIR-V semantics")?;
+    Ok(())
 }
 
 fn recipe_hash(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<RecipeHash> {
@@ -79,8 +112,29 @@ fn recipe_hash(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result
             hasher.u32(minor);
             hasher.u32(patch);
         }
+        AssetSource::Shader(manifest) => {
+            hasher.text("shader");
+            hasher.text(&manifest.entry_point);
+            hasher.serializable(&manifest.stage)?;
+            hasher.serializable(&profile.shaders)?;
+            hasher.text(slang_version());
+            hasher.text(NAGA_VERSION);
+        }
+        AssetSource::Texture(manifest) => {
+            hasher.text("texture");
+            hasher.serializable(&manifest.semantic)?;
+            hasher.serializable(&profile.textures)?;
+            hasher.text(blackflower_rendering_textures::ktx_version());
+            hasher.text(IMAGE_VERSION);
+            hasher.text(HALF_VERSION);
+            hasher.text(&texture_encoder_platform());
+        }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))
+}
+
+pub(crate) fn texture_encoder_platform() -> String {
+    format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 struct CanonicalHasher(blake3::Hasher);

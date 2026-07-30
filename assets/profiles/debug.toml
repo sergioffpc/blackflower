@@ -4,3 +4,16 @@ schema = 1
 optimization = "baseline"
 debug = "full"
 type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "none"
+debug = "standard"
+
+[textures]
+ldr_encoding = "uastc"
+hdr_encoding = "rgba16f"
+quality = "fast"
+zstd_level = 3
+generate_mipmaps = true

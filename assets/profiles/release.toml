@@ -4,3 +4,16 @@ schema = 1
 optimization = "aggressive"
 debug = "line_info"
 type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "high"
+debug = "none"
+
+[textures]
+ldr_encoding = "uastc"
+hdr_encoding = "rgba16f"
+quality = "high"
+zstd_level = 15
+generate_mipmaps = true

@@ -5,8 +5,13 @@ use std::str::FromStr;
 
 use anyhow::{Context, bail};
 use blackflower_assets::{CookingProfileIdentity, ProfileHash, ProfileName};
+use blackflower_rendering_textures::{EncodeOptions as TextureEncodeOptions, TextureQuality};
 use blackflower_scripting::{
     CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel,
+};
+use blackflower_shader_compiler::{
+    CompileOptions as ShaderCompileOptions, DebugInfoLevel as ShaderDebugInfoLevel,
+    OptimizationLevel as ShaderOptimizationLevel, ShaderStage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +85,8 @@ impl CookingProfiles {
 pub(crate) struct CookingProfile {
     pub(crate) identity: CookingProfileIdentity,
     pub(crate) scripting: ScriptingProfile,
+    pub(crate) shaders: ShaderProfile,
+    pub(crate) textures: TextureProfile,
 }
 
 impl CookingProfile {
@@ -96,10 +103,16 @@ impl CookingProfile {
                 path.display()
             );
         }
+        let _options = file
+            .textures
+            .encode_options()
+            .with_context(|| format!("invalid texture settings in profile `{}`", path.display()))?;
         let hash = hash_profile(&file)?;
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
             scripting: file.scripting,
+            shaders: file.shaders,
+            textures: file.textures,
         })
     }
 }
@@ -109,6 +122,8 @@ impl CookingProfile {
 struct CookingProfileFile {
     schema: u32,
     scripting: ScriptingProfile,
+    shaders: ShaderProfile,
+    textures: TextureProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +183,114 @@ enum LuauDebug {
 enum LuauTypeInfo {
     NativeModules,
     AllModules,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ShaderProfile {
+    target: ShaderTarget,
+    capability: ShaderCapability,
+    optimization: ShaderOptimization,
+    debug: ShaderDebug,
+}
+
+impl ShaderProfile {
+    pub(crate) const fn compile_options(self, stage: ShaderStage) -> ShaderCompileOptions {
+        ShaderCompileOptions {
+            stage,
+            optimization: match self.optimization {
+                ShaderOptimization::None => ShaderOptimizationLevel::None,
+                ShaderOptimization::Default => ShaderOptimizationLevel::Default,
+                ShaderOptimization::High => ShaderOptimizationLevel::High,
+                ShaderOptimization::Maximal => ShaderOptimizationLevel::Maximal,
+            },
+            debug_info: match self.debug {
+                ShaderDebug::None => ShaderDebugInfoLevel::None,
+                ShaderDebug::Minimal => ShaderDebugInfoLevel::Minimal,
+                ShaderDebug::Standard => ShaderDebugInfoLevel::Standard,
+                ShaderDebug::Maximal => ShaderDebugInfoLevel::Maximal,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderTarget {
+    Spirv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderCapability {
+    #[serde(rename = "spirv_1_5")]
+    Spirv1_5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderOptimization {
+    None,
+    Default,
+    High,
+    Maximal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderDebug {
+    None,
+    Minimal,
+    Standard,
+    Maximal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TextureProfile {
+    ldr_encoding: TextureLdrEncoding,
+    hdr_encoding: TextureHdrEncoding,
+    quality: TextureQualityProfile,
+    zstd_level: u32,
+    generate_mipmaps: bool,
+}
+
+impl TextureProfile {
+    pub(crate) fn encode_options(self) -> anyhow::Result<TextureEncodeOptions> {
+        if !self.generate_mipmaps {
+            bail!("texture profiles must generate a complete mip chain");
+        }
+        if !(1..=22).contains(&self.zstd_level) {
+            bail!("texture profile Zstandard level must be from 1 through 22");
+        }
+        Ok(TextureEncodeOptions {
+            quality: match self.quality {
+                TextureQualityProfile::Fast => TextureQuality::Fast,
+                TextureQualityProfile::High => TextureQuality::High,
+            },
+            uastc_rdo: self.quality == TextureQualityProfile::High,
+            zstd_level: self.zstd_level,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TextureLdrEncoding {
+    Uastc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TextureHdrEncoding {
+    Rgba16f,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TextureQualityProfile {
+    Fast,
+    High,
 }
 
 fn is_profile_path(path: &Path) -> bool {

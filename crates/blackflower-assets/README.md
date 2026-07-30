@@ -33,11 +33,13 @@ Each package records the portable name and canonical BLAKE3 identity of its
 cooking profile. A layered store rejects packages with different profile names
 or hashes before resolving any assets. Profile definitions live in
 `assets/profiles`; individual asset manifests cannot override their settings.
-This profile identity and the Luau bytecode kind use catalog schema 2, so
-packages produced with catalog schema 1 must be cooked again.
+The profile identity, runtime asset kinds, and complete cooker toolchain
+identity remain under the unreleased catalog schema 1. Development changes do
+not advance this schema; the release process owns version changes.
 
-The pipeline supports opaque blobs and profile-configured Luau bytecode.
-Domain-specific cookers for textures, shaders, models, animation, volumes,
+The pipeline supports opaque blobs, profile-configured Luau bytecode,
+Naga-validated SPIR-V compiled from Slang, and semantic KTX2 textures cooked
+from PNG or OpenEXR. Domain-specific cookers for models, animation, volumes,
 navigation, and audio add new `AssetKind` variants without changing the
 package overlay contract.
 

@@ -2,6 +2,7 @@ mod asset_cooker;
 mod cook;
 mod manifest;
 mod profile;
+mod texture_cooker;
 
 use std::fs;
 use std::path::{Path, PathBuf};
