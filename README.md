@@ -74,6 +74,9 @@ as `pak900-hotfix.squashfs` overrides matching asset IDs from
 Every package carries an Ed25519 signature over its BLAKE3 SquashFS payload
 digest. The executable must supply the permitted public keys; private keys are
 offline cooker inputs and must never be committed.
+Development runtimes may enable the opt-in `blackflower-assets/hot-reload`
+feature. It provides transactional snapshot reloads and a debounced native
+watcher for successful recooks; production builds leave it disabled.
 See the [asset VFS documentation](crates/blackflower-assets/README.md) for the
 portable naming and identity contracts.
 

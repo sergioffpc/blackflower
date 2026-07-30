@@ -33,6 +33,75 @@ The first pipeline stage supports opaque blobs only. Domain-specific cookers
 for textures, shaders, models, animation, volumes, navigation, and audio add
 new `AssetKind` variants without changing the package overlay contract.
 
+## Optional hot reload
+
+The `hot-reload` Cargo feature is disabled by default. Enabling it adds
+`AssetStoreManager` and `AssetStoreWatcher`; builds without the feature do not
+compile the filesystem-watcher dependency or expose hot-reload APIs.
+
+`AssetStoreManager` owns the currently published immutable snapshot. An
+explicit `reload` opens every package again, authenticates signatures,
+validates the complete overlay, and compares winning records without blocking
+readers of the current snapshot. A changed candidate is published with one
+short state swap. Any failure leaves the previous snapshot and generation
+untouched.
+
+Snapshots are reference counted. Systems that already hold a snapshot continue
+to read its package files after a reload, while new snapshots observe the new
+package set. Reload reports changes in `AssetId` order and preserves each
+asset's `AssetKind` and `AssetAudience`. Reclassifying an existing ID is
+rejected and requires a fresh manager.
+
+`AssetStoreWatcher` observes only direct children of the package directory and
+coalesces native notifications during a caller-selected debounce window. Only
+paths with the exact `.squashfs` extension request a reload. Successful reloads,
+rejected candidates, and watcher failures are delivered through a channel;
+there are no callbacks into simulation or presentation systems.
+
+Presentation changes can be adopted at a frame boundary. Simulation changes
+should be adopted only at a deterministic tick, level, or session boundary.
+Shared changes use the stricter boundary of their consumers. Production
+executables can omit the feature entirely.
+
+```rust,no_run
+# #[cfg(feature = "hot-reload")]
+# mod hot_reload_example {
+use blackflower_assets::{
+    AssetAudience, AssetReloadStatus, AssetStoreManager, AssetStoreWatcher,
+    AssetTrustStore, AssetWatchEvent,
+};
+use std::sync::Arc;
+use std::time::Duration;
+
+# fn example(release_asset_public_key: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
+let trusted_keys =
+    AssetTrustStore::from_public_keys([release_asset_public_key])?;
+let manager = Arc::new(AssetStoreManager::open_dir(
+    "target/assets/packages/desktop-universal",
+    trusted_keys,
+)?);
+let watcher =
+    AssetStoreWatcher::watch(Arc::clone(&manager), Duration::from_millis(150))?;
+
+if let AssetWatchEvent::Reloaded(reload) = watcher.events().recv()? {
+    if reload.status() == AssetReloadStatus::Reloaded {
+        for change in reload.changes().changes() {
+            match change.audience() {
+                AssetAudience::Presentation => {
+                    // Adopt at a presentation frame boundary.
+                }
+                AssetAudience::Simulation | AssetAudience::Shared => {
+                    // Defer to an approved deterministic boundary.
+                }
+            }
+        }
+    }
+}
+# Ok(())
+# }
+# }
+```
+
 ## Runtime example
 
 ```rust,no_run

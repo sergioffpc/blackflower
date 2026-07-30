@@ -204,6 +204,27 @@ pub enum Error {
         /// Unresolved dependency.
         dependency: AssetId,
     },
+    /// Hot reload attempted to change the stable contract of an existing ID.
+    #[cfg(feature = "hot-reload")]
+    #[error(
+        "hot reload reclassified `{asset}`: expected {expected_kind:?}/{expected_audience:?}, found {actual_kind:?}/{actual_audience:?}"
+    )]
+    HotReloadReclassification {
+        /// Asset whose runtime contract changed.
+        asset: AssetId,
+        /// Kind in the currently published snapshot.
+        expected_kind: AssetKind,
+        /// Audience in the currently published snapshot.
+        expected_audience: AssetAudience,
+        /// Kind in the candidate snapshot.
+        actual_kind: AssetKind,
+        /// Audience in the candidate snapshot.
+        actual_audience: AssetAudience,
+    },
+    /// No further successful store generations can be represented.
+    #[cfg(feature = "hot-reload")]
+    #[error("asset store generation counter is exhausted")]
+    AssetGenerationExhausted,
     /// The exact ordered package set did not match the required identity.
     #[error("asset set hash mismatch: expected {expected}, found {actual}")]
     AssetSetHashMismatch {

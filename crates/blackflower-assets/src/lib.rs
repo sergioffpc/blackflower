@@ -5,8 +5,12 @@ mod error;
 mod hash;
 mod id;
 mod package;
+#[cfg(feature = "hot-reload")]
+mod reload;
 mod signature;
 mod store;
+#[cfg(feature = "hot-reload")]
+mod watcher;
 
 pub use bytes::Bytes;
 pub use catalog::{
@@ -18,7 +22,14 @@ pub use hash::{
 };
 pub use id::{AssetId, PackageName};
 pub use package::{AssetPackage, AssetReader};
+#[cfg(feature = "hot-reload")]
+pub use reload::{
+    AssetChange, AssetChangeKind, AssetChangeSet, AssetGeneration, AssetReload, AssetReloadStatus,
+    AssetStoreManager, AssetStoreSnapshot,
+};
 pub use signature::AssetTrustStore;
 #[cfg(feature = "signing")]
 pub use signature::{AssetSigningKey, SigningKeyError, sign_package};
 pub use store::{AssetStore, ResolvedAsset};
+#[cfg(feature = "hot-reload")]
+pub use watcher::{AssetStoreWatcher, AssetWatchEvent, AssetWatcherError};

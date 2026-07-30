@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 backhand.workspace = true
-blackflower-assets = { workspace = true, features = ["signing"] }
+blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
 blake3.workspace = true
 clap.workspace = true
 serde.workspace = true

@@ -393,10 +393,14 @@ mod tests {
     use std::collections::BTreeSet;
     use std::fs;
     use std::str::FromStr;
+    use std::sync::Arc;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::{Duration, Instant};
 
     use anyhow::Context;
     use blackflower_assets::{
-        AssetCatalog, AssetId, AssetPackage, AssetSigningKey, AssetStore, AssetTrustStore, Bytes,
+        AssetCatalog, AssetChangeKind, AssetId, AssetPackage, AssetReloadStatus, AssetSigningKey,
+        AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore, AssetWatchEvent, Bytes,
         ContentHash, Error, PackageName, sign_package,
     };
     use tempfile::TempDir;
@@ -509,6 +513,227 @@ mod tests {
             .cook(&fixture.request("pak100", &["fixtures/example"])?)?;
         let composed = fixture.open_store()?.asset_set_hash();
         assert_ne!(changed, composed);
+        Ok(())
+    }
+
+    #[test]
+    fn hot_reload_publishes_a_diff_and_preserves_old_snapshots() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/modified", "presentation", "modified.bin", b"old")?;
+        fixture.asset("fixtures/removed", "shared", "removed.bin", b"removed")?;
+        let _initial = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/modified", "fixtures/removed"])?)?;
+        let manager = fixture.open_manager()?;
+        let old_snapshot = manager.snapshot();
+
+        fixture.asset("fixtures/modified", "presentation", "modified.bin", b"new")?;
+        fixture.asset("fixtures/added", "simulation", "added.bin", b"added")?;
+        let _changed = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/modified", "fixtures/added"])?)?;
+        let reload = manager.reload()?;
+
+        assert_eq!(reload.status(), AssetReloadStatus::Reloaded);
+        assert_eq!(reload.snapshot().generation().get(), 1);
+        let changes = reload.changes().changes();
+        assert_eq!(changes.len(), 3);
+        assert_eq!(changes[0].id().as_str(), "fixtures/added");
+        assert_eq!(changes[0].change(), AssetChangeKind::Added);
+        assert_eq!(changes[1].id().as_str(), "fixtures/modified");
+        assert_eq!(changes[1].change(), AssetChangeKind::Modified);
+        assert_eq!(changes[2].id().as_str(), "fixtures/removed");
+        assert_eq!(changes[2].change(), AssetChangeKind::Removed);
+
+        let modified = AssetId::from_str("fixtures/modified")?;
+        let removed = AssetId::from_str("fixtures/removed")?;
+        let added = AssetId::from_str("fixtures/added")?;
+        assert_eq!(old_snapshot.store().read_asset(&modified)?.as_ref(), b"old");
+        assert_eq!(
+            old_snapshot.store().read_asset(&removed)?.as_ref(),
+            b"removed"
+        );
+        assert_eq!(
+            reload.snapshot().store().read_asset(&modified)?.as_ref(),
+            b"new"
+        );
+        assert_eq!(
+            reload.snapshot().store().read_asset(&added)?.as_ref(),
+            b"added"
+        );
+        assert!(reload.snapshot().store().read_asset(&removed).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn unchanged_hot_reload_keeps_the_generation() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let _cooked = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let manager = fixture.open_manager()?;
+        let before = manager.snapshot();
+        let reload = manager.reload()?;
+
+        assert_eq!(reload.status(), AssetReloadStatus::Unchanged);
+        assert_eq!(reload.snapshot().generation(), before.generation());
+        assert_eq!(reload.snapshot().asset_set_hash(), before.asset_set_hash());
+        assert!(reload.changes().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn failed_hot_reload_preserves_the_current_snapshot() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let _initial = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let manager = fixture.open_manager()?;
+        let before = manager.snapshot();
+
+        fixture.asset("fixtures/example", "simulation", "example.bin", b"bytes")?;
+        let _candidate = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let error = manager
+            .reload()
+            .err()
+            .context("expected hot reload rejection")?;
+        assert!(matches!(error, Error::HotReloadReclassification { .. }));
+
+        let after = manager.snapshot();
+        assert_eq!(after.generation(), before.generation());
+        assert_eq!(after.asset_set_hash(), before.asset_set_hash());
+        let asset = AssetId::from_str("fixtures/example")?;
+        assert_eq!(
+            after
+                .store()
+                .resolve(&asset)
+                .context("missing preserved asset")?
+                .record()
+                .audience,
+            blackflower_assets::AssetAudience::Shared
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn removed_assets_keep_their_contract_when_readded() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let _initial = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let manager = fixture.open_manager()?;
+
+        let _removed = fixture.pipeline.cook(&fixture.request("pak000", &[])?)?;
+        let removal = manager.reload()?;
+        assert_eq!(removal.status(), AssetReloadStatus::Reloaded);
+        assert_eq!(removal.snapshot().generation().get(), 1);
+
+        fixture.asset("fixtures/example", "simulation", "example.bin", b"bytes")?;
+        let _readded = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let error = manager
+            .reload()
+            .err()
+            .context("expected historical contract rejection")?;
+        assert!(matches!(error, Error::HotReloadReclassification { .. }));
+        assert_eq!(manager.snapshot().generation().get(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn watcher_debounces_a_recook_and_publishes_the_new_snapshot() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "presentation", "example.bin", b"old")?;
+        let _initial = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let manager = Arc::new(fixture.open_manager()?);
+        let watcher = AssetStoreWatcher::watch(Arc::clone(&manager), Duration::from_millis(50))?;
+
+        fixture.asset("fixtures/example", "presentation", "example.bin", b"new")?;
+        let _changed = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                anyhow::bail!("timed out waiting for asset watcher reload");
+            }
+            let event = match watcher.events().recv_timeout(remaining) {
+                Ok(event) => event,
+                Err(RecvTimeoutError::Timeout) => {
+                    anyhow::bail!("timed out waiting for asset watcher reload");
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    anyhow::bail!("asset watcher event channel disconnected");
+                }
+            };
+            match event {
+                AssetWatchEvent::Reloaded(reload)
+                    if reload.status() == AssetReloadStatus::Reloaded =>
+                {
+                    let asset = AssetId::from_str("fixtures/example")?;
+                    assert_eq!(reload.snapshot().generation().get(), 1);
+                    assert_eq!(
+                        reload.snapshot().store().read_asset(&asset)?.as_ref(),
+                        b"new"
+                    );
+                    break;
+                }
+                AssetWatchEvent::Reloaded(_) => {}
+                AssetWatchEvent::ReloadFailed(error) => return Err(error.into()),
+                AssetWatchEvent::WatcherFailed(error) => return Err(error.into()),
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn watcher_reports_a_rejected_candidate_without_replacing_the_snapshot() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"old")?;
+        let _initial = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+        let manager = Arc::new(fixture.open_manager()?);
+        let watcher = AssetStoreWatcher::watch(Arc::clone(&manager), Duration::from_millis(50))?;
+
+        fixture.asset("fixtures/example", "simulation", "example.bin", b"new")?;
+        let _candidate = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+
+        let event = watcher
+            .events()
+            .recv_timeout(Duration::from_secs(10))
+            .context("timed out waiting for rejected watcher reload")?;
+        assert!(matches!(
+            event,
+            AssetWatchEvent::ReloadFailed(Error::HotReloadReclassification { .. })
+        ));
+        let snapshot = manager.snapshot();
+        let asset = AssetId::from_str("fixtures/example")?;
+        assert_eq!(snapshot.generation().get(), 0);
+        assert_eq!(
+            snapshot
+                .store()
+                .resolve(&asset)
+                .context("missing preserved asset")?
+                .record()
+                .audience,
+            blackflower_assets::AssetAudience::Shared
+        );
+        assert_eq!(snapshot.store().read_asset(&asset)?.as_ref(), b"old");
         Ok(())
     }
 
@@ -961,6 +1186,10 @@ mod tests {
         fn open_store(&self) -> Result<AssetStore, Error> {
             let trust_store = self.trust_store()?;
             AssetStore::open_dir(self.package_dir(), &trust_store)
+        }
+
+        fn open_manager(&self) -> Result<AssetStoreManager, Error> {
+            AssetStoreManager::open_dir(self.package_dir(), self.trust_store()?)
         }
 
         fn selected_catalog(&self, selected: &[&str]) -> anyhow::Result<AssetCatalog> {
