@@ -163,6 +163,12 @@ fn toolchain_identity() -> ToolchainIdentity {
         texture_decoder: format!("image/{IMAGE_VERSION}+half/{HALF_VERSION}"),
         texture_encoder_platform: texture_encoder_platform(),
         meshoptimizer: format!("meshopt/{MESHOPT_VERSION}"),
+        ozz_animation: format!(
+            "ozz/{}@{};bf-container={}",
+            blackflower_animation_cooker::OZZ_VERSION,
+            blackflower_animation_cooker::OZZ_REVISION,
+            blackflower_animation_format::CONTAINER_SCHEMA,
+        ),
     }
 }
 
@@ -414,10 +420,11 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
+    use blackflower_animation_format::{AnimationContainer, SkeletonContainer};
     use blackflower_assets::{
-        AssetCatalog, AssetChangeKind, AssetId, AssetPackage, AssetReloadStatus, AssetSigningKey,
-        AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore, AssetWatchEvent, Bytes,
-        ContentHash, Error, PackageName, ProfileName, sign_package,
+        AssetCatalog, AssetChangeKind, AssetId, AssetKind, AssetPackage, AssetReloadStatus,
+        AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
+        AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
     };
     use blackflower_rendering_models::ModelAsset;
     use blackflower_scripting::{Bytecode, Runtime, Value};
@@ -456,6 +463,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 "#;
     const TEXTURE_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -483,6 +498,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 "#;
     const RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -510,6 +533,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 "#;
     const LUAU_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -537,6 +568,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 "#;
     const SHADER_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -564,6 +603,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 "#;
 
     #[test]
@@ -766,6 +813,87 @@ lock_borders = true
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the package-level end-to-end proof keeps shared-source setup and catalog assertions together"
+    )]
+    fn animation_clip_selects_and_cooks_its_skeleton_dependency() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let source = rigged_animation_gltf()?;
+        let directory = fixture.source.join("characters/hero");
+        fs::create_dir_all(&directory)?;
+        fs::write(directory.join("rig.gltf"), source)?;
+        fs::write(
+            directory.join("rig.asset.toml"),
+            "schema = 1\nid = \"characters/rig\"\nkind = \"skeleton\"\naudience = \"presentation\"\n\n[skeleton]\nsource = \"rig.gltf\"\nskin = \"Armature\"\n",
+        )?;
+        fs::write(
+            directory.join("walk.asset.toml"),
+            "schema = 1\nid = \"characters/walk\"\nkind = \"animation_clip\"\naudience = \"presentation\"\n\n[animation]\nsource = \"rig.gltf\"\nclip = \"Walk\"\nskeleton = \"characters/rig\"\n",
+        )?;
+        fs::write(
+            directory.join("lean.asset.toml"),
+            "schema = 1\nid = \"characters/lean\"\nkind = \"animation_clip\"\naudience = \"presentation\"\n\n[animation]\nsource = \"rig.gltf\"\nclip = \"Lean\"\nskeleton = \"characters/rig\"\n",
+        )?;
+        let request = fixture.request("pak000", &["characters/walk", "characters/lean"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_package = fs::read(&first.path)?;
+
+        let store = fixture.open_store()?;
+        let skeleton_id = AssetId::from_str("characters/rig")?;
+        let animation_id = AssetId::from_str("characters/walk")?;
+        let additive_id = AssetId::from_str("characters/lean")?;
+        let skeleton_record = store
+            .resolve(&skeleton_id)
+            .context("missing automatic skeleton dependency")?
+            .record();
+        let animation_record = store
+            .resolve(&animation_id)
+            .context("missing cooked animation clip")?
+            .record();
+        assert_eq!(skeleton_record.kind, AssetKind::Skeleton);
+        assert_eq!(animation_record.kind, AssetKind::AnimationClip);
+        assert_eq!(
+            animation_record.dependencies.as_slice(),
+            std::slice::from_ref(&skeleton_id)
+        );
+        let additive_record = store
+            .resolve(&additive_id)
+            .context("missing second clip from shared glTF")?
+            .record();
+        assert_eq!(additive_record.kind, AssetKind::AnimationClip);
+        assert_eq!(
+            additive_record.dependencies.as_slice(),
+            std::slice::from_ref(&skeleton_id)
+        );
+
+        let skeleton_bytes = store.read_asset(&skeleton_id)?;
+        let animation_bytes = store.read_asset(&animation_id)?;
+        let additive_bytes = store.read_asset(&additive_id)?;
+        let skeleton = SkeletonContainer::decode(&skeleton_bytes)?;
+        let animation = AnimationContainer::decode(&animation_bytes)?;
+        let additive = AnimationContainer::decode(&additive_bytes)?;
+        assert_eq!(animation.skeleton_identity(), skeleton.identity());
+        assert_eq!(additive.skeleton_identity(), skeleton.identity());
+        assert!(animation.metadata().looping());
+        assert!(animation.ozz_root_motion().is_some());
+        assert!(additive.metadata().additive());
+        assert!(additive.ozz_root_motion().is_none());
+        let markers = animation.metadata().markers();
+        assert_eq!(markers.len(), 3);
+        assert_eq!(markers[0].name(), "start");
+        assert_eq!(markers[0].ratio().to_bits(), 0.0_f32.to_bits());
+        assert_eq!(markers[2].name(), "end");
+        assert_eq!(markers[2].ratio().to_bits(), 1.0_f32.to_bits());
+        drop(store);
+
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_package, fs::read(second.path)?);
+        Ok(())
+    }
+
+    #[test]
     fn external_gltf_buffers_participate_in_mesh_recipe_identity() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
         let (gltf, mut buffer) = grid_gltf(9)?;
@@ -913,12 +1041,22 @@ lock_borders = true
         let fixture = Fixture::new()?;
         fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
         let mut catalog = fixture.selected_catalog(&["fixtures/example"])?;
+        let meshoptimizer = catalog.toolchain.meshoptimizer.clone();
         catalog.toolchain.meshoptimizer.clear();
         let _path = fixture.write_catalog_package("pak000", &catalog)?;
         let error = fixture
             .open_store()
             .err()
             .context("expected empty meshoptimizer identity rejection")?;
+        assert!(matches!(error, Error::InvalidCatalog { .. }));
+
+        catalog.toolchain.meshoptimizer = meshoptimizer;
+        catalog.toolchain.ozz_animation.clear();
+        let _path = fixture.write_catalog_package("pak000", &catalog)?;
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected empty ozz-animation identity rejection")?;
         assert!(matches!(error, Error::InvalidCatalog { .. }));
         Ok(())
     }
@@ -1759,6 +1897,30 @@ lock_borders = true
     }
 
     #[test]
+    fn animation_dependencies_must_resolve_to_a_skeleton() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/clip", "presentation", "clip.bin", b"clip")?;
+        fixture.asset("fixtures/not-a-rig", "presentation", "rig.bin", b"rig")?;
+        let mut catalog = fixture.selected_catalog(&["fixtures/clip", "fixtures/not-a-rig"])?;
+        let dependency = AssetId::from_str("fixtures/not-a-rig")?;
+        let clip = catalog
+            .assets
+            .iter_mut()
+            .find(|record| record.id.as_str() == "fixtures/clip")
+            .context("missing clip fixture")?;
+        clip.kind = AssetKind::AnimationClip;
+        clip.dependencies.push(dependency);
+        let _path = fixture.write_catalog_package("pak000", &catalog)?;
+
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected animation dependency kind rejection")?;
+        assert!(matches!(error, Error::DependencyKindMismatch { .. }));
+        Ok(())
+    }
+
+    #[test]
     fn rejects_traversal_and_unknown_manifest_fields() -> anyhow::Result<()> {
         let traversal = Fixture::new()?;
         traversal.write_manifest(
@@ -2234,6 +2396,47 @@ lock_borders = true
         image::DynamicImage::ImageRgba32F(image)
             .write_to(&mut output, image::ImageFormat::OpenExr)?;
         Ok(output.into_inner())
+    }
+
+    fn rigged_animation_gltf() -> anyhow::Result<Vec<u8>> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../crates/blackflower-animation/vendor/ozz-animation/media/gltf/khronos/rigged_simple.gltf",
+        );
+        let mut document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+        document["animations"][0]["name"] = serde_json::json!("Walk");
+        document["animations"][0]["extras"]["blackflower"] = serde_json::json!({
+            "schema": 1,
+            "loop": true,
+            "additive": {"enabled": false, "reference": "animation"},
+            "root_motion": {
+                "enabled": true,
+                "joint": "Bone",
+                "translation_axes": ["x", "z"],
+                "rotation_axes": ["y"],
+                "reference": "skeleton",
+                "remove_from_pose": true,
+                "loop_correction": true
+            },
+            "markers": [
+                {"name": "end", "time_seconds": 2.083333015441895},
+                {"name": "start", "time_seconds": 0.0},
+                {"name": "middle", "time_seconds": 0.5}
+            ]
+        });
+        let mut additive = document["animations"][0].clone();
+        additive["name"] = serde_json::json!("Lean");
+        additive["extras"]["blackflower"] = serde_json::json!({
+            "schema": 1,
+            "loop": false,
+            "additive": {"enabled": true, "reference": "skeleton"},
+            "root_motion": {"enabled": false},
+            "markers": []
+        });
+        document["animations"]
+            .as_array_mut()
+            .context("fixture animations are not an array")?
+            .push(additive);
+        Ok(serde_json::to_vec(&document)?)
     }
 
     fn grid_gltf(side: u16) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {

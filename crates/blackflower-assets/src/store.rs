@@ -242,10 +242,20 @@ fn validate_winning_dependencies(packages: &[AssetPackage]) -> Result<(), Error>
     }
     for record in winners.values() {
         for dependency in &record.dependencies {
-            if !winners.contains_key(dependency) {
+            let Some(dependency_record) = winners.get(dependency) else {
                 return Err(Error::MissingDependency {
                     asset: record.id.clone(),
                     dependency: dependency.clone(),
+                });
+            };
+            if record.kind == AssetKind::AnimationClip
+                && dependency_record.kind != AssetKind::Skeleton
+            {
+                return Err(Error::DependencyKindMismatch {
+                    asset: record.id.clone(),
+                    dependency: dependency.clone(),
+                    expected: AssetKind::Skeleton,
+                    actual: dependency_record.kind,
                 });
             }
         }

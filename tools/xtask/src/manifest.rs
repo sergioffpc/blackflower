@@ -26,6 +26,20 @@ impl AssetManifest {
             AssetSource::Shader(_) => AssetKind::ShaderModule,
             AssetSource::Texture(_) => AssetKind::Texture2d,
             AssetSource::Mesh(_) => AssetKind::Mesh,
+            AssetSource::Skeleton(_) => AssetKind::Skeleton,
+            AssetSource::Animation(_) => AssetKind::AnimationClip,
+        }
+    }
+
+    pub(crate) fn dependencies(&self) -> Vec<AssetId> {
+        match &self.source {
+            AssetSource::Animation(manifest) => vec![manifest.skeleton.clone()],
+            AssetSource::Blob(_)
+            | AssetSource::Luau(_)
+            | AssetSource::Shader(_)
+            | AssetSource::Texture(_)
+            | AssetSource::Mesh(_)
+            | AssetSource::Skeleton(_) => Vec::new(),
         }
     }
 }
@@ -37,6 +51,8 @@ pub(crate) enum AssetSource {
     Shader(ShaderManifest),
     Texture(TextureManifest),
     Mesh(MeshManifest),
+    Skeleton(SkeletonManifest),
+    Animation(AnimationManifest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -71,6 +87,21 @@ pub(crate) struct TextureManifest {
 pub(crate) struct MeshManifest {
     pub(crate) source: PathBuf,
     pub(crate) mesh: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SkeletonManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) skin: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AnimationManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) clip: String,
+    pub(crate) skeleton: AssetId,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -112,6 +143,8 @@ struct AssetManifestFile {
     shader: Option<ShaderManifest>,
     texture: Option<TextureManifest>,
     mesh: Option<MeshManifest>,
+    skeleton: Option<SkeletonManifest>,
+    animation: Option<AnimationManifest>,
 }
 
 struct SourceSections {
@@ -120,6 +153,8 @@ struct SourceSections {
     shader: Option<ShaderManifest>,
     texture: Option<TextureManifest>,
     mesh: Option<MeshManifest>,
+    skeleton: Option<SkeletonManifest>,
+    animation: Option<AnimationManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -165,12 +200,10 @@ impl Repository {
         let mut assets = BTreeMap::new();
         let mut packages = BTreeMap::new();
         for path in manifest_paths {
-            match path.file_name().and_then(|value| value.to_str()) {
-                Some("asset.toml") => load_asset(&canonical_root, &path, &mut assets)?,
-                Some("package.toml") => {
-                    load_package(&canonical_root, &path, &mut packages)?;
-                }
-                _ => {}
+            if is_asset_manifest_path(&path) {
+                load_asset(&canonical_root, &path, &mut assets)?;
+            } else if path.file_name().is_some_and(|name| name == "package.toml") {
+                load_package(&canonical_root, &path, &mut packages)?;
             }
         }
         let repository = Self { assets, packages };
@@ -186,7 +219,20 @@ impl Repository {
             .packages
             .get(package_name)
             .with_context(|| format!("package `{package_name}` has no package.toml"))?;
-        Ok(package.assets.iter().cloned().collect())
+        let mut selected = package.assets.iter().cloned().collect::<BTreeSet<_>>();
+        loop {
+            let dependencies = selected
+                .iter()
+                .filter_map(|id| self.assets.get(id))
+                .flat_map(|asset| asset.manifest.dependencies())
+                .filter(|dependency| !selected.contains(dependency))
+                .collect::<Vec<_>>();
+            if dependencies.is_empty() {
+                break;
+            }
+            selected.extend(dependencies);
+        }
+        Ok(selected)
     }
 
     fn validate_graph(&self) -> anyhow::Result<()> {
@@ -197,6 +243,16 @@ impl Repository {
                         "package `{}` references missing asset `{asset}`",
                         package.name,
                     );
+                }
+            }
+        }
+        for (id, asset) in &self.assets {
+            for dependency in asset.manifest.dependencies() {
+                let target = self.assets.get(&dependency).with_context(|| {
+                    format!("asset `{id}` references missing dependency `{dependency}`")
+                })?;
+                if !matches!(target.manifest.source, AssetSource::Skeleton(_)) {
+                    bail!("animation asset `{id}` dependency `{dependency}` is not a skeleton");
                 }
             }
         }
@@ -231,10 +287,16 @@ fn collect_manifest_paths(root: &Path, output: &mut Vec<PathBuf>) -> anyhow::Res
 }
 
 fn is_manifest_path(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|value| value.to_str()),
-        Some("asset.toml" | "package.toml")
-    )
+    is_asset_manifest_path(path)
+        || path
+            .file_name()
+            .is_some_and(|file_name| file_name == "package.toml")
+}
+
+fn is_asset_manifest_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|file_name| file_name == "asset.toml" || file_name.ends_with(".asset.toml"))
 }
 
 fn load_asset(
@@ -253,6 +315,8 @@ fn load_asset(
         shader: file.shader,
         texture: file.texture,
         mesh: file.mesh,
+        skeleton: file.skeleton,
+        animation: file.animation,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
     let source_path = match &source {
@@ -261,6 +325,8 @@ fn load_asset(
         AssetSource::Shader(manifest) => &manifest.source,
         AssetSource::Texture(manifest) => &manifest.source,
         AssetSource::Mesh(manifest) => &manifest.source,
+        AssetSource::Skeleton(manifest) => &manifest.source,
+        AssetSource::Animation(manifest) => &manifest.source,
     };
     let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
@@ -321,6 +387,16 @@ fn asset_source(
             validate_mesh_manifest(&mesh, audience, path)?;
             AssetSource::Mesh(mesh)
         }
+        AssetKind::Skeleton => {
+            let skeleton = required_section(sections.skeleton, "skeleton", path)?;
+            validate_skeleton_manifest(&skeleton, audience, path)?;
+            AssetSource::Skeleton(skeleton)
+        }
+        AssetKind::AnimationClip => {
+            let animation = required_section(sections.animation, "animation", path)?;
+            validate_animation_manifest(&animation, audience, path)?;
+            AssetSource::Animation(animation)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
@@ -333,6 +409,8 @@ impl SourceSections {
             + usize::from(self.shader.is_some())
             + usize::from(self.texture.is_some())
             + usize::from(self.mesh.is_some())
+            + usize::from(self.skeleton.is_some())
+            + usize::from(self.animation.is_some())
     }
 }
 
@@ -343,6 +421,64 @@ fn required_section<T>(section: Option<T>, name: &str, path: &Path) -> anyhow::R
             path.display()
         )
     })
+}
+
+fn validate_skeleton_manifest(
+    skeleton: &SkeletonManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_animation_audience(audience, path)?;
+    validate_gltf_source(&skeleton.source, "skeleton", path)?;
+    validate_selection_name(&skeleton.skin, "skin", path)
+}
+
+fn validate_animation_manifest(
+    animation: &AnimationManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_animation_audience(audience, path)?;
+    validate_gltf_source(&animation.source, "animation", path)?;
+    validate_selection_name(&animation.clip, "clip", path)
+}
+
+fn validate_animation_audience(audience: AssetAudience, path: &Path) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "animation asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_gltf_source(source: &Path, label: &str, path: &Path) -> anyhow::Result<()> {
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .with_context(|| format!("{label} source must have a UTF-8 extension"))?;
+    if !extension.eq_ignore_ascii_case("gltf") && !extension.eq_ignore_ascii_case("glb") {
+        bail!(
+            "{label} source in `{}` must use glTF or GLB",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_selection_name(value: &str, label: &str, path: &Path) -> anyhow::Result<()> {
+    if value.is_empty()
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+        || value.contains(['*', '?'])
+    {
+        bail!(
+            "{label} name in `{}` must be non-empty, unpadded, and contain no wildcards or control characters",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 fn validate_mesh_manifest(
@@ -362,15 +498,7 @@ fn validate_mesh_manifest(
             path.display()
         );
     }
-    let extension = mesh
-        .source
-        .extension()
-        .and_then(|value| value.to_str())
-        .context("mesh source must have a UTF-8 extension")?;
-    if !extension.eq_ignore_ascii_case("gltf") && !extension.eq_ignore_ascii_case("glb") {
-        bail!("mesh source in `{}` must use glTF or GLB", path.display());
-    }
-    Ok(())
+    validate_gltf_source(&mesh.source, "mesh", path)
 }
 
 fn validate_texture_manifest(

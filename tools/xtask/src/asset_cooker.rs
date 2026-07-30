@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use blackflower_assets::{AssetAudience, AssetId, AssetKind, Bytes, ContentHash, RecipeHash};
 use blackflower_scripting::{compile, luau_version};
 use blackflower_shader_compiler::{compile as compile_shader, slang_version};
@@ -28,14 +28,14 @@ pub(crate) struct CookedAsset {
 
 struct CookedPayload {
     bytes: Bytes,
-    model_source_hash: Option<blake3::Hash>,
+    derived_source_hash: Option<blake3::Hash>,
 }
 
 impl CookedPayload {
     const fn plain(bytes: Bytes) -> Self {
         Self {
             bytes,
-            model_source_hash: None,
+            derived_source_hash: None,
         }
     }
 }
@@ -46,31 +46,59 @@ pub(crate) fn cook_assets(
     profile: &CookingProfile,
 ) -> anyhow::Result<BTreeMap<AssetId, CookedAsset>> {
     let mut cooked = BTreeMap::new();
-    for id in selected {
+    let mut pending = selected.clone();
+    while !pending.is_empty() {
+        let Some(id) = pending
+            .iter()
+            .find(|id| {
+                repository.assets.get(*id).is_some_and(|asset| {
+                    asset
+                        .manifest
+                        .dependencies()
+                        .iter()
+                        .all(|dependency| cooked.contains_key(dependency))
+                })
+            })
+            .cloned()
+        else {
+            bail!("selected asset dependency graph cannot be cooked");
+        };
         let source = repository
             .assets
-            .get(id)
+            .get(&id)
             .with_context(|| format!("missing selected asset `{id}`"))?;
-        let payload =
-            cook_asset(source, profile).with_context(|| format!("failed to cook asset `{id}`"))?;
+        let payload = cook_asset(source, profile, &cooked)
+            .with_context(|| format!("failed to cook asset `{id}`"))?;
+        let dependencies = source.manifest.dependencies();
         let content_hash = ContentHash::hash_bytes(&payload.bytes);
-        let recipe_hash = recipe_hash(source, profile, payload.model_source_hash.as_ref())?;
+        let recipe_hash = recipe_hash(
+            source,
+            profile,
+            payload.derived_source_hash.as_ref(),
+            &dependencies,
+            &cooked,
+        )?;
         cooked.insert(
             id.clone(),
             CookedAsset {
                 kind: source.manifest.kind(),
                 audience: source.manifest.audience,
-                dependencies: Vec::new(),
+                dependencies,
                 bytes: payload.bytes,
                 content_hash,
                 recipe_hash,
             },
         );
+        pending.remove(&id);
     }
     Ok(cooked)
 }
 
-fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<CookedPayload> {
+fn cook_asset(
+    source: &LoadedAsset,
+    profile: &CookingProfile,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
+) -> anyhow::Result<CookedPayload> {
     match &source.manifest.source {
         AssetSource::Blob(_) => Ok(CookedPayload::plain(Bytes::from(
             source.source_bytes.clone(),
@@ -99,10 +127,46 @@ fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<
             let model = model_cooker::cook(source, manifest, &profile.models)?;
             Ok(CookedPayload {
                 bytes: model.bytes,
-                model_source_hash: Some(model.source_hash),
+                derived_source_hash: Some(model.source_hash),
             })
         }
+        AssetSource::Skeleton(manifest) => cook_skeleton(source, &manifest.skin),
+        AssetSource::Animation(manifest) => {
+            cook_animation(source, &manifest.clip, &manifest.skeleton, profile, cooked)
+        }
     }
+}
+
+fn cook_skeleton(source: &LoadedAsset, skin: &str) -> anyhow::Result<CookedPayload> {
+    let bytes = blackflower_animation_cooker::cook_skeleton(&source.source_path, skin)
+        .context("animation cooker rejected skeleton source")?;
+    Ok(CookedPayload {
+        derived_source_hash: Some(blake3::hash(&bytes)),
+        bytes: Bytes::from(bytes),
+    })
+}
+
+fn cook_animation(
+    source: &LoadedAsset,
+    clip: &str,
+    skeleton_id: &AssetId,
+    profile: &CookingProfile,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
+) -> anyhow::Result<CookedPayload> {
+    let skeleton = cooked
+        .get(skeleton_id)
+        .with_context(|| format!("skeleton dependency `{skeleton_id}` was not cooked"))?;
+    let bytes = blackflower_animation_cooker::cook_animation(
+        &source.source_path,
+        clip,
+        &skeleton.bytes,
+        profile.animations.into(),
+    )
+    .context("animation cooker rejected clip source")?;
+    Ok(CookedPayload {
+        derived_source_hash: Some(blake3::hash(&bytes)),
+        bytes: Bytes::from(bytes),
+    })
 }
 
 fn validate_spirv(bytes: &[u8]) -> anyhow::Result<()> {
@@ -119,10 +183,16 @@ fn validate_spirv(bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the exhaustive source-kind match is the single canonical recipe definition"
+)]
 fn recipe_hash(
     source: &LoadedAsset,
     profile: &CookingProfile,
-    model_source_hash: Option<&blake3::Hash>,
+    derived_source_hash: Option<&blake3::Hash>,
+    dependencies: &[AssetId],
+    cooked: &BTreeMap<AssetId, CookedAsset>,
 ) -> anyhow::Result<RecipeHash> {
     let mut hasher = CanonicalHasher::new(b"blackflower.asset-recipe.v2");
     hasher.u32(source.manifest.schema);
@@ -131,6 +201,13 @@ fn recipe_hash(
     hasher.serializable(&source.manifest.audience)?;
     hasher.text(&source.source_relative);
     hasher.bytes(source.source_hash.as_bytes());
+    for dependency in dependencies {
+        let dependency_asset = cooked
+            .get(dependency)
+            .with_context(|| format!("missing cooked dependency `{dependency}`"))?;
+        hasher.text(dependency.as_str());
+        hasher.bytes(dependency_asset.content_hash.as_bytes());
+    }
     hasher.text(env!("CARGO_PKG_VERSION"));
     match &source.manifest.source {
         AssetSource::Blob(_) => hasher.text("blob"),
@@ -165,7 +242,32 @@ fn recipe_hash(
             hasher.serializable(&profile.models)?;
             hasher.text(model_cooker::MESHOPT_VERSION);
             let source_hash =
-                model_source_hash.context("cooked mesh is missing its buffer source hash")?;
+                derived_source_hash.context("cooked mesh is missing its buffer source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::Skeleton(manifest) => {
+            hasher.text("skeleton");
+            hasher.text(&manifest.skin);
+            hasher.serializable(&profile.animations)?;
+            hasher.text(blackflower_animation_cooker::COOKER_RECIPE);
+            hasher.text(blackflower_animation_cooker::OZZ_VERSION);
+            hasher.text(blackflower_animation_cooker::OZZ_REVISION);
+            hasher.u32(u32::from(blackflower_animation_format::CONTAINER_SCHEMA));
+            let source_hash = derived_source_hash
+                .context("cooked skeleton is missing its derived source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::Animation(manifest) => {
+            hasher.text("animation_clip");
+            hasher.text(&manifest.clip);
+            hasher.text(manifest.skeleton.as_str());
+            hasher.serializable(&profile.animations)?;
+            hasher.text(blackflower_animation_cooker::COOKER_RECIPE);
+            hasher.text(blackflower_animation_cooker::OZZ_VERSION);
+            hasher.text(blackflower_animation_cooker::OZZ_REVISION);
+            hasher.u32(u32::from(blackflower_animation_format::CONTAINER_SCHEMA));
+            let source_hash = derived_source_hash
+                .context("cooked animation is missing its derived source hash")?;
             hasher.bytes(source_hash.as_bytes());
         }
     }

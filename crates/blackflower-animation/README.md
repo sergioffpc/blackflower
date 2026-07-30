@@ -10,23 +10,28 @@ declarations and every `unsafe` operation in a private `ffi` module. A small C
 ABI implemented by `native/wrapper.cpp` isolates Rust from ozz's C++ ABI,
 SIMD layouts, archive types and ownership rules.
 
-The runtime surface loads optimized skeleton and animation `.ozz` archives,
-reuses ozz sampling contexts, evaluates local poses, blends normal, additive
-and per-joint weighted layers, applies aim and two-bone IK, and exposes local
-joint transforms plus model-space matrices. Skeletons and clips are immutable
-and can be shared between threads. Each character owns mutable sampling
-contexts and poses.
+The public runtime surface accepts only Blackflower `.bfskel` and `.bfanim`
+assets. Their private payloads remain optimized Ozz archives, but the
+Blackflower containers add strict section validation, the required Ozz version,
+a full BLAKE3 rig identity, and typed clip policy. Raw `.ozz` input is rejected.
+The runtime reuses Ozz sampling contexts, evaluates local poses, blends normal,
+additive and per-joint weighted layers, applies aim and two-bone IK, and exposes
+local joint transforms plus model-space matrices. Skeletons and clips are
+immutable and can be shared between threads. Each character owns mutable
+sampling contexts and poses.
 
-Host-driven animation graphs and marker tracks are implemented in Rust. The
-graph advances state timing and explicit crossfades; gameplay or policy code
-still decides which registered transition to request. Marker tracks report
-deterministically ordered timeline crossings, including wrapped playback.
+Host-driven animation graphs, `AnimationSet`, marker tracks, and root-motion
+sampling are implemented in Rust. The graph advances state timing and explicit
+crossfades; gameplay or policy code still decides which registered transition
+to request. Marker tracks report deterministically ordered timeline crossings.
+Root-motion delta calculation handles ordinary traversal and one or more loop
+wraps.
 
-Offline importers and the `*2ozz` conversion tools are deliberately not linked
-into the game runtime. Produce trusted runtime archives in the content
-pipeline with the matching ozz 0.16 toolchain. The upstream archive reader
-assumes well-formed content and is not a sandbox for files supplied by
-untrusted users.
+Offline importers and `gltf2ozz` are deliberately not linked into the game
+runtime. `blackflower-animation-cooker` builds the pinned tool only for the
+host and packages its temporary outputs as trusted `.bfskel` and `.bfanim`
+assets. The upstream archive reader assumes well-formed content and is not a
+sandbox for files supplied by untrusted users.
 
 ## Checkout and prerequisites
 
@@ -64,8 +69,8 @@ use blackflower_animation::{
 };
 
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
-let skeleton_bytes = std::fs::read("assets/character_skeleton.ozz")?;
-let animation_bytes = std::fs::read("assets/character_idle.ozz")?;
+let skeleton_bytes = std::fs::read("assets/character.bfskel")?;
+let animation_bytes = std::fs::read("assets/character_idle.bfanim")?;
 let skeleton = Skeleton::from_bytes(&skeleton_bytes)?;
 let animation = Animation::from_bytes(&animation_bytes)?;
 
@@ -110,3 +115,5 @@ model-space matrices without exposing Ozz SIMD layouts.
 `AnimationGraph` deliberately contains no gameplay conditions and owns no
 clips. Its evaluation returns state identifiers, normalized sampling ratios and
 blend weights that the presentation layer maps to immutable animation assets.
+`Pose::sample` compares the complete `SkeletonIdentity` before entering Ozz,
+even when the clip and skeleton happen to have the same joint count.

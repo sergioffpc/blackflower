@@ -20,6 +20,7 @@ extern "C" {
 
 typedef struct BFAnimationSkeleton BFAnimationSkeleton;
 typedef struct BFAnimationClip BFAnimationClip;
+typedef struct BFAnimationRootMotion BFAnimationRootMotion;
 typedef struct BFAnimationSamplingContext BFAnimationSamplingContext;
 typedef struct BFAnimationPose BFAnimationPose;
 
@@ -38,6 +39,11 @@ typedef struct BFAnimationTransform {
     float rotation[4];
     float scale[3];
 } BFAnimationTransform;
+
+typedef struct BFAnimationRootMotionSample {
+    float translation[3];
+    float rotation[4];
+} BFAnimationRootMotionSample;
 
 typedef struct BFAnimationBlendLayer {
     const BFAnimationPose *pose;
@@ -88,6 +94,10 @@ int32_t bf_animation_skeleton_joint_name(
     uint32_t joint,
     const char **out_name,
     size_t *out_length);
+int32_t bf_animation_skeleton_copy_rest_transforms(
+    const BFAnimationSkeleton *skeleton,
+    BFAnimationTransform *out_transforms,
+    size_t transform_count);
 
 int32_t bf_animation_clip_load(
     const uint8_t *data,
@@ -100,6 +110,16 @@ int32_t bf_animation_clip_name(
     const BFAnimationClip *clip,
     const char **out_name,
     size_t *out_length);
+
+int32_t bf_animation_root_motion_load(
+    const uint8_t *data,
+    size_t size,
+    BFAnimationRootMotion **out_motion);
+void bf_animation_root_motion_destroy(BFAnimationRootMotion *motion);
+int32_t bf_animation_root_motion_sample(
+    const BFAnimationRootMotion *motion,
+    float ratio,
+    BFAnimationRootMotionSample *out_sample);
 
 int32_t bf_animation_sampling_context_create(
     uint32_t max_tracks,

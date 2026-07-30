@@ -57,6 +57,9 @@ impl Pose {
         ratio: SamplingRatio,
     ) -> Result<(), Error> {
         self.validate_skeleton(skeleton)?;
+        if animation.skeleton_identity() != skeleton.skeleton_identity() {
+            return Err(Error::SkeletonIdentityMismatch);
+        }
         if animation.track_count() != skeleton.joint_count() {
             return Err(Error::TrackCountMismatch {
                 joints: skeleton.joint_count(),

@@ -227,6 +227,20 @@ pub enum Error {
         /// Unresolved dependency.
         dependency: AssetId,
     },
+    /// A winning dependency has a runtime kind incompatible with its consumer.
+    #[error(
+        "asset `{asset}` dependency `{dependency}` must be {expected:?}, but resolved as {actual:?}"
+    )]
+    DependencyKindMismatch {
+        /// Asset declaring the dependency.
+        asset: AssetId,
+        /// Dependency with the wrong kind.
+        dependency: AssetId,
+        /// Required runtime kind.
+        expected: AssetKind,
+        /// Resolved runtime kind.
+        actual: AssetKind,
+    },
     /// Packages in one layered store were cooked with different profiles.
     #[error(
         "asset package `{package}` uses cooking profile {actual:?}, but the store expects {expected:?}"

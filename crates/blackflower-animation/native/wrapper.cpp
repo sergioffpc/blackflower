@@ -7,6 +7,8 @@
 #include <ozz/animation/runtime/local_to_model_job.h>
 #include <ozz/animation/runtime/sampling_job.h>
 #include <ozz/animation/runtime/skeleton.h>
+#include <ozz/animation/runtime/track.h>
+#include <ozz/animation/runtime/track_sampling_job.h>
 #include <ozz/base/containers/vector.h>
 #include <ozz/base/io/archive.h>
 #include <ozz/base/io/stream.h>
@@ -30,6 +32,11 @@ struct BFAnimationSkeleton {
 
 struct BFAnimationClip {
     ozz::animation::Animation value;
+};
+
+struct BFAnimationRootMotion {
+    ozz::animation::Float3Track translation;
+    ozz::animation::QuaternionTrack rotation;
 };
 
 struct BFAnimationSamplingContext {
@@ -289,6 +296,26 @@ extern "C" int32_t bf_animation_skeleton_joint_name(
     return BF_ANIMATION_STATUS_OK;
 }
 
+extern "C" int32_t bf_animation_skeleton_copy_rest_transforms(
+    const BFAnimationSkeleton *skeleton,
+    BFAnimationTransform *out_transforms,
+    size_t transform_count) {
+    if (skeleton == nullptr || out_transforms == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    const size_t joint_count =
+        static_cast<size_t>(skeleton->value.num_joints());
+    if (transform_count != joint_count) {
+        return BF_ANIMATION_STATUS_INCOMPATIBLE;
+    }
+    const auto rest = skeleton->value.joint_rest_poses();
+    for (size_t group = 0; group < rest.size(); ++group) {
+        copy_local_group(
+            rest[group], group * 4, transform_count, out_transforms);
+    }
+    return BF_ANIMATION_STATUS_OK;
+}
+
 extern "C" int32_t bf_animation_clip_load(
     const uint8_t *data,
     size_t size,
@@ -337,6 +364,77 @@ extern "C" int32_t bf_animation_clip_name(
     const char *name = clip->value.name();
     *out_name = name;
     *out_length = std::strlen(name);
+    return BF_ANIMATION_STATUS_OK;
+}
+
+extern "C" int32_t bf_animation_root_motion_load(
+    const uint8_t *data,
+    size_t size,
+    BFAnimationRootMotion **out_motion) {
+    if (data == nullptr || out_motion == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    *out_motion = nullptr;
+    if (size == 0 || size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+    }
+    return guarded([&] {
+        ozz::io::MemoryStream stream;
+        if (stream.Write(data, size) != size
+            || stream.Seek(0, ozz::io::Stream::kSet) != 0) {
+            return BF_ANIMATION_STATUS_OUT_OF_MEMORY;
+        }
+        ozz::io::IArchive archive(&stream);
+        if (!archive.TestTag<ozz::animation::Float3Track>()) {
+            return BF_ANIMATION_STATUS_INVALID_ARCHIVE;
+        }
+        std::unique_ptr<BFAnimationRootMotion> motion(
+            new BFAnimationRootMotion());
+        archive >> motion->translation;
+        if (!archive.TestTag<ozz::animation::QuaternionTrack>()) {
+            return BF_ANIMATION_STATUS_INVALID_ARCHIVE;
+        }
+        archive >> motion->rotation;
+        *out_motion = motion.release();
+        return BF_ANIMATION_STATUS_OK;
+    });
+}
+
+extern "C" void bf_animation_root_motion_destroy(
+    BFAnimationRootMotion *motion) {
+    delete motion;
+}
+
+extern "C" int32_t bf_animation_root_motion_sample(
+    const BFAnimationRootMotion *motion,
+    float ratio,
+    BFAnimationRootMotionSample *out_sample) {
+    if (motion == nullptr || out_sample == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!std::isfinite(ratio) || ratio < 0.0F || ratio > 1.0F) {
+        return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+    }
+    ozz::math::Float3 translation;
+    ozz::math::Quaternion rotation;
+    ozz::animation::Float3TrackSamplingJob translation_job;
+    translation_job.track = &motion->translation;
+    translation_job.ratio = ratio;
+    translation_job.result = &translation;
+    ozz::animation::QuaternionTrackSamplingJob rotation_job;
+    rotation_job.track = &motion->rotation;
+    rotation_job.ratio = ratio;
+    rotation_job.result = &rotation;
+    if (!translation_job.Run() || !rotation_job.Run()) {
+        return BF_ANIMATION_STATUS_JOB_FAILED;
+    }
+    out_sample->translation[0] = translation.x;
+    out_sample->translation[1] = translation.y;
+    out_sample->translation[2] = translation.z;
+    out_sample->rotation[0] = rotation.x;
+    out_sample->rotation[1] = rotation.y;
+    out_sample->rotation[2] = rotation.z;
+    out_sample->rotation[3] = rotation.w;
     return BF_ANIMATION_STATUS_OK;
 }
 

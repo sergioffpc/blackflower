@@ -35,6 +35,7 @@ pub(crate) mod raw {
 
 pub(crate) type Matrix = raw::BFAnimationMatrix;
 pub(crate) type Transform = raw::BFAnimationTransform;
+pub(crate) type RootMotionSample = raw::BFAnimationRootMotionSample;
 
 pub(crate) struct BlendLayer<'a> {
     pub(crate) pose: PosePtr,
@@ -85,6 +86,9 @@ pub(crate) struct SkeletonPtr(NonNull<raw::BFAnimationSkeleton>);
 pub(crate) struct AnimationPtr(NonNull<raw::BFAnimationClip>);
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct RootMotionPtr(NonNull<raw::BFAnimationRootMotion>);
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct ContextPtr(NonNull<raw::BFAnimationSamplingContext>);
 
 #[derive(Debug, Clone, Copy)]
@@ -98,6 +102,10 @@ unsafe impl Sync for SkeletonPtr {}
 unsafe impl Send for AnimationPtr {}
 // SAFETY: The safe layer only exposes immutable access to loaded clips.
 unsafe impl Sync for AnimationPtr {}
+// SAFETY: The safe layer only exposes immutable access to loaded motion tracks.
+unsafe impl Send for RootMotionPtr {}
+// SAFETY: The safe layer only exposes immutable access to loaded motion tracks.
+unsafe impl Sync for RootMotionPtr {}
 // SAFETY: Context access is exclusively mediated by `&mut SamplingContext`.
 unsafe impl Send for ContextPtr {}
 // SAFETY: Pose mutation is exclusively mediated by `&mut Pose`.
@@ -163,6 +171,22 @@ pub(crate) fn skeleton_joint_name(skeleton: SkeletonPtr, joint: u32) -> Result<S
     copy_string(pointer, length)
 }
 
+pub(crate) fn skeleton_rest_transforms(
+    skeleton: SkeletonPtr,
+    count: usize,
+) -> Result<Box<[Transform]>, Status> {
+    let mut transforms = empty_transforms(count);
+    let status = unsafe {
+        raw::bf_animation_skeleton_copy_rest_transforms(
+            skeleton.0.as_ptr(),
+            transforms.as_mut_ptr(),
+            transforms.len(),
+        )
+    };
+    check(status)?;
+    Ok(transforms)
+}
+
 pub(crate) fn load_animation(bytes: &[u8]) -> Result<AnimationPtr, Status> {
     if bytes.is_empty() {
         return Err(Status::InvalidArchive);
@@ -196,6 +220,35 @@ pub(crate) fn animation_name(animation: AnimationPtr) -> Result<String, Status> 
     };
     check(status)?;
     copy_string(pointer, length)
+}
+
+pub(crate) fn load_root_motion(bytes: &[u8]) -> Result<RootMotionPtr, Status> {
+    if bytes.is_empty() {
+        return Err(Status::InvalidArchive);
+    }
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::bf_animation_root_motion_load(bytes.as_ptr(), bytes.len(), &raw mut pointer)
+    };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(RootMotionPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn destroy_root_motion(motion: RootMotionPtr) {
+    unsafe { raw::bf_animation_root_motion_destroy(motion.0.as_ptr()) };
+}
+
+pub(crate) fn sample_root_motion(
+    motion: RootMotionPtr,
+    ratio: f32,
+) -> Result<RootMotionSample, Status> {
+    let mut sample = RootMotionSample::default();
+    let status =
+        unsafe { raw::bf_animation_root_motion_sample(motion.0.as_ptr(), ratio, &raw mut sample) };
+    check(status)?;
+    Ok(sample)
 }
 
 pub(crate) fn create_context(max_tracks: u32) -> Result<ContextPtr, Status> {

@@ -24,3 +24,11 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001

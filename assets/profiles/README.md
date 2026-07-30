@@ -5,7 +5,8 @@ stem is the profile name passed to `cargo xtask assets cook --profile`; there is
 no duplicate `name` field inside the document. Settings belong to the selected
 cook, never to individual assets.
 
-Profile schema 1 configures Luau, shader, texture, and static mesh cooking.
+Profile schema 1 configures Luau, shader, texture, static mesh, and animation
+cooking.
 Development keeps this schema at `1`; only the release process advances it.
 The repository defines two profiles:
 
@@ -37,6 +38,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 ```
 
 ```toml
@@ -67,6 +76,14 @@ lod_target_error = 0.01
 optimize_overdraw = true
 overdraw_threshold = 1.05
 lock_borders = true
+
+[animations]
+sampling_rate_hz = 0.0
+iframe_interval_seconds = 10.0
+optimize = true
+optimization_tolerance = 0.001
+optimization_distance = 0.1
+root_motion_tolerance = 0.001
 ```
 
 The intended behavior is:
@@ -123,6 +140,21 @@ Each target is simplified sequentially from the previous LOD. Every resulting
 LOD is then optimized for vertex cache, overdraw when enabled, and vertex
 fetch. A target that cannot reduce the preceding LOD within the error limit is
 omitted rather than duplicating geometry.
+
+Animation cooking supports:
+
+- `sampling_rate_hz`: source sampling when `0.0`, otherwise a finite positive
+  rate;
+- `iframe_interval_seconds`: finite non-negative Ozz iframe interval;
+- `optimize`: hierarchical key reduction;
+- `optimization_tolerance`: positive hierarchy error tolerance;
+- `optimization_distance`: positive distance used to measure hierarchy error;
+- `root_motion_tolerance`: positive reduction tolerance for extracted
+  root-motion tracks.
+
+Per-joint optimization overrides are intentionally outside profile schema 1.
+The profile controls compression and sampling; clip semantics remain in
+`animation.extras.blackflower`.
 
 Both Luau profiles emit type information for modules marked with `--!native`.
 The runtime consumes it only when native codegen is explicitly enabled with an

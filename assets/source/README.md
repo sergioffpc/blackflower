@@ -1,7 +1,9 @@
 # Asset sources
 
-The cooker recursively discovers files named `asset.toml` below this
-directory. Other files are inputs referenced by those manifests.
+The cooker recursively discovers files named `asset.toml` or
+`*.asset.toml` below this directory. Named manifests allow several assets
+beside one shared source file, such as one skeleton and multiple clips selected
+from the same glTF. Other files are inputs referenced by those manifests.
 
 Opaque blobs pass through unchanged:
 
@@ -98,6 +100,41 @@ morph targets, colors, and additional texture-coordinate sets. External glTF
 buffers participate in recipe identity, so changing geometry without changing
 the `.gltf` document still forces a recook.
 
+Skeleton and animation assets are presentation-only. A skeleton selects one
+exact named skin and cooks it to `.bfskel`:
+
+```toml
+schema = 1
+id = "characters/soldier/rig"
+kind = "skeleton"
+audience = "presentation"
+
+[skeleton]
+source = "soldier.gltf"
+skin = "SoldierRig"
+```
+
+Each animation asset selects exactly one named clip and declares the skeleton
+asset it requires:
+
+```toml
+schema = 1
+id = "characters/soldier/walk"
+kind = "animation_clip"
+audience = "presentation"
+
+[animation]
+source = "soldier.gltf"
+clip = "Walk"
+skeleton = "characters/soldier/rig"
+```
+
+Place these in files such as `rig.asset.toml` and `walk.asset.toml` beside
+`soldier.gltf`. Additional clip manifests select other animations from that
+same source. Rig and animation sources may also be separate glTF or GLB files;
+the declared skeleton identity is validated after both are cooked. Selecting a
+clip in `package.toml` automatically includes its skeleton dependency.
+
 glTF and GLB sources attach Blackflower-specific authoring data to the glTF
 object that owns it. The shared `extras.blackflower` namespace is strict and
 versioned; unrelated third-party extras remain outside that namespace.
@@ -106,8 +143,7 @@ versioned; unrelated third-party extras remain outside that namespace.
 and images must use portable relative paths contained by the source file's
 directory; remote URLs, absolute paths, traversal, missing resources, invalid
 glTF 2.0 structure, and unsupported extensions are rejected.
-Animation markers, for example, belong to the matching glTF `animation`
-object:
+Animation policy belongs to the matching glTF `animation` object:
 
 ```json
 {
@@ -115,6 +151,20 @@ object:
   "extras": {
     "blackflower": {
       "schema": 1,
+      "loop": true,
+      "additive": {
+        "enabled": false,
+        "reference": "animation"
+      },
+      "root_motion": {
+        "enabled": true,
+        "joint": "Root",
+        "translation_axes": ["x", "z"],
+        "rotation_axes": ["y"],
+        "reference": "skeleton",
+        "remove_from_pose": true,
+        "loop_correction": true
+      },
       "markers": [
         {
           "name": "left_foot",
@@ -126,9 +176,10 @@ object:
 }
 ```
 
-Marker times use glTF seconds. Animation cooking later validates them against
-the selected clip and converts them to normalized runtime time. The complete
-metadata contract and validation rules live in
+Marker times use glTF seconds. Cooking validates them against the selected Ozz
+clip duration and converts them to normalized runtime time. Loop, additive,
+markers, and root motion are not duplicated in the asset manifest. The
+complete metadata contract and validation rules live in
 `crates/blackflower-gltf-metadata/README.md`.
 
 The repository Blender extension authors Action Pose Markers and typed model or
@@ -148,8 +199,10 @@ schema = 1
 assets = ["fixtures/example"]
 ```
 
-The cooker includes exactly those assets. Runtime relationships belong in
-typed composite assets such as prefabs, materials, and scenes; they are not
-authored as dependencies in `asset.toml`. There is no separate level manifest
-or command-line composition override. IDs, package names, source containment,
-and schemas are validated before a package is written.
+The cooker includes those explicitly selected assets plus typed mandatory
+dependencies, currently the `.bfskel` named by each selected animation clip.
+Other runtime relationships belong in typed composite assets such as prefabs,
+materials, and scenes; arbitrary dependency lists are not accepted in
+`asset.toml`. There is no separate level manifest or command-line composition
+override. IDs, package names, source containment, and schemas are validated
+before a package is written.

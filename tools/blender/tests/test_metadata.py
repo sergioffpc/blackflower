@@ -28,6 +28,7 @@ class AnimationMetadataTests(unittest.TestCase):
         )
 
         self.assertEqual(result["schema"], 1)
+        self.assertFalse(result["loop"])
         self.assertEqual(
             result["markers"],
             [
@@ -65,15 +66,50 @@ class AnimationMetadataTests(unittest.TestCase):
 
         self.assertEqual(result["markers"][0]["time_seconds"], expected)
 
-    def test_empty_action_does_not_create_owned_extras(self):
-        self.assertIsNone(
-            metadata.build_animation_metadata(
-                [],
-                frame_start=0,
-                frame_end=1,
-                frames_per_second=24,
-                time_origin_frame=0,
-            )
+    def test_empty_action_exports_explicit_policy(self):
+        result = metadata.build_animation_metadata(
+            [],
+            frame_start=0,
+            frame_end=1,
+            frames_per_second=24,
+            time_origin_frame=0,
+        )
+        self.assertEqual(result["markers"], [])
+        self.assertEqual(
+            result["additive"],
+            {"enabled": False, "reference": "animation"},
+        )
+
+    def test_complete_animation_policy_is_serialized(self):
+        result = metadata.build_animation_metadata(
+            [],
+            frame_start=0,
+            frame_end=24,
+            frames_per_second=24,
+            time_origin_frame=0,
+            looping=True,
+            additive_enabled=True,
+            additive_reference="skeleton",
+            root_motion_enabled=True,
+            root_motion_joint="Root",
+            translation_axes=("x", "z"),
+            rotation_axes=("y",),
+            root_motion_reference="animation",
+            remove_from_pose=True,
+            loop_correction=True,
+        )
+        self.assertTrue(result["loop"])
+        self.assertEqual(
+            result["root_motion"],
+            {
+                "enabled": True,
+                "joint": "Root",
+                "translation_axes": ["x", "z"],
+                "rotation_axes": ["y"],
+                "reference": "animation",
+                "remove_from_pose": True,
+                "loop_correction": True,
+            },
         )
 
     def test_out_of_range_and_duplicate_markers_are_rejected(self):
@@ -105,6 +141,33 @@ class AnimationMetadataTests(unittest.TestCase):
                         frames_per_second=24,
                         time_origin_frame=0,
                     )
+
+    def test_invalid_animation_policy_is_rejected(self):
+        arguments = {
+            "markers": [],
+            "frame_start": 0,
+            "frame_end": 1,
+            "frames_per_second": 24,
+            "time_origin_frame": 0,
+        }
+        with self.assertRaisesRegex(metadata.MetadataError, "additive reference"):
+            metadata.build_animation_metadata(
+                **arguments,
+                additive_reference="bind_pose",
+            )
+        with self.assertRaisesRegex(metadata.MetadataError, "duplicates"):
+            metadata.build_animation_metadata(
+                **arguments,
+                root_motion_enabled=True,
+                root_motion_joint="Root",
+                translation_axes=("x", "x"),
+            )
+        with self.assertRaisesRegex(metadata.MetadataError, "joint"):
+            metadata.build_animation_metadata(
+                **arguments,
+                root_motion_enabled=True,
+                root_motion_joint="",
+            )
 
 
 class NodeMetadataTests(unittest.TestCase):

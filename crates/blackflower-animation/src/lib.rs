@@ -2,23 +2,30 @@
 
 mod asset;
 mod blend;
+mod clip;
 mod context;
+#[cfg(feature = "cooking")]
+pub mod cooking;
 mod error;
 mod ffi;
 mod graph;
 mod ik;
 mod marker;
+mod motion;
 mod pose;
 mod types;
 
 pub use asset::{Animation, Skeleton};
+pub use blackflower_animation_format::SkeletonIdentity;
 pub use blend::{BlendLayer, BlendMode};
+pub use clip::{AnimationClipDescriptor, AnimationSet};
 pub use context::SamplingContext;
 pub use error::Error;
 pub use glam::Mat4;
 pub use graph::{AnimationGraph, AnimationState, AnimationStateId, GraphEvaluation, GraphLayer};
 pub use ik::{AimIk, IkOutcome, TwoBoneIk};
 pub use marker::{AnimationMarker, MarkerTrack};
+pub use motion::{RootMotionTrack, RootMotionTransform};
 pub use pose::Pose;
 pub use types::{JointTransform, SamplingRatio};
 

@@ -453,6 +453,12 @@ jobs:
             os: macos-15
           - package: blackflower-animation
             os: windows-2025
+          - package: blackflower-animation-cooker
+            os: ubuntu-24.04
+          - package: blackflower-animation-cooker
+            os: macos-15
+          - package: blackflower-animation-cooker
+            os: windows-2025
           - package: blackflower-audio-spatial
             os: ubuntu-24.04
           - package: blackflower-audio-spatial

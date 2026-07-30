@@ -10,7 +10,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
-pub use animation::{AnimationMarker, AnimationMarkers};
+pub use animation::{
+    AdditiveMetadata, AdditiveReference, AnimationMarker, AnimationMarkers, AnimationMetadata,
+    MotionAxis, RootMotionMetadata, RootMotionReference,
+};
 pub use error::Error;
 pub use node::NodeMetadata;
 pub use validation::GLTF_VERSION;
@@ -54,7 +57,14 @@ impl Document {
     ///
     /// An animation without `extras.blackflower` has an empty marker track.
     pub fn animation_markers(&self, animation: &str) -> Result<AnimationMarkers, Error> {
-        animation::markers(&self.root, animation)
+        self.animation_metadata(animation).map(Into::into)
+    }
+
+    /// Extract typed cooking and playback policy from one named animation.
+    ///
+    /// Missing Blackflower extras produce disabled defaults.
+    pub fn animation_metadata(&self, animation: &str) -> Result<AnimationMetadata, Error> {
+        animation::metadata(&self.root, animation)
     }
 
     /// Extract typed metadata authored on exactly one named glTF node.

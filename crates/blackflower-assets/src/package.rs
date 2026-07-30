@@ -397,6 +397,7 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.texture_decoder.is_empty()
         || catalog.toolchain.texture_encoder_platform.is_empty()
         || catalog.toolchain.meshoptimizer.is_empty()
+        || catalog.toolchain.ozz_animation.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }
@@ -419,6 +420,15 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
 }
 
 fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error> {
+    if record.kind == crate::AssetKind::AnimationClip && record.dependencies.len() != 1 {
+        return invalid_catalog(
+            path,
+            format!(
+                "animation clip `{}` must declare exactly one skeleton dependency",
+                record.id
+            ),
+        );
+    }
     let mut previous: Option<&AssetId> = None;
     for dependency in &record.dependencies {
         if previous.is_some_and(|value| value >= dependency) {
