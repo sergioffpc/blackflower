@@ -179,6 +179,9 @@ jobs:
                Cargo.lock \
                Cargo.toml \
                assets \
+               crates/blackflower-animation \
+               crates/blackflower-animation-cooker \
+               crates/blackflower-animation-format \
                crates/blackflower-assets \
                crates/blackflower-gltf-metadata \
                crates/blackflower-rendering-models \
@@ -208,6 +211,7 @@ jobs:
 
       - name: Initialize asset compiler submodules
         run: |
+          git submodule update --init --depth 1 crates/blackflower-animation/vendor/ozz-animation
           git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
           git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
           git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
@@ -304,6 +308,7 @@ jobs:
 
       - name: Initialize asset compiler submodules
         run: |
+          git submodule update --init --depth 1 crates/blackflower-animation/vendor/ozz-animation
           git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
           git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
           git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
