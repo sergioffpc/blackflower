@@ -23,6 +23,7 @@ presentation.
 | `crates/blackflower-simulation` | Authoritative fixed-step simulation |
 | `crates/blackflower-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-presentation` | Client-only presentation systems |
+| `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
 | `crates/blackflower-shader-compiler` | Statically linked Slang-to-SPIR-V compiler binding |
 | `crates/blackflower-scripting` | Sandboxed Luau compilation and execution |
@@ -67,8 +68,8 @@ cargo xtask assets cook \
 The profile name selects `assets/profiles/<name>.toml`. Cooking options are
 defined once in that strict, versioned file and cannot be overridden by
 individual assets. Profile schema 1 owns Luau optimization, debug, and
-type-information settings together with the portable SPIR-V target,
-capability, optimization, and shader debug settings. Luau coverage
+type-information settings, the portable SPIR-V compiler settings, and the KTX2
+texture quality, encoding, mipmap, and Zstandard policy. Luau coverage
 instrumentation is always disabled. Each package embeds the profile name and
 canonical configuration hash.
 
@@ -125,6 +126,7 @@ statically from pinned submodules. See the
 [voice audio setup](crates/blackflower-audio-voice/README.md),
 [ECS setup](crates/blackflower-ecs/README.md),
 [rendering volumes setup](crates/blackflower-rendering-volumes/README.md),
+[rendering textures setup](crates/blackflower-rendering-textures/README.md),
 [shader compiler setup](crates/blackflower-shader-compiler/README.md), and
 [scripting setup](crates/blackflower-scripting/README.md) for details.
 

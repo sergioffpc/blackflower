@@ -1,5 +1,10 @@
 [advisories]
-ignore = []
+ignore = [
+    # OpenEXR decoding uses exr -> pulp -> paste. The advisory reports that
+    # paste is unmaintained, not vulnerable; remove this exception when pulp
+    # replaces its feature-complete macro dependency.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 unused-allowed-license = "allow"

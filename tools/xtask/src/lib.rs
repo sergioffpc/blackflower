@@ -2,6 +2,7 @@ mod asset_cooker;
 mod cook;
 mod manifest;
 mod profile;
+mod texture_cooker;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,7 @@ use anyhow::Context;
 use blackflower_assets::{
     AssetId, AssetSetHash, AssetSigningKey, AssetStore, AssetTrustStore, PackageName,
 };
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 use crate::cook::{CookRequest, Pipeline};
 
@@ -21,15 +22,15 @@ use crate::cook::{CookRequest, Pipeline};
 ///
 /// Returns an error when command-line parsing or the selected task fails.
 pub fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
-        Command::Assets(command) => run_assets(&cli.workspace_root, command.command),
+    let args = Args::parse();
+    match args.command {
+        Command::Assets(command) => run_assets(&args.workspace_root, command.command),
     }
 }
 
 #[derive(Debug, Parser)]
 #[command(name = "xtask")]
-struct Cli {
+struct Args {
     #[arg(long, default_value = ".")]
     workspace_root: PathBuf,
     #[command(subcommand)]
@@ -41,7 +42,7 @@ enum Command {
     Assets(AssetsArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, clap::Args)]
 struct AssetsArgs {
     #[command(subcommand)]
     command: AssetsCommand,

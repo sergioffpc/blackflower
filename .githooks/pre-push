@@ -27,13 +27,21 @@ do
             commit_range=$(git rev-list "$local_oid" --not --remotes="$remote_name")
             ;;
         *)
-            commit_range=$(git rev-list "$remote_oid..$local_oid")
+            commit_range=$(git rev-list "$remote_oid..$local_oid" \
+                --not --remotes="$remote_name")
             ;;
     esac
 
     for commit_oid in $commit_range
     do
-        if ! git show --no-patch --format=%B "$commit_oid" |
+        if git rev-parse --verify "$commit_oid^2" >/dev/null 2>&1
+        then
+            message=$(git show --no-patch --format=%s "$commit_oid")
+        else
+            message=$(git show --no-patch --format=%B "$commit_oid")
+        fi
+
+        if ! printf '%s\n' "$message" |
             "$message_validator"
         then
             subject=$(git show --no-patch --format=%s "$commit_oid")

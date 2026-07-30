@@ -24,6 +24,7 @@ impl AssetManifest {
             AssetSource::Blob(_) => AssetKind::Blob,
             AssetSource::Luau(_) => AssetKind::LuauBytecode,
             AssetSource::Shader(_) => AssetKind::ShaderModule,
+            AssetSource::Texture(_) => AssetKind::Texture2d,
         }
     }
 }
@@ -33,6 +34,7 @@ pub(crate) enum AssetSource {
     Blob(BlobManifest),
     Luau(LuauManifest),
     Shader(ShaderManifest),
+    Texture(TextureManifest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +55,22 @@ pub(crate) struct ShaderManifest {
     pub(crate) source: PathBuf,
     pub(crate) entry_point: String,
     pub(crate) stage: ShaderStageManifest,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TextureManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) semantic: TextureSemanticManifest,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TextureSemanticManifest {
+    ColorSrgb,
+    NormalLinear,
+    DataLinear,
+    HdrLinear,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -83,6 +101,7 @@ struct AssetManifestFile {
     blob: Option<BlobManifest>,
     luau: Option<LuauManifest>,
     shader: Option<ShaderManifest>,
+    texture: Option<TextureManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -215,12 +234,14 @@ fn load_asset(
         file.blob,
         file.luau,
         file.shader,
+        file.texture,
         path,
     )?;
     let source_path = match &source {
         AssetSource::Blob(manifest) => &manifest.source,
         AssetSource::Luau(manifest) => &manifest.source,
         AssetSource::Shader(manifest) => &manifest.source,
+        AssetSource::Texture(manifest) => &manifest.source,
     };
     let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
@@ -253,12 +274,13 @@ fn asset_source(
     blob: Option<BlobManifest>,
     luau: Option<LuauManifest>,
     shader: Option<ShaderManifest>,
+    texture: Option<TextureManifest>,
     path: &Path,
 ) -> anyhow::Result<AssetSource> {
-    let source_sections = [blob.is_some(), luau.is_some(), shader.is_some()]
-        .into_iter()
-        .filter(|present| *present)
-        .count();
+    let source_sections = usize::from(blob.is_some())
+        + usize::from(luau.is_some())
+        + usize::from(shader.is_some())
+        + usize::from(texture.is_some());
     if source_sections != 1 {
         bail!(
             "asset manifest `{}` must contain exactly one source section",
@@ -289,9 +311,50 @@ fn asset_source(
             validate_shader_manifest(&shader, audience, path)?;
             AssetSource::Shader(shader)
         }
+        AssetKind::Texture2d => {
+            let texture = texture.with_context(|| {
+                format!(
+                    "texture manifest `{}` requires a `[texture]` section",
+                    path.display()
+                )
+            })?;
+            validate_texture_manifest(&texture, audience, path)?;
+            AssetSource::Texture(texture)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
+}
+
+fn validate_texture_manifest(
+    texture: &TextureManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "texture manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    let extension = texture
+        .source
+        .extension()
+        .and_then(|value| value.to_str())
+        .context("texture source must have a UTF-8 extension")?;
+    let valid_extension = match texture.semantic {
+        TextureSemanticManifest::HdrLinear => extension.eq_ignore_ascii_case("exr"),
+        TextureSemanticManifest::ColorSrgb
+        | TextureSemanticManifest::NormalLinear
+        | TextureSemanticManifest::DataLinear => extension.eq_ignore_ascii_case("png"),
+    };
+    if !valid_extension {
+        bail!(
+            "texture source in `{}` must use PNG for LDR semantics or EXR for HDR",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 fn validate_shader_manifest(

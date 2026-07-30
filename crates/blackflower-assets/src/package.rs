@@ -393,6 +393,9 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.luau.is_empty()
         || catalog.toolchain.slang.is_empty()
         || catalog.toolchain.naga.is_empty()
+        || catalog.toolchain.ktx.is_empty()
+        || catalog.toolchain.texture_decoder.is_empty()
+        || catalog.toolchain.texture_encoder_platform.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }

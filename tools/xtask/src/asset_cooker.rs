@@ -9,7 +9,10 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 
 use crate::manifest::{AssetSource, LoadedAsset, Repository};
 use crate::profile::CookingProfile;
+use crate::texture_cooker;
 
+pub(crate) const HALF_VERSION: &str = "2.7.1";
+pub(crate) const IMAGE_VERSION: &str = "0.25.10";
 pub(crate) const NAGA_VERSION: &str = "30.0.0";
 
 #[derive(Debug)]
@@ -72,6 +75,7 @@ fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<
             validate_spirv(&spirv)?;
             Ok(spirv)
         }
+        AssetSource::Texture(manifest) => texture_cooker::cook(source, manifest, profile.textures),
     }
 }
 
@@ -116,8 +120,21 @@ fn recipe_hash(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result
             hasher.text(slang_version());
             hasher.text(NAGA_VERSION);
         }
+        AssetSource::Texture(manifest) => {
+            hasher.text("texture");
+            hasher.serializable(&manifest.semantic)?;
+            hasher.serializable(&profile.textures)?;
+            hasher.text(blackflower_rendering_textures::ktx_version());
+            hasher.text(IMAGE_VERSION);
+            hasher.text(HALF_VERSION);
+            hasher.text(&texture_encoder_platform());
+        }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))
+}
+
+pub(crate) fn texture_encoder_platform() -> String {
+    format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 struct CanonicalHasher(blake3::Hasher);

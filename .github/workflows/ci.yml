@@ -21,13 +21,16 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
+  CMAKE_C_COMPILER_LAUNCHER: sccache
+  CMAKE_CXX_COMPILER_LAUNCHER: sccache
   RUST_BACKTRACE: "1"
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   rust-quality:
     name: Rust quality
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -50,6 +53,11 @@ jobs:
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-physics/vendor/JoltPhysics \
             crates/blackflower-rendering-volumes/vendor/openvdb
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Validate commit messages
         if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -92,6 +100,7 @@ jobs:
         run: >-
           cargo clippy --workspace
           --exclude blackflower-assets
+          --exclude blackflower-rendering-textures
           --exclude blackflower-scripting
           --exclude blackflower-shader-compiler
           --exclude xtask
@@ -101,6 +110,7 @@ jobs:
         run: >-
           cargo test --workspace
           --exclude blackflower-assets
+          --exclude blackflower-rendering-textures
           --exclude blackflower-scripting
           --exclude blackflower-shader-compiler
           --exclude xtask
@@ -166,6 +176,7 @@ jobs:
                Cargo.toml \
                assets \
                crates/blackflower-assets \
+               crates/blackflower-rendering-textures \
                crates/blackflower-scripting \
                crates/blackflower-shader-compiler \
                rust-toolchain.toml \
@@ -193,7 +204,13 @@ jobs:
         run: |
           git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
           git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
+          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
           git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Set up Rust toolchain
         run: |
@@ -225,6 +242,7 @@ jobs:
         run: >-
           cargo clippy
           --package blackflower-assets
+          --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
           --package xtask
@@ -234,6 +252,7 @@ jobs:
         run: >-
           cargo test
           --package blackflower-assets
+          --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
           --package xtask
@@ -243,6 +262,7 @@ jobs:
         run: >-
           cargo test
           --package blackflower-assets
+          --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
           --package xtask
@@ -274,7 +294,13 @@ jobs:
         run: |
           git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
           git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
+          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
           git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Set up Rust toolchain
         run: |
@@ -314,6 +340,12 @@ jobs:
         run: >-
           cargo test --package xtask --lib --all-features --locked
           cook::tests::cooks_profile_configured_shader_module_for_runtime_loading
+          -- --exact
+
+      - name: Run texture cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_texture_for_runtime_capability_selection
           -- --exact
 
   asset-compatibility:
@@ -428,6 +460,12 @@ jobs:
             os: macos-15
           - package: blackflower-rendering-volumes
             os: windows-2025
+          - package: blackflower-rendering-textures
+            os: ubuntu-24.04
+          - package: blackflower-rendering-textures
+            os: macos-15
+          - package: blackflower-rendering-textures
+            os: windows-2025
           - package: blackflower-scripting
             os: ubuntu-24.04
           - package: blackflower-scripting
@@ -449,6 +487,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Install libclang on Linux
         if: runner.os == 'Linux'
