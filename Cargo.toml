@@ -5,6 +5,7 @@ members = [
     "apps/blackflower-harness",
     "apps/blackflower-server",
     "crates/blackflower-animation",
+    "crates/blackflower-assets",
     "crates/blackflower-audio",
     "crates/blackflower-audio-spatial",
     "crates/blackflower-audio-voice",
@@ -21,6 +22,7 @@ members = [
     "crates/blackflower-replication",
     "crates/blackflower-scripting",
     "crates/blackflower-simulation",
+    "tools/xtask",
 ]
 
 [workspace.package]
@@ -32,6 +34,7 @@ publish = false
 
 [workspace.dependencies]
 blackflower-animation = { path = "crates/blackflower-animation" }
+blackflower-assets = { path = "crates/blackflower-assets" }
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
 blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
@@ -50,23 +53,32 @@ blackflower-scripting = { path = "crates/blackflower-scripting" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
 
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+backhand = { version = "0.25.1", default-features = false, features = ["zstd"] }
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+blake3 = { version = "1.8.2", default-features = false, features = ["std"] }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
+clap = { version = "4.5.60", default-features = false, features = ["derive", "help", "std", "usage"] }
 cmake = { version = "0.1.58", default-features = false }
+ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
 profiling = { version = "1.0.18", default-features = false }
 quote = { version = "1.0.47", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 syn = { version = "3.0.3", default-features = false, features = ["full", "parsing", "printing", "proc-macro"] }
+tempfile = { version = "3.24.0", default-features = false }
 thiserror = { version = "2.0.19", default-features = false }
+toml = { version = "0.9.11", default-features = false, features = ["parse", "serde"] }
 tracing = { version = "0.1.44", default-features = false, features = ["attributes", "release_max_level_info", "std"] }
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 tracing-tracy = { version = "0.11.4", default-features = false }
+windows-sys = { version = "0.61.2", default-features = false, features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

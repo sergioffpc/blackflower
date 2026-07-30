@@ -12,6 +12,7 @@ presentation.
 | `apps/blackflower` | Player client executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
+| `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Pure Rust facade for the client audio stack |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
@@ -44,6 +45,36 @@ Run the simulation and integration harness:
 ```sh
 RUST_LOG=info cargo run --package blackflower-harness --locked
 ```
+
+## Cooking assets
+
+Validate source manifests and dependencies:
+
+```sh
+cargo xtask assets check
+```
+
+Cook one deterministic runtime package:
+
+```sh
+cargo xtask assets cook \
+    --profile desktop-universal \
+    --package pak000 \
+    --signing-key /secure/asset-signing-key.pem
+```
+
+The package name selects its only composition manifest:
+`assets/source/packages/<logical-name>/package.toml`. Its `roots` and their
+transitive dependencies become the package contents.
+
+Runtime package directories use Quake-style lexical overrides. A package such
+as `pak900-hotfix.squashfs` overrides matching asset IDs from
+`pak000.squashfs`; unrelated assets continue to resolve from lower packages.
+Every package carries an Ed25519 signature over its BLAKE3 SquashFS payload
+digest. The executable must supply the permitted public keys; private keys are
+offline cooker inputs and must never be committed.
+See the [asset VFS documentation](crates/blackflower-assets/README.md) for the
+portable naming and identity contracts.
 
 ## Engineering principles
 

@@ -92,6 +92,51 @@ jobs:
           rust-version: "1.97.1"
           command: check
 
+  asset-pipeline:
+    name: Asset pipeline (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+
+      - name: Restore Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-
+            ${{ runner.os }}-assets-
+
+      - name: Run asset Clippy
+        run: cargo clippy --package blackflower-assets --package xtask --all-targets --all-features --locked -- -D warnings
+
+      - name: Run asset tests and golden cook
+        run: cargo test --package blackflower-assets --package xtask --all-targets --all-features --locked --no-fail-fast
+
+      - name: Run asset doctests
+        run: cargo test --package blackflower-assets --package xtask --doc --all-features --locked
+
   native-bindings:
     if: >-
       (github.event_name == 'pull_request' &&
