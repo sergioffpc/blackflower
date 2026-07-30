@@ -5,6 +5,8 @@ members = [
     "apps/blackflower-harness",
     "apps/blackflower-server",
     "crates/blackflower-animation",
+    "crates/blackflower-animation-cooker",
+    "crates/blackflower-animation-format",
     "crates/blackflower-assets",
     "crates/blackflower-audio",
     "crates/blackflower-audio-spatial",
@@ -38,6 +40,8 @@ publish = false
 
 [workspace.dependencies]
 blackflower-animation = { path = "crates/blackflower-animation" }
+blackflower-animation-cooker = { path = "crates/blackflower-animation-cooker" }
+blackflower-animation-format = { path = "crates/blackflower-animation-format" }
 blackflower-assets = { path = "crates/blackflower-assets" }
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }

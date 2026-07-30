@@ -159,8 +159,31 @@ name = "blackflower-animation"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-animation-format",
  "cmake",
  "glam",
+ "thiserror",
+]
+
+[[package]]
+name = "blackflower-animation-cooker"
+version = "0.1.0"
+dependencies = [
+ "blackflower-animation",
+ "blackflower-animation-format",
+ "blackflower-gltf-metadata",
+ "cmake",
+ "gltf",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "blackflower-animation-format"
+version = "0.1.0"
+dependencies = [
+ "blake3",
  "thiserror",
 ]
 
@@ -2824,6 +2847,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "backhand",
+ "blackflower-animation-cooker",
+ "blackflower-animation-format",
  "blackflower-assets",
  "blackflower-gltf-metadata",
  "blackflower-rendering-models",

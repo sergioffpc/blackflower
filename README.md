@@ -12,7 +12,9 @@ presentation.
 | `apps/blackflower` | Player client executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
-| `crates/blackflower-animation` | Ozz skeletal animation loading, evaluation, blending, and IK |
+| `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
+| `crates/blackflower-animation-cooker` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
+| `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Pure Rust facade for the client audio stack |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
@@ -73,14 +75,16 @@ defined once in that strict, versioned file and cannot be overridden by
 individual assets. Profile schema 1 owns Luau optimization, debug, and
 type-information settings, the portable SPIR-V compiler settings, and the KTX2
 mipmap, and Zstandard policy. It also owns meshoptimizer LOD targets, error
-limits, border locking, and overdraw optimization. Luau coverage
-instrumentation is always disabled. Each package embeds the profile name and
-canonical configuration hash.
+limits, border locking, and overdraw optimization, plus Ozz sampling, iframe,
+optimization, and root-motion tolerances. Luau coverage instrumentation is
+always disabled. Each package embeds the profile name and canonical
+configuration hash.
 
 The package name selects its only composition manifest:
 `assets/source/packages/<logical-name>/package.toml`. Its explicit `assets`
 list becomes the package contents; the cooker does not infer additional
-members from handwritten dependencies.
+members from handwritten dependencies. A selected animation clip does pull in
+its typed skeleton dependency automatically.
 
 Runtime package directories use Quake-style lexical overrides. A package such
 as `pak900-hotfix.squashfs` overrides matching asset IDs from
@@ -96,8 +100,8 @@ portable naming and identity contracts.
 
 Artists can build the repository's Blender extension with
 `python3 tools/blender/build_blackflower_gltf_metadata.py`. It writes
-Action-local Pose Markers and typed model or level node identity directly to
-`extras.blackflower`; see the
+Action-local loop, additive, root-motion, Pose Marker, and typed model or level
+node metadata directly to `extras.blackflower`; see the
 [Blender metadata workflow](tools/blender/blackflower_gltf_metadata/README.md).
 
 ## Engineering principles

@@ -88,6 +88,7 @@ pub(crate) struct CookingProfile {
     pub(crate) shaders: ShaderProfile,
     pub(crate) textures: TextureProfile,
     pub(crate) models: ModelProfile,
+    pub(crate) animations: AnimationProfile,
 }
 
 impl CookingProfile {
@@ -111,6 +112,9 @@ impl CookingProfile {
         file.models
             .validate()
             .with_context(|| format!("invalid model settings in profile `{}`", path.display()))?;
+        file.animations.validate().with_context(|| {
+            format!("invalid animation settings in profile `{}`", path.display())
+        })?;
         let hash = hash_profile(&file)?;
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
@@ -118,6 +122,7 @@ impl CookingProfile {
             shaders: file.shaders,
             textures: file.textures,
             models: file.models,
+            animations: file.animations,
         })
     }
 }
@@ -130,6 +135,7 @@ struct CookingProfileFile {
     shaders: ShaderProfile,
     textures: TextureProfile,
     models: ModelProfile,
+    animations: AnimationProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +275,46 @@ pub(crate) struct ModelProfile {
     pub(crate) optimize_overdraw: bool,
     pub(crate) overdraw_threshold: f32,
     pub(crate) lock_borders: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AnimationProfile {
+    pub(crate) sampling_rate_hz: f32,
+    pub(crate) iframe_interval_seconds: f32,
+    pub(crate) optimize: bool,
+    pub(crate) optimization_tolerance: f32,
+    pub(crate) optimization_distance: f32,
+    pub(crate) root_motion_tolerance: f32,
+}
+
+impl AnimationProfile {
+    fn validate(self) -> anyhow::Result<()> {
+        blackflower_animation_cooker::AnimationProfile {
+            sampling_rate_hz: self.sampling_rate_hz,
+            iframe_interval_seconds: self.iframe_interval_seconds,
+            optimize: self.optimize,
+            optimization_tolerance: self.optimization_tolerance,
+            optimization_distance: self.optimization_distance,
+            root_motion_tolerance: self.root_motion_tolerance,
+        }
+        .validate()
+        .map(|_profile| ())
+        .map_err(anyhow::Error::from)
+    }
+}
+
+impl From<AnimationProfile> for blackflower_animation_cooker::AnimationProfile {
+    fn from(value: AnimationProfile) -> Self {
+        Self {
+            sampling_rate_hz: value.sampling_rate_hz,
+            iframe_interval_seconds: value.iframe_interval_seconds,
+            optimize: value.optimize,
+            optimization_tolerance: value.optimization_tolerance,
+            optimization_distance: value.optimization_distance,
+            root_motion_tolerance: value.root_motion_tolerance,
+        }
+    }
 }
 
 impl ModelProfile {

@@ -16,15 +16,23 @@ In Blender 4.2 or newer, open **Edit > Preferences > Add-ons**, choose
 **Install from Disk**, and select:
 
 ```text
-target/blender/blackflower_gltf_metadata-0.1.0.zip
+target/blender/blackflower_gltf_metadata-0.2.0.zip
 ```
 
 The extension uses the user-extension hooks provided by Blender's bundled glTF
 2.0 exporter. Keep **Blackflower Metadata** enabled in the glTF export dialog.
 
-## Animation markers
+## Animation policy and markers
 
-Markers are authored as Action-local **Pose Markers**:
+Select the Action in the Dope Sheet's **Action Editor**, then open the
+**Blackflower** sidebar. The **Blackflower Animation** panel authors:
+
+- loop playback;
+- additive conversion and its animation or skeleton reference;
+- root-motion extraction, exact joint, translation and rotation axes,
+  reference, removal from the pose, and loop correction.
+
+Markers remain Action-local **Pose Markers**:
 
 1. Open the Dope Sheet and switch it to **Action Editor**.
 2. Select the Action that becomes the glTF animation.
@@ -44,6 +52,20 @@ emits IEEE-754 `f32` seconds:
       "extras": {
         "blackflower": {
           "schema": 1,
+          "loop": true,
+          "additive": {
+            "enabled": false,
+            "reference": "animation"
+          },
+          "root_motion": {
+            "enabled": true,
+            "joint": "Root",
+            "translation_axes": ["x", "z"],
+            "rotation_axes": ["y"],
+            "reference": "skeleton",
+            "remove_from_pose": true,
+            "loop_correction": true
+          },
           "markers": [
             {
               "name": "left_foot",
@@ -57,10 +79,20 @@ emits IEEE-754 `f32` seconds:
 }
 ```
 
-Export fails when a marker is outside the effective clip range, metadata is
-invalid, another custom property already owns `extras.blackflower`, or an
-animation/merge mode could change the action-local timeline ambiguously. This
-prevents a successful export with silently mistimed gameplay events.
+The add-on writes every field explicitly, including disabled settings; it does
+not create a parallel animation manifest. Export fails when a marker is outside
+the effective clip range, a joint or axis selection is invalid, another custom
+property already owns `extras.blackflower`, or an animation/merge mode could
+change the Action-local timeline ambiguously.
+
+## Manual smoke test
+
+Blender is not part of the current CI image. Before releasing the add-on,
+install the built ZIP in Blender 4.2 or newer, author one Action with every
+animation option and markers at the first and last frames, export glTF and GLB,
+and inspect `animations[].extras.blackflower`. Re-export once and confirm the
+metadata is identical. The repository's Python stubs cover the same hook and
+serialization paths automatically.
 
 ## Model and level nodes
 

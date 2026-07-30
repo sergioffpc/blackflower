@@ -20,6 +20,10 @@ pub enum AssetKind {
     Texture2d,
     /// Optimized static mesh primitives with a generated LOD chain.
     Mesh,
+    /// Blackflower `.bfskel` containing one private ozz skeleton.
+    Skeleton,
+    /// Blackflower `.bfanim` containing one clip and its authored policy.
+    AnimationClip,
 }
 
 /// Runtime domains that consume an asset.
@@ -58,6 +62,8 @@ pub struct ToolchainIdentity {
     pub texture_encoder_platform: String,
     /// Rust meshoptimizer wrapper version used for optimization and LODs.
     pub meshoptimizer: String,
+    /// Pinned ozz toolchain, revision, and Blackflower container schema.
+    pub ozz_animation: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

@@ -3,7 +3,7 @@
 """Blender integration for Blackflower-owned glTF extras."""
 
 import bpy
-from bpy.props import BoolProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
 from bpy.types import Panel, PropertyGroup
 
 from .metadata import (
@@ -17,7 +17,7 @@ from .metadata import (
 bl_info = {
     "name": "Blackflower glTF Metadata",
     "category": "Import-Export",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > glTF 2.0 and Object Properties",
     "description": "Export typed Blackflower metadata in glTF extras",
@@ -60,6 +60,107 @@ class BlackflowerNodeMetadata(PropertyGroup):
     )
 
 
+class BlackflowerAnimationMetadata(PropertyGroup):
+    """Typed cooking policy attached to a Blender Action."""
+
+    looping: BoolProperty(
+        name="Loop",
+        description="Play this animation as a loop",
+        default=False,
+    )
+    additive_enabled: BoolProperty(
+        name="Additive",
+        description="Cook this Action as an additive animation",
+        default=False,
+    )
+    additive_reference: EnumProperty(
+        name="Additive Reference",
+        items=(
+            ("animation", "Animation", "Use the first keyframe"),
+            ("skeleton", "Skeleton", "Use the skeleton rest pose"),
+        ),
+        default="animation",
+    )
+    root_motion_enabled: BoolProperty(
+        name="Root Motion",
+        description="Extract a runtime root-motion track",
+        default=False,
+    )
+    root_motion_joint: StringProperty(
+        name="Joint",
+        description="Exact skeleton joint name used for root motion",
+        default="Root",
+        maxlen=128,
+    )
+    translation_x: BoolProperty(name="Translation X", default=True)
+    translation_y: BoolProperty(name="Translation Y", default=False)
+    translation_z: BoolProperty(name="Translation Z", default=True)
+    rotation_x: BoolProperty(name="Rotation X", default=False)
+    rotation_y: BoolProperty(name="Rotation Y", default=True)
+    rotation_z: BoolProperty(name="Rotation Z", default=False)
+    root_motion_reference: EnumProperty(
+        name="Root Reference",
+        items=(
+            ("absolute", "Absolute", "Use the source transform"),
+            ("skeleton", "Skeleton", "Use the skeleton rest transform"),
+            ("animation", "Animation", "Use the first animation keyframe"),
+        ),
+        default="skeleton",
+    )
+    remove_from_pose: BoolProperty(
+        name="Remove from Pose",
+        description="Remove extracted motion from the skeletal pose",
+        default=True,
+    )
+    loop_correction: BoolProperty(
+        name="Loop Correction",
+        description="Correct the final root key for a seamless loop",
+        default=False,
+    )
+
+
+class BLACKFLOWER_PT_animation_metadata(Panel):
+    """Action metadata panel in the Dope Sheet sidebar."""
+
+    bl_label = "Blackflower Animation"
+    bl_idname = "BLACKFLOWER_PT_animation_metadata"
+    bl_space_type = "DOPESHEET_EDITOR"
+    bl_region_type = "UI"
+    bl_category = "Blackflower"
+
+    @classmethod
+    def poll(cls, context):
+        return _active_action(context) is not None
+
+    def draw(self, context):
+        properties = _active_action(context).blackflower_animation_metadata
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop(properties, "looping")
+        layout.prop(properties, "additive_enabled")
+        additive = layout.column()
+        additive.enabled = properties.additive_enabled
+        additive.prop(properties, "additive_reference")
+
+        layout.prop(properties, "root_motion_enabled")
+        motion = layout.column()
+        motion.enabled = properties.root_motion_enabled
+        motion.prop(properties, "root_motion_joint")
+        motion.prop(properties, "root_motion_reference")
+        motion.prop(properties, "remove_from_pose")
+        motion.prop(properties, "loop_correction")
+        translation = motion.row(align=True)
+        translation.label(text="Translation")
+        translation.prop(properties, "translation_x", text="X", toggle=True)
+        translation.prop(properties, "translation_y", text="Y", toggle=True)
+        translation.prop(properties, "translation_z", text="Z", toggle=True)
+        rotation = motion.row(align=True)
+        rotation.label(text="Rotation")
+        rotation.prop(properties, "rotation_x", text="X", toggle=True)
+        rotation.prop(properties, "rotation_y", text="Y", toggle=True)
+        rotation.prop(properties, "rotation_z", text="Z", toggle=True)
+
+
 class BLACKFLOWER_PT_node_metadata(Panel):
     """Object Properties panel for model and level node metadata."""
 
@@ -98,7 +199,7 @@ def draw_export(context, layout):
     header.use_property_split = False
     header.prop(properties, "enabled")
     if body is not None and properties.enabled:
-        body.label(text="Action Pose Markers become animation markers.")
+        body.label(text="Action policy and Pose Markers become animation metadata.")
         body.label(text="Object metadata becomes typed node extras.")
 
 
@@ -123,7 +224,7 @@ class glTF2ExportUserExtension:
             return
 
         action = getattr(blender_action_data, "action", None)
-        if action is None or not action.pose_markers:
+        if action is None:
             return
         self._validate_animation_export_mode(action.name, export_settings)
 
@@ -144,6 +245,7 @@ class glTF2ExportUserExtension:
             frame_end=frame_end,
             frames_per_second=_frames_per_second(export_settings),
             time_origin_frame=origin,
+            **_animation_settings(action),
         )
         gltf2_animation.extras = merge_extras(gltf2_animation.extras, metadata)
 
@@ -187,14 +289,14 @@ class glTF2ExportUserExtension:
         mode = export_settings.get("gltf_animation_mode")
         if mode not in _SUPPORTED_ANIMATION_MODES:
             raise MetadataError(
-                f"action `{action_name}` has Pose Markers, but animation mode "
+                f"action `{action_name}` has Blackflower metadata, but animation mode "
                 f"`{mode}` cannot preserve their action-local timeline; use "
                 "Actions mode"
             )
         merge = export_settings.get("gltf_merge_animation")
         if merge not in _SUPPORTED_MERGE_MODES:
             raise MetadataError(
-                f"action `{action_name}` has Pose Markers, but merge mode "
+                f"action `{action_name}` has Blackflower metadata, but merge mode "
                 f"`{merge}` can combine unrelated timelines; use None or Action"
             )
 
@@ -202,6 +304,45 @@ class glTF2ExportUserExtension:
 def _blackflower_extra(animation):
     extras = getattr(animation, "extras", None)
     return extras.get("blackflower") if isinstance(extras, dict) else None
+
+
+def _active_action(context):
+    animation_data = getattr(getattr(context, "object", None), "animation_data", None)
+    return getattr(animation_data, "action", None)
+
+
+def _animation_settings(action):
+    properties = getattr(action, "blackflower_animation_metadata", None)
+    if properties is None:
+        return {}
+    return {
+        "looping": properties.looping,
+        "additive_enabled": properties.additive_enabled,
+        "additive_reference": properties.additive_reference,
+        "root_motion_enabled": properties.root_motion_enabled,
+        "root_motion_joint": properties.root_motion_joint,
+        "translation_axes": _selected_axes(
+            properties.translation_x,
+            properties.translation_y,
+            properties.translation_z,
+        ),
+        "rotation_axes": _selected_axes(
+            properties.rotation_x,
+            properties.rotation_y,
+            properties.rotation_z,
+        ),
+        "root_motion_reference": properties.root_motion_reference,
+        "remove_from_pose": properties.remove_from_pose,
+        "loop_correction": properties.loop_correction,
+    }
+
+
+def _selected_axes(x, y, z):
+    return [
+        axis
+        for axis, enabled in (("x", x), ("y", y), ("z", z))
+        if enabled
+    ]
 
 
 def _frames_per_second(export_settings):
@@ -303,7 +444,9 @@ def _action_time_origin(action_name, frame_start, target_ids, export_settings):
 
 _CLASSES = (
     BlackflowerExportSettings,
+    BlackflowerAnimationMetadata,
     BlackflowerNodeMetadata,
+    BLACKFLOWER_PT_animation_metadata,
     BLACKFLOWER_PT_node_metadata,
 )
 
@@ -313,6 +456,9 @@ def register():
         bpy.utils.register_class(class_type)
     bpy.types.Scene.blackflower_gltf_export = PointerProperty(
         type=BlackflowerExportSettings
+    )
+    bpy.types.Action.blackflower_animation_metadata = PointerProperty(
+        type=BlackflowerAnimationMetadata
     )
     bpy.types.Object.blackflower_node_metadata = PointerProperty(
         type=BlackflowerNodeMetadata
@@ -328,6 +474,7 @@ def unregister():
 
     exporter_extension_layout_draw.pop(_EXPORT_PANEL_KEY, None)
     del bpy.types.Object.blackflower_node_metadata
+    del bpy.types.Action.blackflower_animation_metadata
     del bpy.types.Scene.blackflower_gltf_export
     for class_type in reversed(_CLASSES):
         bpy.utils.unregister_class(class_type)

@@ -32,7 +32,17 @@ def build_animation_metadata(
     frame_end: float,
     frames_per_second: float,
     time_origin_frame: float,
-) -> dict[str, object] | None:
+    looping: bool = False,
+    additive_enabled: bool = False,
+    additive_reference: str = "animation",
+    root_motion_enabled: bool = False,
+    root_motion_joint: str = "",
+    translation_axes: Iterable[str] = ("x", "z"),
+    rotation_axes: Iterable[str] = ("y",),
+    root_motion_reference: str = "skeleton",
+    remove_from_pose: bool = True,
+    loop_correction: bool = False,
+) -> dict[str, object]:
     """Build schema-1 animation metadata from action-local marker frames.
 
     ``frame_start`` and ``frame_end`` are the effective exported range.
@@ -54,9 +64,6 @@ def build_animation_metadata(
         raise MetadataError(
             f"animation declares {len(source)} markers; the limit is {MAX_MARKERS}"
         )
-    if not source:
-        return None
-
     encoded: list[tuple[dict[str, object], int]] = []
     seen: set[tuple[str, int]] = set()
     for index, marker in enumerate(source):
@@ -91,8 +98,41 @@ def build_animation_metadata(
 
     # Python's stable sort keeps source order for markers at the same time.
     encoded.sort(key=lambda item: item[1])
+    if additive_reference not in {"animation", "skeleton"}:
+        raise MetadataError("additive reference must be animation or skeleton")
+    if root_motion_reference not in {"absolute", "skeleton", "animation"}:
+        raise MetadataError(
+            "root motion reference must be absolute, skeleton, or animation"
+        )
+    translation = _validate_axes(translation_axes, "root translation axes")
+    rotation = _validate_axes(rotation_axes, "root rotation axes")
+    if root_motion_enabled:
+        _validate_text(
+            root_motion_joint,
+            "root motion joint",
+            MAX_MARKER_NAME_BYTES,
+        )
+        if not translation and not rotation:
+            raise MetadataError(
+                "root motion must extract at least one translation or rotation axis"
+            )
+
     return {
         "schema": ANIMATION_SCHEMA,
+        "loop": bool(looping),
+        "additive": {
+            "enabled": bool(additive_enabled),
+            "reference": additive_reference,
+        },
+        "root_motion": {
+            "enabled": bool(root_motion_enabled),
+            "joint": root_motion_joint,
+            "translation_axes": translation,
+            "rotation_axes": rotation,
+            "reference": root_motion_reference,
+            "remove_from_pose": bool(remove_from_pose),
+            "loop_correction": bool(loop_correction),
+        },
         "markers": [item[0] for item in encoded],
     }
 
@@ -144,6 +184,15 @@ def _validate_marker_name(name: object, index: int) -> None:
     if not isinstance(name, str):
         raise MetadataError(f"animation marker {index} name must be text")
     _validate_text(name, f"animation marker {index} name", MAX_MARKER_NAME_BYTES)
+
+
+def _validate_axes(values: Iterable[str], field: str) -> list[str]:
+    axes = list(values)
+    if any(axis not in {"x", "y", "z"} for axis in axes):
+        raise MetadataError(f"{field} may contain only x, y, and z")
+    if len(set(axes)) != len(axes):
+        raise MetadataError(f"{field} cannot contain duplicates")
+    return axes
 
 
 def _validate_text(value: str, field: str, maximum_bytes: int) -> None:

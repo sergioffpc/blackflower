@@ -124,6 +124,32 @@ pub enum Error {
         /// Duplicated marker time.
         time_seconds: f32,
     },
+    /// Root-motion metadata is internally inconsistent.
+    #[error("animation `{animation}` has invalid root-motion metadata")]
+    InvalidRootMotion {
+        /// Animation containing the invalid policy.
+        animation: String,
+    },
+    /// The cooked clip duration is invalid.
+    #[error("animation `{animation}` has an invalid cooked duration")]
+    InvalidAnimationDuration {
+        /// Animation containing the invalid duration.
+        animation: String,
+    },
+    /// A marker occurs after the cooked clip duration.
+    #[error(
+        "animation `{animation}` marker {index} at {time_seconds} seconds exceeds duration {duration_seconds}"
+    )]
+    MarkerBeyondDuration {
+        /// Animation containing the marker.
+        animation: String,
+        /// Marker index in deterministic order.
+        index: usize,
+        /// Marker time.
+        time_seconds: f32,
+        /// Cooked clip duration.
+        duration_seconds: f32,
+    },
     /// The glTF nodes property is not an array or contains a non-object.
     #[error("glTF nodes must be an array of objects")]
     InvalidNodes,

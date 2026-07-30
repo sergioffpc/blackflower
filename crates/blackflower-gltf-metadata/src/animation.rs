@@ -7,6 +7,7 @@ use crate::Error;
 pub const ANIMATION_METADATA_SCHEMA: u32 = 1;
 
 const MAX_MARKER_NAME_BYTES: usize = 128;
+const MAX_JOINT_NAME_BYTES: usize = 128;
 const MAX_ANIMATION_MARKERS: usize = 4_096;
 
 /// One marker authored in seconds on a named glTF animation.
@@ -30,7 +31,185 @@ impl AnimationMarker {
     }
 }
 
-/// Validated and deterministically ordered markers for one glTF animation.
+/// Reference pose used to cook an additive clip.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdditiveReference {
+    /// First animation keyframe.
+    #[default]
+    Animation,
+    /// Skeleton rest pose.
+    Skeleton,
+}
+
+/// Authored additive conversion policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdditiveMetadata {
+    enabled: bool,
+    reference: AdditiveReference,
+}
+
+impl AdditiveMetadata {
+    /// Whether additive conversion is enabled.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Reference pose used by the offline converter.
+    #[must_use]
+    pub const fn reference(self) -> AdditiveReference {
+        self.reference
+    }
+}
+
+/// Axis selected for root-motion extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionAxis {
+    /// X axis.
+    X,
+    /// Y axis.
+    Y,
+    /// Z axis.
+    Z,
+}
+
+/// Reference used while extracting a root-motion track.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RootMotionReference {
+    /// Absolute source transform.
+    Absolute,
+    /// Skeleton rest transform.
+    #[default]
+    Skeleton,
+    /// First animation keyframe.
+    Animation,
+}
+
+/// Authored root-motion extraction policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootMotionMetadata {
+    enabled: bool,
+    joint: String,
+    translation_axes: Box<[MotionAxis]>,
+    rotation_axes: Box<[MotionAxis]>,
+    reference: RootMotionReference,
+    remove_from_pose: bool,
+    loop_correction: bool,
+}
+
+impl RootMotionMetadata {
+    /// Whether root-motion extraction is enabled.
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Joint selected for extraction.
+    #[must_use]
+    pub fn joint(&self) -> &str {
+        &self.joint
+    }
+
+    /// Selected translation axes.
+    #[must_use]
+    pub fn translation_axes(&self) -> &[MotionAxis] {
+        &self.translation_axes
+    }
+
+    /// Selected rotation axes.
+    #[must_use]
+    pub fn rotation_axes(&self) -> &[MotionAxis] {
+        &self.rotation_axes
+    }
+
+    /// Extraction reference.
+    #[must_use]
+    pub const fn reference(&self) -> RootMotionReference {
+        self.reference
+    }
+
+    /// Whether extracted motion is removed from the sampled pose.
+    #[must_use]
+    pub const fn remove_from_pose(&self) -> bool {
+        self.remove_from_pose
+    }
+
+    /// Whether extraction corrects the last key for a seamless loop.
+    #[must_use]
+    pub const fn loop_correction(&self) -> bool {
+        self.loop_correction
+    }
+}
+
+/// Validated Blackflower policy authored on one named glTF animation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationMetadata {
+    animation: String,
+    looping: bool,
+    additive: AdditiveMetadata,
+    root_motion: RootMotionMetadata,
+    markers: Box<[AnimationMarker]>,
+}
+
+impl AnimationMetadata {
+    /// Stable glTF animation name.
+    #[must_use]
+    pub fn animation(&self) -> &str {
+        &self.animation
+    }
+
+    /// Whether runtime playback loops.
+    #[must_use]
+    pub const fn looping(&self) -> bool {
+        self.looping
+    }
+
+    /// Additive cooking policy.
+    #[must_use]
+    pub const fn additive(&self) -> AdditiveMetadata {
+        self.additive
+    }
+
+    /// Root-motion extraction policy.
+    #[must_use]
+    pub const fn root_motion(&self) -> &RootMotionMetadata {
+        &self.root_motion
+    }
+
+    /// Markers ordered by non-decreasing authored time.
+    #[must_use]
+    pub fn markers(&self) -> &[AnimationMarker] {
+        &self.markers
+    }
+
+    /// Validate marker times against the cooked ozz duration.
+    pub fn validate_duration(&self, duration_seconds: f32) -> Result<(), Error> {
+        if !duration_seconds.is_finite() || duration_seconds <= 0.0 {
+            return Err(Error::InvalidAnimationDuration {
+                animation: self.animation.clone(),
+            });
+        }
+        if let Some((index, marker)) = self
+            .markers
+            .iter()
+            .enumerate()
+            .find(|(_index, marker)| marker.time_seconds > duration_seconds)
+        {
+            return Err(Error::MarkerBeyondDuration {
+                animation: self.animation.clone(),
+                index,
+                time_seconds: marker.time_seconds,
+                duration_seconds,
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Compatibility marker-only view of [`AnimationMetadata`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnimationMarkers {
     animation: String,
@@ -57,12 +236,69 @@ impl AnimationMarkers {
     }
 }
 
-#[derive(Debug, Deserialize)]
+impl From<AnimationMetadata> for AnimationMarkers {
+    fn from(metadata: AnimationMetadata) -> Self {
+        Self {
+            animation: metadata.animation,
+            markers: metadata.markers,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AnimationMetadataFile {
     schema: u32,
+    #[serde(default, rename = "loop")]
+    looping: bool,
+    #[serde(default)]
+    additive: AdditiveFile,
+    #[serde(default)]
+    root_motion: RootMotionFile,
     #[serde(default)]
     markers: Vec<MarkerFile>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdditiveFile {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    reference: AdditiveReference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RootMotionFile {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    joint: String,
+    #[serde(default = "default_translation_axes")]
+    translation_axes: Vec<MotionAxis>,
+    #[serde(default = "default_rotation_axes")]
+    rotation_axes: Vec<MotionAxis>,
+    #[serde(default)]
+    reference: RootMotionReference,
+    #[serde(default = "default_true")]
+    remove_from_pose: bool,
+    #[serde(default)]
+    loop_correction: bool,
+}
+
+impl Default for RootMotionFile {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            joint: String::new(),
+            translation_axes: default_translation_axes(),
+            rotation_axes: default_rotation_axes(),
+            reference: RootMotionReference::default(),
+            remove_from_pose: true,
+            loop_correction: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,25 +308,24 @@ struct MarkerFile {
     time_seconds: f32,
 }
 
-pub(crate) fn markers(root: &Value, animation: &str) -> Result<AnimationMarkers, Error> {
+pub(crate) fn metadata(root: &Value, animation: &str) -> Result<AnimationMetadata, Error> {
     let source = find_animation(root, animation)?;
-    let Some(metadata) = source
+    let file = match source
         .get("extras")
         .and_then(Value::as_object)
         .and_then(|extras| extras.get("blackflower"))
-    else {
-        return Ok(AnimationMarkers {
-            animation: animation.to_owned(),
-            markers: Box::new([]),
-        });
-    };
-    let file: AnimationMetadataFile =
-        serde_json::from_value(metadata.clone()).map_err(|source| {
+    {
+        Some(value) => serde_json::from_value(value.clone()).map_err(|source| {
             Error::InvalidAnimationMetadata {
                 animation: animation.to_owned(),
                 source,
             }
-        })?;
+        })?,
+        None => AnimationMetadataFile {
+            schema: ANIMATION_METADATA_SCHEMA,
+            ..AnimationMetadataFile::default()
+        },
+    };
     validate_schema(animation, file.schema)?;
     validate_count(animation, file.markers.len())?;
     let mut markers = file
@@ -100,35 +335,42 @@ pub(crate) fn markers(root: &Value, animation: &str) -> Result<AnimationMarkers,
         .map(|(index, marker)| validate_marker(animation, index, marker))
         .collect::<Result<Vec<_>, _>>()?;
     reject_duplicates(animation, &markers)?;
-    markers.sort_by(|left, right| left.time_seconds.total_cmp(&right.time_seconds));
-    Ok(AnimationMarkers {
+    markers.sort_by(|left, right| {
+        left.time_seconds
+            .total_cmp(&right.time_seconds)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    let root_motion = validate_root_motion(animation, file.root_motion)?;
+    Ok(AnimationMetadata {
         animation: animation.to_owned(),
+        looping: file.looping,
+        additive: AdditiveMetadata {
+            enabled: file.additive.enabled,
+            reference: file.additive.reference,
+        },
+        root_motion,
         markers: markers.into_boxed_slice(),
     })
 }
 
 fn find_animation<'a>(root: &'a Value, name: &str) -> Result<&'a Value, Error> {
-    let Some(animations) = root.get("animations") else {
-        return Err(Error::AnimationNotFound(name.to_owned()));
-    };
-    let animations = animations.as_array().ok_or(Error::InvalidAnimations)?;
-    let mut matching = animations
-        .iter()
-        .map(|animation| {
-            animation
-                .as_object()
-                .ok_or(Error::InvalidAnimations)
-                .map(|object| (animation, object.get("name").and_then(Value::as_str)))
-        })
-        .filter_map(|result| match result {
-            Ok((animation, Some(candidate))) if candidate == name => Some(Ok(animation)),
-            Ok(_) => None,
-            Err(error) => Some(Err(error)),
-        });
-    let Some(found) = matching.next().transpose()? else {
-        return Err(Error::AnimationNotFound(name.to_owned()));
-    };
-    if matching.next().transpose()?.is_some() {
+    let animations = root
+        .get("animations")
+        .ok_or_else(|| Error::AnimationNotFound(name.to_owned()))?
+        .as_array()
+        .ok_or(Error::InvalidAnimations)?;
+    let mut matches = animations.iter().filter_map(|animation| {
+        animation
+            .as_object()
+            .and_then(|object| object.get("name"))
+            .and_then(Value::as_str)
+            .filter(|candidate| *candidate == name)
+            .map(|_name| animation)
+    });
+    let found = matches
+        .next()
+        .ok_or_else(|| Error::AnimationNotFound(name.to_owned()))?;
+    if matches.next().is_some() {
         return Err(Error::DuplicateAnimation(name.to_owned()));
     }
     Ok(found)
@@ -162,11 +404,7 @@ fn validate_marker(
     index: usize,
     marker: MarkerFile,
 ) -> Result<AnimationMarker, Error> {
-    if marker.name.is_empty()
-        || marker.name.len() > MAX_MARKER_NAME_BYTES
-        || marker.name.trim() != marker.name
-        || marker.name.chars().any(char::is_control)
-    {
+    if !valid_text(&marker.name, MAX_MARKER_NAME_BYTES) {
         return Err(Error::InvalidMarkerName {
             animation: animation.to_owned(),
             index,
@@ -181,6 +419,34 @@ fn validate_marker(
     Ok(AnimationMarker {
         name: marker.name,
         time_seconds: marker.time_seconds,
+    })
+}
+
+fn validate_root_motion(
+    animation: &str,
+    source: RootMotionFile,
+) -> Result<RootMotionMetadata, Error> {
+    if source.enabled
+        && (!valid_text(&source.joint, MAX_JOINT_NAME_BYTES)
+            || source.translation_axes.len() + source.rotation_axes.len() == 0)
+    {
+        return Err(Error::InvalidRootMotion {
+            animation: animation.to_owned(),
+        });
+    }
+    if has_duplicate_axes(&source.translation_axes) || has_duplicate_axes(&source.rotation_axes) {
+        return Err(Error::InvalidRootMotion {
+            animation: animation.to_owned(),
+        });
+    }
+    Ok(RootMotionMetadata {
+        enabled: source.enabled,
+        joint: source.joint,
+        translation_axes: source.translation_axes.into_boxed_slice(),
+        rotation_axes: source.rotation_axes.into_boxed_slice(),
+        reference: source.reference,
+        remove_from_pose: source.remove_from_pose,
+        loop_correction: source.loop_correction,
     })
 }
 
@@ -200,161 +466,176 @@ fn reject_duplicates(animation: &str, markers: &[AnimationMarker]) -> Result<(),
     Ok(())
 }
 
+fn valid_text(value: &str, maximum: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= maximum
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
+}
+
+fn has_duplicate_axes(axes: &[MotionAxis]) -> bool {
+    axes.iter()
+        .enumerate()
+        .any(|(index, axis)| axes[..index].contains(axis))
+}
+
+fn default_translation_axes() -> Vec<MotionAxis> {
+    vec![MotionAxis::X, MotionAxis::Z]
+}
+
+fn default_rotation_axes() -> Vec<MotionAxis> {
+    vec![MotionAxis::Y]
+}
+
+const fn default_true() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Document, Error};
+    use crate::{AdditiveReference, Document, Error, MotionAxis, RootMotionReference};
 
     #[test]
-    fn markers_are_extracted_and_ordered_by_time() -> Result<(), Error> {
+    fn complete_animation_metadata_is_typed() -> Result<(), Error> {
         let document = Document::from_bytes(
             br#"{
                 "asset": {"version": "2.0"},
                 "animations": [{
-                    "name": "Walk",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {
-                        "vendor": {"untouched": true},
-                        "blackflower": {
-                            "schema": 1,
-                            "markers": [
-                                {"name": "right_foot", "time_seconds": 0.71},
-                                {"name": "left_foot", "time_seconds": 0.24}
-                            ]
-                        }
-                    }
+                    "name": "Walk", "channels": [], "samplers": [],
+                    "extras": {"blackflower": {
+                        "schema": 1,
+                        "loop": true,
+                        "additive": {"enabled": true, "reference": "skeleton"},
+                        "root_motion": {
+                            "enabled": true,
+                            "joint": "Root",
+                            "translation_axes": ["x", "z"],
+                            "rotation_axes": ["y"],
+                            "reference": "animation",
+                            "remove_from_pose": true,
+                            "loop_correction": true
+                        },
+                        "markers": [
+                            {"name": "right", "time_seconds": 0.75},
+                            {"name": "left", "time_seconds": 0.25}
+                        ]
+                    }}
                 }]
             }"#,
         )?;
-        let markers = document.animation_markers("Walk")?;
-
-        assert_eq!(markers.animation(), "Walk");
-        assert_eq!(markers.markers().len(), 2);
-        assert_eq!(markers.markers()[0].name(), "left_foot");
+        let metadata = document.animation_metadata("Walk")?;
+        assert!(metadata.looping());
+        assert!(metadata.additive().enabled());
+        assert_eq!(metadata.additive().reference(), AdditiveReference::Skeleton);
         assert_eq!(
-            markers.markers()[0].time_seconds().to_bits(),
-            0.24_f32.to_bits()
+            metadata.root_motion().translation_axes(),
+            &[MotionAxis::X, MotionAxis::Z]
         );
-        assert_eq!(markers.markers()[1].name(), "right_foot");
+        assert_eq!(
+            metadata.root_motion().reference(),
+            RootMotionReference::Animation
+        );
+        assert_eq!(metadata.markers()[0].name(), "left");
         Ok(())
     }
 
     #[test]
-    fn animation_without_blackflower_metadata_has_no_markers() -> Result<(), Error> {
+    fn missing_metadata_uses_disabled_defaults() -> Result<(), Error> {
+        let document = Document::from_bytes(
+            br#"{"asset":{"version":"2.0"},"animations":[
+                {"name":"Idle","channels":[],"samplers":[]}
+            ]}"#,
+        )?;
+        let metadata = document.animation_metadata("Idle")?;
+        assert!(!metadata.looping());
+        assert!(!metadata.additive().enabled());
+        assert!(!metadata.root_motion().enabled());
+        assert!(metadata.markers().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_root_motion_and_duration_are_rejected() -> Result<(), Error> {
         let document = Document::from_bytes(
             br#"{
                 "asset": {"version": "2.0"},
                 "animations": [{
-                    "name": "Idle",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {"vendor": true}
+                    "name": "Walk", "channels": [], "samplers": [],
+                    "extras": {"blackflower": {
+                        "schema": 1,
+                        "root_motion": {
+                            "enabled": true,
+                            "joint": "",
+                            "translation_axes": ["x"],
+                            "rotation_axes": ["y"]
+                        }
+                    }}
                 }]
             }"#,
         )?;
-        assert!(document.animation_markers("Idle")?.is_empty());
-        Ok(())
-    }
+        assert!(matches!(
+            document.animation_metadata("Walk"),
+            Err(Error::InvalidRootMotion { .. })
+        ));
 
-    #[test]
-    fn duplicate_animation_names_are_ambiguous() -> Result<(), Error> {
-        let document = Document::from_bytes(
+        let timed = Document::from_bytes(
             br#"{
                 "asset": {"version": "2.0"},
-                "animations": [
-                    {"name": "Idle", "channels": [], "samplers": []},
-                    {"name": "Idle", "channels": [], "samplers": []}
-                ]
+                "animations": [{
+                    "name": "Walk", "channels": [], "samplers": [],
+                    "extras": {"blackflower": {
+                        "schema": 1,
+                        "markers": [{"name": "late", "time_seconds": 2.0}]
+                    }}
+                }]
             }"#,
         )?;
         assert!(matches!(
-            document.animation_markers("Idle"),
-            Err(Error::DuplicateAnimation(name)) if name == "Idle"
+            timed.animation_metadata("Walk")?.validate_duration(1.0),
+            Err(Error::MarkerBeyondDuration { .. })
         ));
         Ok(())
     }
 
     #[test]
-    fn owned_metadata_is_strict_and_versioned() -> Result<(), Error> {
-        let unknown_field = Document::from_bytes(
+    fn duplicate_axes_and_unknown_references_are_rejected() -> Result<(), Error> {
+        let duplicate_axes = Document::from_bytes(
             br#"{
                 "asset": {"version": "2.0"},
                 "animations": [{
-                    "name": "Idle",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {"blackflower": {"schema": 1, "marker": []}}
+                    "name": "Walk", "channels": [], "samplers": [],
+                    "extras": {"blackflower": {
+                        "schema": 1,
+                        "root_motion": {
+                            "enabled": true,
+                            "joint": "Root",
+                            "translation_axes": ["x", "x"],
+                            "rotation_axes": []
+                        }
+                    }}
                 }]
             }"#,
         )?;
         assert!(matches!(
-            unknown_field.animation_markers("Idle"),
+            duplicate_axes.animation_metadata("Walk"),
+            Err(Error::InvalidRootMotion { .. })
+        ));
+
+        let unknown_reference = Document::from_bytes(
+            br#"{
+                "asset": {"version": "2.0"},
+                "animations": [{
+                    "name": "Walk", "channels": [], "samplers": [],
+                    "extras": {"blackflower": {
+                        "schema": 1,
+                        "additive": {"enabled": true, "reference": "bind_pose"}
+                    }}
+                }]
+            }"#,
+        )?;
+        assert!(matches!(
+            unknown_reference.animation_metadata("Walk"),
             Err(Error::InvalidAnimationMetadata { .. })
-        ));
-
-        let unsupported = Document::from_bytes(
-            br#"{
-                "asset": {"version": "2.0"},
-                "animations": [{
-                    "name": "Idle",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {"blackflower": {"schema": 2, "markers": []}}
-                }]
-            }"#,
-        )?;
-        assert!(matches!(
-            unsupported.animation_markers("Idle"),
-            Err(Error::UnsupportedAnimationSchema { schema: 2, .. })
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn invalid_and_duplicate_markers_are_rejected() -> Result<(), Error> {
-        let invalid = Document::from_bytes(
-            br#"{
-                "asset": {"version": "2.0"},
-                "animations": [{
-                    "name": "Walk",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {
-                        "blackflower": {
-                            "schema": 1,
-                            "markers": [{"name": " left_foot", "time_seconds": -0.1}]
-                        }
-                    }
-                }]
-            }"#,
-        )?;
-        assert!(matches!(
-            invalid.animation_markers("Walk"),
-            Err(Error::InvalidMarkerName { index: 0, .. })
-        ));
-
-        let duplicate = Document::from_bytes(
-            br#"{
-                "asset": {"version": "2.0"},
-                "animations": [{
-                    "name": "Walk",
-                    "channels": [],
-                    "samplers": [],
-                    "extras": {
-                        "blackflower": {
-                            "schema": 1,
-                            "markers": [
-                                {"name": "footstep", "time_seconds": 0.25},
-                                {"name": "footstep", "time_seconds": 0.25}
-                            ]
-                        }
-                    }
-                }]
-            }"#,
-        )?;
-        assert!(matches!(
-            duplicate.animation_markers("Walk"),
-            Err(Error::DuplicateMarker { .. })
         ));
         Ok(())
     }

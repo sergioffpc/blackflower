@@ -1,23 +1,23 @@
 [package]
-name = "blackflower-animation"
+name = "blackflower-animation-cooker"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-links = "ozz_animation"
-
-[features]
-cooking = []
+build = "build.rs"
 
 [dependencies]
+blackflower-animation = { workspace = true, features = ["cooking"] }
 blackflower-animation-format.workspace = true
+blackflower-gltf-metadata.workspace = true
 
-glam.workspace = true
+gltf.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
-bindgen.workspace = true
 cmake.workspace = true
 
 [lints]

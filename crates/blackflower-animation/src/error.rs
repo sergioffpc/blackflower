@@ -2,11 +2,32 @@
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// The bytes are not a supported runtime skeleton archive.
-    #[error("invalid ozz-animation skeleton archive")]
+    #[error("invalid Blackflower skeleton asset")]
     InvalidSkeletonArchive,
     /// The bytes are not a supported runtime animation archive.
-    #[error("invalid ozz-animation clip archive")]
+    #[error("invalid Blackflower animation asset")]
     InvalidAnimationArchive,
+    /// A container requires a different ozz runtime version.
+    #[error("animation asset requires an unsupported ozz-animation version")]
+    UnsupportedOzzVersion,
+    /// The skeleton contents do not match the container or clip identity.
+    #[error("animation and skeleton identities do not match")]
+    SkeletonIdentityMismatch,
+    /// The typed clip name differs from the private ozz payload.
+    #[error("animation metadata name does not match the ozz clip name")]
+    AnimationNameMismatch,
+    /// The root-motion section is not a supported pair of ozz tracks.
+    #[error("invalid ozz root-motion archive")]
+    InvalidRootMotionArchive,
+    /// Root-motion traversal moved backwards without wrapping.
+    #[error("root-motion traversal moved backwards without wrapping")]
+    InvalidRootMotionTraversal,
+    /// A runtime set cannot contain clips for different skeletons.
+    #[error("animation set and clip skeleton identities do not match")]
+    AnimationSetSkeletonMismatch,
+    /// A runtime set already contains the clip name.
+    #[error("animation set already contains the clip name")]
+    DuplicateAnimationClip,
     /// Native allocation failed.
     #[error("ozz-animation native allocation failed")]
     OutOfMemory,

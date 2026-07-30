@@ -17,8 +17,8 @@ Windows, and enforces an explicit extension allowlist:
 `Document::from_bytes` performs in-memory `gltf` validation but cannot resolve
 adjacent resources. Domain cookers must therefore use `Document::open`.
 
-Metadata is attached to the glTF object that owns it. Animation markers belong
-to an `animation` object:
+Metadata is attached to the glTF object that owns it. Playback, additive
+conversion, root motion, and markers belong to an `animation` object:
 
 ```json
 {
@@ -30,6 +30,20 @@ to an `animation` object:
       "extras": {
         "blackflower": {
           "schema": 1,
+          "loop": true,
+          "additive": {
+            "enabled": false,
+            "reference": "animation"
+          },
+          "root_motion": {
+            "enabled": true,
+            "joint": "Root",
+            "translation_axes": ["x", "z"],
+            "rotation_axes": ["y"],
+            "reference": "skeleton",
+            "remove_from_pose": true,
+            "loop_correction": true
+          },
           "markers": [
             {
               "name": "left_foot",
@@ -47,14 +61,17 @@ to an `animation` object:
 }
 ```
 
-Marker times use glTF seconds rather than normalized animation time. The
-animation cooker validates them against the imported clip duration and converts
-them to the normalized ratios consumed by `blackflower-animation`.
+Marker times use glTF seconds rather than normalized animation time. The cooker
+sorts them deterministically, validates them against the imported Ozz duration,
+and stores normalized ratios in `.bfanim`. Additive references are `animation`
+or `skeleton`; root-motion references are `absolute`, `skeleton`, or
+`animation`. Enabled root motion requires an exact joint and at least one
+translation or rotation axis.
 
 The `blackflower` object is strict and versioned. Unknown fields, unsupported
 schemas, invalid names, negative or non-finite times, duplicate markers, and
-ambiguous animation names are rejected. Unrelated third-party fields elsewhere
-in `extras` are ignored.
+ambiguous animation names are rejected. Axis lists cannot contain duplicates.
+Unrelated third-party fields elsewhere in `extras` are ignored.
 
 Future model, level, physics, navigation, and acoustic metadata should reuse
 `extras.blackflower` on the relevant glTF object and define a separate typed

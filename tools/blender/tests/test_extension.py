@@ -20,6 +20,9 @@ def _load_extension():
     class Object:
         pass
 
+    class Action:
+        pass
+
     class Panel:
         pass
 
@@ -27,9 +30,12 @@ def _load_extension():
         pass
 
     bpy_props.BoolProperty = lambda **kwargs: None
+    bpy_props.EnumProperty = lambda **kwargs: None
     bpy_props.PointerProperty = lambda **kwargs: None
     bpy_props.StringProperty = lambda **kwargs: None
     bpy_types.Object = Object
+    bpy_types.Action = Action
+    bpy_types.Scene = type("Scene", (), {})
     bpy_types.Panel = Panel
     bpy_types.PropertyGroup = PropertyGroup
     bpy.types = bpy_types
@@ -85,6 +91,22 @@ class ExportHookTests(unittest.TestCase):
                 SimpleNamespace(name="start", frame=10),
                 SimpleNamespace(name="middle", frame=22),
             ],
+            blackflower_animation_metadata=SimpleNamespace(
+                looping=True,
+                additive_enabled=False,
+                additive_reference="animation",
+                root_motion_enabled=True,
+                root_motion_joint="Root",
+                translation_x=True,
+                translation_y=False,
+                translation_z=True,
+                rotation_x=False,
+                rotation_y=True,
+                rotation_z=False,
+                root_motion_reference="skeleton",
+                remove_from_pose=True,
+                loop_correction=True,
+            ),
         )
         target_id = "armature-uuid"
         export_settings = {
@@ -121,6 +143,10 @@ class ExportHookTests(unittest.TestCase):
                 {"name": "start", "time_seconds": 0.0},
                 {"name": "middle", "time_seconds": 0.5},
             ],
+        )
+        self.assertTrue(gltf_animation.extras["blackflower"]["loop"])
+        self.assertTrue(
+            gltf_animation.extras["blackflower"]["root_motion"]["enabled"]
         )
 
     def test_ambiguous_animation_mode_is_rejected(self):
