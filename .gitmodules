@@ -34,3 +34,6 @@
 [submodule "crates/blackflower-audio-voice/vendor/opus"]
 	path = crates/blackflower-audio-voice/vendor/opus
 	url = https://github.com/xiph/opus.git
+[submodule "crates/blackflower-shader-compiler/vendor/slang"]
+	path = crates/blackflower-shader-compiler/vendor/slang
+	url = https://github.com/shader-slang/slang.git

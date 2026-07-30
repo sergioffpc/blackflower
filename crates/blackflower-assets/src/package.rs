@@ -391,6 +391,8 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.squashfs.is_empty()
         || catalog.toolchain.archive.is_empty()
         || catalog.toolchain.luau.is_empty()
+        || catalog.toolchain.slang.is_empty()
+        || catalog.toolchain.naga.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }

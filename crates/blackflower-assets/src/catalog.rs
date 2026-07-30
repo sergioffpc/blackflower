@@ -14,6 +14,8 @@ pub enum AssetKind {
     Blob,
     /// Bytecode produced for the pinned Luau virtual machine.
     LuauBytecode,
+    /// Naga-validated SPIR-V produced by the pinned Slang compiler.
+    ShaderModule,
 }
 
 /// Runtime domains that consume an asset.
@@ -40,6 +42,10 @@ pub struct ToolchainIdentity {
     pub archive: String,
     /// Luau compiler and bytecode version.
     pub luau: String,
+    /// Slang compiler version used to emit shader modules.
+    pub slang: String,
+    /// Naga version used to validate shader modules.
+    pub naga: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.
@@ -62,7 +68,7 @@ pub struct AssetRecord {
     pub kind: AssetKind,
     /// Runtime audience.
     pub audience: AssetAudience,
-    /// Cooker-derived runtime requirements, empty for Stage 0 blobs.
+    /// Cooker-derived runtime requirements.
     pub dependencies: Vec<AssetId>,
     /// Hash of final cooked bytes.
     pub content_hash: ContentHash,

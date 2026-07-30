@@ -8,6 +8,10 @@ use blackflower_assets::{CookingProfileIdentity, ProfileHash, ProfileName};
 use blackflower_scripting::{
     CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel,
 };
+use blackflower_shader_compiler::{
+    CompileOptions as ShaderCompileOptions, DebugInfoLevel as ShaderDebugInfoLevel,
+    OptimizationLevel as ShaderOptimizationLevel, ShaderStage,
+};
 use serde::{Deserialize, Serialize};
 
 const PROFILE_SCHEMA: u32 = 1;
@@ -80,6 +84,7 @@ impl CookingProfiles {
 pub(crate) struct CookingProfile {
     pub(crate) identity: CookingProfileIdentity,
     pub(crate) scripting: ScriptingProfile,
+    pub(crate) shaders: ShaderProfile,
 }
 
 impl CookingProfile {
@@ -100,6 +105,7 @@ impl CookingProfile {
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
             scripting: file.scripting,
+            shaders: file.shaders,
         })
     }
 }
@@ -109,6 +115,7 @@ impl CookingProfile {
 struct CookingProfileFile {
     schema: u32,
     scripting: ScriptingProfile,
+    shaders: ShaderProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +175,66 @@ enum LuauDebug {
 enum LuauTypeInfo {
     NativeModules,
     AllModules,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ShaderProfile {
+    target: ShaderTarget,
+    capability: ShaderCapability,
+    optimization: ShaderOptimization,
+    debug: ShaderDebug,
+}
+
+impl ShaderProfile {
+    pub(crate) const fn compile_options(self, stage: ShaderStage) -> ShaderCompileOptions {
+        ShaderCompileOptions {
+            stage,
+            optimization: match self.optimization {
+                ShaderOptimization::None => ShaderOptimizationLevel::None,
+                ShaderOptimization::Default => ShaderOptimizationLevel::Default,
+                ShaderOptimization::High => ShaderOptimizationLevel::High,
+                ShaderOptimization::Maximal => ShaderOptimizationLevel::Maximal,
+            },
+            debug_info: match self.debug {
+                ShaderDebug::None => ShaderDebugInfoLevel::None,
+                ShaderDebug::Minimal => ShaderDebugInfoLevel::Minimal,
+                ShaderDebug::Standard => ShaderDebugInfoLevel::Standard,
+                ShaderDebug::Maximal => ShaderDebugInfoLevel::Maximal,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderTarget {
+    Spirv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderCapability {
+    #[serde(rename = "spirv_1_5")]
+    Spirv1_5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderOptimization {
+    None,
+    Default,
+    High,
+    Maximal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShaderDebug {
+    None,
+    Minimal,
+    Standard,
+    Maximal,
 }
 
 fn is_profile_path(path: &Path) -> bool {
