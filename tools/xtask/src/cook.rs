@@ -327,6 +327,8 @@ fn atomic_replace(candidate: &Path, output: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(core::iter::once(0))
         .collect::<Vec<_>>();
+    // SAFETY: both pointers reference live, NUL-terminated UTF-16 buffers for
+    // the duration of the call, and the flags are valid for `MoveFileExW`.
     let result = unsafe {
         MoveFileExW(
             candidate.as_ptr(),
