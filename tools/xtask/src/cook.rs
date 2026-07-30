@@ -15,7 +15,7 @@ use blackflower_scripting::luau_version;
 use serde::Serialize;
 use tempfile::{NamedTempFile, TempDir};
 
-use crate::asset_cooker::{CookedAsset, cook_assets};
+use crate::asset_cooker::{CookedAsset, NAGA_VERSION, cook_assets};
 use crate::manifest::{Repository, SOURCE_SCHEMA};
 use crate::profile::CookingProfiles;
 
@@ -149,6 +149,8 @@ fn toolchain_identity() -> ToolchainIdentity {
             "squashfs-4.0-le;block=131072;zstd=3;epoch=0;uid=0;gid=0;signature=ed25519-blake3-v1"
                 .to_owned(),
         luau: format!("luau/{major}.{minor}.{patch}"),
+        slang: format!("slang/{}", blackflower_shader_compiler::slang_version()),
+        naga: format!("naga/{NAGA_VERSION}"),
     }
 }
 
@@ -415,8 +417,58 @@ mod tests {
     use super::{CookRequest, Pipeline, build_catalog, toolchain_identity, write_package};
 
     const TEST_SIGNING_SECRET: [u8; 32] = [0x42; 32];
-    const DEBUG_PROFILE: &str = "schema = 1\n\n[scripting.luau]\noptimization = \"baseline\"\ndebug = \"full\"\ntype_info = \"native_modules\"\n";
-    const RELEASE_PROFILE: &str = "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"line_info\"\ntype_info = \"native_modules\"\n";
+    const DEBUG_PROFILE: &str = r#"schema = 1
+
+[scripting.luau]
+optimization = "baseline"
+debug = "full"
+type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "none"
+debug = "standard"
+"#;
+    const RELEASE_PROFILE: &str = r#"schema = 1
+
+[scripting.luau]
+optimization = "aggressive"
+debug = "line_info"
+type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "high"
+debug = "none"
+"#;
+    const LUAU_RELEASE_PROFILE: &str = r#"schema = 1
+
+[scripting.luau]
+optimization = "aggressive"
+debug = "line_info"
+type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "none"
+debug = "standard"
+"#;
+    const SHADER_RELEASE_PROFILE: &str = r#"schema = 1
+
+[scripting.luau]
+optimization = "baseline"
+debug = "full"
+type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "high"
+debug = "none"
+"#;
 
     #[test]
     fn cooks_deterministically_and_reuses_the_logical_name() -> anyhow::Result<()> {
@@ -426,7 +478,7 @@ mod tests {
         let first = fixture.pipeline.cook(&request)?;
         assert_eq!(
             first.package_hash.to_string(),
-            "b46b70a5249b345c8345fb574725816f5f9057c51bb539d2d60407fd857f0e03"
+            "a33730a837b04a8b8e16b30d9b71d8e0e19f4ef33b2a54a5aa5f5950934764bf"
         );
         let first_bytes = fs::read(&first.path)?;
         let second = fixture.pipeline.cook(&request)?;
@@ -472,6 +524,64 @@ mod tests {
     }
 
     #[test]
+    fn cooks_profile_configured_shader_module_for_runtime_loading() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.shader(
+            "shaders/basic",
+            "presentation",
+            "basic.slang",
+            b"float4 vertex_main(float4 position : POSITION) : SV_Position\n{\n    return position;\n}\n",
+            "vertex_main",
+            "vertex",
+        )?;
+        let request = fixture.request("pak000", &["shaders/basic"])?;
+        let _result = fixture.pipeline.cook(&request)?;
+
+        let store = fixture.open_store()?;
+        let id = AssetId::from_str("shaders/basic")?;
+        let resolved = store.resolve(&id).context("missing cooked shader asset")?;
+        assert_eq!(
+            resolved.record().kind,
+            blackflower_assets::AssetKind::ShaderModule
+        );
+        assert_eq!(
+            resolved.package().catalog().toolchain.slang,
+            "slang/2026.14.1"
+        );
+        assert_eq!(resolved.package().catalog().toolchain.naga, "naga/30.0.0");
+
+        let bytes = store.read_asset(&id)?;
+        assert_eq!(&bytes[..4], &0x0723_0203_u32.to_le_bytes());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_empty_shader_toolchain_identities() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let mut catalog = fixture.selected_catalog(&["fixtures/example"])?;
+
+        let slang = catalog.toolchain.slang.clone();
+        catalog.toolchain.slang.clear();
+        let _path = fixture.write_catalog_package("pak000", &catalog)?;
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected empty Slang identity rejection")?;
+        assert!(matches!(error, Error::InvalidCatalog { .. }));
+
+        catalog.toolchain.slang = slang;
+        catalog.toolchain.naga.clear();
+        let _path = fixture.write_catalog_package("pak000", &catalog)?;
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected empty Naga identity rejection")?;
+        assert!(matches!(error, Error::InvalidCatalog { .. }));
+        Ok(())
+    }
+
+    #[test]
     fn luau_profile_settings_change_only_luau_recipes() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
         fixture.asset("fixtures/blob", "shared", "blob.bin", b"blob")?;
@@ -499,7 +609,7 @@ mod tests {
         let first_profile = first.packages()[0].catalog().profile.clone();
         drop(first);
 
-        fixture.write_profile("debug", RELEASE_PROFILE)?;
+        fixture.write_profile("debug", LUAU_RELEASE_PROFILE)?;
         let second_result = fixture.pipeline.cook(&request)?;
         let second = fixture.open_store()?;
         let second_blob = second
@@ -521,27 +631,85 @@ mod tests {
     }
 
     #[test]
+    fn shader_profile_settings_change_only_shader_recipes() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/blob", "shared", "blob.bin", b"blob")?;
+        fixture.shader(
+            "shaders/basic",
+            "presentation",
+            "basic.slang",
+            b"float4 vertex_main(float4 position : POSITION) : SV_Position\n{\n    return position;\n}\n",
+            "vertex_main",
+            "vertex",
+        )?;
+        let request = fixture.request("pak000", &["fixtures/blob", "shaders/basic"])?;
+        let first_result = fixture.pipeline.cook(&request)?;
+        let first = fixture.open_store()?;
+        let blob = AssetId::from_str("fixtures/blob")?;
+        let shader = AssetId::from_str("shaders/basic")?;
+        let first_blob = first
+            .resolve(&blob)
+            .context("missing blob")?
+            .record()
+            .clone();
+        let first_shader = first
+            .resolve(&shader)
+            .context("missing shader")?
+            .record()
+            .clone();
+        let first_profile = first.packages()[0].catalog().profile.clone();
+        drop(first);
+
+        fixture.write_profile("debug", SHADER_RELEASE_PROFILE)?;
+        let second_result = fixture.pipeline.cook(&request)?;
+        let second = fixture.open_store()?;
+        let second_blob = second
+            .resolve(&blob)
+            .context("missing recooked blob")?
+            .record();
+        let second_shader = second
+            .resolve(&shader)
+            .context("missing recooked shader")?
+            .record();
+        let second_profile = &second.packages()[0].catalog().profile;
+
+        assert_eq!(first_blob.content_hash, second_blob.content_hash);
+        assert_eq!(first_blob.recipe_hash, second_blob.recipe_hash);
+        assert_ne!(first_shader.recipe_hash, second_shader.recipe_hash);
+        assert_ne!(first_profile.hash, second_profile.hash);
+        assert_ne!(first_result.package_hash, second_result.package_hash);
+        Ok(())
+    }
+
+    #[test]
     fn rejects_unknown_or_malformed_cooking_profile_settings() -> anyhow::Result<()> {
         let unknown = Fixture::new()?;
         unknown.write_profile(
             "debug",
-            "schema = 1\nunknown = true\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n",
+            "schema = 1\nunknown = true\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n\n[shaders]\ntarget = \"spirv\"\ncapability = \"spirv_1_5\"\noptimization = \"high\"\ndebug = \"none\"\n",
         )?;
         assert!(unknown.pipeline.check().is_err());
 
         let invalid_value = Fixture::new()?;
         invalid_value.write_profile(
             "debug",
-            "schema = 1\n\n[scripting.luau]\noptimization = \"fastest\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n",
+            "schema = 1\n\n[scripting.luau]\noptimization = \"fastest\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n\n[shaders]\ntarget = \"spirv\"\ncapability = \"spirv_1_5\"\noptimization = \"high\"\ndebug = \"none\"\n",
         )?;
         assert!(invalid_value.pipeline.check().is_err());
 
         let removed_coverage = Fixture::new()?;
         removed_coverage.write_profile(
             "debug",
-            "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\ncoverage = \"none\"\n",
+            "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\ncoverage = \"none\"\n\n[shaders]\ntarget = \"spirv\"\ncapability = \"spirv_1_5\"\noptimization = \"high\"\ndebug = \"none\"\n",
         )?;
         assert!(removed_coverage.pipeline.check().is_err());
+
+        let invalid_shader_target = Fixture::new()?;
+        invalid_shader_target.write_profile(
+            "debug",
+            "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n\n[shaders]\ntarget = \"metal\"\ncapability = \"spirv_1_5\"\noptimization = \"high\"\ndebug = \"none\"\n",
+        )?;
+        assert!(invalid_shader_target.pipeline.check().is_err());
         Ok(())
     }
 
@@ -556,6 +724,28 @@ mod tests {
             .err()
             .context("expected Luau compilation failure")?;
         assert!(format!("{error:#}").contains("Luau compiler rejected source"));
+        assert!(!fixture.package_dir().join("pak000.squashfs").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_shader_before_publishing_a_package() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.shader(
+            "shaders/invalid",
+            "presentation",
+            "invalid.slang",
+            b"not valid Slang",
+            "main",
+            "fragment",
+        )?;
+        let request = fixture.request("pak000", &["shaders/invalid"])?;
+        let error = fixture
+            .pipeline
+            .cook(&request)
+            .err()
+            .context("expected shader compilation failure")?;
+        assert!(format!("{error:#}").contains("Slang compiler rejected source"));
         assert!(!fixture.package_dir().join("pak000.squashfs").exists());
         Ok(())
     }
@@ -1128,6 +1318,57 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn rejects_shader_profile_overrides_and_non_presentation_manifests() -> anyhow::Result<()> {
+        let override_setting = Fixture::new()?;
+        override_setting.shader(
+            "shaders/override",
+            "presentation",
+            "override.slang",
+            b"float4 main(float4 position : POSITION) : SV_Position { return position; }\n",
+            "main",
+            "vertex",
+        )?;
+        override_setting.write_manifest(
+            "shaders/override",
+            "schema = 1\nid = \"shaders/override\"\nkind = \"shader_module\"\naudience = \"presentation\"\n\n[shader]\nsource = \"override.slang\"\nentry_point = \"main\"\nstage = \"vertex\"\ntarget = \"spirv\"\n",
+        )?;
+        assert!(override_setting.pipeline.check().is_err());
+
+        let simulation = Fixture::new()?;
+        simulation.shader(
+            "shaders/simulation",
+            "simulation",
+            "simulation.slang",
+            b"float4 main(float4 position : POSITION) : SV_Position { return position; }\n",
+            "main",
+            "vertex",
+        )?;
+        let error = simulation
+            .pipeline
+            .check()
+            .err()
+            .context("expected shader audience rejection")?;
+        assert!(format!("{error:#}").contains("must use audience `presentation`"));
+
+        let invalid_entry_point = Fixture::new()?;
+        invalid_entry_point.shader(
+            "shaders/entry",
+            "presentation",
+            "entry.slang",
+            b"float4 main(float4 position : POSITION) : SV_Position { return position; }\n",
+            "not portable",
+            "vertex",
+        )?;
+        let error = invalid_entry_point
+            .pipeline
+            .check()
+            .err()
+            .context("expected shader entry-point rejection")?;
+        assert!(format!("{error:#}").contains("must be a portable identifier"));
+        Ok(())
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_source_symlinks_that_escape_the_source_root() -> anyhow::Result<()> {
@@ -1333,6 +1574,25 @@ mod tests {
             fs::write(directory.join(source_name), bytes)?;
             let manifest = format!(
                 "schema = 1\nid = \"{id}\"\nkind = \"luau_bytecode\"\naudience = \"{audience}\"\n\n[luau]\nsource = \"{source_name}\"\n"
+            );
+            fs::write(directory.join("asset.toml"), manifest)?;
+            Ok(())
+        }
+
+        fn shader(
+            &self,
+            id: &str,
+            audience: &str,
+            source_name: &str,
+            bytes: &[u8],
+            entry_point: &str,
+            stage: &str,
+        ) -> anyhow::Result<()> {
+            let directory = self.source.join(id);
+            fs::create_dir_all(&directory)?;
+            fs::write(directory.join(source_name), bytes)?;
+            let manifest = format!(
+                "schema = 1\nid = \"{id}\"\nkind = \"shader_module\"\naudience = \"{audience}\"\n\n[shader]\nsource = \"{source_name}\"\nentry_point = \"{entry_point}\"\nstage = \"{stage}\"\n"
             );
             fs::write(directory.join("asset.toml"), manifest)?;
             Ok(())

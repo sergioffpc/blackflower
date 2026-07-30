@@ -5,7 +5,8 @@ use std::str::FromStr;
 
 use anyhow::{Context, bail};
 use blackflower_assets::{AssetAudience, AssetId, AssetKind, ContentHash, PackageName};
-use serde::Deserialize;
+use blackflower_shader_compiler::ShaderStage;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const SOURCE_SCHEMA: u32 = 1;
 
@@ -22,6 +23,7 @@ impl AssetManifest {
         match self.source {
             AssetSource::Blob(_) => AssetKind::Blob,
             AssetSource::Luau(_) => AssetKind::LuauBytecode,
+            AssetSource::Shader(_) => AssetKind::ShaderModule,
         }
     }
 }
@@ -30,6 +32,7 @@ impl AssetManifest {
 pub(crate) enum AssetSource {
     Blob(BlobManifest),
     Luau(LuauManifest),
+    Shader(ShaderManifest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +49,32 @@ pub(crate) struct LuauManifest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ShaderManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) entry_point: String,
+    pub(crate) stage: ShaderStageManifest,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ShaderStageManifest {
+    Vertex,
+    Fragment,
+    Compute,
+}
+
+impl From<ShaderStageManifest> for ShaderStage {
+    fn from(value: ShaderStageManifest) -> Self {
+        match value {
+            ShaderStageManifest::Vertex => Self::Vertex,
+            ShaderStageManifest::Fragment => Self::Fragment,
+            ShaderStageManifest::Compute => Self::Compute,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AssetManifestFile {
     schema: u32,
     id: AssetId,
@@ -53,6 +82,7 @@ struct AssetManifestFile {
     audience: AssetAudience,
     blob: Option<BlobManifest>,
     luau: Option<LuauManifest>,
+    shader: Option<ShaderManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,26 +209,18 @@ fn load_asset(
     let file: AssetManifestFile =
         toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
     validate_schema(file.schema, path)?;
-    let source = match (file.kind, file.blob, file.luau) {
-        (AssetKind::Blob, Some(blob), None) => AssetSource::Blob(blob),
-        (AssetKind::LuauBytecode, None, Some(luau)) => AssetSource::Luau(luau),
-        (AssetKind::Blob, _, _) => {
-            bail!(
-                "blob asset manifest `{}` must contain exactly one `[blob]` section",
-                path.display()
-            );
-        }
-        (AssetKind::LuauBytecode, _, _) => {
-            bail!(
-                "Luau bytecode manifest `{}` must contain exactly one `[luau]` section",
-                path.display()
-            );
-        }
-        _ => bail!("unsupported asset kind in `{}`", path.display()),
-    };
+    let source = asset_source(
+        file.kind,
+        file.audience,
+        file.blob,
+        file.luau,
+        file.shader,
+        path,
+    )?;
     let source_path = match &source {
         AssetSource::Blob(manifest) => &manifest.source,
         AssetSource::Luau(manifest) => &manifest.source,
+        AssetSource::Shader(manifest) => &manifest.source,
     };
     let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
@@ -221,6 +243,77 @@ fn load_asset(
     };
     if assets.insert(id.clone(), loaded).is_some() {
         bail!("duplicate asset ID `{id}`");
+    }
+    Ok(())
+}
+
+fn asset_source(
+    kind: AssetKind,
+    audience: AssetAudience,
+    blob: Option<BlobManifest>,
+    luau: Option<LuauManifest>,
+    shader: Option<ShaderManifest>,
+    path: &Path,
+) -> anyhow::Result<AssetSource> {
+    let source_sections = [blob.is_some(), luau.is_some(), shader.is_some()]
+        .into_iter()
+        .filter(|present| *present)
+        .count();
+    if source_sections != 1 {
+        bail!(
+            "asset manifest `{}` must contain exactly one source section",
+            path.display()
+        );
+    }
+
+    let source = match kind {
+        AssetKind::Blob => AssetSource::Blob(blob.with_context(|| {
+            format!(
+                "blob asset manifest `{}` requires a `[blob]` section",
+                path.display()
+            )
+        })?),
+        AssetKind::LuauBytecode => AssetSource::Luau(luau.with_context(|| {
+            format!(
+                "Luau bytecode manifest `{}` requires a `[luau]` section",
+                path.display()
+            )
+        })?),
+        AssetKind::ShaderModule => {
+            let shader = shader.with_context(|| {
+                format!(
+                    "shader module manifest `{}` requires a `[shader]` section",
+                    path.display()
+                )
+            })?;
+            validate_shader_manifest(&shader, audience, path)?;
+            AssetSource::Shader(shader)
+        }
+        _ => bail!("unsupported asset kind in `{}`", path.display()),
+    };
+    Ok(source)
+}
+
+fn validate_shader_manifest(
+    shader: &ShaderManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "shader module manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    let mut characters = shader.entry_point.chars();
+    let valid_first = characters
+        .next()
+        .is_some_and(|value| value == '_' || value.is_ascii_alphabetic());
+    if !valid_first || !characters.all(|value| value == '_' || value.is_ascii_alphanumeric()) {
+        bail!(
+            "shader entry point in `{}` must be a portable identifier",
+            path.display()
+        );
     }
     Ok(())
 }

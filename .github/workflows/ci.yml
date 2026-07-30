@@ -110,8 +110,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Initialize Luau submodule
-        run: git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
+      - name: Initialize asset compiler submodules
+        run: |
+          git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
+          git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
+          git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
 
       - name: Set up Rust toolchain
         run: |
@@ -224,6 +227,12 @@ jobs:
           - package: blackflower-scripting
             os: macos-15
           - package: blackflower-scripting
+            os: windows-2025
+          - package: blackflower-shader-compiler
+            os: ubuntu-24.04
+          - package: blackflower-shader-compiler
+            os: macos-15
+          - package: blackflower-shader-compiler
             os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

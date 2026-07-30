@@ -20,6 +20,7 @@ members = [
     "crates/blackflower-rendering",
     "crates/blackflower-rendering-volumes",
     "crates/blackflower-replication",
+    "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
     "crates/blackflower-simulation",
     "tools/xtask",
@@ -49,6 +50,7 @@ blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
 blackflower-replication = { path = "crates/blackflower-replication" }
+blackflower-shader-compiler = { path = "crates/blackflower-shader-compiler" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
 blackflower-simulation = { path = "crates/blackflower-simulation" }
 
@@ -65,6 +67,7 @@ ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
+naga = { version = "=30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
 profiling = { version = "1.0.18", default-features = false }

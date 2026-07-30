@@ -4,3 +4,9 @@ schema = 1
 optimization = "aggressive"
 debug = "line_info"
 type_info = "native_modules"
+
+[shaders]
+target = "spirv"
+capability = "spirv_1_5"
+optimization = "high"
+debug = "none"

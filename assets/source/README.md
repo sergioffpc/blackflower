@@ -31,6 +31,26 @@ source = "weapon_policy.luau"
 The cooker rejects invalid UTF-8 and Luau compilation errors before publishing
 a package. Packages contain the resulting bytecode, not the source text.
 
+Shader assets contain Slang source plus the entry point and shader stage:
+
+```toml
+schema = 1
+id = "shaders/basic"
+kind = "shader_module"
+audience = "presentation"
+
+[shader]
+source = "basic.slang"
+entry_point = "vertex_main"
+stage = "vertex"
+```
+
+Supported stages are `vertex`, `fragment`, and `compute`. Shader assets are
+presentation-only. Target, capability, optimization, and debug settings come
+exclusively from the selected cooking profile. The cooker compiles one entry
+point to SPIR-V with the pinned Slang compiler, rejects imports and includes,
+validates the result with Naga, and packages only the validated SPIR-V bytes.
+
 Package composition has one canonical location:
 
 ```text
