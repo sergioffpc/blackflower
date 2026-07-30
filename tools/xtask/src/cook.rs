@@ -317,23 +317,24 @@ fn atomic_replace(candidate: &Path, output: &Path) -> std::io::Result<()> {
         MOVEFILE_WRITE_THROUGH, MoveFileExW, REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
     };
 
-    let candidate = candidate
+    let output_exists = output.exists();
+    let candidate_wide = candidate
         .as_os_str()
         .encode_wide()
         .chain(core::iter::once(0))
         .collect::<Vec<_>>();
-    let output = output
+    let output_wide = output
         .as_os_str()
         .encode_wide()
         .chain(core::iter::once(0))
         .collect::<Vec<_>>();
-    let result = if output.exists() {
+    let result = if output_exists {
         // SAFETY: both path pointers reference live, NUL-terminated UTF-16
         // buffers for the duration of the call; the optional pointers are null.
         unsafe {
             ReplaceFileW(
-                output.as_ptr(),
-                candidate.as_ptr(),
+                output_wide.as_ptr(),
+                candidate_wide.as_ptr(),
                 core::ptr::null(),
                 REPLACEFILE_IGNORE_MERGE_ERRORS,
                 core::ptr::null(),
@@ -343,7 +344,13 @@ fn atomic_replace(candidate: &Path, output: &Path) -> std::io::Result<()> {
     } else {
         // SAFETY: both pointers reference live, NUL-terminated UTF-16 buffers
         // for the duration of the call, and the flag is valid for `MoveFileExW`.
-        unsafe { MoveFileExW(candidate.as_ptr(), output.as_ptr(), MOVEFILE_WRITE_THROUGH) }
+        unsafe {
+            MoveFileExW(
+                candidate_wide.as_ptr(),
+                output_wide.as_ptr(),
+                MOVEFILE_WRITE_THROUGH,
+            )
+        }
     };
     if result == 0 {
         Err(std::io::Error::last_os_error())
