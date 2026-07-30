@@ -21,10 +21,7 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
-  CMAKE_C_COMPILER_LAUNCHER: sccache
-  CMAKE_CXX_COMPILER_LAUNCHER: sccache
   RUST_BACKTRACE: "1"
-  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   rust-quality:
@@ -39,26 +36,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Initialize runtime submodules
-        run: |
-          git submodule update --init --recursive --depth 1 \
-            crates/blackflower-animation/vendor/ozz-animation \
-            crates/blackflower-audio-spatial/vendor/flatbuffers \
-            crates/blackflower-audio-spatial/vendor/libmysofa \
-            crates/blackflower-audio-spatial/vendor/pffft \
-            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-            crates/blackflower-audio-spatial/vendor/zlib \
-            crates/blackflower-audio-voice/vendor/opus \
-            crates/blackflower-ecs/vendor/flecs \
-            crates/blackflower-navigation/vendor/recastnavigation \
-            crates/blackflower-physics/vendor/JoltPhysics \
-            crates/blackflower-rendering-volumes/vendor/openvdb
-
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          version: "v0.15.0"
-
       - name: Validate commit messages
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         env:
@@ -66,32 +43,14 @@ jobs:
           HEAD_OID: ${{ github.event.pull_request.head.sha || github.sha }}
         run: .github/scripts/validate-commit-range.sh "$BASE_OID" "$HEAD_OID"
 
-      - name: Set up Rust toolchain
-        run: |
-          rustc --version
-          cargo --version
-          rustfmt --version
-          cargo clippy --version
+      - name: Initialize runtime submodules
+        run: .github/scripts/init-ci-submodules.sh runtime
 
-      - name: Install libclang
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
-
-      - name: Restore Cargo cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
-            ${{ runner.os }}-cargo-
+          cargo-cache-key: cargo
+          cargo-cache-restore-key: cargo
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -174,6 +133,9 @@ jobs:
              [ -n "$BASE_OID" ] &&
              [ "$BASE_OID" != "$zero_oid" ] &&
              git diff --quiet "$BASE_OID" "$HEAD_OID" -- \
+               .github/actions/setup-native-rust \
+               .github/scripts/init-ci-submodules.sh \
+               .github/scripts/run-asset-checks.sh \
                .github/workflows/ci.yml \
                .gitmodules \
                Cargo.lock \
@@ -210,79 +172,22 @@ jobs:
           persist-credentials: false
 
       - name: Initialize asset compiler submodules
-        run: |
-          git submodule update --init --depth 1 crates/blackflower-animation/vendor/ozz-animation
-          git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
-          git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
-          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
-          git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+        run: .github/scripts/init-ci-submodules.sh assets
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
         with:
-          version: "v0.15.0"
-
-      - name: Set up Rust toolchain
-        run: |
-          rustc --version
-          cargo --version
-          cargo clippy --version
-
-      - name: Install libclang
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
-
-      - name: Restore Cargo cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-assets-full-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-
-            ${{ runner.os }}-assets-
+          cargo-cache-key: assets-full
+          cargo-cache-restore-key: assets
 
       - name: Run asset Clippy
-        run: >-
-          cargo clippy
-          --package blackflower-assets
-          --package blackflower-gltf-metadata
-          --package blackflower-rendering-models
-          --package blackflower-rendering-textures
-          --package blackflower-scripting
-          --package blackflower-shader-compiler
-          --package xtask
-          --all-targets --all-features --locked -- -D warnings
+        run: .github/scripts/run-asset-checks.sh clippy
 
       - name: Run asset tests and golden cook
-        run: >-
-          cargo test
-          --package blackflower-assets
-          --package blackflower-gltf-metadata
-          --package blackflower-rendering-models
-          --package blackflower-rendering-textures
-          --package blackflower-scripting
-          --package blackflower-shader-compiler
-          --package xtask
-          --all-targets --all-features --locked --no-fail-fast
+        run: .github/scripts/run-asset-checks.sh test
 
       - name: Run asset doctests
-        run: >-
-          cargo test
-          --package blackflower-assets
-          --package blackflower-gltf-metadata
-          --package blackflower-rendering-models
-          --package blackflower-rendering-textures
-          --package blackflower-scripting
-          --package blackflower-shader-compiler
-          --package xtask
-          --doc --all-features --locked
+        run: .github/scripts/run-asset-checks.sh doc
 
   asset-cross-platform:
     if: >-
@@ -307,51 +212,14 @@ jobs:
           persist-credentials: false
 
       - name: Initialize asset compiler submodules
-        run: |
-          git submodule update --init --depth 1 crates/blackflower-animation/vendor/ozz-animation
-          git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
-          git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
-          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
-          git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+        shell: bash
+        run: .github/scripts/init-ci-submodules.sh assets
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
         with:
-          version: "v0.15.0"
-
-      - name: Set up Rust toolchain
-        run: |
-          rustc --version
-          cargo --version
-
-      - name: Locate libclang on macOS
-        if: runner.os == 'macOS'
-        run: |
-          libclang_path="$(brew --prefix llvm@18)/lib"
-          test -f "$libclang_path/libclang.dylib"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
-
-      - name: Locate libclang on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $libclangPath = "C:\Program Files\LLVM\bin"
-          if (-not (Test-Path "$libclangPath\libclang.dll")) {
-            throw "libclang.dll not found in $libclangPath"
-          }
-          "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Restore Cargo cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-assets-smoke-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-
-            ${{ runner.os }}-assets-
+          cargo-cache-key: assets-smoke
+          cargo-cache-restore-key: assets
 
       - name: Run shader cooking smoke test
         run: >-
@@ -441,70 +309,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - package: blackflower-ecs
-            os: ubuntu-24.04
-          - package: blackflower-ecs
-            os: macos-15
-          - package: blackflower-ecs
-            os: windows-2025
+        package:
+          - blackflower-animation
+          - blackflower-animation-cooker
+          - blackflower-audio-spatial
+          - blackflower-audio-voice
+          - blackflower-ecs
+          - blackflower-navigation
+          - blackflower-physics
+          - blackflower-rendering-textures
+          - blackflower-rendering-volumes
+          - blackflower-scripting
+          - blackflower-shader-compiler
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+        exclude:
           - package: blackflower-physics
-            os: ubuntu-24.04
-          - package: blackflower-physics
-            os: macos-15
-          - package: blackflower-animation
-            os: ubuntu-24.04
-          - package: blackflower-animation
-            os: macos-15
-          - package: blackflower-animation
-            os: windows-2025
-          - package: blackflower-animation-cooker
-            os: ubuntu-24.04
-          - package: blackflower-animation-cooker
-            os: macos-15
-          - package: blackflower-animation-cooker
-            os: windows-2025
-          - package: blackflower-audio-spatial
-            os: ubuntu-24.04
-          - package: blackflower-audio-spatial
-            os: macos-15
-          - package: blackflower-audio-spatial
-            os: windows-2025
-          - package: blackflower-audio-voice
-            os: ubuntu-24.04
-          - package: blackflower-audio-voice
-            os: macos-15
-          - package: blackflower-audio-voice
-            os: windows-2025
-          - package: blackflower-navigation
-            os: ubuntu-24.04
-          - package: blackflower-navigation
-            os: macos-15
-          - package: blackflower-navigation
-            os: windows-2025
-          - package: blackflower-rendering-volumes
-            os: ubuntu-24.04
-          - package: blackflower-rendering-volumes
-            os: macos-15
-          - package: blackflower-rendering-volumes
-            os: windows-2025
-          - package: blackflower-rendering-textures
-            os: ubuntu-24.04
-          - package: blackflower-rendering-textures
-            os: macos-15
-          - package: blackflower-rendering-textures
-            os: windows-2025
-          - package: blackflower-scripting
-            os: ubuntu-24.04
-          - package: blackflower-scripting
-            os: macos-15
-          - package: blackflower-scripting
-            os: windows-2025
-          - package: blackflower-shader-compiler
-            os: ubuntu-24.04
-          - package: blackflower-shader-compiler
-            os: macos-15
-          - package: blackflower-shader-compiler
             os: windows-2025
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -516,36 +338,8 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          version: "v0.15.0"
-
-      - name: Install libclang on Linux
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
-
-      - name: Locate libclang on macOS
-        if: runner.os == 'macOS'
-        run: |
-          libclang_path="$(brew --prefix llvm@18)/lib"
-          test -f "$libclang_path/libclang.dylib"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
-
-      - name: Locate libclang on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $libclangPath = "C:\Program Files\LLVM\bin"
-          if (-not (Test-Path "$libclangPath\libclang.dll")) {
-            throw "libclang.dll not found in $libclangPath"
-          }
-          "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
 
       - name: Check formatting
         run: cargo fmt --all -- --check

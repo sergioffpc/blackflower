@@ -1,0 +1,77 @@
+name: Set up native Rust build
+description: Configure sccache, libclang, and the optional Cargo cache.
+
+inputs:
+  cargo-cache-key:
+    description: Cargo cache key scope. Leave empty to disable the Cargo cache.
+    required: false
+    default: ""
+  cargo-cache-restore-key:
+    description: Cargo cache restore-key scope.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Configure compiler cache
+      shell: bash
+      run: |
+        {
+          echo "RUSTC_WRAPPER=sccache"
+          echo "CMAKE_C_COMPILER_LAUNCHER=sccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache"
+          echo "SCCACHE_GHA_ENABLED=true"
+        } >> "$GITHUB_ENV"
+
+    - name: Set up sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: "v0.15.0"
+
+    - name: Print Rust toolchain
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version
+
+    - name: Install libclang on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends libclang-18-dev
+        libclang_path=/usr/lib/llvm-18/lib
+        test -f "$libclang_path/libclang.so"
+        echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
+    - name: Locate libclang on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        libclang_path="$(brew --prefix llvm@18)/lib"
+        test -f "$libclang_path/libclang.dylib"
+        echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
+    - name: Locate libclang on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $libclangPath = "C:\Program Files\LLVM\bin"
+        if (-not (Test-Path "$libclangPath\libclang.dll")) {
+          throw "libclang.dll not found in $libclangPath"
+        }
+        "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Restore Cargo cache
+      if: inputs.cargo-cache-key != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ inputs.cargo-cache-key }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cargo-cache-restore-key }}-${{ hashFiles('rust-toolchain.toml') }}-
+          ${{ runner.os }}-${{ inputs.cargo-cache-restore-key }}-
