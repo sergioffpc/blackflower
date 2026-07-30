@@ -48,7 +48,7 @@ pub struct AssetRecord {
     pub kind: AssetKind,
     /// Runtime audience.
     pub audience: AssetAudience,
-    /// Other logical assets required by this record.
+    /// Cooker-derived runtime requirements, empty for Stage 0 blobs.
     pub dependencies: Vec<AssetId>,
     /// Hash of final cooked bytes.
     pub content_hash: ContentHash,

@@ -16,8 +16,6 @@ pub(crate) struct AssetManifest {
     pub(crate) id: AssetId,
     pub(crate) kind: AssetKind,
     pub(crate) audience: AssetAudience,
-    #[serde(default)]
-    pub(crate) dependencies: Vec<AssetId>,
     pub(crate) blob: BlobManifest,
 }
 
@@ -31,13 +29,13 @@ pub(crate) struct BlobManifest {
 #[serde(deny_unknown_fields)]
 struct PackageManifestFile {
     pub(crate) schema: u32,
-    pub(crate) roots: Vec<AssetId>,
+    pub(crate) assets: Vec<AssetId>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PackageManifest {
     pub(crate) name: PackageName,
-    pub(crate) roots: Vec<AssetId>,
+    pub(crate) assets: Vec<AssetId>,
 }
 
 #[derive(Debug)]
@@ -90,11 +88,7 @@ impl Repository {
             .packages
             .get(package_name)
             .with_context(|| format!("package `{package_name}` has no package.toml"))?;
-        let mut selected = BTreeSet::new();
-        for root in &package.roots {
-            self.collect_dependencies(root, &mut selected)?;
-        }
-        Ok(selected)
+        Ok(package.assets.iter().cloned().collect())
     }
 
     pub(crate) fn recipe_hashes(
@@ -104,54 +98,22 @@ impl Repository {
     ) -> anyhow::Result<BTreeMap<AssetId, RecipeHash>> {
         let mut hashes = BTreeMap::new();
         for id in self.assets.keys() {
-            let _hash = recipe_hash(self, id, profile, toolchain_bytes, &mut hashes)?;
+            let hash = recipe_hash(self, id, profile, toolchain_bytes)?;
+            hashes.insert(id.clone(), hash);
         }
         Ok(hashes)
     }
 
     fn validate_graph(&self) -> anyhow::Result<()> {
-        for asset in self.assets.values() {
-            for dependency in &asset.manifest.dependencies {
-                if !self.assets.contains_key(dependency) {
-                    bail!(
-                        "asset `{}` depends on missing asset `{dependency}`",
-                        asset.manifest.id
-                    );
-                }
-            }
-        }
         for package in self.packages.values() {
-            for root in &package.roots {
-                if !self.assets.contains_key(root) {
+            for asset in &package.assets {
+                if !self.assets.contains_key(asset) {
                     bail!(
-                        "package `{}` references missing root `{root}`",
-                        package.name
+                        "package `{}` references missing asset `{asset}`",
+                        package.name,
                     );
                 }
             }
-        }
-        let mut visiting = BTreeSet::new();
-        let mut visited = BTreeSet::new();
-        for id in self.assets.keys() {
-            visit(self, id, &mut visiting, &mut visited)?;
-        }
-        Ok(())
-    }
-
-    fn collect_dependencies(
-        &self,
-        id: &AssetId,
-        selected: &mut BTreeSet<AssetId>,
-    ) -> anyhow::Result<()> {
-        if !selected.insert(id.clone()) {
-            return Ok(());
-        }
-        let asset = self
-            .assets
-            .get(id)
-            .with_context(|| format!("unknown asset `{id}`"))?;
-        for dependency in &asset.manifest.dependencies {
-            self.collect_dependencies(dependency, selected)?;
         }
         Ok(())
     }
@@ -197,11 +159,9 @@ fn load_asset(
 ) -> anyhow::Result<()> {
     let text =
         fs::read_to_string(path).with_context(|| format!("failed to read `{}`", path.display()))?;
-    let mut manifest: AssetManifest =
+    let manifest: AssetManifest =
         toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
     validate_schema(manifest.schema, path)?;
-    manifest.dependencies.sort();
-    reject_duplicates(&manifest.dependencies, "dependency", path)?;
     let source_relative = portable_relative_path(&manifest.blob.source)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
     let source_path = resolve_source(source_root, path, &manifest.blob.source)?;
@@ -258,11 +218,11 @@ fn load_package(
     let mut file: PackageManifestFile =
         toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
     validate_schema(file.schema, path)?;
-    file.roots.sort();
-    reject_duplicates(&file.roots, "root", path)?;
+    file.assets.sort();
+    reject_duplicates(&file.assets, "asset", path)?;
     let manifest = PackageManifest {
         name: package_name.clone(),
-        roots: file.roots,
+        assets: file.assets,
     };
     if packages.insert(package_name.clone(), manifest).is_some() {
         bail!("duplicate package manifest for `{package_name}`");
@@ -330,51 +290,16 @@ fn portable_relative_path(path: &Path) -> anyhow::Result<String> {
     Ok(parts.join("/"))
 }
 
-fn visit(
-    repository: &Repository,
-    id: &AssetId,
-    visiting: &mut BTreeSet<AssetId>,
-    visited: &mut BTreeSet<AssetId>,
-) -> anyhow::Result<()> {
-    if visited.contains(id) {
-        return Ok(());
-    }
-    if !visiting.insert(id.clone()) {
-        bail!("asset dependency cycle includes `{id}`");
-    }
-    let asset = repository
-        .assets
-        .get(id)
-        .with_context(|| format!("unknown asset `{id}`"))?;
-    for dependency in &asset.manifest.dependencies {
-        visit(repository, dependency, visiting, visited)?;
-    }
-    visiting.remove(id);
-    visited.insert(id.clone());
-    Ok(())
-}
-
 fn recipe_hash(
     repository: &Repository,
     id: &AssetId,
     profile: &str,
     toolchain_bytes: &[u8],
-    hashes: &mut BTreeMap<AssetId, RecipeHash>,
 ) -> anyhow::Result<RecipeHash> {
-    if let Some(hash) = hashes.get(id).copied() {
-        return Ok(hash);
-    }
     let asset = repository
         .assets
         .get(id)
         .with_context(|| format!("unknown asset `{id}`"))?;
-    let mut dependency_hashes = Vec::new();
-    for dependency in &asset.manifest.dependencies {
-        dependency_hashes.push((
-            dependency,
-            recipe_hash(repository, dependency, profile, toolchain_bytes, hashes)?,
-        ));
-    }
     let mut hasher = CanonicalHasher::new(b"blackflower.asset-recipe.v1");
     hasher.u32(asset.manifest.schema);
     hasher.text(profile);
@@ -384,14 +309,7 @@ fn recipe_hash(
     hasher.text(&asset.source_relative);
     hasher.bytes(asset.content_hash.as_bytes());
     hasher.bytes(toolchain_bytes);
-    hasher.u64(usize_to_u64(dependency_hashes.len())?);
-    for (dependency, dependency_hash) in dependency_hashes {
-        hasher.text(dependency.as_str());
-        hasher.bytes(dependency_hash.as_bytes());
-    }
-    let hash = RecipeHash::from_bytes(*hasher.finish().as_bytes());
-    hashes.insert(id.clone(), hash);
-    Ok(hash)
+    Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))
 }
 
 struct CanonicalHasher(blake3::Hasher);
@@ -428,8 +346,4 @@ impl CanonicalHasher {
     fn finish(self) -> blake3::Hash {
         self.0.finalize()
     }
-}
-
-fn usize_to_u64(value: usize) -> anyhow::Result<u64> {
-    u64::try_from(value).context("value does not fit u64")
 }

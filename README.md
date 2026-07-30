@@ -48,7 +48,7 @@ RUST_LOG=info cargo run --package blackflower-harness --locked
 
 ## Cooking assets
 
-Validate source manifests and dependencies:
+Validate source and package manifests:
 
 ```sh
 cargo xtask assets check
@@ -64,8 +64,9 @@ cargo xtask assets cook \
 ```
 
 The package name selects its only composition manifest:
-`assets/source/packages/<logical-name>/package.toml`. Its `roots` and their
-transitive dependencies become the package contents.
+`assets/source/packages/<logical-name>/package.toml`. Its explicit `assets`
+list becomes the package contents; the cooker does not infer additional
+members from handwritten dependencies.
 
 Runtime package directories use Quake-style lexical overrides. A package such
 as `pak900-hotfix.squashfs` overrides matching asset IDs from

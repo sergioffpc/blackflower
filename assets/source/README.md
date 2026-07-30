@@ -10,7 +10,6 @@ schema = 1
 id = "fixtures/example"
 kind = "blob"
 audience = "shared"
-dependencies = []
 
 [blob]
 source = "example.bin"
@@ -26,10 +25,11 @@ For example, `--package pak000` reads `packages/pak000/package.toml`:
 
 ```toml
 schema = 1
-roots = ["fixtures/example"]
+assets = ["fixtures/example"]
 ```
 
-The cooker includes those roots and their transitive dependencies. There is no
-separate level manifest or command-line composition override. IDs, package
-names, dependency ordering, source containment, and schemas are validated
-before a package is written.
+The cooker includes exactly those assets. Runtime relationships belong in
+typed composite assets such as prefabs, materials, and scenes; they are not
+authored as dependencies in `asset.toml`. There is no separate level manifest
+or command-line composition override. IDs, package names, source containment,
+and schemas are validated before a package is written.

@@ -179,7 +179,7 @@ fn build_catalog(
             id: id.clone(),
             kind: asset.manifest.kind,
             audience: asset.manifest.audience,
-            dependencies: asset.manifest.dependencies.clone(),
+            dependencies: Vec::new(),
             content_hash: asset.content_hash,
             recipe_hash,
             byte_len,
@@ -415,7 +415,7 @@ mod tests {
         let first = fixture.pipeline.cook(&request)?;
         assert_eq!(
             first.package_hash.to_string(),
-            "d58fef4ffbf9c0fc7a9cdc79e74fa040d407103c32c620def7c889f8253513dc"
+            "b2ee50fc0b96cd9bc7aa5b391ec95837d4da61bd5da882aabee83db289510030"
         );
         let first_bytes = fs::read(&first.path)?;
         let second = fixture.pipeline.cook(&request)?;
@@ -608,52 +608,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_dependencies_and_cycles() -> anyhow::Result<()> {
-        let missing = Fixture::new()?;
-        missing.asset_with_dependencies(
-            "fixtures/first",
-            "shared",
-            "first.bin",
-            b"first",
-            &["fixtures/missing"],
+    fn rejects_dependencies_in_source_asset_manifests() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.write_manifest(
+            "fixtures/example",
+            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\ndependencies = []\n\n[blob]\nsource = \"example.bin\"\n",
         )?;
-        assert!(missing.pipeline.check().is_err());
-
-        let cycle = Fixture::new()?;
-        cycle.asset_with_dependencies(
-            "fixtures/first",
-            "shared",
-            "first.bin",
-            b"first",
-            &["fixtures/second"],
+        fs::write(
+            fixture.source.join("fixtures/example/example.bin"),
+            b"bytes",
         )?;
-        cycle.asset_with_dependencies(
-            "fixtures/second",
-            "shared",
-            "second.bin",
-            b"second",
-            &["fixtures/first"],
-        )?;
-        assert!(cycle.pipeline.check().is_err());
+        assert!(fixture.pipeline.check().is_err());
         Ok(())
     }
 
     #[test]
-    fn package_manifest_is_required_and_selects_dependency_closure() -> anyhow::Result<()> {
+    fn package_manifest_is_required_and_selects_exact_assets() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
-        fixture.asset_with_dependencies(
-            "fixtures/root",
-            "shared",
-            "root.bin",
-            b"root",
-            &["fixtures/dependency"],
-        )?;
-        fixture.asset(
-            "fixtures/dependency",
-            "shared",
-            "dependency.bin",
-            b"dependency",
-        )?;
+        fixture.asset("fixtures/included", "shared", "included.bin", b"included")?;
+        fixture.asset("fixtures/unlisted", "shared", "unlisted.bin", b"unlisted")?;
 
         let request = CookRequest {
             profile: "desktop-universal".to_owned(),
@@ -662,14 +635,19 @@ mod tests {
         };
         assert!(fixture.pipeline.cook(&request).is_err());
 
-        fixture.package("pak000", &["fixtures/root"])?;
+        fixture.package("pak000", &["fixtures/included"])?;
         let result = fixture.pipeline.cook(&request)?;
-        assert_eq!(result.assets, 2);
+        assert_eq!(result.assets, 1);
         let store = fixture.open_store()?;
         assert!(
             store
-                .resolve(&AssetId::from_str("fixtures/dependency")?)
+                .resolve(&AssetId::from_str("fixtures/included")?)
                 .is_some()
+        );
+        assert!(
+            store
+                .resolve(&AssetId::from_str("fixtures/unlisted")?)
+                .is_none()
         );
         Ok(())
     }
@@ -680,7 +658,7 @@ mod tests {
         fs::create_dir_all(misplaced.source.join("misplaced"))?;
         fs::write(
             misplaced.source.join("misplaced/package.toml"),
-            "schema = 1\nroots = []\n",
+            "schema = 1\nassets = []\n",
         )?;
         assert!(misplaced.pipeline.check().is_err());
 
@@ -688,30 +666,32 @@ mod tests {
         fs::create_dir_all(unknown.source.join("packages/pak000"))?;
         fs::write(
             unknown.source.join("packages/pak000/package.toml"),
-            "schema = 1\nroots = []\nunknown = true\n",
+            "schema = 1\nassets = []\nunknown = true\n",
         )?;
         assert!(unknown.pipeline.check().is_err());
 
-        let missing_root = Fixture::new()?;
-        missing_root.package("pak000", &["fixtures/missing"])?;
-        assert!(missing_root.pipeline.check().is_err());
+        let missing_asset = Fixture::new()?;
+        missing_asset.package("pak000", &["fixtures/missing"])?;
+        assert!(missing_asset.pipeline.check().is_err());
         Ok(())
     }
 
     #[test]
     fn winning_dependencies_resolve_across_packages() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
-        fixture.asset_with_dependencies(
-            "fixtures/winner",
-            "shared",
-            "winner.bin",
-            b"winner",
-            &["fixtures/lower"],
-        )?;
+        fixture.asset("fixtures/winner", "shared", "winner.bin", b"winner")?;
         fixture.asset("fixtures/lower", "shared", "lower.bin", b"lower")?;
 
         let base = fixture.write_selected_package("pak000", &["fixtures/lower"])?;
-        let _override = fixture.write_selected_package("pak900", &["fixtures/winner"])?;
+        let mut winner_catalog = fixture.selected_catalog(&["fixtures/winner"])?;
+        let winner_record = winner_catalog
+            .assets
+            .first_mut()
+            .context("expected winner record")?;
+        winner_record
+            .dependencies
+            .push(AssetId::from_str("fixtures/lower")?);
+        let _override = fixture.write_catalog_package("pak900", &winner_catalog)?;
         let store = fixture.open_store()?;
         let winner = AssetId::from_str("fixtures/winner")?;
         assert_eq!(store.read_asset(&winner)?, b"winner");
@@ -730,14 +710,14 @@ mod tests {
         let traversal = Fixture::new()?;
         traversal.write_manifest(
             "fixtures/example",
-            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\ndependencies = []\n\n[blob]\nsource = \"../outside.bin\"\n",
+            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\n\n[blob]\nsource = \"../outside.bin\"\n",
         )?;
         assert!(traversal.pipeline.check().is_err());
 
         let unknown = Fixture::new()?;
         unknown.write_manifest(
             "fixtures/example",
-            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\ndependencies = []\nunknown = true\n\n[blob]\nsource = \"example.bin\"\n",
+            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\nunknown = true\n\n[blob]\nsource = \"example.bin\"\n",
         )?;
         fs::write(
             unknown.source.join("fixtures/example/example.bin"),
@@ -755,7 +735,7 @@ mod tests {
         let fixture = Fixture::new()?;
         fixture.write_manifest(
             "fixtures/example",
-            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\ndependencies = []\n\n[blob]\nsource = \"example.bin\"\n",
+            "schema = 1\nid = \"fixtures/example\"\nkind = \"blob\"\naudience = \"shared\"\n\n[blob]\nsource = \"example.bin\"\n",
         )?;
         let outside = fixture._temp.path().join("outside.bin");
         fs::write(&outside, b"outside")?;
@@ -925,27 +905,11 @@ mod tests {
             source_name: &str,
             bytes: &[u8],
         ) -> anyhow::Result<()> {
-            self.asset_with_dependencies(id, audience, source_name, bytes, &[])
-        }
-
-        fn asset_with_dependencies(
-            &self,
-            id: &str,
-            audience: &str,
-            source_name: &str,
-            bytes: &[u8],
-            dependencies: &[&str],
-        ) -> anyhow::Result<()> {
             let directory = self.source.join(id);
             fs::create_dir_all(&directory)?;
             fs::write(directory.join(source_name), bytes)?;
-            let dependencies = dependencies
-                .iter()
-                .map(|dependency| format!("\"{dependency}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
             let manifest = format!(
-                "schema = 1\nid = \"{id}\"\nkind = \"blob\"\naudience = \"{audience}\"\ndependencies = [{dependencies}]\n\n[blob]\nsource = \"{source_name}\"\n"
+                "schema = 1\nid = \"{id}\"\nkind = \"blob\"\naudience = \"{audience}\"\n\n[blob]\nsource = \"{source_name}\"\n"
             );
             fs::write(directory.join("asset.toml"), manifest)?;
             Ok(())
@@ -958,21 +922,21 @@ mod tests {
             Ok(())
         }
 
-        fn package(&self, name: &str, roots: &[&str]) -> anyhow::Result<()> {
+        fn package(&self, name: &str, assets: &[&str]) -> anyhow::Result<()> {
             let directory = self.source.join("packages").join(name);
             fs::create_dir_all(&directory)?;
-            let roots = roots
+            let assets = assets
                 .iter()
-                .map(|root| format!("\"{root}\""))
+                .map(|asset| format!("\"{asset}\""))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let manifest = format!("schema = 1\nroots = [{roots}]\n");
+            let manifest = format!("schema = 1\nassets = [{assets}]\n");
             fs::write(directory.join("package.toml"), manifest)?;
             Ok(())
         }
 
-        fn request(&self, package: &str, roots: &[&str]) -> anyhow::Result<CookRequest> {
-            self.package(package, roots)?;
+        fn request(&self, package: &str, assets: &[&str]) -> anyhow::Result<CookRequest> {
+            self.package(package, assets)?;
             Ok(CookRequest {
                 profile: "desktop-universal".to_owned(),
                 package: PackageName::from_str(package)?,
