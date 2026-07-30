@@ -70,7 +70,8 @@ target_include_directories(
 target_link_libraries(blackflower-vdb-cooker PRIVATE openvdb_static)
 
 if(MSVC)
-    target_compile_options(blackflower-vdb-cooker PRIVATE /EHsc)
+    target_compile_options(openvdb_static PRIVATE /EHsc)
+    target_compile_options(blackflower-vdb-cooker PRIVATE /EHsc /bigobj)
 endif()
 
 include(GNUInstallDirs)
