@@ -314,7 +314,7 @@ fn atomic_replace(candidate: &Path, output: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        MOVEFILE_WRITE_THROUGH, MoveFileExW, REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
     };
 
     let candidate = candidate
@@ -327,14 +327,23 @@ fn atomic_replace(candidate: &Path, output: &Path) -> std::io::Result<()> {
         .encode_wide()
         .chain(core::iter::once(0))
         .collect::<Vec<_>>();
-    // SAFETY: both pointers reference live, NUL-terminated UTF-16 buffers for
-    // the duration of the call, and the flags are valid for `MoveFileExW`.
-    let result = unsafe {
-        MoveFileExW(
-            candidate.as_ptr(),
-            output.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
+    let result = if output.exists() {
+        // SAFETY: both path pointers reference live, NUL-terminated UTF-16
+        // buffers for the duration of the call; the optional pointers are null.
+        unsafe {
+            ReplaceFileW(
+                output.as_ptr(),
+                candidate.as_ptr(),
+                core::ptr::null(),
+                REPLACEFILE_IGNORE_MERGE_ERRORS,
+                core::ptr::null(),
+                core::ptr::null(),
+            )
+        }
+    } else {
+        // SAFETY: both pointers reference live, NUL-terminated UTF-16 buffers
+        // for the duration of the call, and the flag is valid for `MoveFileExW`.
+        unsafe { MoveFileExW(candidate.as_ptr(), output.as_ptr(), MOVEFILE_WRITE_THROUGH) }
     };
     if result == 0 {
         Err(std::io::Error::last_os_error())
