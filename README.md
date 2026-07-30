@@ -67,11 +67,11 @@ cargo xtask assets cook \
 
 The profile name selects `assets/profiles/<name>.toml`. Cooking options are
 defined once in that strict, versioned file and cannot be overridden by
-individual assets. Profile schema 1 owns Luau optimization and debug settings,
-the portable SPIR-V compiler settings, and the KTX2 texture quality, encoding,
-mipmap, and Zstandard policy. Luau coverage instrumentation is always
-disabled. Each package embeds the profile name and canonical configuration
-hash.
+individual assets. Profile schema 1 owns Luau optimization, debug, and
+type-information settings, the portable SPIR-V compiler settings, and the KTX2
+texture quality, encoding, mipmap, and Zstandard policy. Luau coverage
+instrumentation is always disabled. Each package embeds the profile name and
+canonical configuration hash.
 
 The package name selects its only composition manifest:
 `assets/source/packages/<logical-name>/package.toml`. Its explicit `assets`

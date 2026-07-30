@@ -24,8 +24,8 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
-  quality:
-    name: Quality
+  rust-quality:
+    name: Rust quality
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -35,7 +35,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          submodules: recursive
+
+      - name: Initialize runtime submodules
+        run: |
+          git submodule update --init --recursive --depth 1 \
+            crates/blackflower-animation/vendor/ozz-animation \
+            crates/blackflower-audio-spatial/vendor/flatbuffers \
+            crates/blackflower-audio-spatial/vendor/libmysofa \
+            crates/blackflower-audio-spatial/vendor/pffft \
+            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
+            crates/blackflower-audio-spatial/vendor/zlib \
+            crates/blackflower-audio-voice/vendor/opus \
+            crates/blackflower-ecs/vendor/flecs \
+            crates/blackflower-navigation/vendor/recastnavigation \
+            crates/blackflower-physics/vendor/JoltPhysics \
+            crates/blackflower-rendering-volumes/vendor/openvdb
 
       - name: Validate commit messages
         if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -71,8 +85,28 @@ jobs:
             ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
             ${{ runner.os }}-cargo-
 
-      - name: Run quality checks
-        run: ./scripts/ci.sh
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: >-
+          cargo clippy --workspace
+          --exclude blackflower-assets
+          --exclude blackflower-rendering-textures
+          --exclude blackflower-scripting
+          --exclude blackflower-shader-compiler
+          --exclude xtask
+          --all-targets --all-features --locked -- -D warnings
+
+      - name: Run tests
+        run: >-
+          cargo test --workspace
+          --exclude blackflower-assets
+          --exclude blackflower-rendering-textures
+          --exclude blackflower-scripting
+          --exclude blackflower-shader-compiler
+          --exclude xtask
+          --all-targets --all-features --locked
 
   dependency-policy:
     name: Dependency policy
@@ -84,7 +118,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
 
       - name: Audit dependencies
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -92,13 +125,147 @@ jobs:
           rust-version: "1.97.1"
           command: check
 
-  asset-pipeline:
-    name: Asset pipeline (${{ matrix.os }})
+  asset-changes:
+    name: Detect asset changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      cross_platform_required: ${{ steps.changes.outputs.cross_platform_required }}
+      required: ${{ steps.changes.outputs.required }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect asset pipeline changes
+        id: changes
+        env:
+          BASE_OID: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_OID: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          cross_platform_required=false
+          if [ "$BASE_REF" = "main" ] ||
+             [ "$BASE_REF" = "refs/heads/main" ]
+          then
+            cross_platform_required=true
+          fi
+          echo "cross_platform_required=$cross_platform_required" >> "$GITHUB_OUTPUT"
+
+          required=true
+          zero_oid=0000000000000000000000000000000000000000
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] &&
+             [ -n "$BASE_OID" ] &&
+             [ "$BASE_OID" != "$zero_oid" ] &&
+             git diff --quiet "$BASE_OID" "$HEAD_OID" -- \
+               .github/workflows/ci.yml \
+               .gitmodules \
+               Cargo.lock \
+               Cargo.toml \
+               assets \
+               crates/blackflower-assets \
+               crates/blackflower-rendering-textures \
+               crates/blackflower-scripting \
+               crates/blackflower-shader-compiler \
+               rust-toolchain.toml \
+               tools/xtask
+          then
+            required=false
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+
+  asset-full-suite:
+    if: needs.asset-changes.outputs.required == 'true'
+    name: Asset full suite (ubuntu-24.04)
+    needs:
+      - asset-changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize asset compiler submodules
+        run: |
+          git submodule update --init --depth 1 crates/blackflower-scripting/vendor/luau
+          git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
+          git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
+          git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+
+      - name: Set up Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+
+      - name: Install libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libclang-18-dev
+          libclang_path=/usr/lib/llvm-18/lib
+          test -f "$libclang_path/libclang.so"
+          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
+      - name: Restore Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-assets-full-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-
+            ${{ runner.os }}-assets-
+
+      - name: Run asset Clippy
+        run: >-
+          cargo clippy
+          --package blackflower-assets
+          --package blackflower-rendering-textures
+          --package blackflower-scripting
+          --package blackflower-shader-compiler
+          --package xtask
+          --all-targets --all-features --locked -- -D warnings
+
+      - name: Run asset tests and golden cook
+        run: >-
+          cargo test
+          --package blackflower-assets
+          --package blackflower-rendering-textures
+          --package blackflower-scripting
+          --package blackflower-shader-compiler
+          --package xtask
+          --all-targets --all-features --locked --no-fail-fast
+
+      - name: Run asset doctests
+        run: >-
+          cargo test
+          --package blackflower-assets
+          --package blackflower-rendering-textures
+          --package blackflower-scripting
+          --package blackflower-shader-compiler
+          --package xtask
+          --doc --all-features --locked
+
+  asset-cross-platform:
+    if: >-
+      needs.asset-changes.outputs.required == 'true' &&
+      needs.asset-changes.outputs.cross_platform_required == 'true'
+    name: Asset smoke (${{ matrix.os }})
+    needs:
+      - asset-changes
     strategy:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
           - macos-15
           - windows-2025
     runs-on: ${{ matrix.os }}
@@ -121,16 +288,6 @@ jobs:
         run: |
           rustc --version
           cargo --version
-          cargo clippy --version
-
-      - name: Install libclang on Linux
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
 
       - name: Locate libclang on macOS
         if: runner.os == 'macOS'
@@ -156,19 +313,81 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-assets-smoke-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-assets-${{ hashFiles('rust-toolchain.toml') }}-
             ${{ runner.os }}-assets-
 
-      - name: Run asset Clippy
-        run: cargo clippy --package blackflower-assets --package blackflower-rendering-textures --package xtask --all-targets --all-features --locked -- -D warnings
+      - name: Run shader cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_profile_configured_shader_module_for_runtime_loading
+          -- --exact
 
-      - name: Run asset tests and golden cook
-        run: cargo test --package blackflower-assets --package blackflower-rendering-textures --package xtask --all-targets --all-features --locked --no-fail-fast
+      - name: Run texture cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_texture_for_runtime_capability_selection
+          -- --exact
 
-      - name: Run asset doctests
-        run: cargo test --package blackflower-assets --package blackflower-rendering-textures --package xtask --doc --all-features --locked
+  asset-compatibility:
+    if: always()
+    name: Asset compatibility
+    needs:
+      - asset-changes
+      - asset-full-suite
+      - asset-cross-platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require relevant asset checks
+        env:
+          ASSETS_REQUIRED: ${{ needs.asset-changes.outputs.required }}
+          CROSS_PLATFORM_REQUIRED: ${{ needs.asset-changes.outputs.cross_platform_required }}
+          CROSS_PLATFORM_RESULT: ${{ needs.asset-cross-platform.result }}
+          DETECT_RESULT: ${{ needs.asset-changes.result }}
+          FULL_SUITE_RESULT: ${{ needs.asset-full-suite.result }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "Asset change detection result: $DETECT_RESULT" >&2
+            exit 1
+          fi
+          if [ "$ASSETS_REQUIRED" != "true" ]; then
+            echo "Asset compatibility checks are not required."
+            exit 0
+          fi
+          if [ "$FULL_SUITE_RESULT" != "success" ] ||
+             { [ "$CROSS_PLATFORM_REQUIRED" = "true" ] &&
+               [ "$CROSS_PLATFORM_RESULT" != "success" ]; }
+          then
+            echo "Asset full suite result: $FULL_SUITE_RESULT" >&2
+            echo "Asset cross-platform result: $CROSS_PLATFORM_RESULT" >&2
+            exit 1
+          fi
+
+  quality:
+    if: always()
+    name: Quality
+    needs:
+      - rust-quality
+      - asset-compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require quality checks
+        env:
+          ASSET_RESULT: ${{ needs.asset-compatibility.result }}
+          RUST_RESULT: ${{ needs.rust-quality.result }}
+        run: |
+          if [ "$RUST_RESULT" != "success" ] ||
+             [ "$ASSET_RESULT" != "success" ]
+          then
+            echo "Rust quality result: $RUST_RESULT" >&2
+            echo "Asset compatibility result: $ASSET_RESULT" >&2
+            exit 1
+          fi
 
   native-bindings:
     if: >-

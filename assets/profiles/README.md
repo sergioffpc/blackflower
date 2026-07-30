@@ -57,8 +57,9 @@ generate_mipmaps = true
 
 The intended behavior is:
 
-- `debug`: keeps Luau variable metadata and standard shader debug information,
-  while using fast UASTC texture cooking.
+- `debug`: keeps Luau variable metadata and standard shader debug information
+  with compilation optimized for debugging, while using fast UASTC texture
+  cooking.
 - `release`: optimizes Luau and shaders, retains Luau line information, and
   uses high-quality single-threaded UASTC RDO texture cooking.
 
