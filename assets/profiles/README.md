@@ -6,7 +6,8 @@ no duplicate `name` field inside the document. Settings belong to the selected
 cook, never to individual assets.
 
 Profile schema 1 configures Luau, shader, texture, static mesh, and animation
-cooking.
+cooking. Model hierarchy cooking and lossless OpenVDB-to-NanoVDB conversion
+have no profile settings.
 Development keeps this schema at `1`; only the release process advances it.
 The repository defines two profiles:
 
@@ -32,7 +33,7 @@ quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -70,7 +71,7 @@ quality = "high"
 zstd_level = 15
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -140,6 +141,13 @@ Each target is simplified sequentially from the previous LOD. Every resulting
 LOD is then optimized for vertex cache, overdraw when enabled, and vertex
 fetch. A target that cannot reduce the preceding LOD within the error limit is
 omitted rather than duplicating geometry.
+
+Model assets preserve the selected hierarchy and resolve explicit Mesh and
+Volume attachments; those semantics live entirely in `asset.toml`. Volume
+assets always preserve directly supported grid types, record bounds and active
+voxel counts, compute full checksums, and emit uncompressed NanoVDB. Encoding,
+quantization, statistics, and tolerance switches are intentionally not profile
+dimensions.
 
 Animation cooking supports:
 

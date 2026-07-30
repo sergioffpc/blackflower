@@ -100,6 +100,62 @@ morph targets, colors, and additional texture-coordinate sets. External glTF
 buffers participate in recipe identity, so changing geometry without changing
 the `.gltf` document still forces a recook.
 
+Model assets select one exact named glTF scene and explicitly attach Mesh or
+Volume assets to named nodes:
+
+```toml
+schema = 1
+id = "models/vehicle"
+kind = "model"
+audience = "presentation"
+
+[model]
+source = "vehicle.gltf"
+scene = "Vehicle"
+
+[[model.attachments]]
+node = "Body"
+asset = "models/vehicle_body"
+
+[[model.attachments]]
+node = "Exhaust"
+asset = "volumes/exhaust"
+```
+
+The attachment kind is inferred from the referenced asset. The cooker
+preserves the complete selected hierarchy, including unnamed nodes, in
+depth-first source order. It preserves authored TRS or matrix representation
+without decomposing or normalizing it. Only node names used by attachments
+must be unique.
+
+A node may have at most one Mesh attachment and any number of distinct Volume
+attachments. Every glTF mesh referenced by the selected scene requires one
+explicit Mesh attachment to the matching source and mesh selection. Cameras,
+lights, skins, cycles, shared nodes, non-finite transforms, and non-normalized
+quaternions fail the cook. Volume grid transforms remain local to the model
+node.
+
+Volume assets select one or more exact OpenVDB grid names:
+
+```toml
+schema = 1
+id = "volumes/exhaust"
+kind = "volume"
+audience = "presentation"
+
+[volume]
+source = "exhaust.vdb"
+grids = ["density", "temperature"]
+```
+
+Volumes are presentation-only. Grid names are canonicalized alphabetically
+and duplicates are rejected. Authored OpenVDB files may use raw, ZIP, or BLOSC
+storage. The host-only cooker preserves directly supported grid types without
+quantization, keeps runtime metadata only, records bounds and active voxel
+counts, computes full checksums, and emits uncompressed `Codec::NONE` NanoVDB.
+There is no encoding or volume-quality setting in `asset.toml` or in the
+cooking profile.
+
 Skeleton and animation assets are presentation-only. A skeleton selects one
 exact named skin and cooks it to `.bfskel`:
 
@@ -200,7 +256,8 @@ assets = ["fixtures/example"]
 ```
 
 The cooker includes those explicitly selected assets plus typed mandatory
-dependencies, currently the `.bfskel` named by each selected animation clip.
+dependencies: the `.bfskel` named by each selected animation clip and every
+Mesh or Volume attached by a selected model.
 Other runtime relationships belong in typed composite assets such as prefabs,
 materials, and scenes; arbitrary dependency lists are not accepted in
 `asset.toml`. There is no separate level manifest or command-line composition

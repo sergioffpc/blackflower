@@ -65,6 +65,21 @@ impl Vdb {
         })
     }
 
+    /// Return the uniquely named grid, if present.
+    #[must_use]
+    pub fn grid_by_name(&self, name: &str) -> Option<Grid<'_>> {
+        let mut matches = self
+            .metadata
+            .iter()
+            .enumerate()
+            .filter(|(_index, metadata)| metadata.name() == name);
+        let (index, _metadata) = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        self.grid(index)
+    }
+
     /// Iterate over every grid in asset order.
     pub fn grids(&self) -> GridIter<'_> {
         GridIter {

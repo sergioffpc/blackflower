@@ -40,11 +40,14 @@ not advance this schema; the release process owns version changes.
 The pipeline supports opaque blobs, profile-configured Luau bytecode,
 Naga-validated SPIR-V compiled from Slang, and semantic KTX2 textures cooked
 from PNG or OpenEXR. It also supports meshoptimizer-optimized static meshes
-with generated LOD chains, `.bfskel` skeletons, and one-clip `.bfanim` assets
-cooked from glTF or GLB. Animation records carry their skeleton `AssetId` as a
-typed catalog dependency; package selection closes over that dependency before
-cooking. Future domain-specific cookers for volumes, navigation, and audio add
-new `AssetKind` variants without changing the package overlay contract.
+with generated LOD chains, `.bfmodel` scene hierarchies with typed Mesh and
+Volume attachments, uncompressed NanoVDB volumes, `.bfskel` skeletons, and
+one-clip `.bfanim` assets cooked from glTF or GLB. Animation records carry
+their skeleton `AssetId` as a typed catalog dependency. Model records carry
+their Mesh and Volume attachment IDs as typed dependencies. Package selection
+closes over both relationships before cooking. Future domain-specific cookers
+for navigation and audio add new `AssetKind` variants without changing the
+package overlay contract.
 
 ## Optional hot reload
 

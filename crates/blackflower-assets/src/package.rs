@@ -398,6 +398,12 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.texture_encoder_platform.is_empty()
         || catalog.toolchain.meshoptimizer.is_empty()
         || catalog.toolchain.ozz_animation.is_empty()
+        || catalog.toolchain.openvdb.is_empty()
+        || catalog.toolchain.nanovdb.is_empty()
+        || catalog.toolchain.boost.is_empty()
+        || catalog.toolchain.one_tbb.is_empty()
+        || catalog.toolchain.blosc.is_empty()
+        || catalog.toolchain.zlib.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }

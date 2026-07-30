@@ -150,8 +150,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackflower-observability",
- "blackflower-prediction",
- "blackflower-presentation",
+ "blackflower-world-prediction",
+ "blackflower-world-presentation",
 ]
 
 [[package]]
@@ -162,20 +162,6 @@ dependencies = [
  "blackflower-animation-format",
  "cmake",
  "glam",
- "thiserror",
-]
-
-[[package]]
-name = "blackflower-animation-cooker"
-version = "0.1.0"
-dependencies = [
- "blackflower-animation",
- "blackflower-animation-format",
- "blackflower-gltf-metadata",
- "cmake",
- "gltf",
- "serde_json",
- "tempfile",
  "thiserror",
 ]
 
@@ -229,6 +215,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-cooker-animation"
+version = "0.1.0"
+dependencies = [
+ "blackflower-animation",
+ "blackflower-animation-format",
+ "blackflower-gltf-metadata",
+ "cmake",
+ "gltf",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "blackflower-cooker-volume"
+version = "0.1.0"
+dependencies = [
+ "blackflower-rendering-volumes",
+ "bytes",
+ "cmake",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-ecs"
 version = "0.1.0"
 dependencies = [
@@ -271,9 +282,7 @@ dependencies = [
  "anyhow",
  "blackflower-ecs",
  "blackflower-observability",
- "blackflower-prediction",
- "blackflower-presentation",
- "blackflower-simulation",
+ "blackflower-world-prediction",
  "metrics",
  "tracing",
 ]
@@ -291,6 +300,13 @@ dependencies = [
 [[package]]
 name = "blackflower-networking"
 version = "0.1.0"
+
+[[package]]
+name = "blackflower-networking-replication"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "blackflower-observability"
@@ -317,32 +333,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-prediction"
-version = "0.1.0"
-dependencies = [
- "blackflower-ecs",
- "bytemuck",
- "metrics",
- "profiling",
- "strum",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "blackflower-presentation"
-version = "0.1.0"
-dependencies = [
- "blackflower-ecs",
- "bytemuck",
- "metrics",
- "profiling",
- "strum",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "blackflower-rendering"
 version = "0.1.0"
 
@@ -350,6 +340,7 @@ version = "0.1.0"
 name = "blackflower-rendering-models"
 version = "0.1.0"
 dependencies = [
+ "blackflower-assets",
  "bytes",
  "thiserror",
 ]
@@ -375,13 +366,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-replication"
-version = "0.1.0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
 name = "blackflower-scripting"
 version = "0.1.0"
 dependencies = [
@@ -396,7 +380,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackflower-observability",
- "blackflower-simulation",
+ "blackflower-world-simulation",
 ]
 
 [[package]]
@@ -411,7 +395,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "blackflower-simulation"
+name = "blackflower-world-prediction"
+version = "0.1.0"
+dependencies = [
+ "blackflower-ecs",
+ "bytemuck",
+ "metrics",
+ "profiling",
+ "strum",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "blackflower-world-presentation"
+version = "0.1.0"
+dependencies = [
+ "blackflower-ecs",
+ "bytemuck",
+ "metrics",
+ "profiling",
+ "strum",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "blackflower-world-simulation"
 version = "0.1.0"
 dependencies = [
  "blackflower-ecs",
@@ -2847,9 +2857,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "backhand",
- "blackflower-animation-cooker",
  "blackflower-animation-format",
  "blackflower-assets",
+ "blackflower-cooker-animation",
+ "blackflower-cooker-volume",
  "blackflower-gltf-metadata",
  "blackflower-rendering-models",
  "blackflower-rendering-textures",

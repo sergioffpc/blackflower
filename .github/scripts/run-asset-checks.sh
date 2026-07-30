@@ -10,9 +10,11 @@ cd "$repository_root"
 
 set -- \
     --package blackflower-assets \
+    --package blackflower-cooker-volume \
     --package blackflower-gltf-metadata \
     --package blackflower-rendering-models \
     --package blackflower-rendering-textures \
+    --package blackflower-rendering-volumes \
     --package blackflower-scripting \
     --package blackflower-shader-compiler \
     --package xtask

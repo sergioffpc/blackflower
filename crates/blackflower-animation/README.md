@@ -28,7 +28,7 @@ Root-motion delta calculation handles ordinary traversal and one or more loop
 wraps.
 
 Offline importers and `gltf2ozz` are deliberately not linked into the game
-runtime. `blackflower-animation-cooker` builds the pinned tool only for the
+runtime. `blackflower-cooker-animation` builds the pinned tool only for the
 host and packages its temporary outputs as trusted `.bfskel` and `.bfanim`
 assets. The upstream archive reader assumes well-formed content and is not a
 sandbox for files supplied by untrusted users.

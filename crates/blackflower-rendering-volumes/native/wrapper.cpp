@@ -492,7 +492,7 @@ extern "C" std::int32_t bf_rendering_volumes_nanovdb_load(
         for (const auto &handle : handles) {
             if (!nanovdb::tools::validateGrids(
                     handle,
-                    nanovdb::CheckMode::Half,
+                    nanovdb::CheckMode::Full,
                     false)) {
                 return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
             }

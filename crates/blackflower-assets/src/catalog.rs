@@ -20,6 +20,10 @@ pub enum AssetKind {
     Texture2d,
     /// Optimized static mesh primitives with a generated LOD chain.
     Mesh,
+    /// Scene hierarchy with typed mesh and volume attachments.
+    Model,
+    /// Uncompressed NanoVDB grids selected from an authored OpenVDB file.
+    Volume,
     /// Blackflower `.bfskel` containing one private ozz skeleton.
     Skeleton,
     /// Blackflower `.bfanim` containing one clip and its authored policy.
@@ -64,6 +68,18 @@ pub struct ToolchainIdentity {
     pub meshoptimizer: String,
     /// Pinned ozz toolchain, revision, and Blackflower container schema.
     pub ozz_animation: String,
+    /// Pinned OpenVDB core used by the offline volume cooker.
+    pub openvdb: String,
+    /// NanoVDB runtime format emitted by the volume cooker.
+    pub nanovdb: String,
+    /// Pinned Boost headers used to build OpenVDB core.
+    pub boost: String,
+    /// Pinned oneTBB runtime used by OpenVDB core.
+    pub one_tbb: String,
+    /// Pinned Blosc implementation accepted for OpenVDB sources.
+    pub blosc: String,
+    /// Pinned zlib implementation accepted for OpenVDB sources.
+    pub zlib: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

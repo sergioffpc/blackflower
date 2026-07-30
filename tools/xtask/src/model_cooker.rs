@@ -1,314 +1,308 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Context, bail};
 use blackflower_assets::Bytes;
-use blackflower_rendering_models::{MeshLod, MeshPrimitive, MeshVertex, VertexAttributes, encode};
-use gltf::Semantic;
-use gltf::mesh::{Mode, Primitive};
-use meshopt::{DecodePosition, SimplifyOptions};
+use blackflower_rendering_models::{
+    ModelAttachment, ModelAttachmentKind, ModelNode, NodeTransform, encode_model,
+};
+use gltf::scene::Transform;
 
-use crate::manifest::{LoadedAsset, MeshManifest};
-use crate::profile::ModelProfile;
+use crate::manifest::{
+    AssetSource, LoadedAsset, ModelAttachmentManifest, ModelManifest, Repository,
+};
 
-pub(crate) const MESHOPT_VERSION: &str = "0.6.2";
-
-#[derive(Debug, Clone, Copy, Default)]
-struct CookVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tangent: [f32; 4],
-    texcoord_0: [f32; 2],
-}
-
-impl DecodePosition for CookVertex {
-    fn decode_position(&self) -> [f32; 3] {
-        self.position
-    }
-}
-
-impl From<CookVertex> for MeshVertex {
-    fn from(value: CookVertex) -> Self {
-        Self {
-            position: value.position,
-            normal: value.normal,
-            tangent: value.tangent,
-            texcoord_0: value.texcoord_0,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct RawLod {
-    vertices: Vec<CookVertex>,
-    indices: Vec<u32>,
-}
-
-pub(crate) struct CookedModel {
-    pub(crate) bytes: Bytes,
-    pub(crate) source_hash: blake3::Hash,
-}
+pub(crate) const COOKER_RECIPE: &str = "blackflower-model-cooker-v1";
 
 pub(crate) fn cook(
     source: &LoadedAsset,
-    manifest: &MeshManifest,
-    profile: &ModelProfile,
-) -> anyhow::Result<CookedModel> {
-    let (document, buffers) = import_source(source)?;
-    let source_hash = buffer_dependency_hash(&buffers);
-    let mesh = select_mesh(&document, &manifest.mesh)?;
-    let mut primitives = Vec::new();
-    for primitive in mesh.primitives() {
-        primitives.push(
-            cook_primitive(&primitive, &buffers, profile)
-                .with_context(|| format!("failed to cook primitive {}", primitive.index()))?,
-        );
-    }
-    if primitives.is_empty() {
-        bail!("glTF mesh `{}` contains no primitives", manifest.mesh);
-    }
-    let bytes = encode(&primitives).context("failed to encode cooked runtime model")?;
-    Ok(CookedModel { bytes, source_hash })
-}
-
-fn buffer_dependency_hash(buffers: &[gltf::buffer::Data]) -> blake3::Hash {
-    let mut hasher = blake3::Hasher::new();
-    hash_field(&mut hasher, b"blackflower.model-source-buffers.v1");
-    for buffer in buffers {
-        hash_field(&mut hasher, &buffer.0);
-    }
-    hasher.finalize()
-}
-
-fn import_source(
-    source: &LoadedAsset,
-) -> anyhow::Result<(gltf::Document, Vec<gltf::buffer::Data>)> {
+    manifest: &ModelManifest,
+    repository: &Repository,
+) -> anyhow::Result<Bytes> {
     let parsed = gltf::Gltf::open(&source.source_path)
         .with_context(|| format!("failed to parse `{}`", source.source_path.display()))?;
-    let base = source
-        .source_path
-        .parent()
-        .context("glTF source path has no parent")?;
-    let buffers = gltf::import_buffers(&parsed.document, Some(base), parsed.blob)
-        .with_context(|| format!("failed to import `{}`", source.source_path.display()))?;
-    Ok((parsed.document, buffers))
+    let scene = select_scene(&parsed.document, &manifest.scene)?;
+    let mut hierarchy = Hierarchy::new(parsed.document.nodes().len());
+    for root in scene.nodes() {
+        hierarchy.visit(root, None)?;
+    }
+    let attachments = resolve_attachments(
+        source,
+        manifest,
+        repository,
+        &hierarchy.nodes,
+        &hierarchy.source_nodes,
+        &hierarchy.names,
+    )?;
+    encode_model(&hierarchy.nodes, &attachments)
+        .map_err(anyhow::Error::from)
+        .context("failed to encode cooked runtime model")
 }
 
-fn select_mesh<'a>(document: &'a gltf::Document, name: &str) -> anyhow::Result<gltf::Mesh<'a>> {
-    let mut matches = document.meshes().filter(|mesh| mesh.name() == Some(name));
-    let mesh = matches
+fn select_scene<'a>(
+    document: &'a gltf::Document,
+    selected: &str,
+) -> anyhow::Result<gltf::Scene<'a>> {
+    let mut matches = document
+        .scenes()
+        .filter(|scene| scene.name() == Some(selected));
+    let scene = matches
         .next()
-        .with_context(|| format!("glTF contains no mesh named `{name}`"))?;
+        .with_context(|| format!("glTF scene `{selected}` does not exist"))?;
     if matches.next().is_some() {
-        bail!("glTF mesh name `{name}` is ambiguous");
+        bail!("glTF scene name `{selected}` is ambiguous");
     }
-    Ok(mesh)
+    Ok(scene)
 }
 
-fn cook_primitive(
-    primitive: &Primitive<'_>,
-    buffers: &[gltf::buffer::Data],
-    profile: &ModelProfile,
-) -> anyhow::Result<MeshPrimitive> {
-    validate_primitive_contract(primitive)?;
-    let (vertices, attributes) = read_vertices(primitive, buffers)?;
-    let reader =
-        primitive.reader(|buffer| buffers.get(buffer.index()).map(|data| data.0.as_slice()));
-    let indices = match reader.read_indices() {
-        Some(values) => values.into_u32().collect(),
-        None => (0..vertices.len())
-            .map(u32::try_from)
-            .collect::<Result<Vec<_>, _>>()
-            .context("vertex count does not fit u32")?,
-    };
-    validate_indices(&indices, vertices.len())?;
-    let lods = generate_lods(vertices, indices, profile)?;
-    let material_index = primitive
-        .material()
-        .index()
-        .map(u32::try_from)
-        .transpose()
-        .context("material index does not fit u32")?;
-    MeshPrimitive::new(material_index, attributes, lods)
-        .context("generated primitive violates the runtime model contract")
+struct Hierarchy {
+    states: Vec<NodeState>,
+    nodes: Vec<ModelNode>,
+    source_nodes: Vec<SourceNode>,
+    names: BTreeMap<String, Vec<u32>>,
 }
 
-fn read_vertices(
-    primitive: &Primitive<'_>,
-    buffers: &[gltf::buffer::Data],
-) -> anyhow::Result<(Vec<CookVertex>, VertexAttributes)> {
-    let reader =
-        primitive.reader(|buffer| buffers.get(buffer.index()).map(|data| data.0.as_slice()));
-    let positions = reader
-        .read_positions()
-        .context("triangle primitive is missing POSITION")?
-        .collect::<Vec<_>>();
-    if positions.is_empty() {
-        bail!("triangle primitive contains no vertices");
-    }
-    let mut attributes = VertexAttributes::positions();
-    let normals = reader.read_normals().map(Iterator::collect::<Vec<_>>);
-    let tangents = reader.read_tangents().map(Iterator::collect::<Vec<_>>);
-    let texcoords = reader
-        .read_tex_coords(0)
-        .map(|values| values.into_f32().collect::<Vec<_>>());
-    validate_attribute_count("NORMAL", positions.len(), normals.as_deref())?;
-    validate_attribute_count("TANGENT", positions.len(), tangents.as_deref())?;
-    validate_attribute_count("TEXCOORD_0", positions.len(), texcoords.as_deref())?;
-    if normals.is_some() {
-        attributes = attributes.with(VertexAttributes::NORMAL);
-    }
-    if tangents.is_some() {
-        attributes = attributes.with(VertexAttributes::TANGENT);
-    }
-    if texcoords.is_some() {
-        attributes = attributes.with(VertexAttributes::TEXCOORD_0);
-    }
-    let vertices = assemble_vertices(
-        &positions,
-        normals.as_deref(),
-        tangents.as_deref(),
-        texcoords.as_deref(),
-    );
-    Ok((vertices, attributes))
-}
-
-fn validate_primitive_contract(primitive: &Primitive<'_>) -> anyhow::Result<()> {
-    if primitive.mode() != Mode::Triangles {
-        bail!("only triangle-list glTF primitives are supported");
-    }
-    if primitive.morph_targets().next().is_some() {
-        bail!("static mesh assets do not support morph targets");
-    }
-    for (semantic, _accessor) in primitive.attributes() {
-        match semantic {
-            Semantic::Positions
-            | Semantic::Normals
-            | Semantic::Tangents
-            | Semantic::TexCoords(0) => {}
-            Semantic::Joints(_) | Semantic::Weights(_) => {
-                bail!("static mesh assets do not support skinning attributes");
-            }
-            Semantic::Extras(_) | Semantic::Colors(_) | Semantic::TexCoords(_) => {
-                bail!("unsupported static mesh vertex attribute `{semantic:?}`");
-            }
+impl Hierarchy {
+    fn new(source_node_count: usize) -> Self {
+        Self {
+            states: vec![NodeState::Unvisited; source_node_count],
+            nodes: Vec::new(),
+            source_nodes: Vec::new(),
+            names: BTreeMap::new(),
         }
     }
-    Ok(())
-}
 
-fn validate_attribute_count<T>(
-    semantic: &str,
-    expected: usize,
-    values: Option<&[T]>,
-) -> anyhow::Result<()> {
-    if values.is_some_and(|values| values.len() != expected) {
-        bail!("{semantic} count does not match POSITION count");
-    }
-    Ok(())
-}
-
-fn assemble_vertices(
-    positions: &[[f32; 3]],
-    normals: Option<&[[f32; 3]]>,
-    tangents: Option<&[[f32; 4]]>,
-    texcoords: Option<&[[f32; 2]]>,
-) -> Vec<CookVertex> {
-    positions
-        .iter()
-        .enumerate()
-        .map(|(index, &position)| CookVertex {
-            position,
-            normal: normals.map_or([0.0; 3], |values| values[index]),
-            tangent: tangents.map_or([0.0; 4], |values| values[index]),
-            texcoord_0: texcoords.map_or([0.0; 2], |values| values[index]),
-        })
-        .collect()
-}
-
-fn validate_indices(indices: &[u32], vertex_count: usize) -> anyhow::Result<()> {
-    if indices.is_empty() || !indices.len().is_multiple_of(3) {
-        bail!("triangle primitive must contain complete triangles");
-    }
-    if indices
-        .iter()
-        .any(|&index| usize::try_from(index).map_or(true, |value| value >= vertex_count))
-    {
-        bail!("triangle primitive contains an out-of-range index");
-    }
-    Ok(())
-}
-
-fn generate_lods(
-    vertices: Vec<CookVertex>,
-    indices: Vec<u32>,
-    profile: &ModelProfile,
-) -> anyhow::Result<Vec<MeshLod>> {
-    let base_index_count = indices.len();
-    let mut current = optimize(vertices, indices, profile);
-    let mut lods = vec![runtime_lod(0.0, &current)?];
-    let mut accumulated_error = 0.0_f32;
-    for &percent in &profile.lod_triangle_percents {
-        let target_count = target_index_count(base_index_count, percent)?;
-        if target_count >= current.indices.len() {
-            continue;
+    fn visit(&mut self, node: gltf::Node<'_>, parent: Option<u32>) -> anyhow::Result<()> {
+        match self.states.get(node.index()).copied() {
+            Some(NodeState::Unvisited) => {}
+            Some(NodeState::Visiting) => {
+                bail!("glTF scene contains a node cycle at index {}", node.index());
+            }
+            Some(NodeState::Visited) => {
+                bail!(
+                    "glTF node {} is referenced by more than one parent or scene root",
+                    node.index()
+                );
+            }
+            None => bail!("glTF node index {} is outside the document", node.index()),
         }
-        let mut result_error = 0.0_f32;
-        let options = if profile.lock_borders {
-            SimplifyOptions::LockBorder
-        } else {
-            SimplifyOptions::None
+        if node.camera().is_some() {
+            bail!(
+                "glTF node {} contains an unsupported camera",
+                display_node(&node)
+            );
+        }
+        if node.skin().is_some() {
+            bail!(
+                "glTF node {} contains an unsupported skin",
+                display_node(&node)
+            );
+        }
+
+        self.states[node.index()] = NodeState::Visiting;
+        let model_index =
+            u32::try_from(self.nodes.len()).context("model node count exceeds u32")?;
+        let name = node.name().map(str::to_owned);
+        if let Some(name) = &name {
+            self.names
+                .entry(name.clone())
+                .or_default()
+                .push(model_index);
+        }
+        let transform = transform(node.transform())?;
+        self.nodes.push(ModelNode::new(name, parent, transform)?);
+        self.source_nodes.push(SourceNode {
+            mesh: node.mesh().map(|mesh| mesh.name().map(str::to_owned)),
+        });
+        for child in node.children() {
+            self.visit(child, Some(model_index))?;
+        }
+        self.states[node.index()] = NodeState::Visited;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum NodeState {
+    Unvisited,
+    Visiting,
+    Visited,
+}
+
+struct SourceNode {
+    mesh: Option<Option<String>>,
+}
+
+fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
+    match source {
+        Transform::Decomposed {
+            translation,
+            rotation,
+            scale,
+        } => NodeTransform::trs(translation, rotation, scale).map_err(anyhow::Error::from),
+        Transform::Matrix { matrix } => NodeTransform::matrix([
+            matrix[0][0],
+            matrix[0][1],
+            matrix[0][2],
+            matrix[0][3],
+            matrix[1][0],
+            matrix[1][1],
+            matrix[1][2],
+            matrix[1][3],
+            matrix[2][0],
+            matrix[2][1],
+            matrix[2][2],
+            matrix[2][3],
+            matrix[3][0],
+            matrix[3][1],
+            matrix[3][2],
+            matrix[3][3],
+        ])
+        .map_err(anyhow::Error::from),
+    }
+}
+
+fn resolve_attachments(
+    source: &LoadedAsset,
+    manifest: &ModelManifest,
+    repository: &Repository,
+    nodes: &[ModelNode],
+    source_nodes: &[SourceNode],
+    names: &BTreeMap<String, Vec<u32>>,
+) -> anyhow::Result<Vec<ModelAttachment>> {
+    let mut attachments = Vec::with_capacity(manifest.attachments.len());
+    let mut mesh_attachment_by_node = vec![false; nodes.len()];
+    for attachment in &manifest.attachments {
+        let node = resolve_node(attachment, names)?;
+        let target = repository
+            .assets
+            .get(&attachment.asset)
+            .with_context(|| format!("missing attachment asset `{}`", attachment.asset))?;
+        let kind = match &target.manifest.source {
+            AssetSource::Mesh(mesh) => {
+                validate_mesh_attachment(
+                    source,
+                    attachment,
+                    node,
+                    target,
+                    mesh,
+                    source_nodes,
+                    &mut mesh_attachment_by_node,
+                )?;
+                ModelAttachmentKind::Mesh
+            }
+            AssetSource::Volume(_) => ModelAttachmentKind::Volume,
+            AssetSource::Blob(_)
+            | AssetSource::Luau(_)
+            | AssetSource::Shader(_)
+            | AssetSource::Texture(_)
+            | AssetSource::Model(_)
+            | AssetSource::Skeleton(_)
+            | AssetSource::Animation(_) => {
+                bail!(
+                    "model attachment `{}` has unsupported kind {:?}",
+                    attachment.asset,
+                    target.manifest.kind()
+                );
+            }
         };
-        let indices = meshopt::simplify_decoder(
-            &current.indices,
-            &current.vertices,
-            target_count,
-            profile.lod_target_error,
-            options,
-            Some(&mut result_error),
-        );
-        if indices.len() < 3 || indices.len() >= current.indices.len() {
-            continue;
+        attachments.push(ModelAttachment::new(node, attachment.asset.clone(), kind));
+    }
+    for (node, source_node) in source_nodes.iter().enumerate() {
+        if source_node.mesh.is_some() && !mesh_attachment_by_node[node] {
+            bail!(
+                "model node {} references glTF geometry without an explicit mesh attachment",
+                display_model_node(nodes, node)
+            );
         }
-        accumulated_error += result_error;
-        current = optimize(current.vertices.clone(), indices, profile);
-        lods.push(runtime_lod(accumulated_error, &current)?);
     }
-    Ok(lods)
+    attachments
+        .sort_by(|left, right| (left.node(), left.asset()).cmp(&(right.node(), right.asset())));
+    Ok(attachments)
 }
 
-fn target_index_count(base_index_count: usize, percent: u32) -> anyhow::Result<usize> {
-    let base_triangles = base_index_count / 3;
-    let percent = usize::try_from(percent).context("LOD percentage does not fit usize")?;
-    let triangles = base_triangles
-        .checked_mul(percent)
-        .context("LOD triangle count overflow")?
-        / 100;
-    Ok(triangles.max(1) * 3)
-}
-
-fn optimize(
-    mut vertices: Vec<CookVertex>,
-    mut indices: Vec<u32>,
-    profile: &ModelProfile,
-) -> RawLod {
-    meshopt::optimize_vertex_cache_in_place(&mut indices, vertices.len());
-    if profile.optimize_overdraw {
-        meshopt::optimize_overdraw_in_place_decoder(
-            &mut indices,
-            &vertices,
-            profile.overdraw_threshold,
+fn resolve_node(
+    attachment: &ModelAttachmentManifest,
+    names: &BTreeMap<String, Vec<u32>>,
+) -> anyhow::Result<u32> {
+    let matches = names
+        .get(&attachment.node)
+        .with_context(|| format!("attachment node `{}` does not exist", attachment.node))?;
+    if matches.len() != 1 {
+        bail!(
+            "attachment node name `{}` is ambiguous in the selected scene",
+            attachment.node
         );
     }
-    let vertex_count = meshopt::optimize_vertex_fetch_in_place(&mut indices, &mut vertices);
-    vertices.truncate(vertex_count);
-    RawLod { vertices, indices }
+    matches
+        .first()
+        .copied()
+        .context("attachment node match disappeared")
 }
 
-fn runtime_lod(error: f32, lod: &RawLod) -> anyhow::Result<MeshLod> {
-    let vertices = lod.vertices.iter().copied().map(MeshVertex::from).collect();
-    MeshLod::new(error, vertices, lod.indices.clone()).map_err(anyhow::Error::from)
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mesh attachment validation needs both authored and resolved model context"
+)]
+fn validate_mesh_attachment(
+    model_source: &LoadedAsset,
+    attachment: &ModelAttachmentManifest,
+    node: u32,
+    mesh_source: &LoadedAsset,
+    mesh: &crate::manifest::MeshManifest,
+    source_nodes: &[SourceNode],
+    mesh_attachment_by_node: &mut [bool],
+) -> anyhow::Result<()> {
+    if mesh_source.source_path != model_source.source_path {
+        bail!(
+            "mesh attachment `{}` must select the model's glTF source",
+            attachment.asset
+        );
+    }
+    let node_index = usize::try_from(node).context("model node index does not fit usize")?;
+    let source_mesh = source_nodes
+        .get(node_index)
+        .and_then(|source_node| source_node.mesh.as_ref())
+        .with_context(|| {
+            format!(
+                "mesh attachment `{}` targets node `{}` without a glTF mesh",
+                attachment.asset, attachment.node
+            )
+        })?;
+    let source_mesh = source_mesh.as_deref().with_context(|| {
+        format!(
+            "mesh attachment `{}` targets an unnamed glTF mesh",
+            attachment.asset
+        )
+    })?;
+    if source_mesh != mesh.mesh {
+        bail!(
+            "mesh attachment `{}` selects `{}`, but node `{}` references `{source_mesh}`",
+            attachment.asset,
+            mesh.mesh,
+            attachment.node
+        );
+    }
+    let occupied = mesh_attachment_by_node
+        .get_mut(node_index)
+        .context("model node index is outside the hierarchy")?;
+    if *occupied {
+        bail!(
+            "model node `{}` has more than one mesh attachment",
+            attachment.node
+        );
+    }
+    *occupied = true;
+    Ok(())
 }
 
-fn hash_field(hasher: &mut blake3::Hasher, bytes: &[u8]) {
-    let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    hasher.update(&length.to_le_bytes());
-    hasher.update(bytes);
+fn display_node(node: &gltf::Node<'_>) -> String {
+    node.name()
+        .map_or_else(|| format!("#{}", node.index()), |name| format!("`{name}`"))
+}
+
+fn display_model_node(nodes: &[ModelNode], index: usize) -> String {
+    nodes
+        .get(index)
+        .and_then(ModelNode::name)
+        .map_or_else(|| format!("#{index}"), |name| format!("`{name}`"))
 }

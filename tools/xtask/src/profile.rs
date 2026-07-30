@@ -87,7 +87,7 @@ pub(crate) struct CookingProfile {
     pub(crate) scripting: ScriptingProfile,
     pub(crate) shaders: ShaderProfile,
     pub(crate) textures: TextureProfile,
-    pub(crate) models: ModelProfile,
+    pub(crate) meshes: MeshProfile,
     pub(crate) animations: AnimationProfile,
 }
 
@@ -109,9 +109,9 @@ impl CookingProfile {
             .textures
             .encode_options()
             .with_context(|| format!("invalid texture settings in profile `{}`", path.display()))?;
-        file.models
+        file.meshes
             .validate()
-            .with_context(|| format!("invalid model settings in profile `{}`", path.display()))?;
+            .with_context(|| format!("invalid mesh settings in profile `{}`", path.display()))?;
         file.animations.validate().with_context(|| {
             format!("invalid animation settings in profile `{}`", path.display())
         })?;
@@ -121,7 +121,7 @@ impl CookingProfile {
             scripting: file.scripting,
             shaders: file.shaders,
             textures: file.textures,
-            models: file.models,
+            meshes: file.meshes,
             animations: file.animations,
         })
     }
@@ -134,7 +134,7 @@ struct CookingProfileFile {
     scripting: ScriptingProfile,
     shaders: ShaderProfile,
     textures: TextureProfile,
-    models: ModelProfile,
+    meshes: MeshProfile,
     animations: AnimationProfile,
 }
 
@@ -269,7 +269,7 @@ pub(crate) struct TextureProfile {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ModelProfile {
+pub(crate) struct MeshProfile {
     pub(crate) lod_triangle_percents: Vec<u32>,
     pub(crate) lod_target_error: f32,
     pub(crate) optimize_overdraw: bool,
@@ -290,7 +290,7 @@ pub(crate) struct AnimationProfile {
 
 impl AnimationProfile {
     fn validate(self) -> anyhow::Result<()> {
-        blackflower_animation_cooker::AnimationProfile {
+        blackflower_cooker_animation::AnimationProfile {
             sampling_rate_hz: self.sampling_rate_hz,
             iframe_interval_seconds: self.iframe_interval_seconds,
             optimize: self.optimize,
@@ -304,7 +304,7 @@ impl AnimationProfile {
     }
 }
 
-impl From<AnimationProfile> for blackflower_animation_cooker::AnimationProfile {
+impl From<AnimationProfile> for blackflower_cooker_animation::AnimationProfile {
     fn from(value: AnimationProfile) -> Self {
         Self {
             sampling_rate_hz: value.sampling_rate_hz,
@@ -317,15 +317,15 @@ impl From<AnimationProfile> for blackflower_animation_cooker::AnimationProfile {
     }
 }
 
-impl ModelProfile {
+impl MeshProfile {
     fn validate(&self) -> anyhow::Result<()> {
         if self.lod_triangle_percents.is_empty() || self.lod_triangle_percents.len() > 15 {
-            bail!("model profiles must define from 1 through 15 LOD percentages");
+            bail!("mesh profiles must define from 1 through 15 LOD percentages");
         }
         let mut previous = 100_u32;
         for &percent in &self.lod_triangle_percents {
             if percent == 0 || percent >= previous {
-                bail!("model LOD percentages must be positive and strictly decreasing from 100");
+                bail!("mesh LOD percentages must be positive and strictly decreasing from 100");
             }
             previous = percent;
         }
@@ -333,13 +333,13 @@ impl ModelProfile {
             || self.lod_target_error <= 0.0
             || self.lod_target_error > 1.0
         {
-            bail!("model LOD target error must be finite and in (0, 1]");
+            bail!("mesh LOD target error must be finite and in (0, 1]");
         }
         if !self.overdraw_threshold.is_finite()
             || self.overdraw_threshold < 1.0
             || self.overdraw_threshold > 2.0
         {
-            bail!("model overdraw threshold must be finite and from 1 through 2");
+            bail!("mesh overdraw threshold must be finite and from 1 through 2");
         }
         Ok(())
     }

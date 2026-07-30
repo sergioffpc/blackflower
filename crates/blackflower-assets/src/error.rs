@@ -241,6 +241,18 @@ pub enum Error {
         /// Resolved runtime kind.
         actual: AssetKind,
     },
+    /// A model attachment resolved to a runtime kind outside the model contract.
+    #[error(
+        "model `{asset}` attachment `{dependency}` must resolve as Mesh or Volume, but resolved as {actual:?}"
+    )]
+    InvalidModelAttachmentKind {
+        /// Model declaring the attachment dependency.
+        asset: AssetId,
+        /// Attachment with the wrong kind.
+        dependency: AssetId,
+        /// Resolved runtime kind.
+        actual: AssetKind,
+    },
     /// Packages in one layered store were cooked with different profiles.
     #[error(
         "asset package `{package}` uses cooking profile {actual:?}, but the store expects {expected:?}"

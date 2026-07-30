@@ -4,10 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use blackflower_ecs::TickDelta;
-use blackflower_prediction::{PredictionPass, PredictionTick, PredictionWorld};
-use blackflower_presentation::{FrameIndex, PresentationWorld};
-use blackflower_simulation::SimulationWorld;
+use blackflower_world_prediction::{PredictionPass, PredictionTick, PredictionWorld};
 use metrics::{Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata as TracingMetadata, Subscriber};
@@ -16,9 +13,7 @@ type TestResult = Result<()>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ScenarioResult {
-    simulation_continued: bool,
     prediction_tick: PredictionTick,
-    presentation_frame: FrameIndex,
 }
 
 #[derive(Debug, Default)]
@@ -109,19 +104,14 @@ fn observability_emits_signals_without_changing_world_results() -> TestResult {
     })?;
 
     assert_eq!(observed, baseline);
-    assert!(spans.load(Ordering::Relaxed) >= 6);
-    assert!(events.load(Ordering::Relaxed) >= 6);
+    assert!(spans.load(Ordering::Relaxed) >= 1);
+    assert!(events.load(Ordering::Relaxed) >= 1);
 
     let names = recorder.names()?;
     for expected in [
         "blackflower_ecs_ticks_total",
-        "blackflower_prediction_tick_duration_seconds",
-        "blackflower_prediction_ticks_total",
-        "blackflower_presentation_frame_delta_seconds",
-        "blackflower_presentation_frame_duration_seconds",
-        "blackflower_presentation_frames_total",
-        "blackflower_simulation_tick_duration_seconds",
-        "blackflower_simulation_ticks_total",
+        "blackflower_world_prediction_tick_duration_seconds",
+        "blackflower_world_prediction_ticks_total",
     ] {
         assert!(names.contains(expected), "missing metric {expected}");
     }
@@ -129,18 +119,10 @@ fn observability_emits_signals_without_changing_world_results() -> TestResult {
 }
 
 fn run_scenario() -> Result<ScenarioResult> {
-    let mut simulation = SimulationWorld::new()?;
-    let simulation_continued = simulation.tick()?;
-
     let mut prediction = PredictionWorld::new()?;
     let _prediction_continued = prediction.tick(PredictionPass::Forward)?;
 
-    let mut presentation = PresentationWorld::new()?;
-    let _presentation_continued = presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?;
-
     Ok(ScenarioResult {
-        simulation_continued,
         prediction_tick: prediction.current_tick(),
-        presentation_frame: presentation.current_frame(),
     })
 }
