@@ -17,7 +17,8 @@ the embedded catalog is accepted.
 The runtime loads package metadata and catalogs at startup. Asset bytes remain
 inside SquashFS and are decompressed on demand. Each reader verifies the
 catalogued byte length and BLAKE3 content hash when it reaches the end of the
-asset.
+asset. Complete reads return `Bytes`, allowing cheap clones and slices after
+the verified object has been materialized.
 
 `PackagePayloadHash` identifies the authenticated SquashFS bytes.
 `PackageHash` continues to cover every final file byte, including the signing

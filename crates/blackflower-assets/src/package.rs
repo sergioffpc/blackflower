@@ -10,7 +10,7 @@ use crate::catalog::ASSET_CATALOG_SCHEMA;
 use crate::error::io_error;
 use crate::signature::verify_package_signature;
 use crate::{
-    AssetCatalog, AssetId, AssetKeyId, AssetRecord, AssetTrustStore, ContentHash, Error,
+    AssetCatalog, AssetId, AssetKeyId, AssetRecord, AssetTrustStore, Bytes, ContentHash, Error,
     PackageHash, PackageName, PackagePayloadHash,
 };
 
@@ -192,13 +192,13 @@ impl AssetPackage {
     ///
     /// Returns an error if resolution, decompression, byte length, or content
     /// verification fails.
-    pub fn read_asset(&self, id: &AssetId) -> Result<Vec<u8>, Error> {
+    pub fn read_asset(&self, id: &AssetId) -> Result<Bytes, Error> {
         let mut reader = self.open_asset(id)?;
         let mut bytes = Vec::new();
         reader
             .read_to_end(&mut bytes)
             .map_err(|source| io_error(self.path.clone(), source))?;
-        Ok(bytes)
+        Ok(Bytes::from(bytes))
     }
 }
 

@@ -8,6 +8,7 @@ mod package;
 mod signature;
 mod store;
 
+pub use bytes::Bytes;
 pub use catalog::{
     ASSET_CATALOG_SCHEMA, AssetAudience, AssetCatalog, AssetKind, AssetRecord, ToolchainIdentity,
 };

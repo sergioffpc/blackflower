@@ -396,7 +396,7 @@ mod tests {
 
     use anyhow::Context;
     use blackflower_assets::{
-        AssetCatalog, AssetId, AssetPackage, AssetSigningKey, AssetStore, AssetTrustStore,
+        AssetCatalog, AssetId, AssetPackage, AssetSigningKey, AssetStore, AssetTrustStore, Bytes,
         ContentHash, Error, PackageName, sign_package,
     };
     use tempfile::TempDir;
@@ -439,8 +439,10 @@ mod tests {
         let store = fixture.open_store()?;
         let changed = AssetId::from_str("fixtures/changed")?;
         let lower = AssetId::from_str("fixtures/lower-only")?;
-        assert_eq!(store.read_asset(&changed)?, b"hotfix");
-        assert_eq!(store.read_asset(&lower)?, b"lower");
+        let changed_bytes: Bytes = store.read_asset(&changed)?;
+        let lower_bytes: Bytes = store.read_asset(&lower)?;
+        assert_eq!(changed_bytes.as_ref(), b"hotfix");
+        assert_eq!(lower_bytes.as_ref(), b"lower");
         assert_eq!(
             store
                 .resolve(&changed)
@@ -543,7 +545,7 @@ mod tests {
             .cook(&fixture.request("pak2", &["fixtures/example"])?)?;
         let store = fixture.open_store()?;
         let id = AssetId::from_str("fixtures/example")?;
-        assert_eq!(store.read_asset(&id)?, b"two");
+        assert_eq!(store.read_asset(&id)?.as_ref(), b"two");
         assert_eq!(
             store
                 .resolve(&id)
@@ -694,7 +696,7 @@ mod tests {
         let _override = fixture.write_catalog_package("pak900", &winner_catalog)?;
         let store = fixture.open_store()?;
         let winner = AssetId::from_str("fixtures/winner")?;
-        assert_eq!(store.read_asset(&winner)?, b"winner");
+        assert_eq!(store.read_asset(&winner)?.as_ref(), b"winner");
 
         fs::remove_file(base)?;
         let error = fixture

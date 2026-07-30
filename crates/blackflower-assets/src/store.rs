@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::error::io_error;
 use crate::{
     AssetAudience, AssetId, AssetKind, AssetPackage, AssetReader, AssetRecord, AssetSetHash,
-    AssetTrustStore, Error, PackageName,
+    AssetTrustStore, Bytes, Error, PackageName,
 };
 
 const ASSET_SET_SCHEMA: u32 = 1;
@@ -114,16 +113,11 @@ impl AssetStore {
     /// # Errors
     ///
     /// Returns an error if the asset is absent, corrupt, or cannot be read.
-    pub fn read_asset(&self, id: &AssetId) -> Result<Vec<u8>, Error> {
+    pub fn read_asset(&self, id: &AssetId) -> Result<Bytes, Error> {
         let resolved = self
             .resolve(id)
             .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
-        let mut reader = resolved.package.open_asset(id)?;
-        let mut bytes = Vec::new();
-        reader
-            .read_to_end(&mut bytes)
-            .map_err(|source| io_error(resolved.package.path(), source))?;
-        Ok(bytes)
+        resolved.package.read_asset(id)
     }
 }
 
