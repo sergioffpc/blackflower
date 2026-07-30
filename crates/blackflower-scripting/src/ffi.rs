@@ -9,12 +9,17 @@
     reason = "all unsafe operations are confined to the reviewed Luau FFI boundary"
 )]
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_void};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::NonNull;
 use std::slice;
 
-use crate::compile::CompileOptions;
-use crate::{Error, Library, MemoryUsage, RuntimeConfig, SandboxPolicy, Value};
+use crate::compile::{CompileOptions, TypeInfoLevel};
+use crate::{
+    DebugAction, DebugEvent, DebugEventKind, DebugFrame, DebugHandler, DebugOptions, DebugValue,
+    DebugVariable, Error, Library, MemoryUsage, NativeCodegenStats, RuntimeConfig, SandboxPolicy,
+    Value,
+};
 
 #[allow(
     dead_code,
@@ -56,6 +61,10 @@ impl MatchesCInt for u32 {
 pub(crate) fn luau_version() -> (u32, u32, u32) {
     let version = unsafe { raw::bf_scripting_luau_version() };
     (version.major, version.minor, version.patch)
+}
+
+pub(crate) fn native_codegen_supported() -> bool {
+    unsafe { raw::bf_scripting_native_codegen_supported() != 0 }
 }
 
 pub(crate) fn compile(source: &str, options: CompileOptions) -> Result<Vec<u8>, Error> {
@@ -127,16 +136,36 @@ fn check_compile_status(status: i32) -> Result<(), Error> {
     }
 }
 
+pub(crate) struct DebugRequest<'a> {
+    pub(crate) options: &'a DebugOptions,
+    pub(crate) handler: &'a mut dyn DebugHandler,
+}
+
+struct DebugBridge<'a> {
+    handler: &'a mut dyn DebugHandler,
+    panicked: bool,
+}
+
 pub(crate) struct State(raw::BFScriptingRuntime);
 
 impl State {
     pub(crate) fn new(config: RuntimeConfig) -> Result<Self, Error> {
         let mut runtime = raw::BFScriptingRuntime::default();
         let creation_status = unsafe {
-            raw::bf_scripting_runtime_new(config.vm_memory_limit_bytes(), &raw mut runtime)
+            raw::bf_scripting_runtime_new(
+                config.vm_memory_limit_bytes(),
+                config.native_codegen_limit_bytes(),
+                &raw mut runtime,
+            )
         };
         if raw::BF_SCRIPTING_STATUS_OUT_OF_MEMORY.matches_c_int(creation_status) {
             return Err(Error::OutOfMemory);
+        }
+        if raw::BF_SCRIPTING_STATUS_CODEGEN_UNSUPPORTED.matches_c_int(creation_status) {
+            return Err(Error::NativeCodegenUnsupported);
+        }
+        if raw::BF_SCRIPTING_STATUS_CODEGEN_FAILED.matches_c_int(creation_status) {
+            return Err(Error::NativeCodegenInitialization);
         }
         if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(creation_status) {
             return Err(Error::NativeContract);
@@ -169,9 +198,53 @@ impl State {
         &mut self,
         chunk_name: &CString,
         bytecode: &[u8],
+        compile_options: CompileOptions,
         execution_fuel: u64,
-    ) -> Result<Vec<Value>, Error> {
+        debug: Option<DebugRequest<'_>>,
+    ) -> Result<(Vec<Value>, Option<NativeCodegenStats>), Error> {
         let base = unsafe { raw::lua_gettop(self.pointer()) };
+        let result = self.execute_loaded(
+            chunk_name,
+            bytecode,
+            compile_options,
+            execution_fuel,
+            debug,
+            base,
+        );
+        unsafe { raw::lua_settop(self.pointer(), base) };
+        result
+    }
+
+    fn execute_loaded(
+        &self,
+        chunk_name: &CString,
+        bytecode: &[u8],
+        compile_options: CompileOptions,
+        execution_fuel: u64,
+        debug: Option<DebugRequest<'_>>,
+        base: i32,
+    ) -> Result<(Vec<Value>, Option<NativeCodegenStats>), Error> {
+        self.load_bytecode(chunk_name, bytecode)?;
+        let native_codegen_stats = self.compile_native(compile_options.type_info)?;
+        let (debug_options, mut debug_bridge) = match debug {
+            Some(DebugRequest { options, handler }) => (
+                Some(options),
+                Some(DebugBridge {
+                    handler,
+                    panicked: false,
+                }),
+            ),
+            None => (None, None),
+        };
+        if let (Some(options), Some(bridge)) = (debug_options, debug_bridge.as_mut()) {
+            self.attach_debugger(options, bridge)?;
+        }
+
+        let values = self.call_loaded_chunk(base, execution_fuel, &mut debug_bridge)?;
+        Ok((values, native_codegen_stats))
+    }
+
+    fn load_bytecode(&self, chunk_name: &CString, bytecode: &[u8]) -> Result<(), Error> {
         let load_status = unsafe {
             raw::luau_load(
                 self.pointer(),
@@ -181,46 +254,120 @@ impl State {
                 0,
             )
         };
-        if !raw::lua_Status_LUA_OK.matches_c_int(load_status) {
-            let error = if raw::lua_Status_LUA_ERRMEM.matches_c_int(load_status) {
-                Error::OutOfMemory
-            } else {
-                Error::Compile(self.error_message(-1))
-            };
-            unsafe { raw::lua_settop(self.pointer(), base) };
-            return Err(error);
+        if raw::lua_Status_LUA_OK.matches_c_int(load_status) {
+            return Ok(());
         }
 
-        let begin_status =
-            unsafe { raw::bf_scripting_begin_execution(self.pointer(), execution_fuel) };
-        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(begin_status) {
-            unsafe { raw::lua_settop(self.pointer(), base) };
+        if raw::lua_Status_LUA_ERRMEM.matches_c_int(load_status) {
+            Err(Error::OutOfMemory)
+        } else {
+            Err(Error::Compile(self.error_message(-1)))
+        }
+    }
+
+    fn attach_debugger(
+        &self,
+        options: &DebugOptions,
+        bridge: &mut DebugBridge<'_>,
+    ) -> Result<(), Error> {
+        let status = unsafe {
+            raw::bf_scripting_debugger_attach(
+                self.pointer(),
+                Some(debug_callback),
+                std::ptr::from_mut(bridge).cast(),
+                i32::from(options.single_step()),
+            )
+        };
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(status) {
             return Err(Error::NativeContract);
         }
 
-        let call_status = unsafe { raw::lua_pcall(self.pointer(), 0, raw::LUA_MULTRET, 0) };
+        for &line in options.breakpoints() {
+            if let Err(error) = self.set_breakpoint(line) {
+                unsafe { raw::bf_scripting_debugger_detach(self.pointer()) };
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_breakpoint(&self, line: u32) -> Result<(), Error> {
+        let requested_line =
+            i32::try_from(line).map_err(|_error| Error::InvalidBreakpoint { line })?;
+        let mut actual_line = -1;
+        let status = unsafe {
+            raw::bf_scripting_debugger_set_breakpoint(
+                self.pointer(),
+                -1,
+                requested_line,
+                1,
+                &raw mut actual_line,
+            )
+        };
+        if raw::BF_SCRIPTING_STATUS_OK.matches_c_int(status) && actual_line >= 0 {
+            Ok(())
+        } else {
+            Err(Error::InvalidBreakpoint { line })
+        }
+    }
+
+    fn call_loaded_chunk(
+        &self,
+        base: i32,
+        execution_fuel: u64,
+        debug_bridge: &mut Option<DebugBridge<'_>>,
+    ) -> Result<Vec<Value>, Error> {
+        let debug_attached = debug_bridge.is_some();
+        let begin_status =
+            unsafe { raw::bf_scripting_begin_execution(self.pointer(), execution_fuel) };
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(begin_status) {
+            if debug_attached {
+                unsafe { raw::bf_scripting_debugger_detach(self.pointer()) };
+            }
+            return Err(Error::NativeContract);
+        }
+
+        let call_status = self.call_status(debug_attached);
         let end_status = unsafe { raw::bf_scripting_end_execution(self.pointer()) };
+        if debug_attached {
+            unsafe { raw::bf_scripting_debugger_detach(self.pointer()) };
+        }
+        if debug_bridge.as_ref().is_some_and(|bridge| bridge.panicked) {
+            return Err(Error::DebugHandlerPanicked);
+        }
         if raw::BF_SCRIPTING_STATUS_EXECUTION_LIMIT.matches_c_int(end_status) {
-            unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(Error::ExecutionLimit);
         }
         if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(end_status) {
-            unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(Error::NativeContract);
         }
         if !raw::lua_Status_LUA_OK.matches_c_int(call_status) {
             let error = if raw::lua_Status_LUA_ERRMEM.matches_c_int(call_status) {
                 Error::OutOfMemory
             } else {
-                Error::Runtime(self.error_message(-1))
+                Error::Runtime(self.runtime_error_message(-1))
             };
-            unsafe { raw::lua_settop(self.pointer(), base) };
             return Err(error);
         }
 
-        let results = self.collect_results(base);
-        unsafe { raw::lua_settop(self.pointer(), base) };
-        results
+        self.collect_results(base)
+    }
+
+    fn call_status(&self, debug_attached: bool) -> i32 {
+        if !debug_attached {
+            return unsafe { raw::bf_scripting_pcall(self.pointer(), 0, raw::LUA_MULTRET) };
+        }
+
+        loop {
+            let status = unsafe { raw::lua_resume(self.pointer(), std::ptr::null_mut(), 0) };
+            if raw::lua_Status_LUA_BREAK.matches_c_int(status) {
+                continue;
+            }
+            if !raw::lua_Status_LUA_OK.matches_c_int(status) {
+                unsafe { raw::bf_scripting_capture_debug_trace(self.pointer()) };
+            }
+            return status;
+        }
     }
 
     pub(crate) fn memory_usage(&self) -> MemoryUsage {
@@ -230,6 +377,54 @@ impl State {
             peak_bytes: usage.peak_bytes,
             limit_bytes: usage.limit_bytes,
         }
+    }
+
+    pub(crate) fn native_codegen_memory_usage(&self) -> MemoryUsage {
+        let usage =
+            unsafe { raw::bf_scripting_runtime_native_codegen_memory_usage(&raw const self.0) };
+        MemoryUsage {
+            current_bytes: usage.current_bytes,
+            peak_bytes: usage.peak_bytes,
+            limit_bytes: usage.limit_bytes,
+        }
+    }
+
+    fn compile_native(
+        &self,
+        type_info: TypeInfoLevel,
+    ) -> Result<Option<NativeCodegenStats>, Error> {
+        if unsafe { raw::bf_scripting_native_codegen_enabled(self.pointer()) } == 0 {
+            return Ok(None);
+        }
+
+        let mut stats = raw::BFScriptingNativeCodegenStats::default();
+        let status = unsafe {
+            raw::bf_scripting_native_codegen_compile(
+                self.pointer(),
+                -1,
+                type_info as i32,
+                &raw mut stats,
+            )
+        };
+        if raw::BF_SCRIPTING_STATUS_OUT_OF_MEMORY.matches_c_int(status) {
+            return Err(Error::OutOfMemory);
+        }
+        if !raw::BF_SCRIPTING_STATUS_OK.matches_c_int(status) {
+            return Err(Error::NativeCodegenCompilation);
+        }
+        if stats.result != 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(NativeCodegenStats {
+            bytecode_size_bytes: stats.bytecode_size_bytes,
+            native_code_size_bytes: stats.native_code_size_bytes,
+            native_data_size_bytes: stats.native_data_size_bytes,
+            native_metadata_size_bytes: stats.native_metadata_size_bytes,
+            functions_total: stats.functions_total,
+            functions_compiled: stats.functions_compiled,
+            functions_bound: stats.functions_bound,
+        }))
     }
 
     fn collect_results(&self, base: i32) -> Result<Vec<Value>, Error> {
@@ -320,6 +515,19 @@ impl State {
         String::from_utf8_lossy(bytes).into_owned()
     }
 
+    fn runtime_error_message(&self, stack_index: i32) -> String {
+        let message = self.error_message(stack_index);
+        let trace = unsafe { raw::bf_scripting_runtime_last_debug_trace(&raw const self.0) };
+        if trace.data.is_null() || trace.size == 0 {
+            return message;
+        }
+        let trace = unsafe { slice::from_raw_parts(trace.data, trace.size) };
+        format!(
+            "{message}\nstack trace:\n{}",
+            String::from_utf8_lossy(trace)
+        )
+    }
+
     const fn pointer(&self) -> *mut raw::lua_State {
         self.0.state
     }
@@ -328,5 +536,216 @@ impl State {
 impl Drop for State {
     fn drop(&mut self) {
         unsafe { raw::bf_scripting_runtime_free(&raw mut self.0) };
+    }
+}
+
+unsafe extern "C" fn debug_callback(
+    context: *mut c_void,
+    state: *mut raw::lua_State,
+    event_kind: i32,
+) -> i32 {
+    if context.is_null() || state.is_null() {
+        return 0;
+    }
+
+    let bridge = unsafe { &mut *context.cast::<DebugBridge<'_>>() };
+    let action = catch_unwind(AssertUnwindSafe(|| {
+        let event = unsafe { capture_debug_event(state, event_kind) };
+        bridge.handler.on_event(&event)
+    }));
+    match action {
+        Ok(DebugAction::Continue) => 0,
+        Ok(DebugAction::Step) => 1,
+        Err(_panic) => {
+            bridge.panicked = true;
+            0
+        }
+    }
+}
+
+unsafe fn capture_debug_event(state: *mut raw::lua_State, event_kind: i32) -> DebugEvent {
+    let _stack = StackRestore::new(state);
+    let kind = if raw::BF_SCRIPTING_DEBUG_EVENT_BREAKPOINT.matches_c_int(event_kind) {
+        DebugEventKind::Breakpoint
+    } else {
+        DebugEventKind::Step
+    };
+    let depth = unsafe { raw::lua_stackdepth(state) }.max(0);
+    let capacity = usize::try_from(depth).unwrap_or(0);
+    let mut frames = Vec::with_capacity(capacity);
+    for level in 0..depth {
+        let mut info = raw::lua_Debug::default();
+        let found = unsafe { raw::lua_getinfo(state, level, c"sln".as_ptr(), &raw mut info) } != 0;
+        if !found {
+            continue;
+        }
+        frames.push(unsafe { capture_debug_frame(state, level, &info) });
+    }
+    DebugEvent { kind, frames }
+}
+
+unsafe fn capture_debug_frame(
+    state: *mut raw::lua_State,
+    level: i32,
+    info: &raw::lua_Debug,
+) -> DebugFrame {
+    let depth = u32::try_from(level).unwrap_or(0);
+    let source = unsafe { optional_c_string(info.source) }
+        .map(|source| source.strip_prefix('=').unwrap_or(&source).to_owned());
+    let function = unsafe { optional_c_string(info.name) };
+    let current_line = u32::try_from(info.currentline)
+        .ok()
+        .filter(|line| *line > 0);
+    let defined_line = u32::try_from(info.linedefined)
+        .ok()
+        .filter(|line| *line > 0);
+    let locals = unsafe { capture_locals(state, level) };
+    let upvalues = unsafe { capture_upvalues(state, level) };
+    DebugFrame {
+        depth,
+        source,
+        function,
+        current_line,
+        defined_line,
+        locals,
+        upvalues,
+    }
+}
+
+unsafe fn capture_locals(state: *mut raw::lua_State, level: i32) -> Vec<DebugVariable> {
+    let mut locals = Vec::new();
+    for index in 1..=256 {
+        let top = unsafe { raw::lua_gettop(state) };
+        let name = unsafe { raw::lua_getlocal(state, level, index) };
+        if name.is_null() {
+            break;
+        }
+        let variable = DebugVariable {
+            name: unsafe { CStr::from_ptr(name) }
+                .to_string_lossy()
+                .into_owned(),
+            value: unsafe { read_debug_value(state, -1) },
+        };
+        unsafe { raw::lua_settop(state, top) };
+        locals.push(variable);
+    }
+    locals
+}
+
+unsafe fn capture_upvalues(state: *mut raw::lua_State, level: i32) -> Vec<DebugVariable> {
+    let base = unsafe { raw::lua_gettop(state) };
+    let mut function_info = raw::lua_Debug::default();
+    if unsafe { raw::lua_getinfo(state, level, c"f".as_ptr(), &raw mut function_info) } == 0 {
+        return Vec::new();
+    }
+
+    let function_index = unsafe { raw::lua_gettop(state) };
+    let mut upvalues = Vec::new();
+    for index in 1..=256 {
+        let top = unsafe { raw::lua_gettop(state) };
+        let name = unsafe { raw::lua_getupvalue(state, function_index, index) };
+        if name.is_null() {
+            break;
+        }
+        let variable = DebugVariable {
+            name: unsafe { CStr::from_ptr(name) }
+                .to_string_lossy()
+                .into_owned(),
+            value: unsafe { read_debug_value(state, -1) },
+        };
+        unsafe { raw::lua_settop(state, top) };
+        upvalues.push(variable);
+    }
+    unsafe { raw::lua_settop(state, base) };
+    upvalues
+}
+
+unsafe fn read_debug_value(state: *mut raw::lua_State, stack_index: i32) -> DebugValue {
+    let value_type = unsafe { raw::lua_type(state, stack_index) };
+    match value_type {
+        value if raw::lua_Type_LUA_TNIL.matches_c_int(value) => DebugValue::Nil,
+        value if raw::lua_Type_LUA_TBOOLEAN.matches_c_int(value) => {
+            DebugValue::Boolean(unsafe { raw::lua_toboolean(state, stack_index) } != 0)
+        }
+        value if raw::lua_Type_LUA_TNUMBER.matches_c_int(value) => DebugValue::Number(unsafe {
+            raw::lua_tonumberx(state, stack_index, std::ptr::null_mut())
+        }),
+        value if raw::lua_Type_LUA_TINTEGER.matches_c_int(value) => {
+            let mut is_integer = 0;
+            let integer = unsafe { raw::lua_tointeger64(state, stack_index, &raw mut is_integer) };
+            if is_integer == 0 {
+                DebugValue::Opaque {
+                    type_name: "integer".to_owned(),
+                }
+            } else {
+                DebugValue::Integer(integer)
+            }
+        }
+        value if raw::lua_Type_LUA_TSTRING.matches_c_int(value) => {
+            let mut length = 0;
+            let pointer = unsafe { raw::lua_tolstring(state, stack_index, &raw mut length) };
+            if pointer.is_null() {
+                DebugValue::String(Box::default())
+            } else {
+                DebugValue::String(
+                    unsafe { slice::from_raw_parts(pointer.cast(), length) }
+                        .to_vec()
+                        .into_boxed_slice(),
+                )
+            }
+        }
+        value if raw::lua_Type_LUA_TVECTOR.matches_c_int(value) => {
+            let pointer = unsafe { raw::lua_tovector(state, stack_index) };
+            if pointer.is_null() {
+                DebugValue::Opaque {
+                    type_name: "vector".to_owned(),
+                }
+            } else {
+                let components = unsafe { slice::from_raw_parts(pointer, 3) };
+                DebugValue::Vector([components[0], components[1], components[2]])
+            }
+        }
+        _ => DebugValue::Opaque {
+            type_name: unsafe { debug_type_name(state, value_type) },
+        },
+    }
+}
+
+unsafe fn debug_type_name(state: *mut raw::lua_State, value_type: i32) -> String {
+    let pointer = unsafe { raw::lua_typename(state, value_type) };
+    if pointer.is_null() {
+        "unknown".to_owned()
+    } else {
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+unsafe fn optional_c_string(pointer: *const std::ffi::c_char) -> Option<String> {
+    (!pointer.is_null()).then(|| {
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+struct StackRestore {
+    state: *mut raw::lua_State,
+    top: i32,
+}
+
+impl StackRestore {
+    unsafe fn new(state: *mut raw::lua_State) -> Self {
+        Self {
+            state,
+            top: unsafe { raw::lua_gettop(state) },
+        }
+    }
+}
+
+impl Drop for StackRestore {
+    fn drop(&mut self) {
+        unsafe { raw::lua_settop(self.state, self.top) };
     }
 }

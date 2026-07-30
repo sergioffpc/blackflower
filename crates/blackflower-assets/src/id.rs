@@ -3,10 +3,10 @@ use core::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{InvalidAssetId, InvalidPackageName};
+use crate::{InvalidAssetId, InvalidPackageName, InvalidProfileName};
 
 const MAX_ASSET_ID_BYTES: usize = 255;
-const MAX_PACKAGE_NAME_BYTES: usize = 64;
+const MAX_LOGICAL_NAME_BYTES: usize = 64;
 
 /// Stable logical identifier used to resolve an asset through layered packages.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -94,6 +94,52 @@ impl FromStr for PackageName {
     }
 }
 
+/// Validated portable identifier for one versioned cooking profile.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProfileName(String);
+
+impl ProfileName {
+    /// Returns the canonical filename stem.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ProfileName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ProfileName {
+    type Err = InvalidProfileName;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        validate_profile_name(value)?;
+        Ok(Self(value.to_owned()))
+    }
+}
+
+impl Serialize for ProfileName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ProfileName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::from_str(&value).map_err(serde::de::Error::custom)
+    }
+}
+
 fn validate_asset_id(value: &str) -> Result<(), InvalidAssetId> {
     if value.is_empty() {
         return Err(InvalidAssetId::new(value, "value is empty"));
@@ -130,30 +176,30 @@ fn validate_asset_segment(value: &str, segment: &str) -> Result<(), InvalidAsset
 }
 
 fn validate_package_name(value: &str) -> Result<(), InvalidPackageName> {
+    validate_logical_name(value).map_err(|reason| InvalidPackageName::new(value, reason))
+}
+
+fn validate_profile_name(value: &str) -> Result<(), InvalidProfileName> {
+    validate_logical_name(value).map_err(|reason| InvalidProfileName::new(value, reason))
+}
+
+fn validate_logical_name(value: &str) -> Result<(), &'static str> {
     if value.is_empty() {
-        return Err(InvalidPackageName::new(value, "value is empty"));
+        return Err("value is empty");
     }
-    if value.len() > MAX_PACKAGE_NAME_BYTES {
-        return Err(InvalidPackageName::new(value, "value exceeds 64 bytes"));
+    if value.len() > MAX_LOGICAL_NAME_BYTES {
+        return Err("value exceeds 64 bytes");
     }
     if !value.is_ascii() {
-        return Err(InvalidPackageName::new(value, "value must be ASCII"));
+        return Err("value must be ASCII");
     }
     let mut bytes = value.bytes();
-    let first = bytes
-        .next()
-        .ok_or_else(|| InvalidPackageName::new(value, "value is empty"))?;
+    let first = bytes.next().ok_or("value is empty")?;
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err(InvalidPackageName::new(
-            value,
-            "value must start with a lowercase ASCII letter or digit",
-        ));
+        return Err("value must start with a lowercase ASCII letter or digit");
     }
     if !bytes.all(is_portable_name_byte) {
-        return Err(InvalidPackageName::new(
-            value,
-            "value may contain only lowercase ASCII letters, digits, `.`, `_`, and `-`",
-        ));
+        return Err("value may contain only lowercase ASCII letters, digits, `.`, `_`, and `-`");
     }
     Ok(())
 }
@@ -166,7 +212,7 @@ fn is_portable_name_byte(byte: u8) -> bool {
 mod tests {
     use core::str::FromStr;
 
-    use super::{AssetId, PackageName};
+    use super::{AssetId, PackageName, ProfileName};
 
     #[test]
     fn accepts_canonical_ids() -> Result<(), Box<dyn std::error::Error>> {
@@ -209,5 +255,18 @@ mod tests {
                 "{invalid} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn profile_names_use_the_portable_filename_grammar() -> Result<(), Box<dyn std::error::Error>> {
+        let name = ProfileName::from_str("desktop-production")?;
+        assert_eq!(name.as_str(), "desktop-production");
+        for invalid in ["", "-desktop", "Desktop", "désktop", &"p".repeat(65)] {
+            assert!(
+                ProfileName::from_str(invalid).is_err(),
+                "{invalid} should be rejected"
+            );
+        }
+        Ok(())
     }
 }

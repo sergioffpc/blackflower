@@ -1,0 +1,6 @@
+schema = 1
+
+[scripting.luau]
+optimization = "aggressive"
+debug = "line_info"
+type_info = "native_modules"

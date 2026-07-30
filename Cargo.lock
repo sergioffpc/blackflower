@@ -2371,6 +2371,7 @@ dependencies = [
  "anyhow",
  "backhand",
  "blackflower-assets",
+ "blackflower-scripting",
  "blake3",
  "clap",
  "serde",

@@ -77,6 +77,10 @@ hash_type!(
     RecipeHash
 );
 hash_type!(
+    /// BLAKE3 identity of one canonical cooking profile.
+    ProfileHash
+);
+hash_type!(
     /// BLAKE3 identity of every byte in one SquashFS package.
     PackageHash
 );

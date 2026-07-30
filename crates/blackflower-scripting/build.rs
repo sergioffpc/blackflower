@@ -24,6 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     println!("cargo:rerun-if-changed=vendor/luau/Ast");
     println!("cargo:rerun-if-changed=vendor/luau/Bytecode");
+    println!("cargo:rerun-if-changed=vendor/luau/CodeGen");
     println!("cargo:rerun-if-changed=vendor/luau/Common");
     println!("cargo:rerun-if-changed=vendor/luau/Compiler");
     println!("cargo:rerun-if-changed=vendor/luau/VM");
@@ -92,6 +93,7 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         "blackflower_luau_compiler",
         "blackflower_luau_ast",
         "blackflower_luau_bytecode",
+        "blackflower_luau_codegen",
         "blackflower_luau_vm",
         "blackflower_luau_common",
     ] {

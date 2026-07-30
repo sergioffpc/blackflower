@@ -4,25 +4,55 @@ use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, bail};
-use blackflower_assets::{AssetAudience, AssetId, AssetKind, ContentHash, PackageName, RecipeHash};
+use blackflower_assets::{AssetAudience, AssetId, AssetKind, ContentHash, PackageName};
 use serde::Deserialize;
 
 pub(crate) const SOURCE_SCHEMA: u32 = 1;
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub(crate) struct AssetManifest {
     pub(crate) schema: u32,
     pub(crate) id: AssetId,
-    pub(crate) kind: AssetKind,
     pub(crate) audience: AssetAudience,
-    pub(crate) blob: BlobManifest,
+    pub(crate) source: AssetSource,
+}
+
+impl AssetManifest {
+    pub(crate) const fn kind(&self) -> AssetKind {
+        match self.source {
+            AssetSource::Blob(_) => AssetKind::Blob,
+            AssetSource::Luau(_) => AssetKind::LuauBytecode,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum AssetSource {
+    Blob(BlobManifest),
+    Luau(LuauManifest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BlobManifest {
     pub(crate) source: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LuauManifest {
+    pub(crate) source: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssetManifestFile {
+    schema: u32,
+    id: AssetId,
+    kind: AssetKind,
+    audience: AssetAudience,
+    blob: Option<BlobManifest>,
+    luau: Option<LuauManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,7 +73,7 @@ pub(crate) struct LoadedAsset {
     pub(crate) manifest: AssetManifest,
     pub(crate) source_relative: String,
     pub(crate) source_bytes: Vec<u8>,
-    pub(crate) content_hash: ContentHash,
+    pub(crate) source_hash: ContentHash,
 }
 
 #[derive(Debug)]
@@ -89,19 +119,6 @@ impl Repository {
             .get(package_name)
             .with_context(|| format!("package `{package_name}` has no package.toml"))?;
         Ok(package.assets.iter().cloned().collect())
-    }
-
-    pub(crate) fn recipe_hashes(
-        &self,
-        profile: &str,
-        toolchain_bytes: &[u8],
-    ) -> anyhow::Result<BTreeMap<AssetId, RecipeHash>> {
-        let mut hashes = BTreeMap::new();
-        for id in self.assets.keys() {
-            let hash = recipe_hash(self, id, profile, toolchain_bytes)?;
-            hashes.insert(id.clone(), hash);
-        }
-        Ok(hashes)
     }
 
     fn validate_graph(&self) -> anyhow::Result<()> {
@@ -159,21 +176,48 @@ fn load_asset(
 ) -> anyhow::Result<()> {
     let text =
         fs::read_to_string(path).with_context(|| format!("failed to read `{}`", path.display()))?;
-    let manifest: AssetManifest =
+    let file: AssetManifestFile =
         toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
-    validate_schema(manifest.schema, path)?;
-    let source_relative = portable_relative_path(&manifest.blob.source)
+    validate_schema(file.schema, path)?;
+    let source = match (file.kind, file.blob, file.luau) {
+        (AssetKind::Blob, Some(blob), None) => AssetSource::Blob(blob),
+        (AssetKind::LuauBytecode, None, Some(luau)) => AssetSource::Luau(luau),
+        (AssetKind::Blob, _, _) => {
+            bail!(
+                "blob asset manifest `{}` must contain exactly one `[blob]` section",
+                path.display()
+            );
+        }
+        (AssetKind::LuauBytecode, _, _) => {
+            bail!(
+                "Luau bytecode manifest `{}` must contain exactly one `[luau]` section",
+                path.display()
+            );
+        }
+        _ => bail!("unsupported asset kind in `{}`", path.display()),
+    };
+    let source_path = match &source {
+        AssetSource::Blob(manifest) => &manifest.source,
+        AssetSource::Luau(manifest) => &manifest.source,
+    };
+    let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
-    let source_path = resolve_source(source_root, path, &manifest.blob.source)?;
+    let source_path = resolve_source(source_root, path, source_path)?;
     let source_bytes = fs::read(&source_path)
         .with_context(|| format!("failed to read `{}`", source_path.display()))?;
-    let content_hash = ContentHash::hash_bytes(&source_bytes);
+    let source_hash = ContentHash::hash_bytes(&source_bytes);
+    let manifest = AssetManifest {
+        schema: file.schema,
+        id: file.id,
+        audience: file.audience,
+        source,
+    };
     let id = manifest.id.clone();
     let loaded = LoadedAsset {
         manifest,
         source_relative,
         source_bytes,
-        content_hash,
+        source_hash,
     };
     if assets.insert(id.clone(), loaded).is_some() {
         bail!("duplicate asset ID `{id}`");
@@ -288,62 +332,4 @@ fn portable_relative_path(path: &Path) -> anyhow::Result<String> {
         bail!("path is empty");
     }
     Ok(parts.join("/"))
-}
-
-fn recipe_hash(
-    repository: &Repository,
-    id: &AssetId,
-    profile: &str,
-    toolchain_bytes: &[u8],
-) -> anyhow::Result<RecipeHash> {
-    let asset = repository
-        .assets
-        .get(id)
-        .with_context(|| format!("unknown asset `{id}`"))?;
-    let mut hasher = CanonicalHasher::new(b"blackflower.asset-recipe.v1");
-    hasher.u32(asset.manifest.schema);
-    hasher.text(profile);
-    hasher.text(asset.manifest.id.as_str());
-    hasher.serializable(&asset.manifest.kind)?;
-    hasher.serializable(&asset.manifest.audience)?;
-    hasher.text(&asset.source_relative);
-    hasher.bytes(asset.content_hash.as_bytes());
-    hasher.bytes(toolchain_bytes);
-    Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))
-}
-
-struct CanonicalHasher(blake3::Hasher);
-
-impl CanonicalHasher {
-    fn new(domain: &[u8]) -> Self {
-        let mut value = Self(blake3::Hasher::new());
-        value.bytes(domain);
-        value
-    }
-
-    fn bytes(&mut self, bytes: &[u8]) {
-        self.u64(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
-        self.0.update(bytes);
-    }
-
-    fn text(&mut self, value: &str) {
-        self.bytes(value.as_bytes());
-    }
-
-    fn u32(&mut self, value: u32) {
-        self.0.update(&value.to_le_bytes());
-    }
-
-    fn u64(&mut self, value: u64) {
-        self.0.update(&value.to_le_bytes());
-    }
-
-    fn serializable(&mut self, value: &impl serde::Serialize) -> anyhow::Result<()> {
-        self.bytes(&serde_json::to_vec(value)?);
-        Ok(())
-    }
-
-    fn finish(self) -> blake3::Hash {
-        self.0.finalize()
-    }
 }

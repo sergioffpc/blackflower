@@ -17,6 +17,14 @@ extern "C" {
 #define BF_SCRIPTING_STATUS_OUT_OF_MEMORY 3
 #define BF_SCRIPTING_STATUS_COMPILER_FAILED 4
 #define BF_SCRIPTING_STATUS_EXECUTION_LIMIT 5
+#define BF_SCRIPTING_STATUS_CODEGEN_UNSUPPORTED 6
+#define BF_SCRIPTING_STATUS_CODEGEN_FAILED 7
+
+#define BF_SCRIPTING_DEBUG_EVENT_BREAKPOINT 1
+#define BF_SCRIPTING_DEBUG_EVENT_STEP 2
+
+#define BF_SCRIPTING_DEBUG_ACTION_CONTINUE 0
+#define BF_SCRIPTING_DEBUG_ACTION_STEP 1
 
 #define BF_SCRIPTING_LIBRARY_BASE 1u
 #define BF_SCRIPTING_LIBRARY_COROUTINE 2u
@@ -53,21 +61,49 @@ typedef struct BFScriptingRuntime {
     void *context;
 } BFScriptingRuntime;
 
+typedef int32_t (*BFScriptingDebugCallback)(
+    void *context,
+    lua_State *state,
+    int32_t event_kind);
+
 typedef struct BFScriptingMemoryUsage {
     size_t current_bytes;
     size_t peak_bytes;
     size_t limit_bytes;
 } BFScriptingMemoryUsage;
 
+typedef struct BFScriptingBytesView {
+    const uint8_t *data;
+    size_t size;
+} BFScriptingBytesView;
+
+typedef struct BFScriptingNativeCodegenStats {
+    size_t bytecode_size_bytes;
+    size_t native_code_size_bytes;
+    size_t native_data_size_bytes;
+    size_t native_metadata_size_bytes;
+    uint32_t functions_total;
+    uint32_t functions_compiled;
+    uint32_t functions_bound;
+    int32_t result;
+} BFScriptingNativeCodegenStats;
+
 BFScriptingVersion bf_scripting_luau_version(void);
 
 int32_t bf_scripting_runtime_new(
     size_t memory_limit_bytes,
+    size_t native_codegen_limit_bytes,
     BFScriptingRuntime *out_runtime);
 
 void bf_scripting_runtime_free(BFScriptingRuntime *runtime);
 
 BFScriptingMemoryUsage bf_scripting_runtime_memory_usage(
+    const BFScriptingRuntime *runtime);
+
+BFScriptingMemoryUsage bf_scripting_runtime_native_codegen_memory_usage(
+    const BFScriptingRuntime *runtime);
+
+BFScriptingBytesView bf_scripting_runtime_last_debug_trace(
     const BFScriptingRuntime *runtime);
 
 int32_t bf_scripting_initialize(
@@ -78,6 +114,38 @@ int32_t bf_scripting_initialize(
 int32_t bf_scripting_begin_execution(lua_State *state, uint64_t fuel);
 
 int32_t bf_scripting_end_execution(lua_State *state);
+
+int32_t bf_scripting_pcall(
+    lua_State *state,
+    int32_t argument_count,
+    int32_t result_count);
+
+void bf_scripting_capture_debug_trace(lua_State *state);
+
+int32_t bf_scripting_native_codegen_supported(void);
+
+int32_t bf_scripting_native_codegen_enabled(lua_State *state);
+
+int32_t bf_scripting_native_codegen_compile(
+    lua_State *state,
+    int32_t function_index,
+    int32_t type_info_level,
+    BFScriptingNativeCodegenStats *out_stats);
+
+int32_t bf_scripting_debugger_attach(
+    lua_State *state,
+    BFScriptingDebugCallback callback,
+    void *callback_context,
+    int32_t single_step);
+
+void bf_scripting_debugger_detach(lua_State *state);
+
+int32_t bf_scripting_debugger_set_breakpoint(
+    lua_State *state,
+    int32_t function_index,
+    int32_t requested_line,
+    int32_t enabled,
+    int32_t *out_actual_line);
 
 int32_t bf_scripting_compile(
     const uint8_t *source,

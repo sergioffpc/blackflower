@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use crate::{AssetAudience, AssetId, AssetKeyId, AssetKind, AssetSetHash, PackageName};
+use crate::{
+    AssetAudience, AssetId, AssetKeyId, AssetKind, AssetSetHash, CookingProfileIdentity,
+    PackageName,
+};
 
 /// An asset identifier did not follow the canonical portable grammar.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -25,6 +28,23 @@ impl InvalidAssetId {
 pub struct InvalidPackageName {
     pub(crate) value: String,
     pub(crate) reason: &'static str,
+}
+
+/// A cooking profile name did not follow the canonical portable grammar.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid cooking profile name `{value}`: {reason}")]
+pub struct InvalidProfileName {
+    pub(crate) value: String,
+    pub(crate) reason: &'static str,
+}
+
+impl InvalidProfileName {
+    pub(crate) fn new(value: impl Into<String>, reason: &'static str) -> Self {
+        Self {
+            value: value.into(),
+            reason,
+        }
+    }
 }
 
 impl InvalidPackageName {
@@ -59,6 +79,9 @@ pub enum Error {
     /// A package filename was invalid.
     #[error(transparent)]
     InvalidPackageName(#[from] InvalidPackageName),
+    /// A cooking profile name was invalid.
+    #[error(transparent)]
+    InvalidProfileName(#[from] InvalidProfileName),
     /// An asset ID was invalid.
     #[error(transparent)]
     InvalidAssetId(#[from] InvalidAssetId),
@@ -203,6 +226,18 @@ pub enum Error {
         asset: AssetId,
         /// Unresolved dependency.
         dependency: AssetId,
+    },
+    /// Packages in one layered store were cooked with different profiles.
+    #[error(
+        "asset package `{package}` uses cooking profile {actual:?}, but the store expects {expected:?}"
+    )]
+    IncompatibleProfile {
+        /// Package containing the incompatible profile identity.
+        package: PackageName,
+        /// Profile identity established by the first package.
+        expected: Box<CookingProfileIdentity>,
+        /// Profile identity supplied by the incompatible package.
+        actual: Box<CookingProfileIdentity>,
     },
     /// Hot reload attempted to change the stable contract of an existing ID.
     #[cfg(feature = "hot-reload")]

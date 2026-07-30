@@ -387,12 +387,12 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
             schema: catalog.schema,
         });
     }
-    if catalog.profile.is_empty()
-        || catalog.toolchain.cooker.is_empty()
+    if catalog.toolchain.cooker.is_empty()
         || catalog.toolchain.squashfs.is_empty()
         || catalog.toolchain.archive.is_empty()
+        || catalog.toolchain.luau.is_empty()
     {
-        return invalid_catalog(path, "profile and toolchain fields cannot be empty");
+        return invalid_catalog(path, "toolchain fields cannot be empty");
     }
     let mut previous_id: Option<&AssetId> = None;
     for record in &catalog.assets {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
@@ -8,15 +8,17 @@ use backhand::compression::{CompressionOptions, Compressor, Zstd};
 use backhand::{FilesystemCompressor, FilesystemWriter, NodeHeader};
 use blackflower_assets::{
     ASSET_CATALOG_SCHEMA, AssetCatalog, AssetId, AssetPackage, AssetRecord, AssetSigningKey,
-    AssetTrustStore, ContentHash, PackageHash, PackageName, RecipeHash, ToolchainIdentity,
-    sign_package,
+    AssetTrustStore, Bytes, ContentHash, CookingProfileIdentity, PackageHash, PackageName,
+    ProfileName, RecipeHash, ToolchainIdentity, sign_package,
 };
+use blackflower_scripting::luau_version;
 use serde::Serialize;
 use tempfile::{NamedTempFile, TempDir};
 
+use crate::asset_cooker::{CookedAsset, cook_assets};
 use crate::manifest::{Repository, SOURCE_SCHEMA};
+use crate::profile::CookingProfiles;
 
-const DEFAULT_PROFILE: &str = "desktop-universal";
 const BLOCK_SIZE: u32 = 128 * 1024;
 const ZSTD_LEVEL: u32 = 3;
 const DIR_MODE: u16 = 0o555;
@@ -24,13 +26,14 @@ const FILE_MODE: u16 = 0o444;
 
 #[derive(Debug)]
 pub(crate) struct Pipeline {
+    profiles_root: PathBuf,
     source_root: PathBuf,
     target_root: PathBuf,
 }
 
 #[derive(Debug)]
 pub(crate) struct CookRequest {
-    pub(crate) profile: String,
+    pub(crate) profile: ProfileName,
     pub(crate) package: PackageName,
     pub(crate) signing_key: AssetSigningKey,
 }
@@ -44,6 +47,7 @@ pub(crate) struct CookResult {
 
 #[derive(Debug)]
 pub(crate) struct CheckResult {
+    pub(crate) profiles: usize,
     pub(crate) assets: usize,
     pub(crate) packages: usize,
 }
@@ -51,46 +55,44 @@ pub(crate) struct CheckResult {
 impl Pipeline {
     pub(crate) fn for_workspace(workspace_root: &Path) -> Self {
         Self {
+            profiles_root: workspace_root.join("assets/profiles"),
             source_root: workspace_root.join("assets/source"),
             target_root: workspace_root.join("target"),
         }
     }
 
     #[cfg(test)]
-    fn new(source_root: PathBuf, target_root: PathBuf) -> Self {
+    fn new(profiles_root: PathBuf, source_root: PathBuf, target_root: PathBuf) -> Self {
         Self {
+            profiles_root,
             source_root,
             target_root,
         }
     }
 
     pub(crate) fn check(&self) -> anyhow::Result<CheckResult> {
+        let profiles = CookingProfiles::load(&self.profiles_root)?;
         let repository = Repository::load(&self.source_root)?;
         Ok(CheckResult {
+            profiles: profiles.len(),
             assets: repository.assets.len(),
             packages: repository.packages.len(),
         })
     }
 
     pub(crate) fn cook(&self, request: &CookRequest) -> anyhow::Result<CookResult> {
-        validate_profile(&request.profile)?;
+        let profiles = CookingProfiles::load(&self.profiles_root)?;
+        let profile = profiles.get(&request.profile)?;
         let repository = Repository::load(&self.source_root)?;
         let selected = repository.selected_assets(&request.package)?;
         let toolchain = toolchain_identity();
-        let toolchain_bytes = serde_json::to_vec(&toolchain)?;
-        let recipe_hashes = repository.recipe_hashes(&request.profile, &toolchain_bytes)?;
-        let catalog = build_catalog(
-            &repository,
-            &selected,
-            &recipe_hashes,
-            &request.profile,
-            toolchain,
-        )?;
-        self.populate_cache(&repository, &catalog)?;
+        let cooked = cook_assets(&repository, &selected, profile)?;
+        let catalog = build_catalog(&cooked, profile.identity.clone(), toolchain)?;
+        self.populate_cache(&cooked, &catalog)?;
         let package_dir = self
             .target_root
             .join("assets/packages")
-            .join(&request.profile);
+            .join(request.profile.as_str());
         fs::create_dir_all(&package_dir)
             .with_context(|| format!("failed to create `{}`", package_dir.display()))?;
         let output_path = package_dir.join(request.package.file_name());
@@ -98,7 +100,7 @@ impl Pipeline {
             &package_dir,
             &output_path,
             &catalog,
-            &repository,
+            &cooked,
             &request.signing_key,
         )?;
         Ok(CookResult {
@@ -110,7 +112,7 @@ impl Pipeline {
 
     fn populate_cache(
         &self,
-        repository: &Repository,
+        cooked: &BTreeMap<AssetId, CookedAsset>,
         catalog: &AssetCatalog,
     ) -> anyhow::Result<()> {
         let object_root = self.target_root.join("asset-cache/objects/blake3");
@@ -118,12 +120,11 @@ impl Pipeline {
         fs::create_dir_all(&object_root)?;
         fs::create_dir_all(&recipe_root)?;
         for record in &catalog.assets {
-            let asset = repository
-                .assets
+            let asset = cooked
                 .get(&record.id)
-                .with_context(|| format!("missing loaded asset `{}`", record.id))?;
+                .with_context(|| format!("missing cooked asset `{}`", record.id))?;
             let object_path = object_root.join(record.content_hash.to_string());
-            write_cache_object(&object_path, &asset.source_bytes, record.content_hash)?;
+            write_cache_object(&object_path, &asset.bytes, record.content_hash)?;
             let recipe_path = recipe_root.join(format!("{}.json", record.recipe_hash));
             let recipe = CachedRecipe {
                 schema: SOURCE_SCHEMA,
@@ -139,56 +140,40 @@ impl Pipeline {
     }
 }
 
-fn validate_profile(profile: &str) -> anyhow::Result<()> {
-    if profile != DEFAULT_PROFILE {
-        bail!("unsupported asset profile `{profile}`");
-    }
-    Ok(())
-}
-
 fn toolchain_identity() -> ToolchainIdentity {
+    let (major, minor, patch) = luau_version();
     ToolchainIdentity {
         cooker: format!("xtask/{}", env!("CARGO_PKG_VERSION")),
         squashfs: "backhand/0.25.1".to_owned(),
         archive:
             "squashfs-4.0-le;block=131072;zstd=3;epoch=0;uid=0;gid=0;signature=ed25519-blake3-v1"
                 .to_owned(),
+        luau: format!("luau/{major}.{minor}.{patch}"),
     }
 }
 
 fn build_catalog(
-    repository: &Repository,
-    selected: &BTreeSet<AssetId>,
-    recipe_hashes: &BTreeMap<AssetId, RecipeHash>,
-    profile: &str,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
+    profile: CookingProfileIdentity,
     toolchain: ToolchainIdentity,
 ) -> anyhow::Result<AssetCatalog> {
-    let mut assets = Vec::with_capacity(selected.len());
-    for id in selected {
-        let asset = repository
-            .assets
-            .get(id)
-            .with_context(|| format!("missing selected asset `{id}`"))?;
-        let recipe_hash = recipe_hashes
-            .get(id)
-            .copied()
-            .with_context(|| format!("missing recipe hash for `{id}`"))?;
-        let byte_len =
-            u64::try_from(asset.source_bytes.len()).context("asset length does not fit u64")?;
+    let mut assets = Vec::with_capacity(cooked.len());
+    for (id, asset) in cooked {
+        let byte_len = u64::try_from(asset.bytes.len()).context("asset length does not fit u64")?;
         assets.push(AssetRecord {
             id: id.clone(),
-            kind: asset.manifest.kind,
-            audience: asset.manifest.audience,
-            dependencies: Vec::new(),
+            kind: asset.kind,
+            audience: asset.audience,
+            dependencies: asset.dependencies.clone(),
             content_hash: asset.content_hash,
-            recipe_hash,
+            recipe_hash: asset.recipe_hash,
             byte_len,
             object_path: format!("objects/blake3/{}", asset.content_hash),
         });
     }
     Ok(AssetCatalog {
         schema: ASSET_CATALOG_SCHEMA,
-        profile: profile.to_owned(),
+        profile,
         toolchain,
         assets,
     })
@@ -198,7 +183,7 @@ fn write_and_publish_package(
     package_dir: &Path,
     output_path: &Path,
     catalog: &AssetCatalog,
-    repository: &Repository,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
     signing_key: &AssetSigningKey,
 ) -> anyhow::Result<PackageHash> {
     let staging = TempDir::new_in(package_dir).with_context(|| {
@@ -211,7 +196,7 @@ fn write_and_publish_package(
         .file_name()
         .context("package output path has no filename")?;
     let candidate = staging.path().join(file_name);
-    write_package(&candidate, catalog, repository)?;
+    write_package(&candidate, catalog, cooked)?;
     let _payload_hash = sign_package(&candidate, signing_key)?;
     let trust_store = AssetTrustStore::from_public_keys([signing_key.public_key_bytes()])?;
     let package = AssetPackage::open(&candidate, &trust_store)?;
@@ -227,11 +212,11 @@ fn write_and_publish_package(
 fn write_package(
     path: &Path,
     catalog: &AssetCatalog,
-    repository: &Repository,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
 ) -> anyhow::Result<()> {
     let mut catalog_bytes = serde_json::to_vec(catalog)?;
     catalog_bytes.push(b'\n');
-    let objects = unique_objects(catalog, repository)?;
+    let objects = unique_objects(catalog, cooked)?;
 
     let mut writer = configured_writer()?;
     let directory = NodeHeader::new(DIR_MODE, 0, 0, 0);
@@ -279,17 +264,16 @@ fn configured_writer() -> anyhow::Result<FilesystemWriter<'static, 'static, 'sta
 
 fn unique_objects(
     catalog: &AssetCatalog,
-    repository: &Repository,
-) -> anyhow::Result<BTreeMap<ContentHash, Vec<u8>>> {
+    cooked: &BTreeMap<AssetId, CookedAsset>,
+) -> anyhow::Result<BTreeMap<ContentHash, Bytes>> {
     let mut objects = BTreeMap::new();
     for record in &catalog.assets {
-        let source = repository
-            .assets
+        let source = cooked
             .get(&record.id)
             .with_context(|| format!("missing object source for `{}`", record.id))?;
         objects
             .entry(record.content_hash)
-            .or_insert_with(|| source.source_bytes.clone());
+            .or_insert_with(|| source.bytes.clone());
     }
     Ok(objects)
 }
@@ -408,7 +392,7 @@ struct CachedRecipe<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -419,15 +403,20 @@ mod tests {
     use blackflower_assets::{
         AssetCatalog, AssetChangeKind, AssetId, AssetPackage, AssetReloadStatus, AssetSigningKey,
         AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore, AssetWatchEvent, Bytes,
-        ContentHash, Error, PackageName, sign_package,
+        ContentHash, Error, PackageName, ProfileName, sign_package,
     };
+    use blackflower_scripting::{Bytecode, Runtime, Value};
     use tempfile::TempDir;
 
+    use crate::asset_cooker::{CookedAsset, cook_assets};
     use crate::manifest::Repository;
+    use crate::profile::CookingProfiles;
 
     use super::{CookRequest, Pipeline, build_catalog, toolchain_identity, write_package};
 
     const TEST_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+    const DEBUG_PROFILE: &str = "schema = 1\n\n[scripting.luau]\noptimization = \"baseline\"\ndebug = \"full\"\ntype_info = \"native_modules\"\n";
+    const RELEASE_PROFILE: &str = "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"line_info\"\ntype_info = \"native_modules\"\n";
 
     #[test]
     fn cooks_deterministically_and_reuses_the_logical_name() -> anyhow::Result<()> {
@@ -437,12 +426,158 @@ mod tests {
         let first = fixture.pipeline.cook(&request)?;
         assert_eq!(
             first.package_hash.to_string(),
-            "b2ee50fc0b96cd9bc7aa5b391ec95837d4da61bd5da882aabee83db289510030"
+            "b46b70a5249b345c8345fb574725816f5f9057c51bb539d2d60407fd857f0e03"
         );
         let first_bytes = fs::read(&first.path)?;
         let second = fixture.pipeline.cook(&request)?;
         assert_eq!(first.package_hash, second.package_hash);
         assert_eq!(first_bytes, fs::read(&second.path)?);
+        Ok(())
+    }
+
+    #[test]
+    fn cooks_profile_configured_luau_bytecode_for_runtime_loading() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.luau(
+            "scripts/answer",
+            "simulation",
+            "answer.luau",
+            b"local function answer() return 42 end\nreturn answer()\n",
+        )?;
+        let request = fixture.request("pak000", &["scripts/answer"])?;
+        let _result = fixture.pipeline.cook(&request)?;
+
+        let store = fixture.open_store()?;
+        let id = AssetId::from_str("scripts/answer")?;
+        let resolved = store.resolve(&id).context("missing cooked Luau asset")?;
+        assert_eq!(
+            resolved.record().kind,
+            blackflower_assets::AssetKind::LuauBytecode
+        );
+        assert_eq!(resolved.package().catalog().profile.name.as_str(), "debug");
+        assert_eq!(resolved.package().catalog().toolchain.luau, "luau/0.731.0");
+
+        let bytes = store.read_asset(&id)?;
+        assert_ne!(
+            bytes.as_ref(),
+            b"local function answer() return 42 end\nreturn answer()\n"
+        );
+        let bytecode = Bytecode::from_bytes(bytes.to_vec());
+        let values = Runtime::new()?.execute_bytecode("scripts/answer", &bytecode)?;
+        assert!(matches!(
+            values.as_slice(),
+            [Value::Number(value)] if value.to_bits() == 42.0_f64.to_bits()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn luau_profile_settings_change_only_luau_recipes() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/blob", "shared", "blob.bin", b"blob")?;
+        fixture.luau(
+            "scripts/policy",
+            "simulation",
+            "policy.luau",
+            b"local function policy(value) return value + 1 end\nreturn policy(4)\n",
+        )?;
+        let request = fixture.request("pak000", &["fixtures/blob", "scripts/policy"])?;
+        let first_result = fixture.pipeline.cook(&request)?;
+        let first = fixture.open_store()?;
+        let blob = AssetId::from_str("fixtures/blob")?;
+        let luau = AssetId::from_str("scripts/policy")?;
+        let first_blob = first
+            .resolve(&blob)
+            .context("missing blob")?
+            .record()
+            .clone();
+        let first_luau = first
+            .resolve(&luau)
+            .context("missing Luau")?
+            .record()
+            .clone();
+        let first_profile = first.packages()[0].catalog().profile.clone();
+        drop(first);
+
+        fixture.write_profile("debug", RELEASE_PROFILE)?;
+        let second_result = fixture.pipeline.cook(&request)?;
+        let second = fixture.open_store()?;
+        let second_blob = second
+            .resolve(&blob)
+            .context("missing recooked blob")?
+            .record();
+        let second_luau = second
+            .resolve(&luau)
+            .context("missing recooked Luau")?
+            .record();
+        let second_profile = &second.packages()[0].catalog().profile;
+
+        assert_eq!(first_blob.content_hash, second_blob.content_hash);
+        assert_eq!(first_blob.recipe_hash, second_blob.recipe_hash);
+        assert_ne!(first_luau.recipe_hash, second_luau.recipe_hash);
+        assert_ne!(first_profile.hash, second_profile.hash);
+        assert_ne!(first_result.package_hash, second_result.package_hash);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_or_malformed_cooking_profile_settings() -> anyhow::Result<()> {
+        let unknown = Fixture::new()?;
+        unknown.write_profile(
+            "debug",
+            "schema = 1\nunknown = true\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n",
+        )?;
+        assert!(unknown.pipeline.check().is_err());
+
+        let invalid_value = Fixture::new()?;
+        invalid_value.write_profile(
+            "debug",
+            "schema = 1\n\n[scripting.luau]\noptimization = \"fastest\"\ndebug = \"none\"\ntype_info = \"native_modules\"\n",
+        )?;
+        assert!(invalid_value.pipeline.check().is_err());
+
+        let removed_coverage = Fixture::new()?;
+        removed_coverage.write_profile(
+            "debug",
+            "schema = 1\n\n[scripting.luau]\noptimization = \"aggressive\"\ndebug = \"none\"\ntype_info = \"native_modules\"\ncoverage = \"none\"\n",
+        )?;
+        assert!(removed_coverage.pipeline.check().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_luau_before_publishing_a_package() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.luau("scripts/invalid", "simulation", "invalid.luau", b"local =")?;
+        let request = fixture.request("pak000", &["scripts/invalid"])?;
+        let error = fixture
+            .pipeline
+            .cook(&request)
+            .err()
+            .context("expected Luau compilation failure")?;
+        assert!(format!("{error:#}").contains("Luau compiler rejected source"));
+        assert!(!fixture.package_dir().join("pak000.squashfs").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_mixed_profile_hashes_in_one_package_directory() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let _base = fixture
+            .pipeline
+            .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+
+        fixture.write_profile("debug", RELEASE_PROFILE)?;
+        let _additional = fixture
+            .pipeline
+            .cook(&fixture.request("pak100", &["fixtures/example"])?)?;
+
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected mixed profile rejection")?;
+        assert!(matches!(error, Error::IncompatibleProfile { .. }));
         Ok(())
     }
 
@@ -813,6 +948,27 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_only_profile_changes_do_not_change_package_bytes() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.luau(
+            "scripts/example",
+            "simulation",
+            "example.luau",
+            b"return true\n",
+        )?;
+        let request = fixture.request("pak000", &["scripts/example"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_bytes = fs::read(&first.path)?;
+        let path = fixture.profiles.join("debug.toml");
+        let original = fs::read_to_string(&path)?;
+        fs::write(&path, format!("\n{original}\n"))?;
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_bytes, fs::read(second.path)?);
+        Ok(())
+    }
+
+    #[test]
     fn corrupt_cache_objects_are_rebuilt() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
         fixture.asset("fixtures/example", "shared", "example.bin", b"correct")?;
@@ -874,7 +1030,7 @@ mod tests {
         fixture.asset("fixtures/unlisted", "shared", "unlisted.bin", b"unlisted")?;
 
         let request = CookRequest {
-            profile: "desktop-universal".to_owned(),
+            profile: ProfileName::from_str("debug")?,
             package: PackageName::from_str("pak000")?,
             signing_key: Fixture::signing_key(),
         };
@@ -1035,11 +1191,11 @@ mod tests {
         let fixture = Fixture::new()?;
         fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
         let catalog = fixture.selected_catalog(&["fixtures/example"])?;
-        let repository = Repository::load(&fixture.source)?;
+        let cooked = fixture.cooked_for_catalog(&catalog)?;
         let directory = fixture.package_dir();
         fs::create_dir_all(&directory)?;
         let path = directory.join("pak000.squashfs");
-        write_package(&path, &catalog, &repository)?;
+        write_package(&path, &catalog, &cooked)?;
 
         let unsigned = fixture
             .open_store()
@@ -1104,7 +1260,7 @@ mod tests {
             .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
         fixture.package("pak100", &["fixtures/example"])?;
         let second_request = CookRequest {
-            profile: "desktop-universal".to_owned(),
+            profile: ProfileName::from_str("debug")?,
             package: PackageName::from_str("pak100")?,
             signing_key: AssetSigningKey::from_bytes(&[0x24; 32]),
         };
@@ -1123,6 +1279,7 @@ mod tests {
 
     struct Fixture {
         _temp: TempDir,
+        profiles: std::path::PathBuf,
         source: std::path::PathBuf,
         target: std::path::PathBuf,
         pipeline: Pipeline,
@@ -1131,12 +1288,16 @@ mod tests {
     impl Fixture {
         fn new() -> anyhow::Result<Self> {
             let temp = TempDir::new()?;
+            let profiles = temp.path().join("assets/profiles");
             let source = temp.path().join("assets/source");
             let target = temp.path().join("target");
+            fs::create_dir_all(&profiles)?;
             fs::create_dir_all(&source)?;
-            let pipeline = Pipeline::new(source.clone(), target.clone());
+            fs::write(profiles.join("debug.toml"), DEBUG_PROFILE)?;
+            let pipeline = Pipeline::new(profiles.clone(), source.clone(), target.clone());
             Ok(Self {
                 _temp: temp,
+                profiles,
                 source,
                 target,
                 pipeline,
@@ -1157,6 +1318,28 @@ mod tests {
                 "schema = 1\nid = \"{id}\"\nkind = \"blob\"\naudience = \"{audience}\"\n\n[blob]\nsource = \"{source_name}\"\n"
             );
             fs::write(directory.join("asset.toml"), manifest)?;
+            Ok(())
+        }
+
+        fn luau(
+            &self,
+            id: &str,
+            audience: &str,
+            source_name: &str,
+            bytes: &[u8],
+        ) -> anyhow::Result<()> {
+            let directory = self.source.join(id);
+            fs::create_dir_all(&directory)?;
+            fs::write(directory.join(source_name), bytes)?;
+            let manifest = format!(
+                "schema = 1\nid = \"{id}\"\nkind = \"luau_bytecode\"\naudience = \"{audience}\"\n\n[luau]\nsource = \"{source_name}\"\n"
+            );
+            fs::write(directory.join("asset.toml"), manifest)?;
+            Ok(())
+        }
+
+        fn write_profile(&self, name: &str, profile: &str) -> anyhow::Result<()> {
+            fs::write(self.profiles.join(format!("{name}.toml")), profile)?;
             Ok(())
         }
 
@@ -1183,14 +1366,14 @@ mod tests {
         fn request(&self, package: &str, assets: &[&str]) -> anyhow::Result<CookRequest> {
             self.package(package, assets)?;
             Ok(CookRequest {
-                profile: "desktop-universal".to_owned(),
+                profile: ProfileName::from_str("debug")?,
                 package: PackageName::from_str(package)?,
                 signing_key: Self::signing_key(),
             })
         }
 
         fn package_dir(&self) -> std::path::PathBuf {
-            self.target.join("assets/packages/desktop-universal")
+            self.target.join("assets/packages/debug")
         }
 
         fn signing_key() -> AssetSigningKey {
@@ -1216,16 +1399,12 @@ mod tests {
                 .iter()
                 .map(|id| AssetId::from_str(id))
                 .collect::<Result<BTreeSet<_>, _>>()?;
+            let profiles = CookingProfiles::load(&self.profiles)?;
+            let profile_name = ProfileName::from_str("debug")?;
+            let profile = profiles.get(&profile_name)?;
+            let cooked = cook_assets(&repository, &selected, profile)?;
             let toolchain = toolchain_identity();
-            let toolchain_bytes = serde_json::to_vec(&toolchain)?;
-            let hashes = repository.recipe_hashes("desktop-universal", &toolchain_bytes)?;
-            build_catalog(
-                &repository,
-                &selected,
-                &hashes,
-                "desktop-universal",
-                toolchain,
-            )
+            build_catalog(&cooked, profile.identity.clone(), toolchain)
         }
 
         fn write_selected_package(
@@ -1242,14 +1421,29 @@ mod tests {
             package: &str,
             catalog: &AssetCatalog,
         ) -> anyhow::Result<std::path::PathBuf> {
-            let repository = Repository::load(&self.source)?;
+            let cooked = self.cooked_for_catalog(catalog)?;
             let directory = self.package_dir();
             fs::create_dir_all(&directory)?;
             let name = PackageName::from_str(package)?;
             let path = directory.join(name.file_name());
-            write_package(&path, catalog, &repository)?;
+            write_package(&path, catalog, &cooked)?;
             let _payload_hash = sign_package(&path, &Self::signing_key())?;
             Ok(path)
+        }
+
+        fn cooked_for_catalog(
+            &self,
+            catalog: &AssetCatalog,
+        ) -> anyhow::Result<BTreeMap<AssetId, CookedAsset>> {
+            let repository = Repository::load(&self.source)?;
+            let selected = catalog
+                .assets
+                .iter()
+                .map(|record| record.id.clone())
+                .collect::<BTreeSet<_>>();
+            let profiles = CookingProfiles::load(&self.profiles)?;
+            let profile = profiles.get(&catalog.profile.name)?;
+            cook_assets(&repository, &selected, profile)
         }
     }
 }

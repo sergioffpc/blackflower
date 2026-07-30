@@ -5,9 +5,10 @@ Safe Rust ownership over a statically linked
 virtual machine. The upstream source is pinned as the Git submodule
 `vendor/luau` at commit `f8ca77acdcb50241e3da21af663f8ef97b4b5ce4`.
 
-The build enables Luau's official C linkage, compiles `Luau.Compiler` and
-`Luau.VM`, and generates private Rust declarations from the public VM headers
-and `native/wrapper.h`. All `unsafe` calls remain in `src/ffi.rs`.
+The build enables Luau's official C linkage, compiles `Luau.Compiler`,
+`Luau.CodeGen`, and `Luau.VM`, and generates private Rust declarations from
+the public VM headers and `native/wrapper.h`. All `unsafe` calls remain in
+`src/ffi.rs`.
 
 ## Checkout and prerequisites
 
@@ -69,6 +70,105 @@ assert!(matches!(values.get(1), Some(Value::Vector(_))));
 # }
 ```
 
+`compile` reports parser and compiler diagnostics immediately rather than
+returning Luau's encoded error payload as executable bytecode.
+
+## Compiler profiles
+
+`CompileOptions` carries the three settings selected by the cooking profile
+across the safe Rust and native C ABI boundaries:
+
+- `optimization` changes Luau bytecode generation. `Baseline` preserves useful
+  debugging behavior; `Aggressive` also permits transformations such as
+  inlining.
+- `debug` controls bytecode metadata. `LineInfo` provides source locations in
+  runtime errors, stack traces, breakpoints, and stepping. `Full` additionally
+  retains named locals and upvalues for debugger inspection.
+- `type_info` controls which loaded modules are eligible for native codegen.
+  `NativeModules` limits compilation to modules marked with `--!native`;
+  `AllModules` allows every loaded module.
+
+The `Bytecode` wrapper retains the options used to compile it. Authenticated
+cooked content must use `Bytecode::from_bytes_with_options` so the runtime can
+apply the matching native-codegen policy. Coverage remains disabled by the
+asset cooker.
+
+## Debugging
+
+Debug metadata does not expose Luau's `debug` standard library to scripts.
+Instead, the host can run a chunk with breakpoints or single stepping and
+receive synchronous snapshots of the call stack, locals, and upvalues:
+
+```rust
+use blackflower_scripting::{
+    CompileOptions, DebugAction, DebugLevel, DebugOptions, Runtime,
+};
+
+# fn example() -> Result<(), blackflower_scripting::Error> {
+let mut runtime = Runtime::new()?;
+let compile_options = CompileOptions {
+    debug: DebugLevel::Full,
+    ..CompileOptions::default()
+};
+let debug_options = DebugOptions::default().with_breakpoint(3);
+let mut handler = |event: &blackflower_scripting::DebugEvent| {
+    let frame = &event.frames[0];
+    assert_eq!(frame.current_line, Some(3));
+    DebugAction::Continue
+};
+
+let values = runtime.execute_with_options_debugged(
+    "policy.luau",
+    "local function decide()\n    local accepted = true\n    return accepted\nend\nreturn decide()",
+    compile_options,
+    &debug_options,
+    &mut handler,
+)?;
+assert_eq!(values.len(), 1);
+# Ok(())
+# }
+```
+
+The handler runs on the runtime's owning thread. It must not re-enter that
+runtime. Panics are contained and returned as `Error::DebugHandlerPanicked`.
+Luau 0.731 cannot debug native frames, so native execution is temporarily
+suspended during `execute_bytecode_debugged` and restored afterward.
+
+## Native codegen
+
+Native codegen is opt-in because it owns executable memory separately from the
+VM allocator. Enable it with an explicit budget:
+
+```rust
+use blackflower_scripting::{
+    CompileOptions, Runtime, RuntimeConfig, TypeInfoLevel,
+};
+
+# fn example() -> Result<(), blackflower_scripting::Error> {
+let config = RuntimeConfig::default()
+    .with_native_codegen_limit_bytes(8 * 1024 * 1024);
+let mut runtime = Runtime::with_config(config)?;
+let values = runtime.execute_with_options(
+    "hot-path.luau",
+    "--!native\nlocal function sum(n)\n    local total = 0\n    for i = 1, n do total += i end\n    return total\nend\nreturn sum(100)",
+    CompileOptions {
+        type_info: TypeInfoLevel::NativeModules,
+        ..CompileOptions::default()
+    },
+)?;
+
+assert_eq!(values.len(), 1);
+assert!(runtime.last_native_codegen_stats().is_some());
+assert!(runtime.native_codegen_memory_usage().current_bytes > 0);
+# Ok(())
+# }
+```
+
+`native_codegen_supported` reports target support before runtime creation.
+`Runtime::last_native_codegen_stats` reports the most recent chunk, while
+`Runtime::native_codegen_memory_usage` reports current, peak, and configured
+executable-memory usage. A zero budget keeps the interpreter-only default.
+
 Runtime initialization excludes `os` and `debug`; no filesystem, network, or
 module loader is registered. Builtin libraries are frozen through
 `luaL_sandbox`, each runtime receives a writable sandbox global table, and
@@ -89,6 +189,11 @@ filesystem, networking, or module loading.
 Luau bytecode is not a stable interchange format. Cooked bytecode must carry
 the exact Luau/content compatibility identity and be rejected by consumers
 using another VM version.
+
+The asset cooker reads compile options from the selected versioned cooking
+profile and emits `luau_bytecode` assets. Runtime composition can reconstruct
+the safe owned wrapper with `Bytecode::from_bytes`; the VM validates the
+bytecode version and structure when the chunk is loaded.
 
 The VM memory ceiling does not cover the standalone C++ compiler used by
 `compile`. Cook untrusted source in a separately constrained worker and run

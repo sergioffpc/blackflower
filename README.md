@@ -58,10 +58,17 @@ Cook one deterministic runtime package:
 
 ```sh
 cargo xtask assets cook \
-    --profile desktop-universal \
+    --profile release \
     --package pak000 \
     --signing-key /secure/asset-signing-key.pem
 ```
+
+The profile name selects `assets/profiles/<name>.toml`. Cooking options are
+defined once in that strict, versioned file and cannot be overridden by
+individual assets. The initial profile schema owns the Luau optimization,
+debug, and type-information settings. Luau coverage instrumentation is always
+disabled. Each package embeds the profile name and canonical configuration
+hash.
 
 The package name selects its only composition manifest:
 `assets/source/packages/<logical-name>/package.toml`. Its explicit `assets`

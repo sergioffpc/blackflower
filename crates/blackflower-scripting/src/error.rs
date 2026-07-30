@@ -7,6 +7,18 @@ pub enum Error {
     /// A runtime was configured without any execution fuel.
     #[error("Luau execution fuel must be greater than zero")]
     InvalidExecutionFuel,
+    /// Native codegen was enabled with an executable-memory budget below the minimum.
+    #[error("Luau native codegen memory limit is too small")]
+    InvalidNativeCodegenLimit,
+    /// The current target cannot execute Luau native code.
+    #[error("Luau native codegen is unsupported on this target")]
+    NativeCodegenUnsupported,
+    /// Luau could not initialize its native code generator.
+    #[error("Luau native codegen initialization failed")]
+    NativeCodegenInitialization,
+    /// Luau could not generate native code for a loaded chunk.
+    #[error("Luau native code generation failed")]
+    NativeCodegenCompilation,
     /// The native compiler or VM could not allocate memory.
     #[error("Luau allocation failed")]
     OutOfMemory,
@@ -28,6 +40,15 @@ pub enum Error {
     /// A chunk name contains a nul byte and cannot cross the native API.
     #[error("Luau chunk names cannot contain nul bytes")]
     InvalidChunkName,
+    /// No executable instruction could be associated with a requested source line.
+    #[error("Luau breakpoint line {line} is not executable")]
+    InvalidBreakpoint {
+        /// Requested one-based source line.
+        line: u32,
+    },
+    /// A user-provided debugger handler panicked inside the native callback.
+    #[error("Luau debugger handler panicked")]
+    DebugHandlerPanicked,
     /// A returned Luau value is outside the initial safe value surface.
     #[error("unsupported Luau result at index {index}: {type_name}")]
     UnsupportedValue {

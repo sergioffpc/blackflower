@@ -1,0 +1,201 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+use std::str::FromStr;
+
+use anyhow::{Context, bail};
+use blackflower_assets::{CookingProfileIdentity, ProfileHash, ProfileName};
+use blackflower_scripting::{
+    CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel,
+};
+use serde::{Deserialize, Serialize};
+
+const PROFILE_SCHEMA: u32 = 1;
+const PROFILE_HASH_DOMAIN: &[u8] = b"blackflower.cooking-profile.v1";
+
+#[derive(Debug)]
+pub(crate) struct CookingProfiles {
+    profiles: BTreeMap<ProfileName, CookingProfile>,
+}
+
+impl CookingProfiles {
+    pub(crate) fn load(root: &Path) -> anyhow::Result<Self> {
+        let canonical_root = root.canonicalize().with_context(|| {
+            format!(
+                "cooking profile directory `{}` does not exist",
+                root.display()
+            )
+        })?;
+        let mut paths = fs::read_dir(&canonical_root)
+            .with_context(|| {
+                format!(
+                    "failed to enumerate cooking profiles in `{}`",
+                    canonical_root.display()
+                )
+            })?
+            .map(|entry| entry.map(|value| value.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+        paths.sort();
+
+        let mut profiles = BTreeMap::new();
+        for path in paths {
+            let metadata = fs::symlink_metadata(&path)
+                .with_context(|| format!("failed to inspect `{}`", path.display()))?;
+            if metadata.file_type().is_symlink() {
+                if is_profile_path(&path) {
+                    bail!("cooking profile `{}` cannot be a symlink", path.display());
+                }
+                continue;
+            }
+            if !metadata.is_file() || !is_profile_path(&path) {
+                continue;
+            }
+            let profile = CookingProfile::load(&path)?;
+            let name = profile.identity.name.clone();
+            if profiles.insert(name.clone(), profile).is_some() {
+                bail!("duplicate cooking profile `{name}`");
+            }
+        }
+        if profiles.is_empty() {
+            bail!(
+                "cooking profile directory `{}` contains no `.toml` profiles",
+                canonical_root.display()
+            );
+        }
+        Ok(Self { profiles })
+    }
+
+    pub(crate) fn get(&self, name: &ProfileName) -> anyhow::Result<&CookingProfile> {
+        self.profiles
+            .get(name)
+            .with_context(|| format!("cooking profile `{name}` does not exist"))
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.profiles.len()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct CookingProfile {
+    pub(crate) identity: CookingProfileIdentity,
+    pub(crate) scripting: ScriptingProfile,
+}
+
+impl CookingProfile {
+    fn load(path: &Path) -> anyhow::Result<Self> {
+        let name = profile_name_from_path(path)?;
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("failed to read cooking profile `{}`", path.display()))?;
+        let file: CookingProfileFile = toml::from_str(&text)
+            .with_context(|| format!("invalid cooking profile `{}`", path.display()))?;
+        if file.schema != PROFILE_SCHEMA {
+            bail!(
+                "unsupported cooking profile schema {} in `{}`",
+                file.schema,
+                path.display()
+            );
+        }
+        let hash = hash_profile(&file)?;
+        Ok(Self {
+            identity: CookingProfileIdentity { name, hash },
+            scripting: file.scripting,
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CookingProfileFile {
+    schema: u32,
+    scripting: ScriptingProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScriptingProfile {
+    pub(crate) luau: LuauProfile,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LuauProfile {
+    optimization: LuauOptimization,
+    debug: LuauDebug,
+    type_info: LuauTypeInfo,
+}
+
+impl LuauProfile {
+    pub(crate) const fn compile_options(self) -> CompileOptions {
+        CompileOptions {
+            optimization: match self.optimization {
+                LuauOptimization::None => OptimizationLevel::None,
+                LuauOptimization::Baseline => OptimizationLevel::Baseline,
+                LuauOptimization::Aggressive => OptimizationLevel::Aggressive,
+            },
+            debug: match self.debug {
+                LuauDebug::None => DebugLevel::None,
+                LuauDebug::LineInfo => DebugLevel::LineInfo,
+                LuauDebug::Full => DebugLevel::Full,
+            },
+            type_info: match self.type_info {
+                LuauTypeInfo::NativeModules => TypeInfoLevel::NativeModules,
+                LuauTypeInfo::AllModules => TypeInfoLevel::AllModules,
+            },
+            coverage: CoverageLevel::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LuauOptimization {
+    None,
+    Baseline,
+    Aggressive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LuauDebug {
+    None,
+    LineInfo,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LuauTypeInfo {
+    NativeModules,
+    AllModules,
+}
+
+fn is_profile_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension == "toml")
+}
+
+fn profile_name_from_path(path: &Path) -> anyhow::Result<ProfileName> {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .context("cooking profile filename must be UTF-8")?;
+    ProfileName::from_str(stem).map_err(anyhow::Error::from)
+}
+
+fn hash_profile(file: &CookingProfileFile) -> anyhow::Result<ProfileHash> {
+    let canonical = serde_json::to_vec(file)?;
+    let mut hasher = blake3::Hasher::new();
+    hash_field(&mut hasher, PROFILE_HASH_DOMAIN);
+    hash_field(&mut hasher, &canonical);
+    Ok(ProfileHash::from_bytes(*hasher.finalize().as_bytes()))
+}
+
+fn hash_field(hasher: &mut blake3::Hasher, bytes: &[u8]) {
+    hasher.update(&usize_to_u64(bytes.len()).to_le_bytes());
+    hasher.update(bytes);
+}
+
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
