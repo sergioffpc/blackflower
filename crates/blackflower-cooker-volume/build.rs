@@ -1,5 +1,6 @@
 use std::env;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
@@ -60,19 +61,14 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn build_zlib(out_dir: &Path) -> PathBuf {
-    let mut config = cmake::Config::new(ZLIB_ROOT);
-    config
-        .out_dir(out_dir.join("zlib"))
-        .profile("Release")
-        .define("ZLIB_BUILD_EXAMPLES", "OFF");
+    let mut config = base_config(ZLIB_ROOT, &out_dir.join("zlib"));
+    config.define("ZLIB_BUILD_EXAMPLES", "OFF");
     config.build()
 }
 
 fn build_blosc(out_dir: &Path) -> PathBuf {
-    let mut config = cmake::Config::new(BLOSC_ROOT);
+    let mut config = base_config(BLOSC_ROOT, &out_dir.join("blosc"));
     config
-        .out_dir(out_dir.join("blosc"))
-        .profile("Release")
         .define("BUILD_SHARED", "OFF")
         .define("BUILD_STATIC", "ON")
         .define("BUILD_TESTS", "OFF")
@@ -87,10 +83,8 @@ fn build_blosc(out_dir: &Path) -> PathBuf {
 }
 
 fn build_tbb(out_dir: &Path) -> PathBuf {
-    let mut config = cmake::Config::new(TBB_ROOT);
+    let mut config = base_config(TBB_ROOT, &out_dir.join("tbb"));
     config
-        .out_dir(out_dir.join("tbb"))
-        .profile("Release")
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("TBB_TEST", "OFF")
         .define("TBBMALLOC_BUILD", "OFF")
@@ -101,16 +95,37 @@ fn build_tbb(out_dir: &Path) -> PathBuf {
 }
 
 fn build_cooker(out_dir: &Path, zlib: &Path, blosc: &Path, tbb: &Path) -> PathBuf {
-    let mut config = cmake::Config::new("native");
+    let mut config = base_config("native", &out_dir.join("native"));
     config
-        .out_dir(out_dir.join("native"))
-        .profile("Release")
         .define("BLACKFLOWER_OPENVDB_ROOT", absolute(OPENVDB_ROOT))
         .define("BLACKFLOWER_BOOST_ROOT", absolute(BOOST_ROOT))
         .define("BLACKFLOWER_TBB_ROOT", tbb)
         .define("BLACKFLOWER_BLOSC_ROOT", blosc)
         .define("BLACKFLOWER_ZLIB_ROOT", zlib);
     config.build()
+}
+
+fn base_config(source: &str, output: &Path) -> cmake::Config {
+    let mut config = cmake::Config::new(source);
+    config.out_dir(output).profile("Release");
+    if env::var_os("CARGO_CFG_TARGET_ENV").as_deref() == Some(OsStr::new("msvc")) {
+        config
+            .cxxflag("/EHsc")
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime());
+    }
+    config
+}
+
+fn msvc_runtime() -> &'static str {
+    let target_features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    if target_features
+        .split(',')
+        .any(|feature| feature == "crt-static")
+    {
+        "MultiThreaded"
+    } else {
+        "MultiThreadedDLL"
+    }
 }
 
 fn absolute(path: &str) -> PathBuf {
