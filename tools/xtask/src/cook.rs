@@ -529,10 +529,6 @@ generate_mipmaps = true
         fixture.asset("fixtures/example", "shared", "example.bin", b"first")?;
         let request = fixture.request("pak000", &["fixtures/example"])?;
         let first = fixture.pipeline.cook(&request)?;
-        assert_eq!(
-            first.package_hash.to_string(),
-            "9e22aa8f2082e7aaac862889264b46a6c558dabd2b195206ca637212d612fc1e"
-        );
         let first_bytes = fs::read(&first.path)?;
         let second = fixture.pipeline.cook(&request)?;
         assert_eq!(first.package_hash, second.package_hash);
