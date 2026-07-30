@@ -70,12 +70,39 @@ pub struct CompileOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bytecode {
     bytes: Box<[u8]>,
+    compile_options: CompileOptions,
 }
 
 impl Bytecode {
-    pub(crate) fn from_vec(bytes: Vec<u8>) -> Self {
+    pub(crate) fn from_vec(bytes: Vec<u8>, compile_options: CompileOptions) -> Self {
         Self {
             bytes: bytes.into_boxed_slice(),
+            compile_options,
+        }
+    }
+
+    /// Reconstruct bytecode loaded from authenticated cooked content.
+    ///
+    /// The bytecode version and structure are validated when a [`crate::Runtime`]
+    /// loads the chunk.
+    #[must_use]
+    pub fn from_bytes(bytes: impl Into<Box<[u8]>>) -> Self {
+        Self::from_bytes_with_options(bytes, CompileOptions::default())
+    }
+
+    /// Reconstruct cooked bytecode with its authenticated compiler options.
+    ///
+    /// The runtime uses [`CompileOptions::type_info`] to select whether native
+    /// codegen is restricted to `--!native` modules or may compile every
+    /// loaded module.
+    #[must_use]
+    pub fn from_bytes_with_options(
+        bytes: impl Into<Box<[u8]>>,
+        compile_options: CompileOptions,
+    ) -> Self {
+        Self {
+            bytes: bytes.into(),
+            compile_options,
         }
     }
 
@@ -83,6 +110,12 @@ impl Bytecode {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Consume the wrapper and return its owned encoded bytecode.
+    #[must_use]
+    pub fn into_bytes(self) -> Box<[u8]> {
+        self.bytes
     }
 
     /// Return the encoded bytecode length.
@@ -96,15 +129,24 @@ impl Bytecode {
     pub const fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
+
+    /// Compiler options associated with these bytecode bytes.
+    #[must_use]
+    pub const fn compile_options(&self) -> CompileOptions {
+        self.compile_options
+    }
 }
 
 /// Compile Luau source with the selected bytecode options.
 ///
-/// Luau encodes syntax errors into the returned bytecode. They are reported as
-/// [`Error::Compile`] when a [`crate::Runtime`] loads that bytecode.
-///
 /// Compilation runs outside any [`crate::RuntimeConfig`] VM allocator limit.
 /// Compile untrusted source in a separately constrained cooker or worker.
 pub fn compile(source: &str, options: CompileOptions) -> Result<Bytecode, Error> {
-    ffi::compile(source, options).map(Bytecode::from_vec)
+    let bytes = ffi::compile(source, options)?;
+    if bytes.first() == Some(&0) {
+        return Err(Error::Compile(
+            String::from_utf8_lossy(&bytes[1..]).into_owned(),
+        ));
+    }
+    Ok(Bytecode::from_vec(bytes, options))
 }

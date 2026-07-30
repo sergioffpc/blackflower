@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{AssetId, ContentHash, RecipeHash};
+use crate::{AssetId, ContentHash, ProfileHash, ProfileName, RecipeHash};
 
 /// Current embedded JSON catalog schema.
-pub const ASSET_CATALOG_SCHEMA: u32 = 1;
+pub const ASSET_CATALOG_SCHEMA: u32 = 2;
 
 /// Runtime representation used to decode an asset object.
 #[non_exhaustive]
@@ -12,6 +12,8 @@ pub const ASSET_CATALOG_SCHEMA: u32 = 1;
 pub enum AssetKind {
     /// Opaque bytes used by the pipeline foundation and fixtures.
     Blob,
+    /// Bytecode produced for the pinned Luau virtual machine.
+    LuauBytecode,
 }
 
 /// Runtime domains that consume an asset.
@@ -36,6 +38,18 @@ pub struct ToolchainIdentity {
     pub squashfs: String,
     /// Fixed archive format settings.
     pub archive: String,
+    /// Luau compiler and bytecode version.
+    pub luau: String,
+}
+
+/// Exact versioned cooking profile used to produce a package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CookingProfileIdentity {
+    /// Portable profile filename stem.
+    pub name: ProfileName,
+    /// Hash of the profile's canonical semantic configuration.
+    pub hash: ProfileHash,
 }
 
 /// Catalog entry mapping a logical ID to one content-addressed archive object.
@@ -66,8 +80,8 @@ pub struct AssetRecord {
 pub struct AssetCatalog {
     /// Catalog schema.
     pub schema: u32,
-    /// Cooker target profile.
-    pub profile: String,
+    /// Exact cooking profile.
+    pub profile: CookingProfileIdentity,
     /// Exact toolchain configuration that produced the package.
     pub toolchain: ToolchainIdentity,
     /// Records ordered by logical asset ID.

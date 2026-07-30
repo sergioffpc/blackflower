@@ -14,13 +14,14 @@ mod watcher;
 
 pub use bytes::Bytes;
 pub use catalog::{
-    ASSET_CATALOG_SCHEMA, AssetAudience, AssetCatalog, AssetKind, AssetRecord, ToolchainIdentity,
+    ASSET_CATALOG_SCHEMA, AssetAudience, AssetCatalog, AssetKind, AssetRecord,
+    CookingProfileIdentity, ToolchainIdentity,
 };
-pub use error::{Error, InvalidAssetId, InvalidHash, InvalidPackageName};
+pub use error::{Error, InvalidAssetId, InvalidHash, InvalidPackageName, InvalidProfileName};
 pub use hash::{
-    AssetKeyId, AssetSetHash, ContentHash, PackageHash, PackagePayloadHash, RecipeHash,
+    AssetKeyId, AssetSetHash, ContentHash, PackageHash, PackagePayloadHash, ProfileHash, RecipeHash,
 };
-pub use id::{AssetId, PackageName};
+pub use id::{AssetId, PackageName, ProfileName};
 pub use package::{AssetPackage, AssetReader};
 #[cfg(feature = "hot-reload")]
 pub use reload::{

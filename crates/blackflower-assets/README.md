@@ -29,9 +29,17 @@ zero-padded names such as `pak000.squashfs`, `pak100-expansion.squashfs`, and
 `pak900-hotfix.squashfs`; this ordering is deliberately not natural numeric
 ordering.
 
-The first pipeline stage supports opaque blobs only. Domain-specific cookers
-for textures, shaders, models, animation, volumes, navigation, and audio add
-new `AssetKind` variants without changing the package overlay contract.
+Each package records the portable name and canonical BLAKE3 identity of its
+cooking profile. A layered store rejects packages with different profile names
+or hashes before resolving any assets. Profile definitions live in
+`assets/profiles`; individual asset manifests cannot override their settings.
+This profile identity and the Luau bytecode kind use catalog schema 2, so
+packages produced with catalog schema 1 must be cooked again.
+
+The pipeline supports opaque blobs and profile-configured Luau bytecode.
+Domain-specific cookers for textures, shaders, models, animation, volumes,
+navigation, and audio add new `AssetKind` variants without changing the
+package overlay contract.
 
 ## Optional hot reload
 
@@ -77,7 +85,7 @@ use std::time::Duration;
 let trusted_keys =
     AssetTrustStore::from_public_keys([release_asset_public_key])?;
 let manager = Arc::new(AssetStoreManager::open_dir(
-    "target/assets/packages/desktop-universal",
+    "target/assets/packages/release",
     trusted_keys,
 )?);
 let watcher =
@@ -112,7 +120,7 @@ use std::str::FromStr;
 let trusted_keys =
     AssetTrustStore::from_public_keys([release_asset_public_key])?;
 let store = AssetStore::open_dir(
-    "target/assets/packages/desktop-universal",
+    "target/assets/packages/release",
     &trusted_keys,
 )?;
 let id = AssetId::from_str("fixtures/example")?;

@@ -10,6 +10,7 @@ publish = false
 anyhow.workspace = true
 backhand.workspace = true
 blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
+blackflower-scripting.workspace = true
 blake3.workspace = true
 clap.workspace = true
 serde.workspace = true

@@ -18,6 +18,7 @@ set_target_properties(Luau.Common PROPERTIES OUTPUT_NAME blackflower_luau_common
 set_target_properties(Luau.Ast PROPERTIES OUTPUT_NAME blackflower_luau_ast)
 set_target_properties(Luau.Bytecode PROPERTIES OUTPUT_NAME blackflower_luau_bytecode)
 set_target_properties(Luau.Compiler PROPERTIES OUTPUT_NAME blackflower_luau_compiler)
+set_target_properties(Luau.CodeGen PROPERTIES OUTPUT_NAME blackflower_luau_codegen)
 set_target_properties(Luau.VM PROPERTIES OUTPUT_NAME blackflower_luau_vm)
 
 add_library(blackflower_scripting_wrapper STATIC wrapper.cpp)
@@ -32,12 +33,14 @@ target_compile_definitions(
 target_include_directories(
     blackflower_scripting_wrapper
     PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/CodeGen/include"
     "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/Compiler/include"
     "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/VM/include"
 )
 target_link_libraries(
     blackflower_scripting_wrapper
     PRIVATE
+    Luau.CodeGen
     Luau.Compiler
     Luau.VM
 )
@@ -49,6 +52,7 @@ install(
         Luau.Ast
         Luau.Bytecode
         Luau.Compiler
+        Luau.CodeGen
         Luau.VM
         blackflower_scripting_wrapper
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"

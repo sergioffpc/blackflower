@@ -4,6 +4,12 @@ pub const DEFAULT_VM_MEMORY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 /// Default number of VM safepoints that one execution may cross.
 pub const DEFAULT_EXECUTION_FUEL: u64 = 100_000;
 
+/// Native codegen is disabled unless an explicit executable-memory limit is set.
+pub const DEFAULT_NATIVE_CODEGEN_LIMIT_BYTES: usize = 0;
+
+/// Smallest supported executable-memory budget for native codegen.
+pub const MIN_NATIVE_CODEGEN_LIMIT_BYTES: usize = 4 * 1024 * 1024;
+
 /// A safe Luau standard library that can be exposed to scripts.
 ///
 /// Filesystem, networking, `os`, `debug`, and module loading are never
@@ -117,6 +123,7 @@ impl Default for SandboxPolicy {
 pub struct RuntimeConfig {
     random_seed: i32,
     vm_memory_limit_bytes: usize,
+    native_codegen_limit_bytes: usize,
     execution_fuel: u64,
     sandbox_policy: SandboxPolicy,
 }
@@ -135,6 +142,17 @@ impl RuntimeConfig {
     #[must_use]
     pub const fn with_vm_memory_limit_bytes(mut self, limit: usize) -> Self {
         self.vm_memory_limit_bytes = limit;
+        self
+    }
+
+    /// Set the maximum executable-memory budget for Luau native codegen.
+    ///
+    /// Zero disables native codegen. A non-zero value smaller than
+    /// [`MIN_NATIVE_CODEGEN_LIMIT_BYTES`] is rejected when the runtime is
+    /// created.
+    #[must_use]
+    pub const fn with_native_codegen_limit_bytes(mut self, limit: usize) -> Self {
+        self.native_codegen_limit_bytes = limit;
         self
     }
 
@@ -167,6 +185,12 @@ impl RuntimeConfig {
         self.vm_memory_limit_bytes
     }
 
+    /// Maximum executable-memory budget for native codegen, or zero when disabled.
+    #[must_use]
+    pub const fn native_codegen_limit_bytes(self) -> usize {
+        self.native_codegen_limit_bytes
+    }
+
     /// VM safepoint fuel restored before every execution.
     #[must_use]
     pub const fn execution_fuel(self) -> u64 {
@@ -185,6 +209,7 @@ impl Default for RuntimeConfig {
         Self {
             random_seed: 0,
             vm_memory_limit_bytes: DEFAULT_VM_MEMORY_LIMIT_BYTES,
+            native_codegen_limit_bytes: DEFAULT_NATIVE_CODEGEN_LIMIT_BYTES,
             execution_fuel: DEFAULT_EXECUTION_FUEL,
             sandbox_policy: SandboxPolicy::standard(),
         }
@@ -200,4 +225,23 @@ pub struct MemoryUsage {
     pub peak_bytes: usize,
     /// Configured allocator ceiling.
     pub limit_bytes: usize,
+}
+
+/// Native-code generation performed for the most recently loaded chunk.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct NativeCodegenStats {
+    /// Size of bytecode considered by the code generator.
+    pub bytecode_size_bytes: usize,
+    /// Executable machine-code bytes emitted.
+    pub native_code_size_bytes: usize,
+    /// Read-only native data bytes emitted.
+    pub native_data_size_bytes: usize,
+    /// Metadata bytes retained by the native runtime.
+    pub native_metadata_size_bytes: usize,
+    /// Luau functions considered for native compilation.
+    pub functions_total: u32,
+    /// Functions lowered successfully.
+    pub functions_compiled: u32,
+    /// Functions bound to executable native entry points.
+    pub functions_bound: u32,
 }

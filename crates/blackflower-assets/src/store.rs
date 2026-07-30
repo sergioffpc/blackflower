@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::error::io_error;
 use crate::{
     AssetAudience, AssetId, AssetKind, AssetPackage, AssetReader, AssetRecord, AssetSetHash,
-    AssetTrustStore, Bytes, Error, PackageName,
+    AssetTrustStore, Bytes, CookingProfileIdentity, Error, PackageName,
 };
 
 const ASSET_SET_SCHEMA: u32 = 1;
@@ -16,6 +16,7 @@ const ASSET_SET_DOMAIN: &[u8] = b"blackflower.asset-set.v1";
 pub struct AssetStore {
     directory: PathBuf,
     packages: Vec<AssetPackage>,
+    profile: Option<CookingProfileIdentity>,
     hash: AssetSetHash,
 }
 
@@ -36,12 +37,17 @@ impl AssetStore {
         for package_path in paths {
             packages.push(AssetPackage::open(package_path, trust_store)?);
         }
+        validate_profiles(&packages)?;
         validate_overrides(&packages)?;
         validate_winning_dependencies(&packages)?;
+        let profile = packages
+            .first()
+            .map(|package| package.catalog().profile.clone());
         let hash = calculate_asset_set_hash(&packages);
         Ok(Self {
             directory,
             packages,
+            profile,
             hash,
         })
     }
@@ -76,6 +82,12 @@ impl AssetStore {
     #[must_use]
     pub fn packages(&self) -> &[AssetPackage] {
         &self.packages
+    }
+
+    /// Exact cooking profile shared by every package, or `None` for an empty store.
+    #[must_use]
+    pub const fn cooking_profile(&self) -> Option<&CookingProfileIdentity> {
+        self.profile.as_ref()
     }
 
     /// Exact identity of ordered filenames and package bytes.
@@ -119,6 +131,24 @@ impl AssetStore {
             .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
         resolved.package.read_asset(id)
     }
+}
+
+fn validate_profiles(packages: &[AssetPackage]) -> Result<(), Error> {
+    let Some(first) = packages.first() else {
+        return Ok(());
+    };
+    let expected = &first.catalog().profile;
+    for package in &packages[1..] {
+        let actual = &package.catalog().profile;
+        if actual != expected {
+            return Err(Error::IncompatibleProfile {
+                package: package.name().clone(),
+                expected: Box::new(expected.clone()),
+                actual: Box::new(actual.clone()),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Winning record and the package from which its bytes will be read.

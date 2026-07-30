@@ -1,5 +1,7 @@
+mod asset_cooker;
 mod cook;
 mod manifest;
+mod profile;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,8 +51,8 @@ struct AssetsArgs {
 enum AssetsCommand {
     Check,
     Cook {
-        #[arg(long, default_value = "desktop-universal")]
-        profile: String,
+        #[arg(long, default_value = "debug")]
+        profile: blackflower_assets::ProfileName,
         #[arg(long, default_value = "pak000")]
         package: PackageName,
         #[arg(long)]
@@ -79,8 +81,8 @@ fn run_assets(workspace_root: &Path, command: AssetsCommand) -> anyhow::Result<(
         AssetsCommand::Check => {
             let checked = pipeline.check()?;
             println!(
-                "checked {} assets and {} packages",
-                checked.assets, checked.packages
+                "checked {} profiles, {} assets, and {} packages",
+                checked.profiles, checked.assets, checked.packages
             );
         }
         AssetsCommand::Cook {
@@ -121,6 +123,9 @@ fn inspect(directory: &Path, trusted_keys: &[PathBuf], asset: &AssetId) -> anyho
     let trust_store = load_trust_store(trusted_keys)?;
     let store = AssetStore::open_dir(directory, &trust_store)?;
     println!("asset set hash: {}", store.asset_set_hash());
+    if let Some(profile) = store.cooking_profile() {
+        println!("cooking profile: {} ({})", profile.name, profile.hash);
+    }
     let winner = store
         .resolve(asset)
         .with_context(|| format!("asset `{asset}` was not found"))?;
@@ -156,6 +161,9 @@ fn verify(
         store.packages().len(),
         store.asset_set_hash()
     );
+    if let Some(profile) = store.cooking_profile() {
+        println!("cooking profile: {} ({})", profile.name, profile.hash);
+    }
     Ok(())
 }
 
