@@ -18,7 +18,9 @@ use tempfile::{NamedTempFile, TempDir};
 use crate::asset_cooker::{
     CookedAsset, HALF_VERSION, IMAGE_VERSION, NAGA_VERSION, cook_assets, texture_encoder_platform,
 };
+use crate::gltf_source;
 use crate::manifest::{Repository, SOURCE_SCHEMA};
+use crate::model_cooker::MESHOPT_VERSION;
 use crate::profile::CookingProfiles;
 
 const BLOCK_SIZE: u32 = 128 * 1024;
@@ -51,6 +53,7 @@ pub(crate) struct CookResult {
 pub(crate) struct CheckResult {
     pub(crate) profiles: usize,
     pub(crate) assets: usize,
+    pub(crate) gltf_sources: usize,
     pub(crate) packages: usize,
 }
 
@@ -74,10 +77,12 @@ impl Pipeline {
 
     pub(crate) fn check(&self) -> anyhow::Result<CheckResult> {
         let profiles = CookingProfiles::load(&self.profiles_root)?;
+        let gltf = gltf_source::validate_tree(&self.source_root)?;
         let repository = Repository::load(&self.source_root)?;
         Ok(CheckResult {
             profiles: profiles.len(),
             assets: repository.assets.len(),
+            gltf_sources: gltf.sources,
             packages: repository.packages.len(),
         })
     }
@@ -85,6 +90,7 @@ impl Pipeline {
     pub(crate) fn cook(&self, request: &CookRequest) -> anyhow::Result<CookResult> {
         let profiles = CookingProfiles::load(&self.profiles_root)?;
         let profile = profiles.get(&request.profile)?;
+        let _validated_gltf = gltf_source::validate_tree(&self.source_root)?;
         let repository = Repository::load(&self.source_root)?;
         let selected = repository.selected_assets(&request.package)?;
         let toolchain = toolchain_identity();
@@ -156,6 +162,7 @@ fn toolchain_identity() -> ToolchainIdentity {
         ktx: format!("ktx/{}", blackflower_rendering_textures::ktx_version()),
         texture_decoder: format!("image/{IMAGE_VERSION}+half/{HALF_VERSION}"),
         texture_encoder_platform: texture_encoder_platform(),
+        meshoptimizer: format!("meshopt/{MESHOPT_VERSION}"),
     }
 }
 
@@ -412,6 +419,7 @@ mod tests {
         AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore, AssetWatchEvent, Bytes,
         ContentHash, Error, PackageName, ProfileName, sign_package,
     };
+    use blackflower_rendering_models::ModelAsset;
     use blackflower_scripting::{Bytecode, Runtime, Value};
     use tempfile::TempDir;
 
@@ -441,6 +449,13 @@ hdr_encoding = "rgba16f"
 quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 "#;
     const TEXTURE_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -461,6 +476,13 @@ hdr_encoding = "rgba16f"
 quality = "high"
 zstd_level = 15
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 "#;
     const RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -481,6 +503,13 @@ hdr_encoding = "rgba16f"
 quality = "high"
 zstd_level = 15
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 "#;
     const LUAU_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -501,6 +530,13 @@ hdr_encoding = "rgba16f"
 quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 "#;
     const SHADER_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -521,6 +557,13 @@ hdr_encoding = "rgba16f"
 quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 "#;
 
     #[test]
@@ -682,6 +725,128 @@ generate_mipmaps = true
     }
 
     #[test]
+    fn cooks_optimized_static_mesh_with_generated_lods() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let (gltf, buffer) = grid_gltf(9)?;
+        fixture.mesh(
+            "models/grid",
+            "presentation",
+            "grid.gltf",
+            &gltf,
+            "grid.bin",
+            &buffer,
+            "Grid",
+        )?;
+        let request = fixture.request("pak000", &["models/grid"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_package = fs::read(&first.path)?;
+
+        let store = fixture.open_store()?;
+        let id = AssetId::from_str("models/grid")?;
+        let resolved = store.resolve(&id).context("missing cooked mesh")?;
+        assert_eq!(resolved.record().kind, blackflower_assets::AssetKind::Mesh);
+        assert_eq!(
+            resolved.package().catalog().toolchain.meshoptimizer,
+            "meshopt/0.6.2"
+        );
+        let model = ModelAsset::from_bytes(store.read_asset(&id)?)?;
+        assert_eq!(model.primitives().len(), 1);
+        let lods = model.primitives()[0].lods();
+        assert!(lods.len() >= 2);
+        assert!(
+            lods.windows(2)
+                .all(|pair| pair[1].indices().len() < pair[0].indices().len())
+        );
+
+        drop(store);
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_package, fs::read(second.path)?);
+        Ok(())
+    }
+
+    #[test]
+    fn external_gltf_buffers_participate_in_mesh_recipe_identity() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let (gltf, mut buffer) = grid_gltf(9)?;
+        fixture.mesh(
+            "models/grid",
+            "presentation",
+            "grid.gltf",
+            &gltf,
+            "grid.bin",
+            &buffer,
+            "Grid",
+        )?;
+        let request = fixture.request("pak000", &["models/grid"])?;
+        let _first_result = fixture.pipeline.cook(&request)?;
+        let id = AssetId::from_str("models/grid")?;
+        let first = fixture
+            .open_store()?
+            .resolve(&id)
+            .context("missing first mesh")?
+            .record()
+            .clone();
+
+        let position_byte = buffer
+            .first_mut()
+            .context("grid buffer unexpectedly empty")?;
+        *position_byte ^= 1;
+        fs::write(fixture.source.join("models/grid/grid.bin"), buffer)?;
+        let _second_result = fixture.pipeline.cook(&request)?;
+        let second = fixture
+            .open_store()?
+            .resolve(&id)
+            .context("missing second mesh")?
+            .record()
+            .clone();
+        assert_ne!(first.recipe_hash, second.recipe_hash);
+        assert_ne!(first.content_hash, second.content_hash);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_mesh_manifest_and_selection_before_publication() -> anyhow::Result<()> {
+        let wrong_audience = Fixture::new()?;
+        let (gltf, buffer) = grid_gltf(5)?;
+        wrong_audience.mesh(
+            "models/grid",
+            "simulation",
+            "grid.gltf",
+            &gltf,
+            "grid.bin",
+            &buffer,
+            "Grid",
+        )?;
+        let error = wrong_audience
+            .pipeline
+            .check()
+            .err()
+            .context("expected mesh audience rejection")?;
+        assert!(format!("{error:#}").contains("must use audience `presentation`"));
+
+        let missing_mesh = Fixture::new()?;
+        missing_mesh.mesh(
+            "models/grid",
+            "presentation",
+            "grid.gltf",
+            &gltf,
+            "grid.bin",
+            &buffer,
+            "Missing",
+        )?;
+        let request = missing_mesh.request("pak000", &["models/grid"])?;
+        let error = missing_mesh
+            .pipeline
+            .cook(&request)
+            .err()
+            .context("expected missing named mesh rejection")?;
+        assert!(format!("{error:#}").contains("contains no mesh named `Missing`"));
+        assert!(!missing_mesh.package_dir().join("pak000.squashfs").exists());
+        Ok(())
+    }
+
+    #[test]
     fn rejects_empty_shader_toolchain_identities() -> anyhow::Result<()> {
         let fixture = Fixture::new()?;
         fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
@@ -739,6 +904,21 @@ generate_mipmaps = true
             .open_store()
             .err()
             .context("expected empty texture platform identity rejection")?;
+        assert!(matches!(error, Error::InvalidCatalog { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_empty_meshoptimizer_toolchain_identity() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        fixture.asset("fixtures/example", "shared", "example.bin", b"bytes")?;
+        let mut catalog = fixture.selected_catalog(&["fixtures/example"])?;
+        catalog.toolchain.meshoptimizer.clear();
+        let _path = fixture.write_catalog_package("pak000", &catalog)?;
+        let error = fixture
+            .open_store()
+            .err()
+            .context("expected empty meshoptimizer identity rejection")?;
         assert!(matches!(error, Error::InvalidCatalog { .. }));
         Ok(())
     }
@@ -929,6 +1109,14 @@ generate_mipmaps = true
             "schema = 1\n\n[scripting.luau]\noptimization = \"baseline\"\ndebug = \"full\"\ntype_info = \"native_modules\"\n\n[shaders]\ntarget = \"spirv\"\ncapability = \"spirv_1_5\"\noptimization = \"none\"\ndebug = \"standard\"\n\n[textures]\nldr_encoding = \"uastc\"\nhdr_encoding = \"rgba16f\"\nquality = \"fast\"\nzstd_level = 0\ngenerate_mipmaps = false\n",
         )?;
         assert!(invalid_texture_settings.pipeline.check().is_err());
+
+        let invalid_model_settings = Fixture::new()?;
+        let invalid_profile = DEBUG_PROFILE.replace(
+            "lod_triangle_percents = [50, 25, 12]",
+            "lod_triangle_percents = [50, 75]",
+        );
+        invalid_model_settings.write_profile("debug", &invalid_profile)?;
+        assert!(invalid_model_settings.pipeline.check().is_err());
         Ok(())
     }
 
@@ -1890,6 +2078,31 @@ generate_mipmaps = true
             Ok(())
         }
 
+        #[allow(
+            clippy::too_many_arguments,
+            reason = "test fixture mirrors the strict mesh manifest"
+        )]
+        fn mesh(
+            &self,
+            id: &str,
+            audience: &str,
+            source_name: &str,
+            source_bytes: &[u8],
+            buffer_name: &str,
+            buffer_bytes: &[u8],
+            mesh_name: &str,
+        ) -> anyhow::Result<()> {
+            let directory = self.source.join(id);
+            fs::create_dir_all(&directory)?;
+            fs::write(directory.join(source_name), source_bytes)?;
+            fs::write(directory.join(buffer_name), buffer_bytes)?;
+            let manifest = format!(
+                "schema = 1\nid = \"{id}\"\nkind = \"mesh\"\naudience = \"{audience}\"\n\n[mesh]\nsource = \"{source_name}\"\nmesh = \"{mesh_name}\"\n"
+            );
+            fs::write(directory.join("asset.toml"), manifest)?;
+            Ok(())
+        }
+
         fn write_profile(&self, name: &str, profile: &str) -> anyhow::Result<()> {
             fs::write(self.profiles.join(format!("{name}.toml")), profile)?;
             Ok(())
@@ -2021,5 +2234,95 @@ generate_mipmaps = true
         image::DynamicImage::ImageRgba32F(image)
             .write_to(&mut output, image::ImageFormat::OpenExr)?;
         Ok(output.into_inner())
+    }
+
+    fn grid_gltf(side: u16) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        let (buffer, position_bytes, index_bytes) = grid_buffer(side);
+        let document = grid_document(side, buffer.len(), position_bytes, index_bytes);
+        Ok((serde_json::to_vec(&document)?, buffer))
+    }
+
+    fn grid_buffer(side: u16) -> (Vec<u8>, usize, usize) {
+        let mut buffer = Vec::new();
+        for y in 0..side {
+            for x in 0..side {
+                for value in [f32::from(x), f32::from(y), 0.0] {
+                    buffer.extend_from_slice(&value.to_le_bytes());
+                }
+            }
+        }
+        let position_bytes = buffer.len();
+        for y in 0..(side - 1) {
+            for x in 0..(side - 1) {
+                let first = u32::from(y) * u32::from(side) + u32::from(x);
+                let next_row = first + u32::from(side);
+                for index in [
+                    first,
+                    first + 1,
+                    next_row + 1,
+                    first,
+                    next_row + 1,
+                    next_row,
+                ] {
+                    buffer.extend_from_slice(&index.to_le_bytes());
+                }
+            }
+        }
+        let index_bytes = buffer.len() - position_bytes;
+        (buffer, position_bytes, index_bytes)
+    }
+
+    fn grid_document(
+        side: u16,
+        buffer_bytes: usize,
+        position_bytes: usize,
+        index_bytes: usize,
+    ) -> serde_json::Value {
+        let vertex_count = u32::from(side) * u32::from(side);
+        let cell_count = u32::from(side - 1) * u32::from(side - 1);
+        let index_count = cell_count * 6;
+        let maximum = f32::from(side - 1);
+        serde_json::json!({
+            "asset": { "version": "2.0" },
+            "buffers": [{ "uri": "grid.bin", "byteLength": buffer_bytes }],
+            "bufferViews": [
+                {
+                    "buffer": 0,
+                    "byteOffset": 0,
+                    "byteLength": position_bytes,
+                    "target": 34962
+                },
+                {
+                    "buffer": 0,
+                    "byteOffset": position_bytes,
+                    "byteLength": index_bytes,
+                    "target": 34963
+                }
+            ],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": vertex_count,
+                    "type": "VEC3",
+                    "min": [0.0, 0.0, 0.0],
+                    "max": [maximum, maximum, 0.0]
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5125,
+                    "count": index_count,
+                    "type": "SCALAR"
+                }
+            ],
+            "meshes": [{
+                "name": "Grid",
+                "primitives": [{
+                    "attributes": { "POSITION": 0 },
+                    "indices": 1,
+                    "mode": 4
+                }]
+            }]
+        })
     }
 }

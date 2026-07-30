@@ -5,9 +5,9 @@ stem is the profile name passed to `cargo xtask assets cook --profile`; there is
 no duplicate `name` field inside the document. Settings belong to the selected
 cook, never to individual assets.
 
-Profile schema 1 configures Luau, shader, and texture cooking. Development keeps
-this schema at `1`; only the release process advances it. The repository
-defines two profiles:
+Profile schema 1 configures Luau, shader, texture, and static mesh cooking.
+Development keeps this schema at `1`; only the release process advances it.
+The repository defines two profiles:
 
 ```toml
 # debug.toml
@@ -30,6 +30,13 @@ hdr_encoding = "rgba16f"
 quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 ```
 
 ```toml
@@ -53,6 +60,13 @@ hdr_encoding = "rgba16f"
 quality = "high"
 zstd_level = 15
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true
 ```
 
 The intended behavior is:
@@ -94,6 +108,21 @@ normal mips are renormalized, and data and HDR mips remain linear. High quality
 uses one BasisU worker with RDO multithreading disabled. KTX-Software documents
 that BasisU output can still differ across platforms, so release packages must
 come from the designated canonical cooking host.
+
+Static mesh cooking supports:
+
+- `lod_triangle_percents`: one through fifteen strictly decreasing percentages
+  below the authored triangle count
+- `lod_target_error`: meshoptimizer relative error limit in `(0, 1]`
+- `optimize_overdraw`: whether to run overdraw optimization after vertex-cache
+  optimization
+- `overdraw_threshold`: permitted vertex-cache degradation from `1` through `2`
+- `lock_borders`: whether simplification preserves topological borders
+
+Each target is simplified sequentially from the previous LOD. Every resulting
+LOD is then optimized for vertex cache, overdraw when enabled, and vertex
+fetch. A target that cannot reduce the preceding LOD within the error limit is
+omitted rather than duplicating geometry.
 
 Both Luau profiles emit type information for modules marked with `--!native`.
 The runtime consumes it only when native codegen is explicitly enabled with an

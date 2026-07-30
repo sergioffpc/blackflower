@@ -25,6 +25,7 @@ impl AssetManifest {
             AssetSource::Luau(_) => AssetKind::LuauBytecode,
             AssetSource::Shader(_) => AssetKind::ShaderModule,
             AssetSource::Texture(_) => AssetKind::Texture2d,
+            AssetSource::Mesh(_) => AssetKind::Mesh,
         }
     }
 }
@@ -35,6 +36,7 @@ pub(crate) enum AssetSource {
     Luau(LuauManifest),
     Shader(ShaderManifest),
     Texture(TextureManifest),
+    Mesh(MeshManifest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,6 +64,13 @@ pub(crate) struct ShaderManifest {
 pub(crate) struct TextureManifest {
     pub(crate) source: PathBuf,
     pub(crate) semantic: TextureSemanticManifest,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MeshManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) mesh: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -102,6 +111,15 @@ struct AssetManifestFile {
     luau: Option<LuauManifest>,
     shader: Option<ShaderManifest>,
     texture: Option<TextureManifest>,
+    mesh: Option<MeshManifest>,
+}
+
+struct SourceSections {
+    blob: Option<BlobManifest>,
+    luau: Option<LuauManifest>,
+    shader: Option<ShaderManifest>,
+    texture: Option<TextureManifest>,
+    mesh: Option<MeshManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -121,6 +139,7 @@ pub(crate) struct PackageManifest {
 pub(crate) struct LoadedAsset {
     pub(crate) manifest: AssetManifest,
     pub(crate) source_relative: String,
+    pub(crate) source_path: PathBuf,
     pub(crate) source_bytes: Vec<u8>,
     pub(crate) source_hash: ContentHash,
 }
@@ -228,20 +247,20 @@ fn load_asset(
     let file: AssetManifestFile =
         toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
     validate_schema(file.schema, path)?;
-    let source = asset_source(
-        file.kind,
-        file.audience,
-        file.blob,
-        file.luau,
-        file.shader,
-        file.texture,
-        path,
-    )?;
+    let sections = SourceSections {
+        blob: file.blob,
+        luau: file.luau,
+        shader: file.shader,
+        texture: file.texture,
+        mesh: file.mesh,
+    };
+    let source = asset_source(file.kind, file.audience, sections, path)?;
     let source_path = match &source {
         AssetSource::Blob(manifest) => &manifest.source,
         AssetSource::Luau(manifest) => &manifest.source,
         AssetSource::Shader(manifest) => &manifest.source,
         AssetSource::Texture(manifest) => &manifest.source,
+        AssetSource::Mesh(manifest) => &manifest.source,
     };
     let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
@@ -259,6 +278,7 @@ fn load_asset(
     let loaded = LoadedAsset {
         manifest,
         source_relative,
+        source_path,
         source_bytes,
         source_hash,
     };
@@ -271,17 +291,10 @@ fn load_asset(
 fn asset_source(
     kind: AssetKind,
     audience: AssetAudience,
-    blob: Option<BlobManifest>,
-    luau: Option<LuauManifest>,
-    shader: Option<ShaderManifest>,
-    texture: Option<TextureManifest>,
+    sections: SourceSections,
     path: &Path,
 ) -> anyhow::Result<AssetSource> {
-    let source_sections = usize::from(blob.is_some())
-        + usize::from(luau.is_some())
-        + usize::from(shader.is_some())
-        + usize::from(texture.is_some());
-    if source_sections != 1 {
+    if sections.count() != 1 {
         bail!(
             "asset manifest `{}` must contain exactly one source section",
             path.display()
@@ -289,41 +302,75 @@ fn asset_source(
     }
 
     let source = match kind {
-        AssetKind::Blob => AssetSource::Blob(blob.with_context(|| {
-            format!(
-                "blob asset manifest `{}` requires a `[blob]` section",
-                path.display()
-            )
-        })?),
-        AssetKind::LuauBytecode => AssetSource::Luau(luau.with_context(|| {
-            format!(
-                "Luau bytecode manifest `{}` requires a `[luau]` section",
-                path.display()
-            )
-        })?),
+        AssetKind::Blob => AssetSource::Blob(required_section(sections.blob, "blob", path)?),
+        AssetKind::LuauBytecode => {
+            AssetSource::Luau(required_section(sections.luau, "luau", path)?)
+        }
         AssetKind::ShaderModule => {
-            let shader = shader.with_context(|| {
-                format!(
-                    "shader module manifest `{}` requires a `[shader]` section",
-                    path.display()
-                )
-            })?;
+            let shader = required_section(sections.shader, "shader", path)?;
             validate_shader_manifest(&shader, audience, path)?;
             AssetSource::Shader(shader)
         }
         AssetKind::Texture2d => {
-            let texture = texture.with_context(|| {
-                format!(
-                    "texture manifest `{}` requires a `[texture]` section",
-                    path.display()
-                )
-            })?;
+            let texture = required_section(sections.texture, "texture", path)?;
             validate_texture_manifest(&texture, audience, path)?;
             AssetSource::Texture(texture)
+        }
+        AssetKind::Mesh => {
+            let mesh = required_section(sections.mesh, "mesh", path)?;
+            validate_mesh_manifest(&mesh, audience, path)?;
+            AssetSource::Mesh(mesh)
         }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
+}
+
+impl SourceSections {
+    fn count(&self) -> usize {
+        usize::from(self.blob.is_some())
+            + usize::from(self.luau.is_some())
+            + usize::from(self.shader.is_some())
+            + usize::from(self.texture.is_some())
+            + usize::from(self.mesh.is_some())
+    }
+}
+
+fn required_section<T>(section: Option<T>, name: &str, path: &Path) -> anyhow::Result<T> {
+    section.with_context(|| {
+        format!(
+            "{name} asset manifest `{}` requires a `[{name}]` section",
+            path.display()
+        )
+    })
+}
+
+fn validate_mesh_manifest(
+    mesh: &MeshManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "mesh asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    if mesh.mesh.is_empty() || mesh.mesh.chars().any(char::is_control) {
+        bail!(
+            "mesh name in `{}` must be non-empty and contain no control characters",
+            path.display()
+        );
+    }
+    let extension = mesh
+        .source
+        .extension()
+        .and_then(|value| value.to_str())
+        .context("mesh source must have a UTF-8 extension")?;
+    if !extension.eq_ignore_ascii_case("gltf") && !extension.eq_ignore_ascii_case("glb") {
+        bail!("mesh source in `{}` must use glTF or GLB", path.display());
+    }
+    Ok(())
 }
 
 fn validate_texture_manifest(

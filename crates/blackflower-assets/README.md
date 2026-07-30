@@ -39,9 +39,10 @@ not advance this schema; the release process owns version changes.
 
 The pipeline supports opaque blobs, profile-configured Luau bytecode,
 Naga-validated SPIR-V compiled from Slang, and semantic KTX2 textures cooked
-from PNG or OpenEXR. Domain-specific cookers for models, animation, volumes,
-navigation, and audio add new `AssetKind` variants without changing the
-package overlay contract.
+from PNG or OpenEXR. It also supports meshoptimizer-optimized static meshes
+with generated LOD chains cooked from glTF or GLB. Domain-specific cookers for
+animation, volumes, navigation, and audio add new `AssetKind` variants without
+changing the package overlay contract.
 
 ## Optional hot reload
 

@@ -8,6 +8,7 @@ use naga::front::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 
 use crate::manifest::{AssetSource, LoadedAsset, Repository};
+use crate::model_cooker;
 use crate::profile::CookingProfile;
 use crate::texture_cooker;
 
@@ -25,6 +26,20 @@ pub(crate) struct CookedAsset {
     pub(crate) recipe_hash: RecipeHash,
 }
 
+struct CookedPayload {
+    bytes: Bytes,
+    model_source_hash: Option<blake3::Hash>,
+}
+
+impl CookedPayload {
+    const fn plain(bytes: Bytes) -> Self {
+        Self {
+            bytes,
+            model_source_hash: None,
+        }
+    }
+}
+
 pub(crate) fn cook_assets(
     repository: &Repository,
     selected: &BTreeSet<AssetId>,
@@ -36,17 +51,17 @@ pub(crate) fn cook_assets(
             .assets
             .get(id)
             .with_context(|| format!("missing selected asset `{id}`"))?;
-        let bytes =
+        let payload =
             cook_asset(source, profile).with_context(|| format!("failed to cook asset `{id}`"))?;
-        let content_hash = ContentHash::hash_bytes(&bytes);
-        let recipe_hash = recipe_hash(source, profile)?;
+        let content_hash = ContentHash::hash_bytes(&payload.bytes);
+        let recipe_hash = recipe_hash(source, profile, payload.model_source_hash.as_ref())?;
         cooked.insert(
             id.clone(),
             CookedAsset {
                 kind: source.manifest.kind(),
                 audience: source.manifest.audience,
                 dependencies: Vec::new(),
-                bytes,
+                bytes: payload.bytes,
                 content_hash,
                 recipe_hash,
             },
@@ -55,15 +70,17 @@ pub(crate) fn cook_assets(
     Ok(cooked)
 }
 
-fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<Bytes> {
+fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<CookedPayload> {
     match &source.manifest.source {
-        AssetSource::Blob(_) => Ok(Bytes::from(source.source_bytes.clone())),
+        AssetSource::Blob(_) => Ok(CookedPayload::plain(Bytes::from(
+            source.source_bytes.clone(),
+        ))),
         AssetSource::Luau(_) => {
             let text =
                 std::str::from_utf8(&source.source_bytes).context("Luau source is not UTF-8")?;
             let bytecode = compile(text, profile.scripting.luau.compile_options())
                 .context("Luau compiler rejected source")?;
-            Ok(Bytes::from(bytecode.into_bytes()))
+            Ok(CookedPayload::plain(Bytes::from(bytecode.into_bytes())))
         }
         AssetSource::Shader(manifest) => {
             let text =
@@ -73,9 +90,18 @@ fn cook_asset(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<
             let spirv = compile_shader(&source_name, text, &manifest.entry_point, options)
                 .context("Slang compiler rejected source")?;
             validate_spirv(&spirv)?;
-            Ok(spirv)
+            Ok(CookedPayload::plain(spirv))
         }
-        AssetSource::Texture(manifest) => texture_cooker::cook(source, manifest, profile.textures),
+        AssetSource::Texture(manifest) => {
+            texture_cooker::cook(source, manifest, profile.textures).map(CookedPayload::plain)
+        }
+        AssetSource::Mesh(manifest) => {
+            let model = model_cooker::cook(source, manifest, &profile.models)?;
+            Ok(CookedPayload {
+                bytes: model.bytes,
+                model_source_hash: Some(model.source_hash),
+            })
+        }
     }
 }
 
@@ -93,7 +119,11 @@ fn validate_spirv(bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn recipe_hash(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result<RecipeHash> {
+fn recipe_hash(
+    source: &LoadedAsset,
+    profile: &CookingProfile,
+    model_source_hash: Option<&blake3::Hash>,
+) -> anyhow::Result<RecipeHash> {
     let mut hasher = CanonicalHasher::new(b"blackflower.asset-recipe.v2");
     hasher.u32(source.manifest.schema);
     hasher.text(source.manifest.id.as_str());
@@ -128,6 +158,15 @@ fn recipe_hash(source: &LoadedAsset, profile: &CookingProfile) -> anyhow::Result
             hasher.text(IMAGE_VERSION);
             hasher.text(HALF_VERSION);
             hasher.text(&texture_encoder_platform());
+        }
+        AssetSource::Mesh(manifest) => {
+            hasher.text("mesh");
+            hasher.text(&manifest.mesh);
+            hasher.serializable(&profile.models)?;
+            hasher.text(model_cooker::MESHOPT_VERSION);
+            let source_hash =
+                model_source_hash.context("cooked mesh is missing its buffer source hash")?;
+            hasher.bytes(source_hash.as_bytes());
         }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))

@@ -1,6 +1,8 @@
 mod asset_cooker;
 mod cook;
+mod gltf_source;
 mod manifest;
+mod model_cooker;
 mod profile;
 mod texture_cooker;
 
@@ -82,8 +84,8 @@ fn run_assets(workspace_root: &Path, command: AssetsCommand) -> anyhow::Result<(
         AssetsCommand::Check => {
             let checked = pipeline.check()?;
             println!(
-                "checked {} profiles, {} assets, and {} packages",
-                checked.profiles, checked.assets, checked.packages
+                "checked {} profiles, {} assets, {} glTF sources, and {} packages",
+                checked.profiles, checked.assets, checked.gltf_sources, checked.packages
             );
         }
         AssetsCommand::Cook {

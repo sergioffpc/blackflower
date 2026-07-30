@@ -21,6 +21,10 @@ run_clippy() {
 run_tests() {
     printf 'Running tests...\n'
     cargo test --workspace --all-targets --all-features --locked
+
+    printf 'Testing Blender metadata extension...\n'
+    python3 -m unittest discover -s tools/blender/tests
+    python3 tools/blender/build_blackflower_gltf_metadata.py
 }
 
 case "$mode" in
