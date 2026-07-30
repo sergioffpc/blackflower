@@ -21,7 +21,10 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
+  CMAKE_C_COMPILER_LAUNCHER: sccache
+  CMAKE_CXX_COMPILER_LAUNCHER: sccache
   RUST_BACKTRACE: "1"
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   rust-quality:
@@ -50,6 +53,11 @@ jobs:
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-physics/vendor/JoltPhysics \
             crates/blackflower-rendering-volumes/vendor/openvdb
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Validate commit messages
         if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -199,6 +207,11 @@ jobs:
           git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
           git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
+
       - name: Set up Rust toolchain
         run: |
           rustc --version
@@ -283,6 +296,11 @@ jobs:
           git submodule update --init --depth 1 crates/blackflower-shader-compiler/vendor/slang
           git submodule update --init --depth 1 crates/blackflower-rendering-textures/vendor/KTX-Software
           git -C crates/blackflower-shader-compiler/vendor/slang submodule update --init --depth 1 external/cmark external/fast_float external/lz4 external/lua external/miniz external/spirv-headers external/unordered_dense external/vulkan
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Set up Rust toolchain
         run: |
@@ -469,6 +487,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
 
       - name: Install libclang on Linux
         if: runner.os == 'Linux'
