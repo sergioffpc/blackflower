@@ -1,0 +1,75 @@
+#![doc = include_str!("../README.md")]
+
+mod animation;
+mod container;
+mod error;
+mod node;
+mod validation;
+
+use std::path::Path;
+
+use serde_json::Value;
+
+pub use animation::{AnimationMarker, AnimationMarkers};
+pub use error::Error;
+pub use node::NodeMetadata;
+pub use validation::GLTF_VERSION;
+
+/// Parsed glTF JSON retained for typed Blackflower metadata queries.
+#[derive(Debug)]
+pub struct Document {
+    root: Value,
+}
+
+impl Document {
+    /// Open and completely validate a glTF 2.0 JSON or GLB source file.
+    ///
+    /// This is the cooker entry point. It confines external resources to the
+    /// source directory, validates and imports those resources with the pinned
+    /// `gltf` crate, and enforces Blackflower's extension allowlist.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let bytes = std::fs::read(path).map_err(|source| Error::ReadSource {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let root = parse_root(&bytes)?;
+        validation::validate_root(&root)?;
+        validation::validate_file(path, &root)?;
+        Ok(Self { root })
+    }
+
+    /// Parse an in-memory glTF 2.0 JSON or GLB document with `gltf` validation.
+    ///
+    /// This entry point cannot resolve adjacent resources because no source
+    /// path exists. Domain cookers must use [`Self::open`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let root = parse_root(bytes)?;
+        validation::validate_root(&root)?;
+        validation::validate_bytes(bytes)?;
+        Ok(Self { root })
+    }
+
+    /// Extract markers authored on exactly one named glTF animation.
+    ///
+    /// An animation without `extras.blackflower` has an empty marker track.
+    pub fn animation_markers(&self, animation: &str) -> Result<AnimationMarkers, Error> {
+        animation::markers(&self.root, animation)
+    }
+
+    /// Extract typed metadata authored on exactly one named glTF node.
+    ///
+    /// A node without `extras.blackflower` returns `None`.
+    pub fn node_metadata(&self, node: &str) -> Result<Option<NodeMetadata>, Error> {
+        node::metadata(&self.root, node)
+    }
+}
+
+fn parse_root(bytes: &[u8]) -> Result<Value, Error> {
+    let json = container::json_bytes(bytes)?;
+    let root: Value = serde_json::from_slice(json).map_err(Error::InvalidJson)?;
+    if !root.is_object() {
+        return Err(Error::InvalidRoot);
+    }
+    Ok(root)
+}

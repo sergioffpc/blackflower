@@ -396,6 +396,7 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.ktx.is_empty()
         || catalog.toolchain.texture_decoder.is_empty()
         || catalog.toolchain.texture_encoder_platform.is_empty()
+        || catalog.toolchain.meshoptimizer.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }

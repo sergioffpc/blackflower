@@ -17,3 +17,10 @@ hdr_encoding = "rgba16f"
 quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
+
+[models]
+lod_triangle_percents = [50, 25, 12]
+lod_target_error = 0.01
+optimize_overdraw = true
+overdraw_threshold = 1.05
+lock_borders = true

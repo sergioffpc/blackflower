@@ -73,6 +73,68 @@ KTX2 rather than the authored image. At runtime,
 `blackflower-rendering-textures` selects BC, ASTC, ETC2/EAC, or an uncompressed
 fallback from renderer capabilities.
 
+Static mesh assets select one uniquely named glTF mesh:
+
+```toml
+schema = 1
+id = "models/vehicle_body"
+kind = "mesh"
+audience = "presentation"
+
+[mesh]
+source = "vehicle.gltf"
+mesh = "VehicleBody"
+```
+
+Meshes are presentation-only. The cooker preserves triangle primitives and
+their glTF material indices as separate draw units, then runs vertex-cache,
+optional overdraw, and vertex-fetch optimization. It generates the
+profile-owned LOD chain with meshoptimizer and packages only the validated
+runtime mesh. Authored glTF files are never rewritten.
+
+This first static format supports `POSITION` plus optional `NORMAL`, `TANGENT`,
+and `TEXCOORD_0`. It rejects non-triangle primitives, skinning attributes,
+morph targets, colors, and additional texture-coordinate sets. External glTF
+buffers participate in recipe identity, so changing geometry without changing
+the `.gltf` document still forces a recook.
+
+glTF and GLB sources attach Blackflower-specific authoring data to the glTF
+object that owns it. The shared `extras.blackflower` namespace is strict and
+versioned; unrelated third-party extras remain outside that namespace.
+`cargo xtask assets check` and every package cook validate all `.gltf` and
+`.glb` files below this directory before publishing anything. External buffers
+and images must use portable relative paths contained by the source file's
+directory; remote URLs, absolute paths, traversal, missing resources, invalid
+glTF 2.0 structure, and unsupported extensions are rejected.
+Animation markers, for example, belong to the matching glTF `animation`
+object:
+
+```json
+{
+  "name": "Walk",
+  "extras": {
+    "blackflower": {
+      "schema": 1,
+      "markers": [
+        {
+          "name": "left_foot",
+          "time_seconds": 0.24
+        }
+      ]
+    }
+  }
+}
+```
+
+Marker times use glTF seconds. Animation cooking later validates them against
+the selected clip and converts them to normalized runtime time. The complete
+metadata contract and validation rules live in
+`crates/blackflower-gltf-metadata/README.md`.
+
+The repository Blender extension authors Action Pose Markers and typed model or
+level node identity without a sidecar file. Build and install it using the
+instructions in `tools/blender/blackflower_gltf_metadata/README.md`.
+
 Package composition has one canonical location:
 
 ```text

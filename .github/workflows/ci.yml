@@ -100,6 +100,8 @@ jobs:
         run: >-
           cargo clippy --workspace
           --exclude blackflower-assets
+          --exclude blackflower-gltf-metadata
+          --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
           --exclude blackflower-scripting
           --exclude blackflower-shader-compiler
@@ -110,6 +112,8 @@ jobs:
         run: >-
           cargo test --workspace
           --exclude blackflower-assets
+          --exclude blackflower-gltf-metadata
+          --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
           --exclude blackflower-scripting
           --exclude blackflower-shader-compiler
@@ -176,6 +180,8 @@ jobs:
                Cargo.toml \
                assets \
                crates/blackflower-assets \
+               crates/blackflower-gltf-metadata \
+               crates/blackflower-rendering-models \
                crates/blackflower-rendering-textures \
                crates/blackflower-scripting \
                crates/blackflower-shader-compiler \
@@ -242,6 +248,8 @@ jobs:
         run: >-
           cargo clippy
           --package blackflower-assets
+          --package blackflower-gltf-metadata
+          --package blackflower-rendering-models
           --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
@@ -252,6 +260,8 @@ jobs:
         run: >-
           cargo test
           --package blackflower-assets
+          --package blackflower-gltf-metadata
+          --package blackflower-rendering-models
           --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
@@ -262,6 +272,8 @@ jobs:
         run: >-
           cargo test
           --package blackflower-assets
+          --package blackflower-gltf-metadata
+          --package blackflower-rendering-models
           --package blackflower-rendering-textures
           --package blackflower-scripting
           --package blackflower-shader-compiler
@@ -348,6 +360,12 @@ jobs:
           cook::tests::cooks_texture_for_runtime_capability_selection
           -- --exact
 
+      - name: Run model cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_optimized_static_mesh_with_generated_lods
+          -- --exact
+
   asset-compatibility:
     if: always()
     name: Asset compatibility
@@ -406,7 +424,6 @@ jobs:
             echo "Asset compatibility result: $ASSET_RESULT" >&2
             exit 1
           fi
-
   native-bindings:
     if: >-
       (github.event_name == 'pull_request' &&

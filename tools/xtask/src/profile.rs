@@ -87,6 +87,7 @@ pub(crate) struct CookingProfile {
     pub(crate) scripting: ScriptingProfile,
     pub(crate) shaders: ShaderProfile,
     pub(crate) textures: TextureProfile,
+    pub(crate) models: ModelProfile,
 }
 
 impl CookingProfile {
@@ -107,12 +108,16 @@ impl CookingProfile {
             .textures
             .encode_options()
             .with_context(|| format!("invalid texture settings in profile `{}`", path.display()))?;
+        file.models
+            .validate()
+            .with_context(|| format!("invalid model settings in profile `{}`", path.display()))?;
         let hash = hash_profile(&file)?;
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
             scripting: file.scripting,
             shaders: file.shaders,
             textures: file.textures,
+            models: file.models,
         })
     }
 }
@@ -124,6 +129,7 @@ struct CookingProfileFile {
     scripting: ScriptingProfile,
     shaders: ShaderProfile,
     textures: TextureProfile,
+    models: ModelProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,6 +259,44 @@ pub(crate) struct TextureProfile {
     quality: TextureQualityProfile,
     zstd_level: u32,
     generate_mipmaps: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModelProfile {
+    pub(crate) lod_triangle_percents: Vec<u32>,
+    pub(crate) lod_target_error: f32,
+    pub(crate) optimize_overdraw: bool,
+    pub(crate) overdraw_threshold: f32,
+    pub(crate) lock_borders: bool,
+}
+
+impl ModelProfile {
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.lod_triangle_percents.is_empty() || self.lod_triangle_percents.len() > 15 {
+            bail!("model profiles must define from 1 through 15 LOD percentages");
+        }
+        let mut previous = 100_u32;
+        for &percent in &self.lod_triangle_percents {
+            if percent == 0 || percent >= previous {
+                bail!("model LOD percentages must be positive and strictly decreasing from 100");
+            }
+            previous = percent;
+        }
+        if !self.lod_target_error.is_finite()
+            || self.lod_target_error <= 0.0
+            || self.lod_target_error > 1.0
+        {
+            bail!("model LOD target error must be finite and in (0, 1]");
+        }
+        if !self.overdraw_threshold.is_finite()
+            || self.overdraw_threshold < 1.0
+            || self.overdraw_threshold > 2.0
+        {
+            bail!("model overdraw threshold must be finite and from 1 through 2");
+        }
+        Ok(())
+    }
 }
 
 impl TextureProfile {

@@ -11,6 +11,7 @@ members = [
     "crates/blackflower-audio-voice",
     "crates/blackflower-ecs",
     "crates/blackflower-ecs-derive",
+    "crates/blackflower-gltf-metadata",
     "crates/blackflower-navigation",
     "crates/blackflower-networking",
     "crates/blackflower-observability",
@@ -18,6 +19,7 @@ members = [
     "crates/blackflower-prediction",
     "crates/blackflower-presentation",
     "crates/blackflower-rendering",
+    "crates/blackflower-rendering-models",
     "crates/blackflower-rendering-textures",
     "crates/blackflower-rendering-volumes",
     "crates/blackflower-replication",
@@ -42,6 +44,7 @@ blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
 blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs-derive" }
+blackflower-gltf-metadata = { path = "crates/blackflower-gltf-metadata" }
 blackflower-navigation = { path = "crates/blackflower-navigation" }
 blackflower-networking = { path = "crates/blackflower-networking" }
 blackflower-observability = { path = "crates/blackflower-observability" }
@@ -49,6 +52,7 @@ blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-prediction = { path = "crates/blackflower-prediction" }
 blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
+blackflower-rendering-models = { path = "crates/blackflower-rendering-models" }
 blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
 blackflower-replication = { path = "crates/blackflower-replication" }
@@ -67,10 +71,12 @@ clap = { version = "4.6.4", default-features = false, features = ["derive", "hel
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
+gltf = { version = "=1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_materials_unlit", "KHR_texture_transform"] }
 half = { version = "2.7.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["exr", "png"] }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
+meshopt = { version = "=0.6.2", default-features = false }
 naga = { version = "=30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
@@ -87,6 +93,7 @@ tracing = { version = "0.1.44", default-features = false, features = ["attribute
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 tracing-tracy = { version = "0.11.4", default-features = false }
+urlencoding = { version = "2.1.3", default-features = false }
 windows-sys = { version = "0.61.2", default-features = false, features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [workspace.lints.rust]

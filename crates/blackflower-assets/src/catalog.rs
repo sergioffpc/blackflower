@@ -18,6 +18,8 @@ pub enum AssetKind {
     ShaderModule,
     /// KTX2 two-dimensional texture with Blackflower semantic metadata.
     Texture2d,
+    /// Optimized static mesh primitives with a generated LOD chain.
+    Mesh,
 }
 
 /// Runtime domains that consume an asset.
@@ -54,6 +56,8 @@ pub struct ToolchainIdentity {
     pub texture_decoder: String,
     /// Host platform participating in native BasisU output identity.
     pub texture_encoder_platform: String,
+    /// Rust meshoptimizer wrapper version used for optimization and LODs.
+    pub meshoptimizer: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

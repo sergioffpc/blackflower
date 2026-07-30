@@ -12,17 +12,20 @@ presentation.
 | `apps/blackflower` | Player client executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
+| `crates/blackflower-animation` | Ozz skeletal animation loading, evaluation, blending, and IK |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Pure Rust facade for the client audio stack |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
+| `crates/blackflower-gltf-metadata` | Versioned Blackflower authoring metadata in glTF and GLB |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-networking` | Shared networking primitives |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-simulation` | Authoritative fixed-step simulation |
 | `crates/blackflower-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-presentation` | Client-only presentation systems |
+| `crates/blackflower-rendering-models` | Validated runtime static meshes and generated LOD chains |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
 | `crates/blackflower-shader-compiler` | Statically linked Slang-to-SPIR-V compiler binding |
@@ -50,7 +53,7 @@ RUST_LOG=info cargo run --package blackflower-harness --locked
 
 ## Cooking assets
 
-Validate source and package manifests:
+Validate cooking profiles, source/package manifests, and glTF/GLB sources:
 
 ```sh
 cargo xtask assets check
@@ -69,7 +72,8 @@ The profile name selects `assets/profiles/<name>.toml`. Cooking options are
 defined once in that strict, versioned file and cannot be overridden by
 individual assets. Profile schema 1 owns Luau optimization, debug, and
 type-information settings, the portable SPIR-V compiler settings, and the KTX2
-texture quality, encoding, mipmap, and Zstandard policy. Luau coverage
+mipmap, and Zstandard policy. It also owns meshoptimizer LOD targets, error
+limits, border locking, and overdraw optimization. Luau coverage
 instrumentation is always disabled. Each package embeds the profile name and
 canonical configuration hash.
 
@@ -89,6 +93,12 @@ feature. It provides transactional snapshot reloads and a debounced native
 watcher for successful recooks; production builds leave it disabled.
 See the [asset VFS documentation](crates/blackflower-assets/README.md) for the
 portable naming and identity contracts.
+
+Artists can build the repository's Blender extension with
+`python3 tools/blender/build_blackflower_gltf_metadata.py`. It writes
+Action-local Pose Markers and typed model or level node identity directly to
+`extras.blackflower`; see the
+[Blender metadata workflow](tools/blender/blackflower_gltf_metadata/README.md).
 
 ## Engineering principles
 
@@ -125,6 +135,7 @@ statically from pinned submodules. See the
 [spatial audio setup](crates/blackflower-audio-spatial/README.md),
 [voice audio setup](crates/blackflower-audio-voice/README.md),
 [ECS setup](crates/blackflower-ecs/README.md),
+[rendering models format](crates/blackflower-rendering-models/README.md),
 [rendering volumes setup](crates/blackflower-rendering-volumes/README.md),
 [rendering textures setup](crates/blackflower-rendering-textures/README.md),
 [shader compiler setup](crates/blackflower-shader-compiler/README.md), and

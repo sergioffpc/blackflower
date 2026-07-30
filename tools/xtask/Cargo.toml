@@ -10,13 +10,17 @@ publish = false
 anyhow.workspace = true
 backhand.workspace = true
 blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
+blackflower-gltf-metadata.workspace = true
+blackflower-rendering-models.workspace = true
 blackflower-rendering-textures.workspace = true
 blackflower-shader-compiler.workspace = true
 blackflower-scripting.workspace = true
 blake3.workspace = true
 clap.workspace = true
+gltf.workspace = true
 half.workspace = true
 image.workspace = true
+meshopt.workspace = true
 naga.workspace = true
 serde.workspace = true
 serde_json.workspace = true

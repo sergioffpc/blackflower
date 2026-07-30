@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+"""Pure validation and serialization for Blackflower glTF metadata."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+import math
+import re
+import struct
+import unicodedata
+
+
+ANIMATION_SCHEMA = 1
+NODE_SCHEMA = 1
+MAX_MARKERS = 4_096
+MAX_MARKER_NAME_BYTES = 128
+MAX_NODE_KIND_BYTES = 64
+MAX_NODE_ID_BYTES = 128
+
+_NODE_KIND = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+class MetadataError(ValueError):
+    """Authored metadata cannot be represented by a Blackflower schema."""
+
+
+def build_animation_metadata(
+    markers: Iterable[tuple[str, float]],
+    *,
+    frame_start: float,
+    frame_end: float,
+    frames_per_second: float,
+    time_origin_frame: float,
+) -> dict[str, object] | None:
+    """Build schema-1 animation metadata from action-local marker frames.
+
+    ``frame_start`` and ``frame_end`` are the effective exported range.
+    ``time_origin_frame`` is the frame that the glTF exporter maps to zero.
+    When the exporter does not slide timestamps it must be zero.
+    """
+
+    start = _finite_number(frame_start, "animation start frame")
+    end = _finite_number(frame_end, "animation end frame")
+    fps = _finite_number(frames_per_second, "frames per second")
+    origin = _finite_number(time_origin_frame, "animation time origin")
+    if end < start:
+        raise MetadataError("animation end frame precedes its start frame")
+    if fps <= 0.0:
+        raise MetadataError("frames per second must be greater than zero")
+
+    source = list(markers)
+    if len(source) > MAX_MARKERS:
+        raise MetadataError(
+            f"animation declares {len(source)} markers; the limit is {MAX_MARKERS}"
+        )
+    if not source:
+        return None
+
+    encoded: list[tuple[dict[str, object], int]] = []
+    seen: set[tuple[str, int]] = set()
+    for index, marker in enumerate(source):
+        try:
+            name, frame = marker
+        except (TypeError, ValueError) as error:
+            raise MetadataError(
+                f"animation marker {index} must contain a name and frame"
+            ) from error
+
+        _validate_marker_name(name, index)
+        marker_frame = _finite_number(frame, f"animation marker {index} frame")
+        if marker_frame < start or marker_frame > end:
+            raise MetadataError(
+                f"animation marker {index} `{name}` at frame {marker_frame:g} "
+                f"is outside the exported range {start:g}..{end:g}"
+            )
+
+        seconds = _float32((marker_frame - origin) / fps)
+        if not math.isfinite(seconds) or seconds < 0.0:
+            raise MetadataError(
+                f"animation marker {index} `{name}` maps to invalid glTF time"
+            )
+        bits = _float32_bits(seconds)
+        key = (name, bits)
+        if key in seen:
+            raise MetadataError(
+                f"animation duplicates marker `{name}` at {seconds:g} seconds"
+            )
+        seen.add(key)
+        encoded.append(({"name": name, "time_seconds": seconds}, bits))
+
+    # Python's stable sort keeps source order for markers at the same time.
+    encoded.sort(key=lambda item: item[1])
+    return {
+        "schema": ANIMATION_SCHEMA,
+        "markers": [item[0] for item in encoded],
+    }
+
+
+def build_node_metadata(kind: str, identifier: str = "") -> dict[str, object]:
+    """Build schema-1 typed node metadata for model and level objects."""
+
+    if not isinstance(kind, str):
+        raise MetadataError("node kind must be text")
+    if (
+        not kind
+        or len(kind.encode("utf-8")) > MAX_NODE_KIND_BYTES
+        or _NODE_KIND.fullmatch(kind) is None
+    ):
+        raise MetadataError(
+            "node kind must be lower_snake_case and at most "
+            f"{MAX_NODE_KIND_BYTES} UTF-8 bytes"
+        )
+
+    node: dict[str, str] = {"kind": kind}
+    if identifier:
+        _validate_text(identifier, "node id", MAX_NODE_ID_BYTES)
+        node["id"] = identifier
+    return {"schema": NODE_SCHEMA, "node": node}
+
+
+def merge_extras(
+    extras: Mapping[str, object] | None,
+    blackflower: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    """Preserve third-party extras and add exactly one owned namespace."""
+
+    if blackflower is None:
+        return dict(extras) if extras is not None else None
+    if extras is not None and not isinstance(extras, Mapping):
+        raise MetadataError("existing glTF extras must be an object")
+
+    merged = dict(extras or {})
+    if "blackflower" in merged:
+        raise MetadataError(
+            "glTF extras already contain `blackflower`; remove the conflicting "
+            "custom property or disable the Blackflower exporter"
+        )
+    merged["blackflower"] = dict(blackflower)
+    return merged
+
+
+def _validate_marker_name(name: object, index: int) -> None:
+    if not isinstance(name, str):
+        raise MetadataError(f"animation marker {index} name must be text")
+    _validate_text(name, f"animation marker {index} name", MAX_MARKER_NAME_BYTES)
+
+
+def _validate_text(value: str, field: str, maximum_bytes: int) -> None:
+    if (
+        not value
+        or value.strip() != value
+        or len(value.encode("utf-8")) > maximum_bytes
+        or any(unicodedata.category(character) == "Cc" for character in value)
+    ):
+        raise MetadataError(
+            f"{field} must be non-empty, unpadded, free of control characters, "
+            f"and at most {maximum_bytes} UTF-8 bytes"
+        )
+
+
+def _finite_number(value: object, field: str) -> float:
+    if isinstance(value, bool):
+        raise MetadataError(f"{field} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise MetadataError(f"{field} must be a finite number") from error
+    if not math.isfinite(number):
+        raise MetadataError(f"{field} must be a finite number")
+    return number
+
+
+def _float32(value: float) -> float:
+    try:
+        return struct.unpack("<f", struct.pack("<f", value))[0]
+    except OverflowError as error:
+        raise MetadataError("marker time does not fit a glTF float") from error
+
+
+def _float32_bits(value: float) -> int:
+    return struct.unpack("<I", struct.pack("<f", value))[0]
