@@ -76,6 +76,7 @@ case "$mode" in
     assets)
         git submodule update --init --depth 1 \
             crates/blackflower-animation/vendor/ozz-animation \
+            crates/blackflower-audio-voice/vendor/opus \
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-scripting/vendor/luau \
             crates/blackflower-rendering-textures/vendor/KTX-Software
