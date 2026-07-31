@@ -15,7 +15,9 @@ presentation.
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
-| `crates/blackflower-audio` | Pure Rust facade for the client audio stack |
+| `crates/blackflower-audio` | Public facade for the client audio stack |
+| `crates/blackflower-audio-media` | 48 kHz clip, Ogg/Opus stream, sound-event formats, and offline cooking |
+| `crates/blackflower-audio-playback` | Kira/CPAL mixing, HRTF tracks, and voice policy |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
 | `crates/blackflower-cooker-animation` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
@@ -79,8 +81,9 @@ type-information settings, the portable SPIR-V compiler settings, and the KTX2
 mipmap, and Zstandard policy. It also owns meshoptimizer LOD targets, error
 limits, border locking, and overdraw optimization, plus Ozz sampling, iframe,
 optimization, and root-motion tolerances. Luau coverage instrumentation is
-always disabled. Model hierarchy and lossless volume conversion have no
-profile settings. Each package embeds the profile name and canonical
+always disabled. It fixes audio at 48 kHz and owns Opus VBR bitrate,
+complexity, and frame duration. Model hierarchy and lossless volume conversion
+have no profile settings. Each package embeds the profile name and canonical
 configuration hash.
 
 The package name selects its only composition manifest:
@@ -88,7 +91,8 @@ The package name selects its only composition manifest:
 list becomes the package contents; the cooker does not infer additional
 members from handwritten dependencies. A selected animation clip pulls in its
 typed skeleton dependency automatically; a selected model pulls in every Mesh
-and Volume attachment.
+and Volume attachment; a selected sound event pulls in its referenced clip or
+stream.
 
 Runtime package directories use Quake-style lexical overrides. A package such
 as `pak900-hotfix.squashfs` overrides matching asset IDs from

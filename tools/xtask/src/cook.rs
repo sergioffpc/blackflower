@@ -149,6 +149,10 @@ impl Pipeline {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the catalog records one explicit identity entry for every cooker toolchain"
+)]
 fn toolchain_identity() -> ToolchainIdentity {
     let (major, minor, patch) = luau_version();
     ToolchainIdentity {
@@ -192,6 +196,16 @@ fn toolchain_identity() -> ToolchainIdentity {
             blackflower_cooker_navigation::COOKER_RECIPE,
         ),
         navigation_cooker_platform: navigation_cooker_platform(),
+        audio: format!(
+            "hound/{}+claxon/{}+rubato/{}+ogg/{}+opus/1.5.2;bfaudio={};bfsound={};{}",
+            blackflower_audio_media::HOUND_VERSION,
+            blackflower_audio_media::CLAXON_VERSION,
+            blackflower_audio_media::RUBATO_VERSION,
+            blackflower_audio_media::OGG_VERSION,
+            blackflower_audio_media::AUDIO_CLIP_SCHEMA,
+            blackflower_audio_media::SOUND_EVENT_SCHEMA,
+            blackflower_audio_media::COOKER_RECIPE,
+        ),
     }
 }
 
@@ -495,6 +509,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 "#;
     const TEXTURE_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -530,6 +551,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 "#;
     const RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -565,6 +593,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 "#;
     const LUAU_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -600,6 +635,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 "#;
     const SHADER_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -635,6 +677,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 "#;
 
     #[test]
@@ -647,6 +696,74 @@ root_motion_tolerance = 0.001
         let second = fixture.pipeline.cook(&request)?;
         assert_eq!(first.package_hash, second.package_hash);
         assert_eq!(first_bytes, fs::read(&second.path)?);
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the vertical fixture authors media, an event, and verifies both catalog generations"
+    )]
+    fn sound_event_closes_over_media_and_invalidates_with_it() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let media_directory = fixture.source.join("audio/shot");
+        fs::create_dir_all(&media_directory)?;
+        fs::write(
+            media_directory.join("shot.wav"),
+            pcm16_wav(48_000, 1, 960, 1),
+        )?;
+        fs::write(
+            media_directory.join("asset.toml"),
+            r#"
+schema = 1
+id = "audio/shot"
+kind = "audio_clip"
+audience = "presentation"
+
+[audio_clip]
+source = "shot.wav"
+"#,
+        )?;
+        fixture.write_manifest(
+            "sound_events/shot",
+            r#"
+schema = 1
+id = "sound_events/shot"
+kind = "sound_event"
+audience = "presentation"
+
+[sound_event]
+media = "audio/shot"
+gain_db = 0.0
+priority = 100
+spatialization = "hrtf"
+"#,
+        )?;
+        let request = fixture.request("pak000", &["sound_events/shot"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let trust_store = fixture.trust_store()?;
+        let first_package = AssetPackage::open(&first.path, &trust_store)?;
+        let event_id = AssetId::from_str("sound_events/shot")?;
+        let first_event = first_package
+            .catalog()
+            .find(&event_id)
+            .context("first event is missing")?
+            .clone();
+        assert_eq!(first_event.dependencies, [AssetId::from_str("audio/shot")?]);
+        drop(first_package);
+
+        fs::write(
+            media_directory.join("shot.wav"),
+            pcm16_wav(48_000, 1, 960, 2),
+        )?;
+        let second = fixture.pipeline.cook(&request)?;
+        let second_package = AssetPackage::open(&second.path, &trust_store)?;
+        let second_event = second_package
+            .catalog()
+            .find(&event_id)
+            .context("second event is missing")?;
+        assert_eq!(first_event.content_hash, second_event.content_hash);
+        assert_ne!(first_event.recipe_hash, second_event.recipe_hash);
         Ok(())
     }
 
@@ -2501,6 +2618,29 @@ traversable = false
         image::DynamicImage::ImageRgba32F(image)
             .write_to(&mut output, image::ImageFormat::OpenExr)?;
         Ok(output.into_inner())
+    }
+
+    fn pcm16_wav(sample_rate: u32, channels: u16, frames: u32, seed: i16) -> Vec<u8> {
+        let sample_count = frames * u32::from(channels);
+        let data_len = sample_count * 2;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&(sample_rate * u32::from(channels) * 2).to_le_bytes());
+        bytes.extend_from_slice(&(channels * 2).to_le_bytes());
+        bytes.extend_from_slice(&16_u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for index in 0..sample_count {
+            let sample = i16::try_from(index % 1_024).unwrap_or(0) * seed;
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        bytes
     }
 
     fn rigged_animation_gltf() -> anyhow::Result<Vec<u8>> {

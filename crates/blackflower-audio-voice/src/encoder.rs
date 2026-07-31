@@ -83,6 +83,17 @@ impl Encoder {
         ffi::set_dtx(&mut self.pointer, enabled).map_err(Error::from)
     }
 
+    /// Return the encoder delay in samples at the encoder sample rate.
+    pub fn lookahead(&mut self) -> Result<u32, Error> {
+        let samples = ffi::encoder_lookahead(&mut self.pointer).map_err(Error::from)?;
+        u32::try_from(samples).map_err(|_error| Error::ConfigurationOutOfRange {
+            field: "lookahead",
+            minimum: 0,
+            maximum: i32::MAX.cast_unsigned(),
+            actual: samples.cast_unsigned(),
+        })
+    }
+
     /// Restore the encoder to its freshly initialized state.
     pub fn reset(&mut self) -> Result<(), Error> {
         ffi::reset_encoder(&mut self.pointer).map_err(Error::from)

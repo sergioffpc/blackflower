@@ -1,16 +1,21 @@
 [package]
-name = "blackflower-audio"
+name = "blackflower-audio-playback"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = false
+
+[features]
+assert-no-alloc = ["kira/assert_no_alloc"]
 
 [dependencies]
+blackflower-assets.workspace = true
 blackflower-audio-media.workspace = true
-blackflower-audio-playback.workspace = true
 blackflower-audio-spatial.workspace = true
-blackflower-audio-voice.workspace = true
+
+kira.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

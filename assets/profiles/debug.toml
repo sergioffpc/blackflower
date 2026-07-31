@@ -32,3 +32,10 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000

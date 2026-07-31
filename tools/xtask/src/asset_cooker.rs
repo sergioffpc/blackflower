@@ -2,12 +2,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, bail};
 use blackflower_assets::{AssetAudience, AssetId, AssetKind, Bytes, ContentHash, RecipeHash};
+use blackflower_audio_media::{
+    Attenuation, Concurrency, LoopRegion, SoundEvent, Spatialization, cook_clip, cook_stream,
+};
 use blackflower_scripting::{compile, luau_version};
 use blackflower_shader_compiler::{compile as compile_shader, slang_version};
 use naga::front::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 
-use crate::manifest::{AssetSource, LoadedAsset, Repository};
+use crate::manifest::{
+    AssetSource, AudioSpatializationManifest, LoadedAsset, Repository, SoundEventManifest,
+};
 use crate::mesh_cooker;
 use crate::model_cooker;
 use crate::navigation_cooker;
@@ -156,7 +161,59 @@ fn cook_asset(
                 derived_source_hash: Some(navigation.source_hash),
             })
         }
+        AssetSource::AudioClip(manifest) => {
+            let extension = source_extension(source)?;
+            let loop_region = manifest
+                .loop_region
+                .map(|region| LoopRegion::new(region.start_frame, region.end_frame))
+                .transpose()?;
+            cook_clip(extension, &source.source_bytes, loop_region)
+                .context("audio clip cooker rejected source")
+                .map(|bytes| CookedPayload::plain(Bytes::from(bytes)))
+        }
+        AssetSource::AudioStream(_) => {
+            let extension = source_extension(source)?;
+            cook_stream(extension, &source.source_bytes, profile.audio)
+                .context("audio stream cooker rejected source")
+                .map(|bytes| CookedPayload::plain(Bytes::from(bytes)))
+        }
+        AssetSource::SoundEvent(manifest) => sound_event(manifest)?
+            .to_bytes()
+            .context("sound event cooker rejected policy")
+            .map(|bytes| CookedPayload::plain(Bytes::from(bytes))),
     }
+}
+
+fn source_extension(source: &LoadedAsset) -> anyhow::Result<&str> {
+    source
+        .source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .context("audio source extension is not UTF-8")
+}
+
+fn sound_event(manifest: &SoundEventManifest) -> anyhow::Result<SoundEvent> {
+    Ok(SoundEvent {
+        media: manifest.media.clone(),
+        gain_db: manifest.gain_db,
+        priority: manifest.priority,
+        spatialization: match manifest.spatialization {
+            AudioSpatializationManifest::TwoDimensional => Spatialization::TwoDimensional,
+            AudioSpatializationManifest::Hrtf => Spatialization::Hrtf,
+        },
+        loop_region: manifest
+            .loop_region
+            .map(|region| LoopRegion::new(region.start_frame, region.end_frame))
+            .transpose()?,
+        attenuation: manifest.attenuation.map(|value| Attenuation {
+            min_distance: value.min_distance,
+            max_distance: value.max_distance,
+        }),
+        concurrency: manifest.concurrency.as_ref().map(|value| Concurrency {
+            group: value.group.clone(),
+            max_voices: value.max_voices,
+        }),
+    })
 }
 
 fn cook_skeleton(source: &LoadedAsset, skin: &str) -> anyhow::Result<CookedPayload> {
@@ -320,6 +377,28 @@ fn recipe_hash(
             let source_hash = derived_source_hash
                 .context("cooked navigation is missing its buffer source hash")?;
             hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::AudioClip(manifest) => {
+            hasher.text("audio_clip");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_audio_media::COOKER_RECIPE);
+            hasher.u32(blackflower_audio_media::AUDIO_CLIP_SCHEMA);
+        }
+        AssetSource::AudioStream(manifest) => {
+            hasher.text("audio_stream");
+            hasher.serializable(manifest)?;
+            hasher.serializable(&profile.audio)?;
+            hasher.text(blackflower_audio_media::COOKER_RECIPE);
+            hasher.text(blackflower_audio_media::HOUND_VERSION);
+            hasher.text(blackflower_audio_media::CLAXON_VERSION);
+            hasher.text(blackflower_audio_media::RUBATO_VERSION);
+            hasher.text(blackflower_audio_media::OGG_VERSION);
+        }
+        AssetSource::SoundEvent(manifest) => {
+            hasher.text("sound_event");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_audio_media::COOKER_RECIPE);
+            hasher.u32(blackflower_audio_media::SOUND_EVENT_SCHEMA);
         }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))

@@ -219,6 +219,69 @@ references, tiled navmesh parameters, and the canonical area table. At runtime,
 `NavMeshAsset` instantiates Detour and compiles the area table to native flags
 and a 64-entry cost array. Recast and Lua are not runtime query dependencies.
 
+Audio media is presentation-only. Short clips use mono/stereo WAV or FLAC
+sources and may declare a sample-accurate loop:
+
+```toml
+schema = 1
+id = "audio/weapons/rifle/shot"
+kind = "audio_clip"
+audience = "presentation"
+
+[audio_clip]
+source = "rifle_shot.wav"
+
+[audio_clip.loop_region]
+start_frame = 2400
+end_frame = 12000
+```
+
+Long-form media uses the same authored source contract and cooks to standard
+Ogg/Opus:
+
+```toml
+schema = 1
+id = "audio/music/briefing"
+kind = "audio_stream"
+audience = "presentation"
+
+[audio_stream]
+source = "briefing.flac"
+```
+
+Both formats are resampled to 48 kHz. Clips become little-endian PCM16
+`.bfaudio`; streams use the selected profile's fixed Opus VBR policy. No asset
+may override sample rate, bitrate, complexity, or frame duration.
+
+Sound events have no source file. They reference exactly one clip or stream
+and carry presentation policy:
+
+```toml
+schema = 1
+id = "sound_events/weapons/rifle/shot"
+kind = "sound_event"
+audience = "presentation"
+
+[sound_event]
+media = "audio/weapons/rifle/shot"
+gain_db = -3.0
+priority = 160
+spatialization = "hrtf"
+
+[sound_event.attenuation]
+min_distance = 1.0
+max_distance = 120.0
+
+[sound_event.concurrency]
+group = "rifle_shots"
+max_voices = 8
+```
+
+`spatialization` is `two_dimensional` or `hrtf`. An optional
+`sound_event.loop_region` uses the same `start_frame` and `end_frame` fields.
+Selecting a sound event closes the package over its media dependency, and the
+media content hash participates in the event recipe hash.
+
 Skeleton and animation assets are presentation-only. A skeleton selects one
 exact named skin and cooks it to `.bfskel`:
 

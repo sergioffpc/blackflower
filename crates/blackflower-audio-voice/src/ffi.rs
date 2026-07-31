@@ -134,6 +134,19 @@ pub(crate) fn set_dtx(encoder: &mut EncoderPtr, enabled: bool) -> Result<(), Sta
     encoder_ctl_value(encoder, raw::OPUS_SET_DTX_REQUEST, i32::from(enabled))
 }
 
+pub(crate) fn encoder_lookahead(encoder: &mut EncoderPtr) -> Result<i32, Status> {
+    let mut value = 0_i32;
+    let result = unsafe {
+        raw::opus_encoder_ctl(
+            encoder.0.as_ptr(),
+            native_request(raw::OPUS_GET_LOOKAHEAD_REQUEST),
+            &raw mut value,
+        )
+    };
+    check(result)?;
+    Ok(value)
+}
+
 pub(crate) fn reset_encoder(encoder: &mut EncoderPtr) -> Result<(), Status> {
     let result =
         unsafe { raw::opus_encoder_ctl(encoder.0.as_ptr(), native_request(raw::OPUS_RESET_STATE)) };

@@ -45,9 +45,11 @@ Volume attachments, uncompressed NanoVDB volumes, `.bfskel` skeletons, and
 one-clip `.bfanim` assets cooked from glTF or GLB. Animation records carry
 their skeleton `AssetId` as a typed catalog dependency. Model records carry
 their Mesh and Volume attachment IDs as typed dependencies. Package selection
-closes over both relationships before cooking. Future domain-specific cookers
-for navigation and audio add new `AssetKind` variants without changing the
-package overlay contract.
+closes over both relationships before cooking. It also supports tiled
+`.bfnav`, 48 kHz PCM16 `.bfaudio`, standard Ogg/Opus streams, and source-less
+`.bfsound` event policy. Sound-event records carry their media `AssetId` as a
+typed dependency, so package selection and recipe identity close over audio
+references without changing the package overlay contract.
 
 ## Optional hot reload
 

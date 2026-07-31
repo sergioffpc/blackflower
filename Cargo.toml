@@ -8,6 +8,8 @@ members = [
     "crates/blackflower-animation-format",
     "crates/blackflower-assets",
     "crates/blackflower-audio",
+    "crates/blackflower-audio-media",
+    "crates/blackflower-audio-playback",
     "crates/blackflower-audio-spatial",
     "crates/blackflower-audio-voice",
     "crates/blackflower-cooker-animation",
@@ -45,6 +47,8 @@ blackflower-animation = { path = "crates/blackflower-animation" }
 blackflower-animation-format = { path = "crates/blackflower-animation-format" }
 blackflower-assets = { path = "crates/blackflower-assets" }
 blackflower-audio = { path = "crates/blackflower-audio" }
+blackflower-audio-media = { path = "crates/blackflower-audio-media" }
+blackflower-audio-playback = { path = "crates/blackflower-audio-playback" }
 blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
 blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
 blackflower-cooker-animation = { path = "crates/blackflower-cooker-animation" }
@@ -76,20 +80,25 @@ bytes = { version = "1.12.1", default-features = false }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
 clap = { version = "4.6.4", default-features = false, features = ["derive", "help", "std", "usage"] }
+claxon = { version = "=0.4.3", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
 gltf = { version = "1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_materials_unlit", "KHR_texture_transform"] }
 half = { version = "2.7.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["exr", "png"] }
+kira = { version = "=0.12.2", default-features = false, features = ["cpal"] }
+hound = { version = "=3.5.1", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 meshopt = { version = "0.6.2", default-features = false }
 naga = { version = "30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }
+ogg = { version = "=0.9.2", default-features = false }
 proc-macro2 = { version = "1.0.107", default-features = false }
 profiling = { version = "1.0.18", default-features = false }
 quote = { version = "1.0.47", default-features = false }
+rubato = { version = "=0.16.2", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }
