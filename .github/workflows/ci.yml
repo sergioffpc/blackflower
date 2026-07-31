@@ -122,31 +122,15 @@ jobs:
           HEAD_OID: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
         run: |
           cross_platform_required=false
-          zero_oid=0000000000000000000000000000000000000000
           if [ "$BASE_REF" = "main" ] ||
              [ "$BASE_REF" = "refs/heads/main" ]
-          then
-            cross_platform_required=true
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ]
-          then
-            cross_platform_required=true
-          elif [ -n "$BASE_OID" ] &&
-               [ "$BASE_OID" != "$zero_oid" ] &&
-               ! git diff --quiet "$BASE_OID" "$HEAD_OID" -- \
-                 .github/actions/setup-native-rust \
-                 .github/scripts/init-ci-submodules.sh \
-                 .github/workflows/ci.yml \
-                 .gitmodules \
-                 Cargo.lock \
-                 Cargo.toml \
-                 crates/blackflower-cooker-volume \
-                 crates/blackflower-rendering-volumes
           then
             cross_platform_required=true
           fi
           echo "cross_platform_required=$cross_platform_required" >> "$GITHUB_OUTPUT"
 
           required=true
+          zero_oid=0000000000000000000000000000000000000000
           if [ "$EVENT_NAME" != "workflow_dispatch" ] &&
              [ -n "$BASE_OID" ] &&
              [ "$BASE_OID" != "$zero_oid" ] &&
