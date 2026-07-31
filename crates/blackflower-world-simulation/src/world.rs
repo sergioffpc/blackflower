@@ -35,7 +35,7 @@ pub enum AcousticRuntimeError {
     /// A previous acoustic system panicked while owning its state.
     #[error("authoritative acoustic world lock is poisoned")]
     Poisoned,
-    /// The pure-Rust solver rejected an asset, input, or capacity request.
+    /// The acoustic solver rejected an asset, input, query, or capacity request.
     #[error(transparent)]
     Acoustic(#[from] blackflower_acoustics::Error),
 }
@@ -108,7 +108,7 @@ impl SimulationExecutionContext {
 
     pub(crate) fn resolve_acoustic_paths(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
-            world.resolve_acoustic_paths();
+            world.resolve_acoustic_paths()?;
         }
         Ok(())
     }

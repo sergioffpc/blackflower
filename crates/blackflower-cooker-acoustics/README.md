@@ -18,7 +18,7 @@ bounce, duration, and pathing quality remain in the selected cooking profile.
 
 The same canonical `.bfacmat` coefficients feed Steam Audio scenes and the
 authoritative cooker. It also emits `.bfactpl` zone/portal state,
-`.bfacpfb` rigid variants, millimetre-quantized `.bfacsim` geometry/BVH/path
+`.bfacpfb` rigid variants, millimetre-quantized `.bfacsim` geometry/path
 data, and `.bfacprf` 20 ms spectral envelopes. Emission media is a cook-time
 input only. Runtime state changes never invoke this crate, and audio-callback
 work remains outside it.

@@ -1,7 +1,13 @@
+#[allow(
+    dead_code,
+    reason = "the shared module exposes both producer and consumer halves of the native contract"
+)]
+#[path = "../../build-support/native_vendors.rs"]
+mod native_vendors;
+
 use std::env;
 use std::error::Error;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
@@ -10,9 +16,10 @@ const OPENVDB_ROOT: &str = "../blackflower-rendering-volumes/vendor/openvdb";
 const BOOST_ROOT: &str = "vendor/boost";
 const TBB_ROOT: &str = "vendor/oneTBB";
 const BLOSC_ROOT: &str = "vendor/c-blosc";
-const ZLIB_ROOT: &str = "../../vendor/zlib";
+const ZLIB_VERSION: &str = "1.3.1";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    println!("cargo:rerun-if-changed=../../build-support/native_vendors.rs");
     for path in [
         NATIVE_BUILD,
         NATIVE_SOURCE,
@@ -22,15 +29,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         &format!("{BOOST_ROOT}/libs/iostreams/include/boost/iostreams/copy.hpp"),
         &format!("{TBB_ROOT}/CMakeLists.txt"),
         &format!("{BLOSC_ROOT}/CMakeLists.txt"),
-        &format!("{ZLIB_ROOT}/CMakeLists.txt"),
     ] {
         require_file(path)?;
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-changed=native");
+    native_vendors::emit_rerun_environment();
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is not set")?);
-    let zlib = build_zlib(&out_dir)?;
+    let zlib = locate_shared_zlib()?;
     let blosc = build_blosc(&out_dir);
     let tbb = build_tbb(&out_dir);
     let native = build_cooker(&out_dir, &zlib, &blosc, &tbb);
@@ -61,11 +68,19 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn build_zlib(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
-    let source = stage_source(Path::new(ZLIB_ROOT), out_dir, "zlib")?;
-    let mut config = base_config(&source, &out_dir.join("zlib"));
-    config.define("ZLIB_BUILD_EXAMPLES", "OFF");
-    Ok(config.build())
+fn locate_shared_zlib() -> Result<PathBuf, Box<dyn Error>> {
+    let configuration =
+        native_vendors::Configuration::from_cargo_build_script().map_err(native_contract_error)?;
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let workspace_root =
+        native_vendors::find_workspace_root(&manifest_dir).map_err(native_contract_error)?;
+    native_vendors::locate_vendor(&workspace_root, &configuration, "zlib", ZLIB_VERSION)
+        .map_err(|error| native_contract_error(error).into())
+}
+
+fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }
 
 fn build_blosc(out_dir: &Path) -> PathBuf {
@@ -116,33 +131,6 @@ fn base_config(source: impl AsRef<Path>, output: &Path) -> cmake::Config {
             .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime());
     }
     config
-}
-
-fn stage_source(source: &Path, out_dir: &Path, name: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let destination = out_dir.join("native-sources").join(name);
-    if destination.exists() {
-        fs::remove_dir_all(&destination)?;
-    }
-    copy_tree(source, &destination)?;
-    Ok(destination)
-}
-
-fn copy_tree(source: &Path, destination: &Path) -> Result<(), Box<dyn Error>> {
-    fs::create_dir_all(destination)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        if entry.file_name() == OsStr::new(".git") {
-            continue;
-        }
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_tree(&source_path, &destination_path)?;
-        } else if fs::hard_link(&source_path, &destination_path).is_err() {
-            fs::copy(source_path, destination_path)?;
-        }
-    }
-    Ok(())
 }
 
 fn msvc_runtime() -> &'static str {

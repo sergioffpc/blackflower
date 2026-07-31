@@ -56,6 +56,9 @@ jobs:
           cargo-cache-restore-key: cargo
           install-ispc: "true"
 
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh runtime
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -140,6 +143,7 @@ jobs:
              [ "$BASE_OID" != "$zero_oid" ] &&
              git diff --quiet "$BASE_OID" "$HEAD_OID" -- \
                .github/actions/setup-native-rust \
+               .github/scripts/build-ci-native-vendors.sh \
                .github/scripts/init-ci-submodules.sh \
                .github/scripts/run-asset-checks.sh \
                .github/workflows/ci.yml \
@@ -162,9 +166,14 @@ jobs:
                crates/blackflower-rendering-volumes \
                crates/blackflower-scripting \
                crates/blackflower-shader-compiler \
+               crates/blackflower-spatial-query \
                rust-toolchain.toml \
+               build-support \
                tools/blender \
-               tools/xtask
+               tools/native-build \
+               tools/xtask \
+               vendor/embree \
+               vendor/zlib
           then
             required=false
           fi
@@ -193,6 +202,9 @@ jobs:
           cargo-cache-key: assets-full
           cargo-cache-restore-key: assets
           install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Run asset Clippy
         run: .github/scripts/run-asset-checks.sh clippy
@@ -235,6 +247,9 @@ jobs:
           cargo-cache-key: assets-smoke
           cargo-cache-restore-key: assets
           install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Compile and link volume cooker
         run: >-
@@ -375,7 +390,13 @@ jobs:
       - name: Set up native Rust build
         uses: ./.github/actions/setup-native-rust
         with:
-          install-ispc: ${{ matrix.package == 'blackflower-audio-spatial' }}
+          install-ispc: ${{ contains(fromJSON('["blackflower-acoustics", "blackflower-audio-capture", "blackflower-audio-spatial", "blackflower-networking"]'), matrix.package) }}
+
+      - name: Build package shared native vendors
+        shell: bash
+        env:
+          NATIVE_PACKAGE: ${{ matrix.package }}
+        run: .github/scripts/build-ci-native-vendors.sh native "$NATIVE_PACKAGE"
 
       - name: Check formatting
         run: cargo fmt --all -- --check

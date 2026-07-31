@@ -22,8 +22,8 @@
 [submodule "crates/blackflower-audio-spatial/vendor/steam-audio-sdk"]
 	path = crates/blackflower-audio-spatial/vendor/steam-audio-sdk
 	url = https://github.com/ValveSoftware/steam-audio.git
-[submodule "crates/blackflower-audio-spatial/vendor/embree"]
-	path = crates/blackflower-audio-spatial/vendor/embree
+[submodule "vendor/embree"]
+	path = vendor/embree
 	url = https://github.com/RenderKit/embree.git
 [submodule "crates/blackflower-navigation/vendor/recastnavigation"]
 	path = crates/blackflower-navigation/vendor/recastnavigation

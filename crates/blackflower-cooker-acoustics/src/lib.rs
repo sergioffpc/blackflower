@@ -214,12 +214,10 @@ pub fn cook_prefab(
                         .and_then(|scene| quantized_triangles(&scene))
                 },
             )?;
-            let bvh = blackflower_acoustics::AcousticBvh::build(&triangles)?;
             Ok(blackflower_acoustics::PrefabState {
                 id: state.id,
                 name: state.name.clone(),
                 triangles,
-                bvh,
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -237,7 +235,6 @@ pub fn cook_simulation_scene(
 ) -> Result<blackflower_acoustics::AcousticSimulationScene, Error> {
     let imported = geometry::import_scene(path, materials)?;
     let triangles = quantized_triangles(&imported)?;
-    let bvh = blackflower_acoustics::AcousticBvh::build(&triangles)?;
     let paths = topology
         .portals()
         .iter()
@@ -262,7 +259,6 @@ pub fn cook_simulation_scene(
             materials: material_asset.to_owned(),
             topology: topology_asset.to_owned(),
             triangles,
-            bvh,
             paths,
             zones,
         },

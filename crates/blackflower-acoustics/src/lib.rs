@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 mod asset;
-mod bvh;
 mod error;
+mod geometry;
 mod solver;
 mod types;
 
@@ -12,8 +12,8 @@ pub use asset::{
     AcousticTopology, AcousticZoneVolume, PrefabState, ProbePathEdge, SpectralEnvelopeFrame,
     ZoneResponse,
 };
-pub use bvh::{AcousticBvh, BvhNode, QuantizedTriangle};
 pub use error::Error;
+pub use geometry::QuantizedTriangle;
 pub use solver::{
     AcousticFrame, AcousticReplayDelivery, AcousticReplayEmission, AcousticReplayFacts,
     AcousticWorld, AcousticWorldSettings,

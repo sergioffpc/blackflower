@@ -81,6 +81,12 @@ jobs:
             "$CXX" --version
           fi
 
+      - name: Build shared native vendors
+        shell: bash
+        run: >-
+          .github/scripts/build-ci-native-vendors.sh runtime ""
+          release ${{ matrix.target }}
+
       - name: Build Steam Audio native contract
         if: matrix.ispc
         shell: bash
@@ -166,6 +172,9 @@ jobs:
           cargo-cache-key: release-docs
           cargo-cache-restore-key: release-docs
           install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh runtime
 
       - name: Generate workspace documentation
         run: cargo doc --workspace --all-features --no-deps --locked

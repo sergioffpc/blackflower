@@ -1,6 +1,9 @@
 /// Authoritative acoustic asset or runtime failure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The shared spatial-query backend rejected scene construction or a query.
+    #[error(transparent)]
+    SpatialQuery(#[from] blackflower_spatial_query::Error),
     /// An asset container is truncated, corrupt, non-canonical, or unsupported.
     #[error("invalid {format}: {reason}")]
     InvalidAsset {

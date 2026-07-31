@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::{AabbMm, AcousticBvh, BandEnergy, Error, PositionMm, QuantizedTriangle, SoundClass};
+use crate::{AabbMm, BandEnergy, Error, PositionMm, QuantizedTriangle, SoundClass};
 
 /// Current schema for all authoritative acoustic containers.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
@@ -225,8 +225,6 @@ pub struct PrefabState {
     pub name: String,
     /// Quantized local-space acoustic triangles.
     pub triangles: Vec<QuantizedTriangle>,
-    /// Cooker-built local BVH.
-    pub bvh: AcousticBvh,
 }
 
 /// Shared `.bfacpfb` rigid geometry and finite state variants.
@@ -241,7 +239,7 @@ pub struct AcousticPrefab {
 }
 
 impl AcousticPrefab {
-    /// Build and validate all state BVHs.
+    /// Validate and canonicalize all finite states.
     pub fn new(
         name: String,
         materials: String,
@@ -255,14 +253,6 @@ impl AcousticPrefab {
         states.sort_by_key(|state| state.id);
         validate_unique_ids(states.iter().map(|state| state.id), "prefab state")?;
         validate_unique_text(states.iter().map(|state| state.name.as_str()))?;
-        for state in &mut states {
-            let expected = AcousticBvh::build(&state.triangles)?;
-            if state.bvh.nodes.is_empty() && !state.triangles.is_empty() {
-                state.bvh = expected;
-            } else if state.bvh != expected {
-                return Err(Error::InvalidField("prefab BVH"));
-            }
-        }
         Ok(Self {
             name,
             materials,
@@ -323,7 +313,7 @@ pub struct ZoneResponse {
     pub decay_ms: u16,
 }
 
-/// Simulation-only `.bfacsim` geometry, BVH, path graph, and zone response.
+/// Simulation-only `.bfacsim` geometry, path graph, and zone response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcousticSimulationScene {
@@ -333,8 +323,6 @@ pub struct AcousticSimulationScene {
     pub topology: String,
     /// Static quantized triangles.
     pub triangles: Vec<QuantizedTriangle>,
-    /// Cooker-built static BVH.
-    pub bvh: AcousticBvh,
     /// Canonically ordered path graph.
     pub paths: Vec<ProbePathEdge>,
     /// Canonically ordered late zone response.
@@ -346,12 +334,6 @@ impl AcousticSimulationScene {
     pub fn new(mut value: Self) -> Result<Self, Error> {
         validate_text(&value.materials)?;
         validate_text(&value.topology)?;
-        let expected = AcousticBvh::build(&value.triangles)?;
-        if value.bvh.nodes.is_empty() && !value.triangles.is_empty() {
-            value.bvh = expected;
-        } else if value.bvh != expected {
-            return Err(Error::InvalidField("simulation BVH"));
-        }
         value
             .paths
             .sort_by_key(|edge| (edge.zone_a.min(edge.zone_b), edge.zone_a.max(edge.zone_b)));

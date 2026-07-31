@@ -1,7 +1,9 @@
 # Blackflower authoritative acoustics
 
 `blackflower-acoustics` owns deterministic, server-authoritative acoustic
-propagation. It deliberately has no Steam Audio, CPAL, Kira, physics-world, or
+propagation. It uses `blackflower-spatial-query` for immutable Embree scenes and
+bounded segment queries, while retaining all material, routing, and audibility
+policy. It deliberately has no Steam Audio, CPAL, Kira, physics-world, or
 network transport dependency.
 
 Geometry is quantized to millimetres, material coefficients use Q0.16, asset

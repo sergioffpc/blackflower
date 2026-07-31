@@ -62,7 +62,6 @@ case "$mode" in
         git submodule update --init --recursive --depth 1 \
             crates/blackflower-animation/vendor/ozz-animation \
             crates/blackflower-audio-spatial/vendor/flatbuffers \
-            crates/blackflower-audio-spatial/vendor/embree \
             crates/blackflower-audio-spatial/vendor/libmysofa \
             crates/blackflower-audio-spatial/vendor/pffft \
             crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
@@ -71,6 +70,7 @@ case "$mode" in
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-physics/vendor/JoltPhysics \
             crates/blackflower-rendering-volumes/vendor/openvdb \
+            vendor/embree \
             vendor/zlib
         ;;
     assets)
@@ -83,17 +83,17 @@ case "$mode" in
             vendor/zlib
         git submodule update --init --recursive --depth 1 \
             crates/blackflower-audio-spatial/vendor/flatbuffers \
-            crates/blackflower-audio-spatial/vendor/embree \
             crates/blackflower-audio-spatial/vendor/libmysofa \
             crates/blackflower-audio-spatial/vendor/pffft \
-            crates/blackflower-audio-spatial/vendor/steam-audio-sdk
+            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
+            vendor/embree
         initialize_slang
         initialize_volume_cooker
         ;;
     native)
         case "$package" in
             blackflower-acoustics)
-                :
+                git submodule update --init --recursive --depth 1 vendor/embree
                 ;;
             blackflower-animation|blackflower-cooker-animation)
                 git submodule update --init --recursive --depth 1 \
@@ -102,13 +102,19 @@ case "$mode" in
             blackflower-audio-spatial)
                 git submodule update --init --recursive --depth 1 \
                     crates/blackflower-audio-spatial/vendor/flatbuffers \
-                    crates/blackflower-audio-spatial/vendor/embree \
                     crates/blackflower-audio-spatial/vendor/libmysofa \
                     crates/blackflower-audio-spatial/vendor/pffft \
                     crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
+                    vendor/embree \
                     vendor/zlib
                 ;;
-            blackflower-audio-capture|blackflower-audio-voice|blackflower-networking)
+            blackflower-audio-capture|blackflower-networking)
+                git submodule update --init --recursive --depth 1 \
+                    crates/blackflower-audio-voice/vendor/opus \
+                    vendor/embree \
+                    vendor/zlib
+                ;;
+            blackflower-audio-voice)
                 git submodule update --init --recursive --depth 1 \
                     crates/blackflower-audio-voice/vendor/opus
                 ;;

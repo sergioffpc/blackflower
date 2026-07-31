@@ -48,7 +48,7 @@ pub enum AssetKind {
     AcousticTopology,
     /// Blackflower `.bfacpfb` containing rigid local geometry and finite variants.
     AcousticPrefab,
-    /// Blackflower `.bfacsim` containing authoritative geometry, BVH, and path graph.
+    /// Blackflower `.bfacsim` containing authoritative geometry and path graph.
     AcousticSimulationScene,
     /// Blackflower `.bfacprf` containing authoritative source strength and spectral envelope.
     AcousticEmissionProfile,

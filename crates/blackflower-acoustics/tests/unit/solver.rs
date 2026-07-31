@@ -82,25 +82,21 @@ fn fixture() -> Result<AcousticWorld, Error> {
                 id: 0,
                 name: "open".to_owned(),
                 triangles: Vec::new(),
-                bvh: AcousticBvh::build(&[])?,
             },
             crate::PrefabState {
                 id: 1,
                 name: "intact".to_owned(),
                 triangles: vec![door],
-                bvh: AcousticBvh::build(&[door])?,
             },
             crate::PrefabState {
                 id: 2,
                 name: "breached".to_owned(),
                 triangles: vec![breach],
-                bvh: AcousticBvh::build(&[breach])?,
             },
             crate::PrefabState {
                 id: 3,
                 name: "removed".to_owned(),
                 triangles: Vec::new(),
-                bvh: AcousticBvh::build(&[])?,
             },
         ],
     )?;
@@ -108,7 +104,6 @@ fn fixture() -> Result<AcousticWorld, Error> {
         materials: "materials".to_owned(),
         topology: "topology".to_owned(),
         triangles: Vec::new(),
-        bvh: AcousticBvh::build(&[])?,
         paths: vec![ProbePathEdge {
             zone_a: 1,
             zone_b: 2,
