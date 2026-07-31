@@ -134,15 +134,14 @@ impl Pipeline {
                 .with_context(|| format!("missing cooked asset `{}`", record.id))?;
             let object_path = object_root.join(record.content_hash.to_string());
             write_cache_object(&object_path, &asset.bytes, record.content_hash)?;
-            let recipe_path = recipe_root.join(format!("{}.json", record.recipe_hash));
+            let recipe_path = recipe_root.join(format!("{}.toml", record.recipe_hash));
             let recipe = CachedRecipe {
                 schema: SOURCE_SCHEMA,
                 id: &record.id,
                 content_hash: record.content_hash,
                 recipe_hash: record.recipe_hash,
             };
-            let mut bytes = serde_json::to_vec(&recipe)?;
-            bytes.push(b'\n');
+            let bytes = crate::canonical_toml::encode(&recipe)?;
             write_atomic(&recipe_path, &bytes)?;
         }
         Ok(())
@@ -289,8 +288,7 @@ fn write_package(
     catalog: &AssetCatalog,
     cooked: &BTreeMap<AssetId, CookedAsset>,
 ) -> anyhow::Result<()> {
-    let mut catalog_bytes = serde_json::to_vec(catalog)?;
-    catalog_bytes.push(b'\n');
+    let catalog_bytes = crate::canonical_toml::encode(catalog)?;
     let objects = unique_objects(catalog, cooked)?;
 
     let mut writer = configured_writer()?;
@@ -299,7 +297,7 @@ fn write_package(
     writer.push_dir("blackflower", directory)?;
     writer.push_dir("objects", directory)?;
     writer.push_dir("objects/blake3", directory)?;
-    writer.push_file(Cursor::new(catalog_bytes), "blackflower/catalog.json", file)?;
+    writer.push_file(Cursor::new(catalog_bytes), "blackflower/catalog.toml", file)?;
     for (content_hash, bytes) in objects {
         writer.push_file(
             Cursor::new(bytes),

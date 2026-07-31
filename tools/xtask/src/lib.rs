@@ -1,5 +1,6 @@
 mod acoustic_cooker;
 mod asset_cooker;
+mod canonical_toml;
 mod cook;
 mod coordinate_system;
 mod gltf_source;

@@ -576,7 +576,7 @@ impl CanonicalHasher {
     }
 
     fn serializable(&mut self, value: &impl serde::Serialize) -> anyhow::Result<()> {
-        self.bytes(&serde_json::to_vec(value)?);
+        self.bytes(&crate::canonical_toml::encode_value(value)?);
         Ok(())
     }
 

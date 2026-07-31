@@ -424,8 +424,9 @@ fn encode_container<T: Serialize>(
     format: &'static str,
     value: &T,
 ) -> Result<Vec<u8>, Error> {
-    let payload =
-        serde_json::to_vec(value).map_err(|_error| invalid(format, "JSON encode failed"))?;
+    let payload = toml::to_string(value)
+        .map_err(|_error| invalid(format, "TOML encode failed"))?
+        .into_bytes();
     if payload.is_empty() || payload.len() > MAX_ASSET_BYTES {
         return Err(invalid(format, "payload size is invalid"));
     }
@@ -469,11 +470,11 @@ fn decode_container<T: DeserializeOwned + Serialize>(
     if blake3::hash(payload).as_bytes() != checksum {
         return Err(invalid(format, "checksum does not match"));
     }
-    let value: T = serde_json::from_slice(payload)
-        .map_err(|_error| invalid(format, "payload JSON is invalid"))?;
-    let canonical = serde_json::to_vec(&value)
-        .map_err(|_error| invalid(format, "canonical JSON encode failed"))?;
-    if canonical != payload {
+    let value: T =
+        toml::from_slice(payload).map_err(|_error| invalid(format, "payload TOML is invalid"))?;
+    let canonical = toml::to_string(&value)
+        .map_err(|_error| invalid(format, "canonical TOML encode failed"))?;
+    if canonical.as_bytes() != payload {
         return Err(invalid(format, "payload is not canonical"));
     }
     Ok(value)

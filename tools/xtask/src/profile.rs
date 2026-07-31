@@ -483,7 +483,7 @@ fn profile_name_from_path(path: &Path) -> anyhow::Result<ProfileName> {
 }
 
 fn hash_profile(file: &CookingProfileFile) -> anyhow::Result<ProfileHash> {
-    let canonical = serde_json::to_vec(file)?;
+    let canonical = crate::canonical_toml::encode(file)?;
     let mut hasher = blake3::Hasher::new();
     hash_field(&mut hasher, PROFILE_HASH_DOMAIN);
     hash_field(&mut hasher, &canonical);
