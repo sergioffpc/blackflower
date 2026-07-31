@@ -49,10 +49,10 @@ closes over both relationships before cooking. It also supports tiled
 `.bfnav`, 48 kHz PCM16 `.bfaudio`, lossless 48 kHz FLAC streams, and source-less
 `.bfsound` event policy. Sound-event records carry their media `AssetId` as a
 typed dependency, so package selection and recipe identity close over audio
-references. Static acoustics adds `.bfacscn` scenes, `.bfacprb` probe batches,
-and schema-2 `.bfac` zone descriptors: probes depend on their scene, and the
-descriptor depends on scenes, probes, and `.bfactpl` topology. Stage 9 adds the
-shared `.bfacmat`, `.bfactpl`, and `.bfacpfb` contracts plus simulation-only
+references. Acoustics adds schema-1 `.bfacscn` scenes, `.bfacprb` probe batches,
+and `.bfac` zone descriptors: probes depend on their scene, and the descriptor
+depends on scenes, probes, and `.bfactpl` topology. The shared `.bfacmat`,
+`.bfactpl`, and `.bfacpfb` contracts are joined by the simulation-only
 `.bfacsim` and `.bfacprf`. An emission profile reads its audio media only while
 cooking and therefore does not force WAV, PCM, FLAC, `.bfaudio`, or
 `.bfsound` into a server package. These domain kinds do not change the package

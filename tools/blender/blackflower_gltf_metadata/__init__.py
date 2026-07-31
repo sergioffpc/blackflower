@@ -112,9 +112,9 @@ class BlackflowerNodeMetadata(PropertyGroup):
             (
                 "zone_volume",
                 "Zone Volume",
-                "Bound a Stage 9 acoustic zone for authoritative broad phase",
+                "Bound an acoustic zone for authoritative broad phase",
             ),
-            ("portal", "Portal", "Connect two Stage 9 acoustic zones"),
+            ("portal", "Portal", "Connect two acoustic zones"),
             (
                 "probe_volume",
                 "Probe Volume",
@@ -126,16 +126,16 @@ class BlackflowerNodeMetadata(PropertyGroup):
     acoustic_geometry_class: EnumProperty(
         name="Geometry Class",
         items=(
-            ("static", "Static", "Include in the Stage 8 static scene"),
+            ("static", "Static", "Include in the serialized static scene"),
             (
                 "dynamic_rigid",
                 "Dynamic Rigid",
-                "Reserve rigid movable geometry for Stage 9",
+                "Select rigid movable geometry through acoustic prefabs",
             ),
             (
                 "dynamic_state",
                 "Dynamic State",
-                "Reserve state-dependent geometry for Stage 9",
+                "Select state-dependent geometry through acoustic prefab variants",
             ),
             ("ignored", "Ignored", "Exclude geometry from acoustic cooking"),
         ),

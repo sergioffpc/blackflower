@@ -495,7 +495,7 @@ fn recipe_hash(
         AssetSource::Acoustic(manifest) => {
             hasher.text("acoustic_environment");
             hasher.serializable(manifest)?;
-            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ENVIRONMENT_SCHEMA);
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
         }
         AssetSource::AcousticMaterials(manifest) => {
             hasher.text("acoustic_material_library");

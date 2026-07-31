@@ -355,14 +355,14 @@ scene = "levels/warehouse/acoustics/scene"
 probes = "levels/warehouse/acoustics/ground-floor-probes"
 ```
 
-The presentation outputs are `.bfacscn`, `.bfacprb`, and schema-2 `.bfac`.
+The presentation outputs are schema-1 `.bfacscn`, `.bfacprb`, and `.bfac`.
 The probe batch depends on its scene; the environment depends on topology plus
 all referenced scenes and batches. Uniform-floor probe generation, base
 reflections, parametric reverb, and pathing are cooked with Steam Audio.
 
-Stage 9 adds shared topology and finite rigid prefab variants. Zone volumes and
-portals come from typed glTF metadata; instances and state selection remain
-explicit in manifests:
+The acoustic asset graph also includes shared topology and finite rigid prefab
+variants. Zone volumes and portals come from typed glTF metadata; instances and
+state selection remain explicit in manifests:
 
 ```toml
 schema = 1

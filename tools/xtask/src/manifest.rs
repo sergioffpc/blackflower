@@ -1119,7 +1119,7 @@ fn validate_acoustic_material_library(
     audience: AssetAudience,
     path: &Path,
 ) -> anyhow::Result<()> {
-    validate_stage9_audience(
+    validate_audience(
         audience,
         AssetAudience::Shared,
         "acoustic material library",
@@ -1150,7 +1150,7 @@ fn validate_acoustic_topology(
     audience: AssetAudience,
     path: &Path,
 ) -> anyhow::Result<()> {
-    validate_stage9_audience(audience, AssetAudience::Shared, "acoustic topology", path)?;
+    validate_audience(audience, AssetAudience::Shared, "acoustic topology", path)?;
     validate_gltf_source(&topology.source, "acoustic topology", path)?;
     topology.instances.sort_by_key(|instance| instance.id);
     for instance in &mut topology.instances {
@@ -1185,7 +1185,7 @@ fn validate_acoustic_prefab(
     audience: AssetAudience,
     path: &Path,
 ) -> anyhow::Result<()> {
-    validate_stage9_audience(audience, AssetAudience::Shared, "acoustic prefab", path)?;
+    validate_audience(audience, AssetAudience::Shared, "acoustic prefab", path)?;
     validate_gltf_source(&prefab.source, "acoustic prefab", path)?;
     validate_selection_name(&prefab.name, "acoustic prefab", path)?;
     if prefab.states.is_empty() {
@@ -1219,7 +1219,7 @@ fn validate_acoustic_simulation(
     audience: AssetAudience,
     path: &Path,
 ) -> anyhow::Result<()> {
-    validate_stage9_audience(
+    validate_audience(
         audience,
         AssetAudience::Simulation,
         "acoustic simulation scene",
@@ -1233,7 +1233,7 @@ fn validate_acoustic_emission(
     audience: AssetAudience,
     path: &Path,
 ) -> anyhow::Result<()> {
-    validate_stage9_audience(
+    validate_audience(
         audience,
         AssetAudience::Simulation,
         "acoustic emission profile",
@@ -1252,7 +1252,7 @@ fn validate_acoustic_emission(
     Ok(())
 }
 
-fn validate_stage9_audience(
+fn validate_audience(
     actual: AssetAudience,
     expected: AssetAudience,
     kind: &str,

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AabbMm, AcousticBvh, BandEnergy, Error, PositionMm, QuantizedTriangle, SoundClass};
 
-/// Current schema for all Stage 9 authoritative acoustic containers.
+/// Current schema for all authoritative acoustic containers.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
 
 const MATERIAL_MAGIC: &[u8; 8] = b"BFACMAT\0";

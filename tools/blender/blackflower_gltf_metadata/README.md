@@ -160,7 +160,7 @@ The extension version is kept equal to the workspace project version. In
 **Object Properties > Blackflower Metadata**, choose an **Acoustic Role**:
 
 - **Geometry**, then classify it as `static`, `dynamic_rigid`,
-  `dynamic_state`, or `ignored`. Stage 8 consumes only `static`.
+  `dynamic_state`, or `ignored`. Static-scene cooking consumes only `static`.
 - **Zone** for a stable acoustic zone ID.
 - **Probe Volume** for a bounded mesh object and its containing zone. Author a
   cube or other mesh whose local bounds define the volume; the cooker uses the

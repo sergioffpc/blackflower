@@ -10,10 +10,10 @@ portable logical asset path instead of a host filesystem path.
 The crate does not choose a graphics backend. The asset cooker owns target,
 optimization, and debug policy through a selected cooking profile, validates
 the generated module with Naga, and stores the SPIR-V bytes. Runtime loading is
-outside this stage; it can later pass those bytes to wgpu for translation to
+outside this compiler; it can later pass those bytes to wgpu for translation to
 Metal, Vulkan, or Direct3D 12.
 
-Source imports and includes are deliberately unsupported in this stage, so one
+Source imports and includes are deliberately unsupported by this compiler, so one
 asset and its content hash fully describe one shader compilation input.
 
 ## Setup

@@ -1,6 +1,6 @@
 # Blackflower networking contracts
 
-Stage 9 defines strict version-1 codecs for `VoiceCapturePacket`,
+This crate defines strict version-1 codecs for `VoiceCapturePacket`,
 `AudibleSoundDelivery`, and `AudibleVoiceDelivery`, plus a bounded in-memory
 client/server harness. Unknown versions, reserved bits, truncation, trailing
 bytes, oversized payloads, duplicates, and packets outside the 60 ms reorder

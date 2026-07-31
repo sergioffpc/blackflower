@@ -5,7 +5,7 @@ use blackflower_acoustics::{
     MAX_OPUS_PACKET_BYTES, PropagationDescriptor, VoiceStreamId,
 };
 
-/// Strict wire version for Stage 9 acoustic datagrams.
+/// Strict wire version for acoustic datagrams.
 pub const ACOUSTIC_DATAGRAM_VERSION: u16 = 1;
 
 const MAGIC: &[u8; 4] = b"BFAD";

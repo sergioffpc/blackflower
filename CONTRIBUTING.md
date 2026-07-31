@@ -24,6 +24,21 @@ the complete workspace test suite with the lockfile enforced.
 Any lint suppression must be narrow and include a reason. Do not weaken a
 workspace-wide lint to accommodate one call site.
 
+## Spatial conventions
+
+Engine, world, model, physics, navigation, and presentation code must follow
+the [canonical coordinate-system contract](docs/coordinate-system.md).
+Conversions from foreign bases belong at the cooker or adapter boundary and
+must be covered by focused tests.
+
+## Unreleased format versions
+
+Until the release process is explicitly started, existing format and schema
+version identifiers must remain unchanged. Breaking development changes replace
+the current unreleased contract and require affected artifacts to be regenerated;
+they do not increment a version or schema number. Advancing one of these
+identifiers is a deliberate release operation.
+
 ## Commit messages
 
 Every commit message must contain exactly one line and follow Conventional

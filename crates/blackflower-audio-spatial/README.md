@@ -11,7 +11,7 @@ loads checksummed `.bfacscn` scenes and `.bfacprb` probe batches, uses Steam
 Audio's built-in HRTF, and processes fixed-size mono PCM frames into
 deinterleaved stereo with one stateful `BinauralEffect` per source. Device
 output, decoding, mixing, and authoritative gameplay simulation remain outside
-this crate. Stage 9 adds rigid `InstancedMesh` scene updates, allocation-free
+this crate. It also provides rigid `InstancedMesh` scene updates, allocation-free
 `DirectEffect`/`PathEffect`, a lock-free triple parameter exchange, and an
 off-callback dirty-zone `ReflectionSimulator`. Steam Audio reflections remain
 presentation-only and cannot change audibility.
@@ -30,15 +30,14 @@ loaded scene uses the context's selected backend, including Embree. Calling
 `Error::SceneSerializationRequiresBuiltIn` instead of crossing the invalid
 native API path.
 
-The native scene/probe containers use schema 1 and embed the exact Steam Audio 4.8.1
+The native acoustic containers use schema 1 and embed the exact Steam Audio 4.8.1
 serialization behind Blackflower headers, counts, layer identifiers, and
 BLAKE3 checksums:
 
 - `.bfacscn`: immutable committed static scene;
 - `.bfacprb`: deterministic probe order plus base reflections/parametric
   reverb and dynamic pathing layers;
-- `.bfac`: schema-2 ordered zone references plus the shared `.bfactpl`
-  topology. Schema 1 is rejected and requires a full recook.
+- `.bfac`: ordered zone references plus the shared `.bfactpl` topology.
 
 Parsing and native object creation are explicit worker/loading operations.
 They are not permitted in an audio callback.

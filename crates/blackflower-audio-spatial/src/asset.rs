@@ -6,8 +6,6 @@ use crate::{Error, STEAM_AUDIO_VERSION};
 
 /// Schema shared by `.bfacscn`, `.bfacprb`, and `.bfac`.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
-/// Current `.bfac` environment schema. Version 1 is rejected and must be recooked.
-pub const ACOUSTIC_ENVIRONMENT_SCHEMA: u32 = 2;
 
 const SCENE_MAGIC: &[u8; 8] = b"BFACSCN\0";
 const PROBES_MAGIC: &[u8; 8] = b"BFACPRB\0";
@@ -419,7 +417,7 @@ impl AcousticEnvironment {
         }
         let mut bytes = Vec::new();
         bytes.extend_from_slice(ENVIRONMENT_MAGIC);
-        push_u32(&mut bytes, ACOUSTIC_ENVIRONMENT_SCHEMA);
+        push_u32(&mut bytes, ACOUSTIC_ASSET_SCHEMA);
         push_text(&mut bytes, &topology)?;
         push_len(&mut bytes, zones.len())?;
         for zone in &zones {
@@ -438,12 +436,7 @@ impl AcousticEnvironment {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(bytes, "acoustic environment");
         reader.magic(ENVIRONMENT_MAGIC)?;
-        if reader.u32()? != ACOUSTIC_ENVIRONMENT_SCHEMA {
-            return Err(invalid(
-                "acoustic environment",
-                "schema is unsupported; recook .bfac v2",
-            ));
-        }
+        reader.schema()?;
         let topology = reader.text()?.to_owned();
         let count = reader.count()?;
         let mut zones = Vec::new();
@@ -635,7 +628,7 @@ impl<'a> Reader<'a> {
         match (data_type, variation) {
             (BakedDataType::Reflections, BakedDataVariation::Reverb)
             | (BakedDataType::Pathing, BakedDataVariation::Dynamic) => {}
-            _ => return Err(invalid(self.format, "unsupported Stage 8 baked layer")),
+            _ => return Err(invalid(self.format, "unsupported baked layer")),
         }
         Ok(BakedDataIdentifier {
             data_type,

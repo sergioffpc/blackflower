@@ -11,11 +11,11 @@ const MAX_NODE_ID_BYTES: usize = 128;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AcousticGeometryClass {
-    /// Immovable geometry included in the Stage 8 scene.
+    /// Immovable geometry included in the serialized static scene.
     Static,
-    /// Rigid movable geometry reserved for Stage 9.
+    /// Rigid movable geometry selected by acoustic prefabs.
     DynamicRigid,
-    /// State-dependent geometry reserved for Stage 9.
+    /// State-dependent geometry selected by acoustic prefab variants.
     DynamicState,
     /// Geometry deliberately excluded from acoustics.
     Ignored,
@@ -31,9 +31,9 @@ pub enum AcousticNodeKind {
     },
     /// Named acoustic zone.
     Zone,
-    /// Closed volume used by Stage 9 zone/portal broad phase.
+    /// Closed volume used by authoritative zone/portal broad phase.
     ZoneVolume,
-    /// Connection between two named Stage 9 zone volumes.
+    /// Connection between two named acoustic zone volumes.
     Portal {
         /// First adjacent zone identifier.
         zone_a: String,
