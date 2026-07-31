@@ -184,8 +184,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackflower-observability",
- "blackflower-world-prediction",
- "blackflower-world-presentation",
 ]
 
 [[package]]
@@ -398,7 +396,6 @@ name = "blackflower-harness"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blackflower-ecs",
  "blackflower-observability",
  "blackflower-world-prediction",
  "metrics",
@@ -506,7 +503,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackflower-observability",
- "blackflower-world-simulation",
 ]
 
 [[package]]
