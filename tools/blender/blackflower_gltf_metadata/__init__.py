@@ -3,7 +3,13 @@
 """Blender integration for Blackflower-owned glTF extras."""
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    PointerProperty,
+    StringProperty,
+)
 from bpy.types import Panel, PropertyGroup
 
 from .metadata import (
@@ -17,7 +23,7 @@ from .metadata import (
 bl_info = {
     "name": "Blackflower glTF Metadata",
     "category": "Import-Export",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "File > Export > glTF 2.0 and Object Properties",
     "description": "Export typed Blackflower metadata in glTF extras",
@@ -57,6 +63,41 @@ class BlackflowerNodeMetadata(PropertyGroup):
         description="Optional stable identifier within the source asset",
         default="",
         maxlen=128,
+    )
+    navigation_role: EnumProperty(
+        name="Navigation Role",
+        description="How this object participates in Recast cooking",
+        items=(
+            ("none", "None", "Do not export navigation metadata"),
+            ("surface", "Surface", "Rasterize triangles as an authored area"),
+            ("obstacle", "Obstacle", "Rasterize triangles as blocked geometry"),
+            (
+                "off_mesh_link",
+                "Off-mesh Link",
+                "Use the first two mesh vertices as connection endpoints",
+            ),
+        ),
+        default="none",
+    )
+    navigation_area_key: StringProperty(
+        name="Area",
+        description="Area key declared in the navigation asset.toml",
+        default="",
+        maxlen=64,
+    )
+    navigation_direction: EnumProperty(
+        name="Direction",
+        items=(
+            ("bidirectional", "Bidirectional", "Allow travel both ways"),
+            ("one_way", "One Way", "Travel from the first endpoint to the second"),
+        ),
+        default="bidirectional",
+    )
+    navigation_radius: FloatProperty(
+        name="Radius",
+        description="Off-mesh endpoint matching radius in world units",
+        default=0.5,
+        min=0.0001,
     )
 
 
@@ -180,12 +221,24 @@ class BLACKFLOWER_PT_node_metadata(Panel):
         layout.use_property_split = True
         layout.prop(properties, "enabled")
 
+        navigation_role = properties.navigation_role
         fields = layout.column()
-        fields.enabled = properties.enabled
+        fields.enabled = properties.enabled or navigation_role != "none"
         fields.prop(properties, "kind")
         fields.prop(properties, "identifier")
         if properties.enabled and not properties.kind:
             fields.label(text="Kind is required for export", icon="ERROR")
+        layout.separator()
+        layout.prop(properties, "navigation_role")
+        navigation = layout.column()
+        navigation.enabled = navigation_role != "none"
+        if navigation_role in {"surface", "off_mesh_link"}:
+            navigation.prop(properties, "navigation_area_key")
+        if navigation_role == "off_mesh_link":
+            navigation.prop(properties, "navigation_direction")
+            navigation.prop(properties, "navigation_radius")
+        if navigation_role != "none" and not properties.identifier:
+            navigation.label(text="Stable ID is required for navigation", icon="ERROR")
 
 
 def draw_export(context, layout):
@@ -259,9 +312,24 @@ class glTF2ExportUserExtension:
             return
 
         properties = blender_object.blackflower_node_metadata
-        if not properties.enabled:
+        navigation_role = getattr(properties, "navigation_role", "none")
+        if not properties.enabled and navigation_role == "none":
             return
-        metadata = build_node_metadata(properties.kind, properties.identifier)
+        kind = properties.kind
+        if not kind and navigation_role != "none":
+            kind = f"navigation_{navigation_role}"
+        metadata = build_node_metadata(
+            kind,
+            properties.identifier,
+            navigation_role=navigation_role,
+            area_key=getattr(properties, "navigation_area_key", ""),
+            direction=getattr(
+                properties,
+                "navigation_direction",
+                "bidirectional",
+            ),
+            radius=getattr(properties, "navigation_radius", 0.0),
+        )
         gltf2_node.extras = merge_extras(gltf2_node.extras, metadata)
 
     def merge_animation_extensions_hook(

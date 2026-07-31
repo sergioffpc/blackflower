@@ -30,6 +30,7 @@ impl AssetManifest {
             AssetSource::Volume(_) => AssetKind::Volume,
             AssetSource::Skeleton(_) => AssetKind::Skeleton,
             AssetSource::Animation(_) => AssetKind::AnimationClip,
+            AssetSource::Navigation(_) => AssetKind::NavigationMesh,
         }
     }
 
@@ -50,6 +51,7 @@ impl AssetManifest {
             | AssetSource::Mesh(_)
             | AssetSource::Volume(_)
             | AssetSource::Skeleton(_) => Vec::new(),
+            AssetSource::Navigation(_) => Vec::new(),
         }
     }
 }
@@ -65,6 +67,7 @@ pub(crate) enum AssetSource {
     Volume(VolumeManifest),
     Skeleton(SkeletonManifest),
     Animation(AnimationManifest),
+    Navigation(NavigationManifest),
 }
 
 impl AssetSource {
@@ -79,6 +82,7 @@ impl AssetSource {
             Self::Volume(manifest) => &manifest.source,
             Self::Skeleton(manifest) => &manifest.source,
             Self::Animation(manifest) => &manifest.source,
+            Self::Navigation(manifest) => &manifest.source,
         }
     }
 }
@@ -155,6 +159,49 @@ pub(crate) struct AnimationManifest {
     pub(crate) skeleton: AssetId,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NavigationManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) profile_id: String,
+    pub(crate) agent: NavigationAgentManifest,
+    pub(crate) build: NavigationBuildManifest,
+    pub(crate) areas: Vec<NavigationAreaManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NavigationAgentManifest {
+    pub(crate) height: f32,
+    pub(crate) radius: f32,
+    pub(crate) max_climb: f32,
+    pub(crate) max_slope_degrees: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NavigationBuildManifest {
+    pub(crate) cell_size: f32,
+    pub(crate) cell_height: f32,
+    pub(crate) tile_size: u32,
+    pub(crate) region_min_area: u32,
+    pub(crate) region_merge_area: u32,
+    pub(crate) max_edge_length: f32,
+    pub(crate) max_simplification_error: f32,
+    pub(crate) max_vertices_per_polygon: u32,
+    pub(crate) detail_sample_distance: f32,
+    pub(crate) detail_sample_max_error: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NavigationAreaManifest {
+    pub(crate) key: String,
+    pub(crate) traversable: bool,
+    #[serde(default)]
+    pub(crate) cost: Option<f32>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TextureSemanticManifest {
@@ -198,6 +245,7 @@ struct AssetManifestFile {
     volume: Option<VolumeManifest>,
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
+    navigation: Option<NavigationManifest>,
 }
 
 struct SourceSections {
@@ -210,6 +258,7 @@ struct SourceSections {
     volume: Option<VolumeManifest>,
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
+    navigation: Option<NavigationManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -330,7 +379,8 @@ impl Repository {
                     | AssetSource::Texture(_)
                     | AssetSource::Mesh(_)
                     | AssetSource::Volume(_)
-                    | AssetSource::Skeleton(_) => {}
+                    | AssetSource::Skeleton(_)
+                    | AssetSource::Navigation(_) => {}
                 }
             }
         }
@@ -397,6 +447,7 @@ fn load_asset(
         volume: file.volume,
         skeleton: file.skeleton,
         animation: file.animation,
+        navigation: file.navigation,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
     let source_path = source.source();
@@ -426,6 +477,10 @@ fn load_asset(
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the exhaustive asset-kind dispatch is the canonical manifest section routing table"
+)]
 fn asset_source(
     kind: AssetKind,
     audience: AssetAudience,
@@ -479,6 +534,11 @@ fn asset_source(
             validate_animation_manifest(&animation, audience, path)?;
             AssetSource::Animation(animation)
         }
+        AssetKind::NavigationMesh => {
+            let mut navigation = required_section(sections.navigation, "navigation", path)?;
+            validate_navigation_manifest(&mut navigation, audience, path)?;
+            AssetSource::Navigation(navigation)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
@@ -495,6 +555,7 @@ impl SourceSections {
             + usize::from(self.volume.is_some())
             + usize::from(self.skeleton.is_some())
             + usize::from(self.animation.is_some())
+            + usize::from(self.navigation.is_some())
     }
 }
 
@@ -505,6 +566,92 @@ fn required_section<T>(section: Option<T>, name: &str, path: &Path) -> anyhow::R
             path.display()
         )
     })
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "navigation validation checks one deliberately complete inheritance-free manifest contract"
+)]
+fn validate_navigation_manifest(
+    navigation: &mut NavigationManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Simulation {
+        bail!(
+            "navigation asset manifest `{}` must use audience `simulation`",
+            path.display()
+        );
+    }
+    validate_gltf_source(&navigation.source, "navigation", path)?;
+    blackflower_navigation::NavAgentProfileId::new(navigation.profile_id.clone())
+        .with_context(|| format!("invalid navigation profile_id in `{}`", path.display()))?;
+    blackflower_navigation::NavAgentProfile::new(
+        blackflower_navigation::NavAgentProfileId::new(navigation.profile_id.clone())?,
+        navigation.agent.height,
+        navigation.agent.radius,
+        navigation.agent.max_climb,
+        navigation.agent.max_slope_degrees,
+    )
+    .with_context(|| format!("invalid navigation agent in `{}`", path.display()))?;
+    blackflower_navigation::NavigationBuildSettings::new(
+        navigation.build.cell_size,
+        navigation.build.cell_height,
+        navigation.build.tile_size,
+        navigation.build.region_min_area,
+        navigation.build.region_merge_area,
+        navigation.build.max_edge_length,
+        navigation.build.max_simplification_error,
+        navigation.build.max_vertices_per_polygon,
+        navigation.build.detail_sample_distance,
+        navigation.build.detail_sample_max_error,
+    )
+    .with_context(|| format!("invalid navigation build settings in `{}`", path.display()))?;
+    if navigation.areas.is_empty() || navigation.areas.len() > blackflower_navigation::MAX_AREAS {
+        bail!(
+            "navigation manifest `{}` must declare from 1 through 64 areas",
+            path.display()
+        );
+    }
+    navigation
+        .areas
+        .sort_by(|left, right| left.key.cmp(&right.key));
+    for (index, area) in navigation.areas.iter().enumerate() {
+        let key = blackflower_navigation::NavigationAreaKey::new(area.key.clone()).with_context(
+            || {
+                format!(
+                    "invalid navigation area key `{}` in `{}`",
+                    area.key,
+                    path.display()
+                )
+            },
+        )?;
+        let id = u8::try_from(index).context("navigation area index exceeds u8")?;
+        blackflower_navigation::NavigationArea::new(id, key, area.traversable, area.cost)
+            .with_context(|| {
+                format!(
+                    "invalid navigation area `{}` in `{}`",
+                    area.key,
+                    path.display()
+                )
+            })?;
+    }
+    for pair in navigation.areas.windows(2) {
+        if pair[0].key == pair[1].key {
+            bail!(
+                "duplicate navigation area `{}` in `{}`",
+                pair[0].key,
+                path.display()
+            );
+        }
+    }
+    if !navigation.areas.iter().any(|area| area.traversable) {
+        bail!(
+            "navigation manifest `{}` must declare at least one traversable area",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 fn validate_skeleton_manifest(
@@ -817,4 +964,85 @@ fn portable_relative_path(path: &Path) -> anyhow::Result<String> {
         bail!("path is empty");
     }
     Ok(parts.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use anyhow::Context;
+    use blackflower_assets::{AssetAudience, AssetKind};
+    use tempfile::TempDir;
+
+    use super::{AssetSource, Repository};
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the manifest fixture spells out every required navigation field"
+    )]
+    fn navigation_manifest_is_explicit_and_canonicalizes_areas() -> anyhow::Result<()> {
+        let directory = TempDir::new()?;
+        let asset = directory.path().join("level");
+        fs::create_dir(&asset)?;
+        fs::write(
+            asset.join("navigation.gltf"),
+            br#"{"asset":{"version":"2.0"}}"#,
+        )?;
+        fs::write(
+            asset.join("asset.toml"),
+            r#"
+schema = 1
+id = "levels/test/navigation/humanoid"
+kind = "navigation_mesh"
+audience = "simulation"
+
+[navigation]
+source = "navigation.gltf"
+profile_id = "humanoid"
+
+[navigation.agent]
+height = 1.8
+radius = 0.35
+max_climb = 0.4
+max_slope_degrees = 45.0
+
+[navigation.build]
+cell_size = 0.2
+cell_height = 0.1
+tile_size = 64
+region_min_area = 8
+region_merge_area = 20
+max_edge_length = 12.0
+max_simplification_error = 1.3
+max_vertices_per_polygon = 6
+detail_sample_distance = 6.0
+detail_sample_max_error = 1.0
+
+[[navigation.areas]]
+key = "water"
+traversable = false
+
+[[navigation.areas]]
+key = "ground"
+traversable = true
+cost = 1.0
+"#,
+        )?;
+
+        let repository = Repository::load(directory.path())?;
+        let loaded = repository
+            .assets
+            .values()
+            .next()
+            .context("navigation asset was not loaded")?;
+        assert_eq!(loaded.manifest.kind(), AssetKind::NavigationMesh);
+        assert_eq!(loaded.manifest.audience, AssetAudience::Simulation);
+        let AssetSource::Navigation(navigation) = &loaded.manifest.source else {
+            anyhow::bail!("loaded asset is not navigation");
+        };
+        assert_eq!(navigation.areas[0].key, "ground");
+        assert_eq!(navigation.areas[1].key, "water");
+        Ok(())
+    }
 }

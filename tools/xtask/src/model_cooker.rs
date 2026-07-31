@@ -197,7 +197,8 @@ fn resolve_attachments(
             | AssetSource::Texture(_)
             | AssetSource::Model(_)
             | AssetSource::Skeleton(_)
-            | AssetSource::Animation(_) => {
+            | AssetSource::Animation(_)
+            | AssetSource::Navigation(_) => {
                 bail!(
                     "model attachment `{}` has unsupported kind {:?}",
                     attachment.asset,

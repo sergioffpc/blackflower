@@ -21,6 +21,7 @@ use crate::asset_cooker::{
 use crate::gltf_source;
 use crate::manifest::{Repository, SOURCE_SCHEMA};
 use crate::mesh_cooker::MESHOPT_VERSION;
+use crate::navigation_cooker::platform_identity as navigation_cooker_platform;
 use crate::profile::CookingProfiles;
 
 const BLOCK_SIZE: u32 = 128 * 1024;
@@ -183,6 +184,14 @@ fn toolchain_identity() -> ToolchainIdentity {
         one_tbb: format!("oneTBB/{}", blackflower_cooker_volume::ONE_TBB_VERSION),
         blosc: format!("c-blosc/{}", blackflower_cooker_volume::BLOSC_VERSION),
         zlib: format!("zlib/{}", blackflower_cooker_volume::ZLIB_VERSION),
+        recast_navigation: format!(
+            "recastnavigation/{}@{};bfnav={};{}",
+            blackflower_cooker_navigation::RECAST_VERSION,
+            blackflower_cooker_navigation::RECAST_REVISION,
+            blackflower_navigation::NAVIGATION_ASSET_SCHEMA,
+            blackflower_cooker_navigation::COOKER_RECIPE,
+        ),
+        navigation_cooker_platform: navigation_cooker_platform(),
     }
 }
 
@@ -440,6 +449,7 @@ mod tests {
         AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
         AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
     };
+    use blackflower_navigation::NavMeshAsset;
     use blackflower_rendering_models::MeshAsset;
     use blackflower_scripting::{Bytecode, Runtime, Value};
     use tempfile::TempDir;
@@ -818,6 +828,87 @@ root_motion_tolerance = 0.001
             lods.windows(2)
                 .all(|pair| pair[1].indices().len() < pair[0].indices().len())
         );
+
+        drop(store);
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_package, fs::read(second.path)?);
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the end-to-end package proof keeps the explicit navigation manifest and runtime assertions together"
+    )]
+    fn cooks_navigation_manifest_to_runtime_bfnav() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let (gltf, buffer) = navigation_floor_gltf()?;
+        let directory = fixture.source.join("levels/arena");
+        fs::create_dir_all(&directory)?;
+        fs::write(directory.join("navigation.gltf"), gltf)?;
+        fs::write(directory.join("navigation.bin"), buffer)?;
+        fs::write(
+            directory.join("asset.toml"),
+            r#"schema = 1
+id = "levels/arena/navigation/humanoid"
+kind = "navigation_mesh"
+audience = "simulation"
+
+[navigation]
+source = "navigation.gltf"
+profile_id = "humanoid"
+
+[navigation.agent]
+height = 1.8
+radius = 0.35
+max_climb = 0.4
+max_slope_degrees = 45.0
+
+[navigation.build]
+cell_size = 0.2
+cell_height = 0.1
+tile_size = 64
+region_min_area = 1
+region_merge_area = 1
+max_edge_length = 12.0
+max_simplification_error = 1.3
+max_vertices_per_polygon = 6
+detail_sample_distance = 6.0
+detail_sample_max_error = 1.0
+
+[[navigation.areas]]
+key = "ground"
+traversable = true
+cost = 1.0
+
+[[navigation.areas]]
+key = "water"
+traversable = false
+"#,
+        )?;
+        let request = fixture.request("pak000", &["levels/arena/navigation/humanoid"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_package = fs::read(&first.path)?;
+
+        let store = fixture.open_store()?;
+        let id = AssetId::from_str("levels/arena/navigation/humanoid")?;
+        let resolved = store.resolve(&id).context("missing navigation asset")?;
+        assert_eq!(resolved.record().kind, AssetKind::NavigationMesh);
+        assert!(resolved.record().dependencies.is_empty());
+        assert!(
+            resolved
+                .package()
+                .catalog()
+                .toolchain
+                .recast_navigation
+                .starts_with("recastnavigation/1.6.0@")
+        );
+        let asset = NavMeshAsset::from_bytes(store.read_asset(&id)?)?;
+        assert_eq!(asset.agent().id().as_str(), "humanoid");
+        assert_eq!(asset.areas()[0].key().as_str(), "ground");
+        assert_eq!(asset.areas()[1].key().as_str(), "water");
+        let _navmesh = asset.instantiate()?;
 
         drop(store);
         let second = fixture.pipeline.cook(&request)?;
@@ -2456,6 +2547,69 @@ root_motion_tolerance = 0.001
     fn grid_gltf(side: u16) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
         let (buffer, position_bytes, index_bytes) = grid_buffer(side);
         let document = grid_document(side, buffer.len(), position_bytes, index_bytes);
+        Ok((serde_json::to_vec(&document)?, buffer))
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the self-contained glTF fixture spells out the complete binary accessor layout"
+    )]
+    fn navigation_floor_gltf() -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        let mut buffer = Vec::new();
+        for value in [
+            0.0_f32, 0.0, 0.0, 0.0, 0.0, 10.0, 10.0, 0.0, 10.0, 10.0, 0.0, 0.0,
+        ] {
+            buffer.extend_from_slice(&value.to_le_bytes());
+        }
+        for index in [0_u32, 1, 2, 0, 2, 3] {
+            buffer.extend_from_slice(&index.to_le_bytes());
+        }
+        let document = serde_json::json!({
+            "asset": {"version": "2.0"},
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{
+                "name": "Navigation Floor",
+                "mesh": 0,
+                "extras": {"blackflower": {
+                    "schema": 1,
+                    "node": {
+                        "kind": "navigation_surface",
+                        "id": "floor_main"
+                    },
+                    "navigation": {
+                        "role": "surface",
+                        "area_key": "ground"
+                    }
+                }}
+            }],
+            "meshes": [{"primitives": [{
+                "attributes": {"POSITION": 0},
+                "indices": 1,
+                "mode": 4
+            }]}],
+            "buffers": [{"uri": "navigation.bin", "byteLength": buffer.len()}],
+            "bufferViews": [
+                {"buffer": 0, "byteOffset": 0, "byteLength": 48},
+                {"buffer": 0, "byteOffset": 48, "byteLength": 24}
+            ],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 4,
+                    "type": "VEC3",
+                    "min": [0, 0, 0],
+                    "max": [10, 0, 10]
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5125,
+                    "count": 6,
+                    "type": "SCALAR"
+                }
+            ]
+        });
         Ok((serde_json::to_vec(&document)?, buffer))
     }
 

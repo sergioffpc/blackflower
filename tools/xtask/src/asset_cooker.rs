@@ -10,6 +10,7 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 use crate::manifest::{AssetSource, LoadedAsset, Repository};
 use crate::mesh_cooker;
 use crate::model_cooker;
+use crate::navigation_cooker;
 use crate::profile::CookingProfile;
 use crate::texture_cooker;
 
@@ -95,6 +96,10 @@ pub(crate) fn cook_assets(
     Ok(cooked)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the exhaustive source-kind dispatch is the canonical cooker routing table"
+)]
 fn cook_asset(
     repository: &Repository,
     source: &LoadedAsset,
@@ -143,6 +148,13 @@ fn cook_asset(
         AssetSource::Skeleton(manifest) => cook_skeleton(source, &manifest.skin),
         AssetSource::Animation(manifest) => {
             cook_animation(source, &manifest.clip, &manifest.skeleton, profile, cooked)
+        }
+        AssetSource::Navigation(manifest) => {
+            let navigation = navigation_cooker::cook(source, manifest)?;
+            Ok(CookedPayload {
+                bytes: navigation.bytes,
+                derived_source_hash: Some(navigation.source_hash),
+            })
         }
     }
 }
@@ -295,6 +307,18 @@ fn recipe_hash(
             hasher.u32(u32::from(blackflower_animation_format::CONTAINER_SCHEMA));
             let source_hash = derived_source_hash
                 .context("cooked animation is missing its derived source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::Navigation(manifest) => {
+            hasher.text("navigation_mesh");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_navigation::COOKER_RECIPE);
+            hasher.text(blackflower_cooker_navigation::RECAST_VERSION);
+            hasher.text(blackflower_cooker_navigation::RECAST_REVISION);
+            hasher.u32(blackflower_navigation::NAVIGATION_ASSET_SCHEMA);
+            hasher.text(&navigation_cooker::platform_identity());
+            let source_hash = derived_source_hash
+                .context("cooked navigation is missing its buffer source hash")?;
             hasher.bytes(source_hash.as_bytes());
         }
     }

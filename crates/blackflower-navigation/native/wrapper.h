@@ -73,6 +73,7 @@ typedef struct BFNavigationRaycastResult {
 } BFNavigationRaycastResult;
 
 BFNavigationVersion bf_navigation_recast_version(void);
+uint32_t bf_navigation_detour_navmesh_version(void);
 
 int32_t bf_navigation_navmesh_create_single_tile(
     const uint8_t *data,

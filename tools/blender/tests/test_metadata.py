@@ -186,6 +186,43 @@ class NodeMetadataTests(unittest.TestCase):
             {"schema": 1, "node": {"kind": "cover"}},
         )
 
+    def test_navigation_policy_uses_schema_one(self):
+        self.assertEqual(
+            metadata.build_node_metadata(
+                "navigation_surface",
+                "floor_main",
+                navigation_role="surface",
+                area_key="ground",
+            ),
+            {
+                "schema": 1,
+                "node": {
+                    "kind": "navigation_surface",
+                    "id": "floor_main",
+                },
+                "navigation": {
+                    "role": "surface",
+                    "area_key": "ground",
+                },
+            },
+        )
+
+    def test_navigation_requires_stable_id_and_complete_link_policy(self):
+        with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
+            metadata.build_node_metadata(
+                "navigation_surface",
+                navigation_role="surface",
+                area_key="ground",
+            )
+        with self.assertRaisesRegex(metadata.MetadataError, "radius"):
+            metadata.build_node_metadata(
+                "navigation_off_mesh_link",
+                "jump_gap",
+                navigation_role="off_mesh_link",
+                area_key="jump",
+                radius=0.0,
+            )
+
     def test_invalid_node_kind_is_rejected(self):
         for invalid in ("", "SpawnPoint", "spawn-point", "spawn point", "_spawn"):
             with self.subTest(invalid=invalid):

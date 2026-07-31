@@ -31,6 +31,7 @@ def _load_extension():
 
     bpy_props.BoolProperty = lambda **kwargs: None
     bpy_props.EnumProperty = lambda **kwargs: None
+    bpy_props.FloatProperty = lambda **kwargs: None
     bpy_props.PointerProperty = lambda **kwargs: None
     bpy_props.StringProperty = lambda **kwargs: None
     bpy_types.Object = Object
@@ -191,6 +192,31 @@ class ExportHookTests(unittest.TestCase):
                     },
                 }
             },
+        )
+
+    def test_node_hook_exports_navigation_policy(self):
+        blender_object = BlenderObject()
+        blender_object.blackflower_node_metadata = SimpleNamespace(
+            enabled=False,
+            kind="",
+            identifier="floor_main",
+            navigation_role="surface",
+            navigation_area_key="ground",
+            navigation_direction="bidirectional",
+            navigation_radius=0.5,
+        )
+        gltf_node = SimpleNamespace(extras=None)
+
+        extension.glTF2ExportUserExtension().gather_node_hook(
+            gltf_node,
+            blender_object,
+            {},
+        )
+
+        self.assertEqual(gltf_node.extras["blackflower"]["schema"], 1)
+        self.assertEqual(
+            gltf_node.extras["blackflower"]["navigation"],
+            {"role": "surface", "area_key": "ground"},
         )
 
 

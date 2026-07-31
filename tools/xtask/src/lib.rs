@@ -4,6 +4,7 @@ mod gltf_source;
 mod manifest;
 mod mesh_cooker;
 mod model_cooker;
+mod navigation_cooker;
 mod profile;
 mod texture_cooker;
 

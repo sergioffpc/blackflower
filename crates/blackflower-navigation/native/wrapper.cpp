@@ -258,6 +258,10 @@ extern "C" BFNavigationVersion bf_navigation_recast_version() {
     };
 }
 
+extern "C" uint32_t bf_navigation_detour_navmesh_version() {
+    return DT_NAVMESH_VERSION;
+}
+
 extern "C" int32_t bf_navigation_navmesh_create_single_tile(
     const uint8_t *data,
     size_t data_size,

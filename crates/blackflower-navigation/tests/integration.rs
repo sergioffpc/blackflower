@@ -1,8 +1,11 @@
 use std::num::NonZeroU32;
 
 use blackflower_navigation::{
-    Error, NavMesh, NavMeshParams, PathPointKind, QueryFilter, recastnavigation_version,
+    Error, NavAgentProfile, NavAgentProfileId, NavMesh, NavMeshAsset, NavMeshParams,
+    NavigationArea, NavigationAreaKey, NavigationBuildSettings, NavigationTile, PathPointKind,
+    QueryFilter, recastnavigation_version,
 };
+use bytes::Bytes;
 use glam::Vec3A;
 
 mod fixture {
@@ -222,5 +225,70 @@ fn query_result_capacities_fail_explicitly() -> Result<(), Error> {
         ),
         Err(Error::StraightPathCapacityExceeded),
     );
+    Ok(())
+}
+
+#[test]
+fn bfnav_round_trip_instantiates_native_filter_and_tiles() -> Result<(), Error> {
+    let params = NavMeshParams::new(Vec3A::ZERO, 10.0, 10.0, NonZeroU32::MIN, NonZeroU32::MIN)?;
+    let asset = NavMeshAsset::new(
+        NavAgentProfile::new(NavAgentProfileId::new("humanoid")?, 1.8, 0.35, 0.4, 45.0)?,
+        NavigationBuildSettings::new(0.2, 0.1, 64, 8, 20, 12.0, 1.3, 6, 6.0, 1.0)?,
+        params,
+        vec![
+            NavigationArea::new(0, NavigationAreaKey::new("ground")?, true, Some(1.0))?,
+            NavigationArea::new(1, NavigationAreaKey::new("water")?, false, None)?,
+        ],
+        vec![NavigationTile::new(
+            0,
+            0,
+            0,
+            Bytes::from_static(fixture::QUAD_NAVMESH_TILE),
+        )?],
+    )?;
+    let decoded = NavMeshAsset::from_bytes(asset.bytes().clone())?;
+    assert_eq!(decoded.agent().id().as_str(), "humanoid");
+    assert_eq!(decoded.areas()[1].cost().to_bits(), 0.0_f32.to_bits());
+    let filter = decoded.query_filter()?;
+    assert_eq!(filter.include_flags(), 1);
+    assert_eq!(filter.exclude_flags(), 0);
+    assert_eq!(filter.area_cost(0)?.to_bits(), 1.0_f32.to_bits());
+    assert_eq!(filter.area_cost(1)?.to_bits(), 1.0_f32.to_bits());
+
+    let navmesh = decoded.instantiate()?;
+    let path = navmesh.query()?.find_path(
+        Vec3A::new(1.0, 0.0, 1.0),
+        Vec3A::new(9.0, 0.0, 9.0),
+        Vec3A::splat(2.0),
+        &filter,
+    )?;
+    assert!(!path.is_partial());
+    Ok(())
+}
+
+#[test]
+fn bfnav_rejects_corrupted_embedded_identity() -> Result<(), Error> {
+    let params = NavMeshParams::new(Vec3A::ZERO, 10.0, 10.0, NonZeroU32::MIN, NonZeroU32::MIN)?;
+    let asset = NavMeshAsset::new(
+        NavAgentProfile::new(NavAgentProfileId::new("humanoid")?, 1.8, 0.35, 0.4, 45.0)?,
+        NavigationBuildSettings::new(0.2, 0.1, 64, 8, 20, 12.0, 1.3, 6, 6.0, 1.0)?,
+        params,
+        vec![NavigationArea::new(
+            0,
+            NavigationAreaKey::new("ground")?,
+            true,
+            Some(1.0),
+        )?],
+        vec![NavigationTile::new(
+            0,
+            0,
+            0,
+            Bytes::from_static(fixture::QUAD_NAVMESH_TILE),
+        )?],
+    )?;
+    let mut bytes = asset.bytes().to_vec();
+    const FIRST_AGENT_HASH_BYTE: usize = 60;
+    bytes[FIRST_AGENT_HASH_BYTE] ^= 0xff;
+    assert!(NavMeshAsset::from_bytes(Bytes::from(bytes)).is_err());
     Ok(())
 }

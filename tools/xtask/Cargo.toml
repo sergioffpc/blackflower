@@ -10,10 +10,12 @@ publish = false
 blackflower-animation-format.workspace = true
 blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
 blackflower-cooker-animation.workspace = true
+blackflower-cooker-navigation.workspace = true
 blackflower-cooker-volume.workspace = true
 blackflower-gltf-metadata.workspace = true
 blackflower-rendering-models.workspace = true
 blackflower-rendering-textures.workspace = true
+blackflower-navigation.workspace = true
 blackflower-shader-compiler.workspace = true
 blackflower-scripting.workspace = true
 
