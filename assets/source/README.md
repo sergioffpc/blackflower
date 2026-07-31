@@ -282,6 +282,68 @@ max_voices = 8
 Selecting a sound event closes the package over its media dependency, and the
 media content hash participates in the event recipe hash.
 
+Static acoustics are presentation-only and use three typed assets. A scene
+imports only glTF nodes classified as `static` and resolves each glTF material
+through its schema-1 acoustic material reference:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/scene"
+kind = "acoustic_scene"
+audience = "presentation"
+
+[acoustic_scene]
+source = "warehouse.glb"
+
+[[acoustic_scene.materials]]
+id = "acoustics/materials/concrete"
+absorption = [0.10, 0.20, 0.30]
+scattering = 0.05
+transmission = [0.01, 0.02, 0.03]
+```
+
+A probe batch selects the stable ID of one Blender-authored probe volume.
+Placement belongs to this asset, while ray, bounce, duration, and pathing
+quality come only from the selected cooking profile:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/ground-floor-probes"
+kind = "acoustic_probe_batch"
+audience = "presentation"
+
+[acoustic_probes]
+source = "warehouse.glb"
+volume = "warehouse_ground_floor_probes"
+scene = "levels/warehouse/acoustics/scene"
+generation = "uniform_floor"
+spacing_meters = 2.0
+height_meters = 1.5
+```
+
+The root environment is the only acoustic asset a level needs to reference:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics"
+kind = "acoustic_environment"
+audience = "presentation"
+
+[acoustic]
+source = "warehouse.glb"
+
+[[acoustic.zones]]
+id = "warehouse_ground_floor"
+scene = "levels/warehouse/acoustics/scene"
+probes = "levels/warehouse/acoustics/ground-floor-probes"
+```
+
+The outputs are `.bfacscn`, `.bfacprb`, and `.bfac`. The probe batch depends on
+its scene; the environment depends on all referenced scenes and batches.
+Uniform-floor probe generation, base reflections, parametric reverb, and
+dynamic pathing are cooked with Steam Audio. `dynamic_rigid`,
+`dynamic_state`, doors, portals, and runtime simulation remain outside Stage 8.
+
 Skeleton and animation assets are presentation-only. A skeleton selects one
 exact named skin and cooks it to `.bfskel`:
 

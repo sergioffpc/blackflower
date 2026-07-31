@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "blackflower_gltf_metadata"
-version = "0.3.0"
+version = "0.1.0"
 name = "Blackflower glTF Metadata"
-tagline = "Export Blackflower animation, level, and navigation metadata"
+tagline = "Export Blackflower animation, level, navigation, and acoustic metadata"
 maintainer = "Sergio Carvalho"
 type = "add-on"
 

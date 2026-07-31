@@ -10,6 +10,8 @@ cd "$repository_root"
 
 set -- \
     --package blackflower-assets \
+    --package blackflower-audio-spatial \
+    --package blackflower-cooker-acoustics \
     --package blackflower-cooker-navigation \
     --package blackflower-cooker-volume \
     --package blackflower-gltf-metadata \
@@ -29,6 +31,8 @@ case "$check" in
     test)
         cargo test "$@" \
             --all-targets --all-features --locked --no-fail-fast
+        python3 -m unittest discover -s tools/blender/tests
+        python3 tools/blender/build_blackflower_gltf_metadata.py
         ;;
     doc)
         cargo test "$@" \

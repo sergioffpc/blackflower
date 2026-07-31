@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod acoustics;
 mod animation;
 mod container;
 mod error;
@@ -11,6 +12,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
+pub use acoustics::{
+    AcousticGeometryClass, AcousticMaterialMetadata, AcousticNodeKind, AcousticNodeMetadata,
+};
 pub use animation::{
     AdditiveMetadata, AdditiveReference, AnimationMarker, AnimationMarkers, AnimationMetadata,
     MotionAxis, RootMotionMetadata, RootMotionReference,
@@ -42,6 +46,7 @@ impl Document {
         validation::validate_root(&root)?;
         validation::validate_file(path, &root)?;
         navigation::validate_all(&root)?;
+        acoustics::validate_all(&root)?;
         Ok(Self { root })
     }
 
@@ -54,6 +59,7 @@ impl Document {
         validation::validate_root(&root)?;
         validation::validate_bytes(bytes)?;
         navigation::validate_all(&root)?;
+        acoustics::validate_all(&root)?;
         Ok(Self { root })
     }
 
@@ -94,6 +100,32 @@ impl Document {
         node_index: usize,
     ) -> Result<Option<NavigationMetadata>, Error> {
         navigation::metadata_at(&self.root, node_index)
+    }
+
+    /// Extract acoustic-cooking metadata from exactly one named glTF node.
+    ///
+    /// A node without schema-1 acoustics metadata returns `None`.
+    pub fn acoustic_node_metadata(
+        &self,
+        node: &str,
+    ) -> Result<Option<AcousticNodeMetadata>, Error> {
+        acoustics::node_metadata(&self.root, node)
+    }
+
+    /// Extract acoustic metadata by stable glTF node index.
+    pub fn acoustic_node_metadata_at(
+        &self,
+        node_index: usize,
+    ) -> Result<Option<AcousticNodeMetadata>, Error> {
+        acoustics::node_metadata_at(&self.root, node_index)
+    }
+
+    /// Extract the acoustic material asset referenced by one named glTF material.
+    pub fn acoustic_material_metadata(
+        &self,
+        material: &str,
+    ) -> Result<Option<AcousticMaterialMetadata>, Error> {
+        acoustics::material_metadata(&self.root, material)
     }
 }
 

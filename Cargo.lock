@@ -262,6 +262,7 @@ name = "blackflower-audio-spatial"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blake3",
  "cmake",
  "glam",
  "thiserror 2.0.19",
@@ -273,6 +274,19 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "cmake",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "blackflower-cooker-acoustics"
+version = "0.1.0"
+dependencies = [
+ "blackflower-audio-spatial",
+ "blackflower-gltf-metadata",
+ "blake3",
+ "glam",
+ "gltf",
+ "tempfile",
  "thiserror 2.0.19",
 ]
 
@@ -3472,6 +3486,8 @@ dependencies = [
  "blackflower-animation-format",
  "blackflower-assets",
  "blackflower-audio-media",
+ "blackflower-audio-spatial",
+ "blackflower-cooker-acoustics",
  "blackflower-cooker-animation",
  "blackflower-cooker-navigation",
  "blackflower-cooker-volume",

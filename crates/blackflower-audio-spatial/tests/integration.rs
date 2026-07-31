@@ -1,5 +1,6 @@
 use blackflower_audio_spatial::{
-    AcousticMaterial, AcousticTriangle, AudioSettings, BinauralParams, Context, Error,
+    AcousticMaterial, AcousticScene, AcousticTriangle, AudioSettings, BinauralParams, Context,
+    Error, PathBakeSettings, ProbeBatch, ProbeVolumeTransform, ReflectionsBakeSettings,
     STEAM_AUDIO_VERSION, TailState, Vec3A,
 };
 
@@ -109,6 +110,56 @@ fn acoustic_scene_rejects_invalid_materials_and_geometry() -> Result<(), Error> 
         ),
         Err(Error::InvalidSceneGeometry)
     ));
+    Ok(())
+}
+
+#[test]
+fn cooked_scene_and_probe_assets_round_trip_through_steam_audio() -> Result<(), Error> {
+    let mut context = Context::new()?;
+    let mut scene = context.create_scene()?;
+    let material = AcousticMaterial::new([0.2, 0.3, 0.4], 0.1, [0.0; 3])?;
+    let mut floor = scene.create_static_mesh(
+        &[
+            Vec3A::new(-2.0, 0.0, -2.0),
+            Vec3A::new(2.0, 0.0, -2.0),
+            Vec3A::new(2.0, 0.0, 2.0),
+            Vec3A::new(-2.0, 0.0, 2.0),
+        ],
+        &[
+            AcousticTriangle::new(0, 2, 1),
+            AcousticTriangle::new(0, 3, 2),
+        ],
+        &[0, 0],
+        &[material],
+    )?;
+    floor.add();
+    scene.commit();
+
+    let scene_asset = scene.to_acoustic_asset(4, 2, 1)?;
+    let decoded_scene = AcousticScene::from_bytes(scene_asset.bytes())?;
+    let loaded_scene = context.load_acoustic_scene(&decoded_scene)?;
+    let volume = ProbeVolumeTransform::new([
+        [4.0, 0.0, 0.0, 0.0],
+        [0.0, 2.0, 0.0, 1.0],
+        [0.0, 0.0, 4.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ])?;
+    let reflections = ReflectionsBakeSettings::new(64, 32, 2, 0.1, 0.1, 1, 1, 32, 0.1, 1)?;
+    let pathing = PathBakeSettings::new(4, 0.1, 0.5, 10.0, 20.0, 1)?;
+    let probes = context.bake_uniform_floor_probe_batch(
+        &loaded_scene,
+        "ground_floor",
+        volume,
+        2.0,
+        0.5,
+        reflections,
+        pathing,
+    )?;
+    let decoded_probes = ProbeBatch::from_bytes(probes.bytes())?;
+    assert!(!decoded_probes.probes().is_empty());
+    assert_eq!(decoded_probes.layers().len(), 2);
+    let native = context.load_probe_batch(&decoded_probes)?;
+    assert_eq!(native.probe_count(), decoded_probes.probes().len());
     Ok(())
 }
 

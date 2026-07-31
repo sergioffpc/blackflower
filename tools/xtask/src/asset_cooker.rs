@@ -10,6 +10,7 @@ use blackflower_shader_compiler::{compile as compile_shader, slang_version};
 use naga::front::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 
+use crate::acoustic_cooker;
 use crate::manifest::{
     AssetSource, AudioSpatializationManifest, LoadedAsset, Repository, SoundEventManifest,
 };
@@ -181,6 +182,28 @@ fn cook_asset(
             .to_bytes()
             .context("sound event cooker rejected policy")
             .map(|bytes| CookedPayload::plain(Bytes::from(bytes))),
+        AssetSource::AcousticScene(manifest) => {
+            let acoustic = acoustic_cooker::cook_scene(source, manifest)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticProbes(manifest) => {
+            let acoustic =
+                acoustic_cooker::cook_probes(source, manifest, profile.acoustics, cooked)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::Acoustic(manifest) => {
+            let acoustic = acoustic_cooker::cook_environment(source, manifest, cooked)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
     }
 }
 
@@ -279,7 +302,12 @@ fn recipe_hash(
     hasher.serializable(&source.manifest.kind())?;
     hasher.serializable(&source.manifest.audience)?;
     hasher.text(&source.source_relative);
-    hasher.bytes(source.source_hash.as_bytes());
+    if !matches!(
+        &source.manifest.source,
+        AssetSource::AcousticScene(_) | AssetSource::AcousticProbes(_) | AssetSource::Acoustic(_)
+    ) {
+        hasher.bytes(source.source_hash.as_bytes());
+    }
     for dependency in dependencies {
         let dependency_asset = cooked
             .get(dependency)
@@ -399,6 +427,34 @@ fn recipe_hash(
             hasher.serializable(manifest)?;
             hasher.text(blackflower_audio_media::COOKER_RECIPE);
             hasher.u32(blackflower_audio_media::SOUND_EVENT_SCHEMA);
+        }
+        AssetSource::AcousticScene(manifest) => {
+            hasher.text("acoustic_scene");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_acoustics::COOKER_RECIPE);
+            hasher.text(blackflower_cooker_acoustics::STEAM_AUDIO_REVISION);
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
+            hasher.text(&acoustic_cooker::platform_identity());
+            let source_hash = derived_source_hash
+                .context("cooked acoustic scene is missing its buffer source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::AcousticProbes(manifest) => {
+            hasher.text("acoustic_probe_batch");
+            hasher.serializable(manifest)?;
+            hasher.serializable(&profile.acoustics)?;
+            hasher.text(blackflower_cooker_acoustics::COOKER_RECIPE);
+            hasher.text(blackflower_cooker_acoustics::STEAM_AUDIO_REVISION);
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
+            hasher.text(&acoustic_cooker::platform_identity());
+            let source_hash = derived_source_hash
+                .context("cooked acoustic probes are missing their buffer source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::Acoustic(manifest) => {
+            hasher.text("acoustic_environment");
+            hasher.serializable(manifest)?;
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
         }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))

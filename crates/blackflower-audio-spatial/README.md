@@ -6,11 +6,24 @@ The complete C API declarations are generated from the pinned `phonon.h` at
 build time. Raw declarations, statically linked native calls and every `unsafe`
 operation stay inside the private `ffi` module.
 
-The safe API creates a context, manages committed acoustic scene geometry, uses
-Steam Audio's built-in HRTF and processes fixed-size mono PCM frames into
+The safe API creates a context, manages committed acoustic scene geometry,
+loads checksummed `.bfacscn` scenes and `.bfacprb` probe batches, uses Steam
+Audio's built-in HRTF, and processes fixed-size mono PCM frames into
 deinterleaved stereo with one stateful `BinauralEffect` per source. Device
-output, decoding, mixing, occlusion evaluation and reflections remain outside
-this crate.
+output, decoding, mixing, and Stage 9 real-time simulation remain outside this
+crate.
+
+Stage 8 containers use schema 1 and embed the exact Steam Audio 4.8.1
+serialization behind Blackflower headers, counts, layer identifiers, and
+BLAKE3 checksums:
+
+- `.bfacscn`: immutable committed static scene;
+- `.bfacprb`: deterministic probe order plus base reflections/parametric
+  reverb and dynamic pathing layers;
+- `.bfac`: lightweight ordered zone references to scene and probe assets.
+
+Parsing and native object creation are explicit worker/loading operations.
+They are not permitted in an audio callback.
 
 ## Static native build
 

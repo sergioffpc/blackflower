@@ -207,6 +207,18 @@ class NodeMetadataTests(unittest.TestCase):
             },
         )
 
+    def test_static_acoustic_geometry_can_also_be_navigation(self):
+        combined = metadata.build_node_metadata(
+            "acoustic_geometry",
+            "floor_main",
+            navigation_role="surface",
+            area_key="ground",
+            acoustics_kind="geometry",
+            geometry_class="static",
+        )
+        self.assertEqual(combined["navigation"]["role"], "surface")
+        self.assertEqual(combined["acoustics"]["class"], "static")
+
     def test_navigation_requires_stable_id_and_complete_link_policy(self):
         with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
             metadata.build_node_metadata(
@@ -239,7 +251,64 @@ class NodeMetadataTests(unittest.TestCase):
             },
         )
         with self.assertRaisesRegex(metadata.MetadataError, "already contain"):
-            metadata.merge_extras({"blackflower": {}}, owned)
+                metadata.merge_extras({"blackflower": {}}, owned)
+
+    def test_static_geometry_and_probe_volume_use_schema_one(self):
+        self.assertEqual(
+            metadata.build_node_metadata(
+                "acoustic_geometry",
+                "wall_north",
+                acoustics_kind="geometry",
+                geometry_class="static",
+            )["acoustics"],
+            {"kind": "geometry", "class": "static"},
+        )
+        probes = metadata.build_node_metadata(
+            "acoustic_probe_volume",
+            "ground_floor_probes",
+            acoustics_kind="probe_volume",
+            acoustic_zone="ground_floor",
+        )
+        self.assertEqual(probes["schema"], 1)
+        self.assertEqual(
+            probes["acoustics"],
+            {"kind": "probe_volume", "zone": "ground_floor"},
+        )
+        self.assertNotIn("generation", probes["acoustics"])
+        self.assertNotIn("spacing_meters", probes["acoustics"])
+
+    def test_acoustic_nodes_require_stable_ids_and_matching_kinds(self):
+        with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
+            metadata.build_node_metadata(
+                "acoustic_zone",
+                acoustics_kind="zone",
+            )
+        with self.assertRaisesRegex(metadata.MetadataError, "requires node kind"):
+            metadata.build_node_metadata(
+                "mesh",
+                "wall",
+                acoustics_kind="geometry",
+            )
+
+
+class MaterialMetadataTests(unittest.TestCase):
+    def test_material_reference_is_portable(self):
+        self.assertEqual(
+            metadata.build_material_metadata("acoustics/materials/concrete"),
+            {
+                "schema": 1,
+                "acoustics": {
+                    "material": "acoustics/materials/concrete",
+                },
+            },
+        )
+        self.assertIsNone(metadata.build_material_metadata(""))
+
+    def test_invalid_material_reference_is_rejected(self):
+        for invalid in ("../concrete", "Acoustics/concrete", "a//b"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(metadata.MetadataError):
+                    metadata.build_material_metadata(invalid)
 
 
 if __name__ == "__main__":

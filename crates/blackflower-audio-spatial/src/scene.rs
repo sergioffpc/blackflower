@@ -67,9 +67,9 @@ impl AcousticTriangle {
     }
 }
 
-struct SceneInner {
-    _context: Arc<ContextInner>,
-    pointer: ffi::ScenePtr,
+pub(crate) struct SceneInner {
+    pub(crate) context: Arc<ContextInner>,
+    pub(crate) pointer: ffi::ScenePtr,
 }
 
 impl Drop for SceneInner {
@@ -88,11 +88,35 @@ impl Scene {
         let pointer = ffi::create_scene(context.pointer)
             .map_err(|status| Error::from_status("iplSceneCreate", status))?;
         Ok(Self {
-            inner: Rc::new(SceneInner {
-                _context: context,
-                pointer,
-            }),
+            inner: Rc::new(SceneInner { context, pointer }),
         })
+    }
+
+    pub(crate) fn from_serialized(
+        context: Arc<ContextInner>,
+        serialized: &[u8],
+    ) -> Result<Self, Error> {
+        let pointer = ffi::load_scene(context.pointer, serialized)
+            .map_err(|status| Error::from_status("iplSceneLoad", status))?;
+        Ok(Self {
+            inner: Rc::new(SceneInner { context, pointer }),
+        })
+    }
+
+    /// Serialize the committed scene into a validated `.bfacscn` asset.
+    pub fn to_acoustic_asset(
+        &self,
+        vertex_count: u32,
+        triangle_count: u32,
+        material_count: u32,
+    ) -> Result<crate::AcousticScene, Error> {
+        let serialized = ffi::save_scene(self.inner.context.pointer, self.inner.pointer)
+            .map_err(|status| Error::from_status("iplSceneSave", status))?;
+        crate::AcousticScene::encode(serialized, vertex_count, triangle_count, material_count)
+    }
+
+    pub(crate) fn inner(&self) -> &Rc<SceneInner> {
+        &self.inner
     }
 
     /// Create an acoustic triangle mesh owned by this scene.

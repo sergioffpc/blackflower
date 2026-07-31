@@ -206,7 +206,21 @@ fn toolchain_identity() -> ToolchainIdentity {
             blackflower_audio_media::SOUND_EVENT_SCHEMA,
             blackflower_audio_media::COOKER_RECIPE,
         ),
+        steam_audio_acoustics: steam_audio_identity(),
+        acoustics_cooker_platform: crate::acoustic_cooker::platform_identity(),
     }
+}
+
+fn steam_audio_identity() -> String {
+    format!(
+        "steam-audio/{}.{}.{}@{};bfac={};{}",
+        blackflower_audio_spatial::STEAM_AUDIO_VERSION.0,
+        blackflower_audio_spatial::STEAM_AUDIO_VERSION.1,
+        blackflower_audio_spatial::STEAM_AUDIO_VERSION.2,
+        blackflower_cooker_acoustics::STEAM_AUDIO_REVISION,
+        blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA,
+        blackflower_cooker_acoustics::COOKER_RECIPE,
+    )
 }
 
 fn build_catalog(
@@ -463,6 +477,7 @@ mod tests {
         AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
         AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
     };
+    use blackflower_audio_spatial::{AcousticEnvironment, AcousticScene, ProbeBatch};
     use blackflower_navigation::NavMeshAsset;
     use blackflower_rendering_models::MeshAsset;
     use blackflower_scripting::{Bytecode, Runtime, Value};
@@ -475,6 +490,8 @@ mod tests {
     use super::{CookRequest, Pipeline, build_catalog, toolchain_identity, write_package};
 
     const TEST_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+    const ACOUSTIC_GLTF: &str =
+        include_str!("../../../crates/blackflower-cooker-acoustics/tests/fixtures/room.gltf");
     const DEBUG_PROFILE: &str = r#"schema = 1
 
 [scripting.luau]
@@ -516,6 +533,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 "#;
     const TEXTURE_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -558,6 +592,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 "#;
     const RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -600,6 +651,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 "#;
     const LUAU_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -642,6 +710,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 "#;
     const SHADER_RELEASE_PROFILE: &str = r#"schema = 1
 
@@ -684,6 +769,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 "#;
 
     #[test]
@@ -1031,6 +1133,177 @@ traversable = false
         let second = fixture.pipeline.cook(&request)?;
         assert_eq!(first.package_hash, second.package_hash);
         assert_eq!(first_package, fs::read(second.path)?);
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the end-to-end proof keeps the three acoustic manifests and invalidation assertions together"
+    )]
+    fn cooks_static_acoustic_scene_probes_and_environment() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let directory = fixture.source.join("levels/room");
+        fs::create_dir_all(&directory)?;
+        fs::write(directory.join("room.gltf"), ACOUSTIC_GLTF)?;
+        fs::write(
+            directory.join("scene.asset.toml"),
+            r#"schema = 1
+id = "levels/room/acoustics/scene"
+kind = "acoustic_scene"
+audience = "presentation"
+
+[acoustic_scene]
+source = "room.gltf"
+
+[[acoustic_scene.materials]]
+id = "acoustics/materials/concrete"
+absorption = [0.2, 0.3, 0.4]
+scattering = 0.1
+transmission = [0.0, 0.0, 0.0]
+"#,
+        )?;
+        fs::write(
+            directory.join("probes.asset.toml"),
+            r#"schema = 1
+id = "levels/room/acoustics/ground-floor-probes"
+kind = "acoustic_probe_batch"
+audience = "presentation"
+
+[acoustic_probes]
+source = "room.gltf"
+volume = "ground_floor_probes"
+scene = "levels/room/acoustics/scene"
+generation = "uniform_floor"
+spacing_meters = 2.0
+height_meters = 0.5
+"#,
+        )?;
+        fs::write(
+            directory.join("acoustic.asset.toml"),
+            r#"schema = 1
+id = "levels/room/acoustics"
+kind = "acoustic_environment"
+audience = "presentation"
+
+[acoustic]
+source = "room.gltf"
+
+[[acoustic.zones]]
+id = "ground_floor"
+scene = "levels/room/acoustics/scene"
+probes = "levels/room/acoustics/ground-floor-probes"
+"#,
+        )?;
+        let request = fixture.request("pak000", &["levels/room/acoustics"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_bytes = fs::read(&first.path)?;
+
+        let store = fixture.open_store()?;
+        let scene_id = AssetId::from_str("levels/room/acoustics/scene")?;
+        let probes_id = AssetId::from_str("levels/room/acoustics/ground-floor-probes")?;
+        let environment_id = AssetId::from_str("levels/room/acoustics")?;
+        assert_eq!(
+            store
+                .resolve(&scene_id)
+                .context("missing acoustic scene")?
+                .record()
+                .kind,
+            AssetKind::AcousticScene
+        );
+        assert_eq!(
+            store
+                .resolve(&probes_id)
+                .context("missing acoustic probes")?
+                .record()
+                .dependencies,
+            vec![scene_id.clone()]
+        );
+        let scene = AcousticScene::from_bytes(&store.read_asset(&scene_id)?)?;
+        let probes = ProbeBatch::from_bytes(&store.read_asset(&probes_id)?)?;
+        let environment = AcousticEnvironment::from_bytes(&store.read_asset(&environment_id)?)?;
+        let first_scene_hash = store
+            .resolve(&scene_id)
+            .context("missing acoustic scene")?
+            .record()
+            .content_hash;
+        let first_probe_recipe = store
+            .resolve(&probes_id)
+            .context("missing acoustic probes")?
+            .record()
+            .recipe_hash;
+        assert_eq!(scene.triangle_count(), 2);
+        assert_eq!(probes.zone(), "ground_floor");
+        assert_eq!(probes.layers().len(), 2);
+        assert_eq!(environment.zones()[0].scene(), scene_id.as_str());
+        assert!(
+            store
+                .resolve(&environment_id)
+                .context("missing acoustic environment")?
+                .package()
+                .catalog()
+                .toolchain
+                .steam_audio_acoustics
+                .starts_with("steam-audio/4.8.1@")
+        );
+        drop(store);
+
+        let moved_door = ACOUSTIC_GLTF.replace(
+            "\"translation\": [10.0, 0.0, 0.0]",
+            "\"translation\": [20.0, 0.0, 0.0]",
+        );
+        fs::write(directory.join("room.gltf"), &moved_door)?;
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_bytes, fs::read(second.path)?);
+
+        let moved_floor = moved_door.replace(
+            "\"name\": \"Floor\",\n      \"mesh\": 0,\n      \"extras\"",
+            "\"name\": \"Floor\",\n      \"mesh\": 0,\n      \"translation\": [0.25, 0.0, 0.0],\n      \"extras\"",
+        );
+        fs::write(directory.join("room.gltf"), moved_floor)?;
+        let third = fixture.pipeline.cook(&request)?;
+        assert_ne!(first.package_hash, third.package_hash);
+        let store = fixture.open_store()?;
+        let third_scene_hash = store
+            .resolve(&scene_id)
+            .context("missing acoustic scene after wall change")?
+            .record()
+            .content_hash;
+        let third_probe_recipe = store
+            .resolve(&probes_id)
+            .context("missing acoustic probes after wall change")?
+            .record()
+            .recipe_hash;
+        assert_ne!(first_scene_hash, third_scene_hash);
+        assert_ne!(first_probe_recipe, third_probe_recipe);
+        drop(store);
+
+        let scene_manifest = directory.join("scene.asset.toml");
+        let changed_material = fs::read_to_string(&scene_manifest)?.replace(
+            "absorption = [0.2, 0.3, 0.4]",
+            "absorption = [0.25, 0.3, 0.4]",
+        );
+        fs::write(&scene_manifest, changed_material)?;
+        let fourth = fixture.pipeline.cook(&request)?;
+        assert_ne!(third.package_hash, fourth.package_hash);
+        let store = fixture.open_store()?;
+        assert_ne!(
+            third_scene_hash,
+            store
+                .resolve(&scene_id)
+                .context("missing acoustic scene after material change")?
+                .record()
+                .content_hash
+        );
+        assert_ne!(
+            third_probe_recipe,
+            store
+                .resolve(&probes_id)
+                .context("missing acoustic probes after material change")?
+                .record()
+                .recipe_hash
+        );
         Ok(())
     }
 

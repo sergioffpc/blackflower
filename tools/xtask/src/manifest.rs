@@ -34,6 +34,9 @@ impl AssetManifest {
             AssetSource::AudioClip(_) => AssetKind::AudioClip,
             AssetSource::AudioStream(_) => AssetKind::AudioStream,
             AssetSource::SoundEvent(_) => AssetKind::SoundEvent,
+            AssetSource::AcousticScene(_) => AssetKind::AcousticScene,
+            AssetSource::AcousticProbes(_) => AssetKind::AcousticProbeBatch,
+            AssetSource::Acoustic(_) => AssetKind::AcousticEnvironment,
         }
     }
 
@@ -48,6 +51,14 @@ impl AssetManifest {
                 .into_iter()
                 .collect(),
             AssetSource::SoundEvent(manifest) => vec![manifest.media.clone()],
+            AssetSource::AcousticProbes(manifest) => vec![manifest.scene.clone()],
+            AssetSource::Acoustic(manifest) => manifest
+                .zones
+                .iter()
+                .flat_map(|zone| [zone.scene.clone(), zone.probes.clone()])
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             AssetSource::Blob(_)
             | AssetSource::Luau(_)
             | AssetSource::Shader(_)
@@ -57,7 +68,8 @@ impl AssetManifest {
             | AssetSource::Skeleton(_) => Vec::new(),
             AssetSource::Navigation(_)
             | AssetSource::AudioClip(_)
-            | AssetSource::AudioStream(_) => Vec::new(),
+            | AssetSource::AudioStream(_)
+            | AssetSource::AcousticScene(_) => Vec::new(),
         }
     }
 }
@@ -77,6 +89,9 @@ pub(crate) enum AssetSource {
     AudioClip(AudioClipManifest),
     AudioStream(AudioStreamManifest),
     SoundEvent(SoundEventManifest),
+    AcousticScene(AcousticSceneManifest),
+    AcousticProbes(AcousticProbesManifest),
+    Acoustic(AcousticManifest),
 }
 
 impl AssetSource {
@@ -95,6 +110,9 @@ impl AssetSource {
             Self::AudioClip(manifest) => Some(&manifest.source),
             Self::AudioStream(manifest) => Some(&manifest.source),
             Self::SoundEvent(_) => None,
+            Self::AcousticScene(manifest) => Some(&manifest.source),
+            Self::AcousticProbes(manifest) => Some(&manifest.source),
+            Self::Acoustic(manifest) => Some(&manifest.source),
         }
     }
 }
@@ -224,6 +242,13 @@ pub(crate) struct AudioClipManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct AcousticSceneManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) materials: Vec<AcousticMaterialManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AudioStreamManifest {
     pub(crate) source: PathBuf,
 }
@@ -264,11 +289,52 @@ pub(crate) struct AudioConcurrencyManifest {
     pub(crate) max_voices: u16,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticMaterialManifest {
+    pub(crate) id: String,
+    pub(crate) absorption: [f32; 3],
+    pub(crate) scattering: f32,
+    pub(crate) transmission: [f32; 3],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticProbesManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) volume: String,
+    pub(crate) scene: AssetId,
+    pub(crate) generation: AcousticProbeGenerationManifest,
+    pub(crate) spacing_meters: f32,
+    pub(crate) height_meters: f32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AudioSpatializationManifest {
     TwoDimensional,
     Hrtf,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AcousticProbeGenerationManifest {
+    UniformFloor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) zones: Vec<AcousticZoneManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticZoneManifest {
+    pub(crate) id: String,
+    pub(crate) scene: AssetId,
+    pub(crate) probes: AssetId,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -318,6 +384,9 @@ struct AssetManifestFile {
     audio_clip: Option<AudioClipManifest>,
     audio_stream: Option<AudioStreamManifest>,
     sound_event: Option<SoundEventManifest>,
+    acoustic_scene: Option<AcousticSceneManifest>,
+    acoustic_probes: Option<AcousticProbesManifest>,
+    acoustic: Option<AcousticManifest>,
 }
 
 struct SourceSections {
@@ -334,6 +403,9 @@ struct SourceSections {
     audio_clip: Option<AudioClipManifest>,
     audio_stream: Option<AudioStreamManifest>,
     sound_event: Option<SoundEventManifest>,
+    acoustic_scene: Option<AcousticSceneManifest>,
+    acoustic_probes: Option<AcousticProbesManifest>,
+    acoustic: Option<AcousticManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -434,49 +506,85 @@ impl Repository {
                 let target = self.assets.get(&dependency).with_context(|| {
                     format!("asset `{id}` references missing dependency `{dependency}`")
                 })?;
-                match &asset.manifest.source {
-                    AssetSource::Animation(_) => {
-                        if matches!(target.manifest.source, AssetSource::Skeleton(_)) {
-                            continue;
-                        }
-                        bail!("animation asset `{id}` dependency `{dependency}` is not a skeleton");
-                    }
-                    AssetSource::Model(_) => {
-                        if matches!(
-                            target.manifest.source,
-                            AssetSource::Mesh(_) | AssetSource::Volume(_)
-                        ) {
-                            continue;
-                        }
-                        bail!(
-                            "model asset `{id}` attachment `{dependency}` is not a mesh or volume"
-                        );
-                    }
-                    AssetSource::SoundEvent(_) => {
-                        if matches!(
-                            target.manifest.source,
-                            AssetSource::AudioClip(_) | AssetSource::AudioStream(_)
-                        ) {
-                            continue;
-                        }
-                        bail!(
-                            "sound event asset `{id}` dependency `{dependency}` is not audio media"
-                        );
-                    }
-                    AssetSource::Blob(_)
-                    | AssetSource::Luau(_)
-                    | AssetSource::Shader(_)
-                    | AssetSource::Texture(_)
-                    | AssetSource::Mesh(_)
-                    | AssetSource::Volume(_)
-                    | AssetSource::Skeleton(_)
-                    | AssetSource::Navigation(_)
-                    | AssetSource::AudioClip(_)
-                    | AssetSource::AudioStream(_) => {}
-                }
+                validate_dependency_target(id, &asset.manifest.source, &dependency, target)?;
+            }
+            if let AssetSource::Acoustic(manifest) = &asset.manifest.source {
+                self.validate_acoustic_zones(id, manifest)?;
             }
         }
         Ok(())
+    }
+
+    fn validate_acoustic_zones(
+        &self,
+        id: &AssetId,
+        manifest: &AcousticManifest,
+    ) -> anyhow::Result<()> {
+        for zone in &manifest.zones {
+            let probes = self.assets.get(&zone.probes).with_context(|| {
+                format!(
+                    "acoustic environment `{id}` references missing probes `{}`",
+                    zone.probes
+                )
+            })?;
+            let AssetSource::AcousticProbes(probes) = &probes.manifest.source else {
+                bail!(
+                    "acoustic environment `{id}` zone `{}` references a non-probe asset",
+                    zone.id
+                );
+            };
+            if probes.scene != zone.scene {
+                bail!(
+                    "acoustic environment `{id}` zone `{}` pairs probes `{}` with the wrong scene `{}`",
+                    zone.id,
+                    zone.probes,
+                    zone.scene
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_dependency_target(
+    id: &AssetId,
+    source: &AssetSource,
+    dependency: &AssetId,
+    target: &LoadedAsset,
+) -> anyhow::Result<()> {
+    let valid = match source {
+        AssetSource::Animation(_) => matches!(target.manifest.source, AssetSource::Skeleton(_)),
+        AssetSource::Model(_) => matches!(
+            target.manifest.source,
+            AssetSource::Mesh(_) | AssetSource::Volume(_)
+        ),
+        AssetSource::SoundEvent(_) => matches!(
+            target.manifest.source,
+            AssetSource::AudioClip(_) | AssetSource::AudioStream(_)
+        ),
+        AssetSource::AcousticProbes(_) => {
+            matches!(target.manifest.source, AssetSource::AcousticScene(_))
+        }
+        AssetSource::Acoustic(_) => matches!(
+            target.manifest.source,
+            AssetSource::AcousticScene(_) | AssetSource::AcousticProbes(_)
+        ),
+        AssetSource::Blob(_)
+        | AssetSource::Luau(_)
+        | AssetSource::Shader(_)
+        | AssetSource::Texture(_)
+        | AssetSource::Mesh(_)
+        | AssetSource::Volume(_)
+        | AssetSource::Skeleton(_)
+        | AssetSource::Navigation(_)
+        | AssetSource::AudioClip(_)
+        | AssetSource::AudioStream(_)
+        | AssetSource::AcousticScene(_) => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        bail!("asset `{id}` dependency `{dependency}` has an incompatible asset kind")
     }
 }
 
@@ -519,6 +627,10 @@ fn is_asset_manifest_path(path: &Path) -> bool {
         .is_some_and(|file_name| file_name == "asset.toml" || file_name.ends_with(".asset.toml"))
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "loading handles both source-less policies and file-backed asset sections"
+)]
 fn load_asset(
     source_root: &Path,
     path: &Path,
@@ -543,6 +655,9 @@ fn load_asset(
         audio_clip: file.audio_clip,
         audio_stream: file.audio_stream,
         sound_event: file.sound_event,
+        acoustic_scene: file.acoustic_scene,
+        acoustic_probes: file.acoustic_probes,
+        acoustic: file.acoustic,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
     let (source_relative, source_path, source_bytes) = if let Some(source_path) = source.source() {
@@ -660,6 +775,21 @@ fn asset_source(
             validate_sound_event_manifest(&event, audience, path)?;
             AssetSource::SoundEvent(event)
         }
+        AssetKind::AcousticScene => {
+            let mut acoustic = required_section(sections.acoustic_scene, "acoustic_scene", path)?;
+            validate_acoustic_scene_manifest(&mut acoustic, audience, path)?;
+            AssetSource::AcousticScene(acoustic)
+        }
+        AssetKind::AcousticProbeBatch => {
+            let probes = required_section(sections.acoustic_probes, "acoustic_probes", path)?;
+            validate_acoustic_probes_manifest(&probes, audience, path)?;
+            AssetSource::AcousticProbes(probes)
+        }
+        AssetKind::AcousticEnvironment => {
+            let mut acoustic = required_section(sections.acoustic, "acoustic", path)?;
+            validate_acoustic_manifest(&mut acoustic, audience, path)?;
+            AssetSource::Acoustic(acoustic)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
@@ -680,6 +810,9 @@ impl SourceSections {
             + usize::from(self.audio_clip.is_some())
             + usize::from(self.audio_stream.is_some())
             + usize::from(self.sound_event.is_some())
+            + usize::from(self.acoustic_scene.is_some())
+            + usize::from(self.acoustic_probes.is_some())
+            + usize::from(self.acoustic.is_some())
     }
 }
 
@@ -702,6 +835,130 @@ fn validate_audio_source(
     if !matches!(extension.as_deref(), Some("wav" | "flac")) {
         bail!(
             "{kind} source in `{}` must use `.wav` or `.flac`",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_acoustic_scene_manifest(
+    acoustic: &mut AcousticSceneManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_acoustic_audience(audience, path)?;
+    validate_gltf_source(&acoustic.source, "acoustic scene", path)?;
+    if acoustic.materials.is_empty() {
+        bail!(
+            "acoustic scene manifest `{}` must declare at least one material",
+            path.display()
+        );
+    }
+    acoustic
+        .materials
+        .sort_by(|left, right| left.id.cmp(&right.id));
+    for material in &acoustic.materials {
+        blackflower_cooker_acoustics::AcousticMaterialDefinition::new(
+            material.id.clone(),
+            material.absorption,
+            material.scattering,
+            material.transmission,
+        )
+        .with_context(|| {
+            format!(
+                "invalid acoustic material `{}` in `{}`",
+                material.id,
+                path.display()
+            )
+        })?;
+    }
+    for pair in acoustic.materials.windows(2) {
+        if pair[0].id == pair[1].id {
+            bail!(
+                "duplicate acoustic material `{}` in `{}`",
+                pair[0].id,
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_acoustic_probes_manifest(
+    probes: &AcousticProbesManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_acoustic_audience(audience, path)?;
+    validate_gltf_source(&probes.source, "acoustic probes", path)?;
+    validate_selection_name(&probes.volume, "acoustic probe volume", path)?;
+    if !probes.spacing_meters.is_finite()
+        || probes.spacing_meters <= 0.0
+        || !probes.height_meters.is_finite()
+        || probes.height_meters <= 0.0
+    {
+        bail!(
+            "acoustic probe spacing_meters and height_meters in `{}` must be positive finite values",
+            path.display()
+        );
+    }
+    match probes.generation {
+        AcousticProbeGenerationManifest::UniformFloor => {}
+    }
+    Ok(())
+}
+
+fn validate_acoustic_manifest(
+    acoustic: &mut AcousticManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_acoustic_audience(audience, path)?;
+    validate_gltf_source(&acoustic.source, "acoustic environment", path)?;
+    if acoustic.zones.is_empty() {
+        bail!(
+            "acoustic environment manifest `{}` must declare at least one zone",
+            path.display()
+        );
+    }
+    acoustic.zones.sort_by(|left, right| left.id.cmp(&right.id));
+    for zone in &acoustic.zones {
+        blackflower_audio_spatial::AcousticZone::new(
+            zone.id.clone(),
+            zone.scene.as_str(),
+            zone.probes.as_str(),
+        )
+        .with_context(|| {
+            format!(
+                "invalid acoustic zone `{}` in `{}`",
+                zone.id,
+                path.display()
+            )
+        })?;
+        if zone.scene == zone.probes {
+            bail!(
+                "acoustic zone `{}` in `{}` uses the same scene and probe asset",
+                zone.id,
+                path.display()
+            );
+        }
+    }
+    for pair in acoustic.zones.windows(2) {
+        if pair[0].id == pair[1].id {
+            bail!(
+                "duplicate acoustic zone `{}` in `{}`",
+                pair[0].id,
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_acoustic_audience(audience: AssetAudience, path: &Path) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "acoustic asset manifest `{}` must use audience `presentation`",
             path.display()
         );
     }

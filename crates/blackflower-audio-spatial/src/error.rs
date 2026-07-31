@@ -69,6 +69,20 @@ pub enum Error {
     /// Acoustic scene geometry exceeds Steam Audio's signed 32-bit limits.
     #[error("acoustic scene geometry exceeds Steam Audio limits")]
     SceneGeometryCountOutOfRange,
+    /// A cooked acoustic asset has an invalid header, body, checksum, or semantic value.
+    #[error("invalid {format} asset: {reason}")]
+    InvalidAcousticAsset {
+        /// Short format name.
+        format: &'static str,
+        /// Validation failure.
+        reason: &'static str,
+    },
+    /// Probe placement or bake quality settings are invalid.
+    #[error("invalid acoustic probe or bake settings")]
+    InvalidProbeSettings,
+    /// A scene or probe batch belongs to another Steam Audio context.
+    #[error("acoustic object belongs to another Steam Audio context")]
+    WrongAcousticContext,
 }
 
 impl Error {

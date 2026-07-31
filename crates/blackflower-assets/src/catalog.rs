@@ -36,6 +36,12 @@ pub enum AssetKind {
     AudioStream,
     /// Blackflower `.bfsound` containing source-less playback policy.
     SoundEvent,
+    /// Blackflower `.bfacscn` containing an immutable serialized Steam Audio scene.
+    AcousticScene,
+    /// Blackflower `.bfacprb` containing generated probes and baked layers.
+    AcousticProbeBatch,
+    /// Blackflower `.bfac` mapping zones to scene and probe-batch assets.
+    AcousticEnvironment,
 }
 
 /// Runtime domains that consume an asset.
@@ -94,6 +100,10 @@ pub struct ToolchainIdentity {
     pub navigation_cooker_platform: String,
     /// Audio decoders, resampler, Opus encoder, and Blackflower container schemas.
     pub audio: String,
+    /// Pinned Steam Audio revision and Blackflower static-acoustics schemas.
+    pub steam_audio_acoustics: String,
+    /// Host platform participating in native Steam Audio bake output identity.
+    pub acoustics_cooker_platform: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

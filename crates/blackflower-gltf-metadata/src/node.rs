@@ -44,6 +44,8 @@ struct NodeMetadataFile {
     node: NodeFile,
     #[serde(default, rename = "navigation")]
     _navigation: Option<serde_json::Value>,
+    #[serde(default, rename = "acoustics")]
+    _acoustics: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

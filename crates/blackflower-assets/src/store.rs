@@ -248,28 +248,96 @@ fn validate_winning_dependencies(packages: &[AssetPackage]) -> Result<(), Error>
                     dependency: dependency.clone(),
                 });
             };
-            if record.kind == AssetKind::AnimationClip
-                && dependency_record.kind != AssetKind::Skeleton
-            {
-                return Err(Error::DependencyKindMismatch {
-                    asset: record.id.clone(),
-                    dependency: dependency.clone(),
-                    expected: AssetKind::Skeleton,
-                    actual: dependency_record.kind,
-                });
-            }
-            if record.kind == AssetKind::Model
-                && !matches!(dependency_record.kind, AssetKind::Mesh | AssetKind::Volume)
-            {
-                return Err(Error::InvalidModelAttachmentKind {
-                    asset: record.id.clone(),
-                    dependency: dependency.clone(),
-                    actual: dependency_record.kind,
-                });
-            }
+            validate_dependency_kind(record, dependency, dependency_record)?;
         }
     }
     Ok(())
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the exhaustive asset dependency table keeps every runtime kind explicit"
+)]
+fn validate_dependency_kind(
+    record: &AssetRecord,
+    dependency: &AssetId,
+    dependency_record: &AssetRecord,
+) -> Result<(), Error> {
+    match record.kind {
+        AssetKind::AnimationClip if dependency_record.kind != AssetKind::Skeleton => {
+            Err(dependency_kind_mismatch(
+                record,
+                dependency,
+                AssetKind::Skeleton,
+                dependency_record.kind,
+            ))
+        }
+        AssetKind::Model
+            if !matches!(dependency_record.kind, AssetKind::Mesh | AssetKind::Volume) =>
+        {
+            Err(Error::InvalidModelAttachmentKind {
+                asset: record.id.clone(),
+                dependency: dependency.clone(),
+                actual: dependency_record.kind,
+            })
+        }
+        AssetKind::AcousticProbeBatch if dependency_record.kind != AssetKind::AcousticScene => {
+            Err(dependency_kind_mismatch(
+                record,
+                dependency,
+                AssetKind::AcousticScene,
+                dependency_record.kind,
+            ))
+        }
+        AssetKind::AcousticEnvironment
+            if !matches!(
+                dependency_record.kind,
+                AssetKind::AcousticScene | AssetKind::AcousticProbeBatch
+            ) =>
+        {
+            Err(invalid_acoustic_environment_dependency(record, dependency))
+        }
+        AssetKind::Blob
+        | AssetKind::LuauBytecode
+        | AssetKind::ShaderModule
+        | AssetKind::Texture2d
+        | AssetKind::Mesh
+        | AssetKind::Model
+        | AssetKind::Volume
+        | AssetKind::Skeleton
+        | AssetKind::AnimationClip
+        | AssetKind::NavigationMesh
+        | AssetKind::AudioClip
+        | AssetKind::AudioStream
+        | AssetKind::SoundEvent
+        | AssetKind::AcousticScene
+        | AssetKind::AcousticProbeBatch
+        | AssetKind::AcousticEnvironment => Ok(()),
+    }
+}
+
+fn invalid_acoustic_environment_dependency(record: &AssetRecord, dependency: &AssetId) -> Error {
+    Error::InvalidCatalog {
+        path: PathBuf::from("<resolved asset store>"),
+        reason: format!(
+            "acoustic environment `{}` dependency `{dependency}` is not a scene or probe batch",
+            record.id
+        ),
+    }
+}
+
+fn dependency_kind_mismatch(
+    record: &AssetRecord,
+    dependency: &AssetId,
+    expected: AssetKind,
+    actual: AssetKind,
+) -> Error {
+    Error::DependencyKindMismatch {
+        asset: record.id.clone(),
+        dependency: dependency.clone(),
+        expected,
+        actual,
+    }
 }
 
 fn calculate_asset_set_hash(packages: &[AssetPackage]) -> AssetSetHash {

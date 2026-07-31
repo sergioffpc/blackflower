@@ -5,9 +5,9 @@ stem is the profile name passed to `cargo xtask assets cook --profile`; there is
 no duplicate `name` field inside the document. Settings belong to the selected
 cook, never to individual assets.
 
-Profile schema 1 configures Luau, shader, texture, static mesh, animation, and
-audio cooking. Model hierarchy cooking and lossless OpenVDB-to-NanoVDB
-conversion have no profile settings.
+Profile schema 1 configures Luau, shader, texture, static mesh, animation,
+audio, and static-acoustics cooking. Model hierarchy cooking and lossless
+OpenVDB-to-NanoVDB conversion have no profile settings.
 Development keeps this schema at `1`; only the release process advances it.
 The repository defines two profiles:
 
@@ -54,6 +54,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 1024
+diffuse_samples = 64
+bounces = 4
+simulated_duration_seconds = 1.0
+saved_duration_seconds = 0.5
+ambisonic_order = 1
+bake_threads = 1
+ray_batch_size = 64
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 16
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 50.0
+path_range_meters = 100.0
 ```
 
 ```toml
@@ -99,6 +116,23 @@ opus_frame_ms = 20
 opus_complexity = 10
 opus_mono_bitrate = 64000
 opus_stereo_bitrate = 128000
+
+[acoustics]
+reflection_rays = 16384
+diffuse_samples = 1024
+bounces = 32
+simulated_duration_seconds = 2.0
+saved_duration_seconds = 1.0
+ambisonic_order = 2
+bake_threads = 1
+ray_batch_size = 256
+irradiance_min_distance_meters = 0.1
+bake_batch_size = 1
+path_samples = 64
+path_radius_meters = 0.5
+path_visibility_threshold = 0.5
+path_visibility_range_meters = 100.0
+path_range_meters = 500.0
 ```
 
 The intended behavior is:
@@ -183,6 +217,13 @@ WAV or FLAC is resampled to 48 kHz, streams use Opus VBR with 20 ms frames and
 complexity 10, and the target bitrates are 64 kbit/s for mono and 128 kbit/s
 for stereo. These settings remain centralized in the selected profile; asset
 manifests choose media semantics, not encoder overrides.
+
+Static-acoustics profiles own Steam Audio bake quality: reflection rays,
+diffuse samples, bounces, simulated/saved IR duration, ambisonic order,
+threading, ray batches, irradiance distance, bake batches, and path visibility
+and range parameters. `bake_threads` is deliberately `1` in both repository
+profiles to make bake ordering stable. Probe `generation`, `spacing_meters`,
+and `height_meters` remain asset-specific in the `.bfacprb` manifest.
 
 Both Luau profiles emit type information for modules marked with `--!native`.
 The runtime consumes it only when native codegen is explicitly enabled with an
