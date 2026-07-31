@@ -10,8 +10,10 @@ cd "$repository_root"
 
 set -- \
     --package blackflower-assets \
+    --package blackflower-cooker-navigation \
     --package blackflower-cooker-volume \
     --package blackflower-gltf-metadata \
+    --package blackflower-navigation \
     --package blackflower-rendering-models \
     --package blackflower-rendering-textures \
     --package blackflower-rendering-volumes \

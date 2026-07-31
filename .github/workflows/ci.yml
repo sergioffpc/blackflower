@@ -145,10 +145,12 @@ jobs:
                assets \
                crates/blackflower-animation \
                crates/blackflower-cooker-animation \
+               crates/blackflower-cooker-navigation \
                crates/blackflower-cooker-volume \
                crates/blackflower-animation-format \
                crates/blackflower-assets \
                crates/blackflower-gltf-metadata \
+               crates/blackflower-navigation \
                crates/blackflower-rendering-models \
                crates/blackflower-rendering-textures \
                crates/blackflower-rendering-volumes \
