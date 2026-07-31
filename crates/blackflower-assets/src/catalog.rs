@@ -30,6 +30,12 @@ pub enum AssetKind {
     AnimationClip,
     /// Blackflower `.bfnav` containing tiled Detour data and baked area policy.
     NavigationMesh,
+    /// Blackflower `.bfaudio` containing 48 kHz PCM16 clip data.
+    AudioClip,
+    /// Standard Ogg/Opus stream cooked for worker-thread decoding.
+    AudioStream,
+    /// Blackflower `.bfsound` containing source-less playback policy.
+    SoundEvent,
 }
 
 /// Runtime domains that consume an asset.
@@ -86,6 +92,8 @@ pub struct ToolchainIdentity {
     pub recast_navigation: String,
     /// Host platform participating in native Recast output identity.
     pub navigation_cooker_platform: String,
+    /// Audio decoders, resampler, Opus encoder, and Blackflower container schemas.
+    pub audio: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

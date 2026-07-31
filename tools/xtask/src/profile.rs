@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, bail};
 use blackflower_assets::{CookingProfileIdentity, ProfileHash, ProfileName};
+use blackflower_audio_media::AudioCookSettings;
 use blackflower_rendering_textures::{EncodeOptions as TextureEncodeOptions, TextureQuality};
 use blackflower_scripting::{
     CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel,
@@ -89,6 +90,7 @@ pub(crate) struct CookingProfile {
     pub(crate) textures: TextureProfile,
     pub(crate) meshes: MeshProfile,
     pub(crate) animations: AnimationProfile,
+    pub(crate) audio: AudioCookSettings,
 }
 
 impl CookingProfile {
@@ -115,6 +117,9 @@ impl CookingProfile {
         file.animations.validate().with_context(|| {
             format!("invalid animation settings in profile `{}`", path.display())
         })?;
+        file.audio
+            .validate()
+            .with_context(|| format!("invalid audio settings in profile `{}`", path.display()))?;
         let hash = hash_profile(&file)?;
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
@@ -123,6 +128,7 @@ impl CookingProfile {
             textures: file.textures,
             meshes: file.meshes,
             animations: file.animations,
+            audio: file.audio,
         })
     }
 }
@@ -136,6 +142,7 @@ struct CookingProfileFile {
     textures: TextureProfile,
     meshes: MeshProfile,
     animations: AnimationProfile,
+    audio: AudioCookSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -31,6 +31,9 @@ impl AssetManifest {
             AssetSource::Skeleton(_) => AssetKind::Skeleton,
             AssetSource::Animation(_) => AssetKind::AnimationClip,
             AssetSource::Navigation(_) => AssetKind::NavigationMesh,
+            AssetSource::AudioClip(_) => AssetKind::AudioClip,
+            AssetSource::AudioStream(_) => AssetKind::AudioStream,
+            AssetSource::SoundEvent(_) => AssetKind::SoundEvent,
         }
     }
 
@@ -44,6 +47,7 @@ impl AssetManifest {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
+            AssetSource::SoundEvent(manifest) => vec![manifest.media.clone()],
             AssetSource::Blob(_)
             | AssetSource::Luau(_)
             | AssetSource::Shader(_)
@@ -51,7 +55,9 @@ impl AssetManifest {
             | AssetSource::Mesh(_)
             | AssetSource::Volume(_)
             | AssetSource::Skeleton(_) => Vec::new(),
-            AssetSource::Navigation(_) => Vec::new(),
+            AssetSource::Navigation(_)
+            | AssetSource::AudioClip(_)
+            | AssetSource::AudioStream(_) => Vec::new(),
         }
     }
 }
@@ -68,21 +74,27 @@ pub(crate) enum AssetSource {
     Skeleton(SkeletonManifest),
     Animation(AnimationManifest),
     Navigation(NavigationManifest),
+    AudioClip(AudioClipManifest),
+    AudioStream(AudioStreamManifest),
+    SoundEvent(SoundEventManifest),
 }
 
 impl AssetSource {
-    fn source(&self) -> &Path {
+    fn source(&self) -> Option<&Path> {
         match self {
-            Self::Blob(manifest) => &manifest.source,
-            Self::Luau(manifest) => &manifest.source,
-            Self::Shader(manifest) => &manifest.source,
-            Self::Texture(manifest) => &manifest.source,
-            Self::Mesh(manifest) => &manifest.source,
-            Self::Model(manifest) => &manifest.source,
-            Self::Volume(manifest) => &manifest.source,
-            Self::Skeleton(manifest) => &manifest.source,
-            Self::Animation(manifest) => &manifest.source,
-            Self::Navigation(manifest) => &manifest.source,
+            Self::Blob(manifest) => Some(&manifest.source),
+            Self::Luau(manifest) => Some(&manifest.source),
+            Self::Shader(manifest) => Some(&manifest.source),
+            Self::Texture(manifest) => Some(&manifest.source),
+            Self::Mesh(manifest) => Some(&manifest.source),
+            Self::Model(manifest) => Some(&manifest.source),
+            Self::Volume(manifest) => Some(&manifest.source),
+            Self::Skeleton(manifest) => Some(&manifest.source),
+            Self::Animation(manifest) => Some(&manifest.source),
+            Self::Navigation(manifest) => Some(&manifest.source),
+            Self::AudioClip(manifest) => Some(&manifest.source),
+            Self::AudioStream(manifest) => Some(&manifest.source),
+            Self::SoundEvent(_) => None,
         }
     }
 }
@@ -202,6 +214,63 @@ pub(crate) struct NavigationAreaManifest {
     pub(crate) cost: Option<f32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AudioClipManifest {
+    pub(crate) source: PathBuf,
+    #[serde(default)]
+    pub(crate) loop_region: Option<AudioLoopManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AudioStreamManifest {
+    pub(crate) source: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SoundEventManifest {
+    pub(crate) media: AssetId,
+    pub(crate) gain_db: f32,
+    pub(crate) priority: u8,
+    pub(crate) spatialization: AudioSpatializationManifest,
+    #[serde(default)]
+    pub(crate) loop_region: Option<AudioLoopManifest>,
+    #[serde(default)]
+    pub(crate) attenuation: Option<AudioAttenuationManifest>,
+    #[serde(default)]
+    pub(crate) concurrency: Option<AudioConcurrencyManifest>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AudioLoopManifest {
+    pub(crate) start_frame: u64,
+    pub(crate) end_frame: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AudioAttenuationManifest {
+    pub(crate) min_distance: f32,
+    pub(crate) max_distance: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AudioConcurrencyManifest {
+    pub(crate) group: String,
+    pub(crate) max_voices: u16,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AudioSpatializationManifest {
+    TwoDimensional,
+    Hrtf,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TextureSemanticManifest {
@@ -246,6 +315,9 @@ struct AssetManifestFile {
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
     navigation: Option<NavigationManifest>,
+    audio_clip: Option<AudioClipManifest>,
+    audio_stream: Option<AudioStreamManifest>,
+    sound_event: Option<SoundEventManifest>,
 }
 
 struct SourceSections {
@@ -259,6 +331,9 @@ struct SourceSections {
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
     navigation: Option<NavigationManifest>,
+    audio_clip: Option<AudioClipManifest>,
+    audio_stream: Option<AudioStreamManifest>,
+    sound_event: Option<SoundEventManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -339,6 +414,10 @@ impl Repository {
         Ok(selected)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the graph validator exhaustively enforces every typed dependency edge"
+    )]
     fn validate_graph(&self) -> anyhow::Result<()> {
         for package in self.packages.values() {
             for asset in &package.assets {
@@ -373,6 +452,17 @@ impl Repository {
                             "model asset `{id}` attachment `{dependency}` is not a mesh or volume"
                         );
                     }
+                    AssetSource::SoundEvent(_) => {
+                        if matches!(
+                            target.manifest.source,
+                            AssetSource::AudioClip(_) | AssetSource::AudioStream(_)
+                        ) {
+                            continue;
+                        }
+                        bail!(
+                            "sound event asset `{id}` dependency `{dependency}` is not audio media"
+                        );
+                    }
                     AssetSource::Blob(_)
                     | AssetSource::Luau(_)
                     | AssetSource::Shader(_)
@@ -380,7 +470,9 @@ impl Repository {
                     | AssetSource::Mesh(_)
                     | AssetSource::Volume(_)
                     | AssetSource::Skeleton(_)
-                    | AssetSource::Navigation(_) => {}
+                    | AssetSource::Navigation(_)
+                    | AssetSource::AudioClip(_)
+                    | AssetSource::AudioStream(_) => {}
                 }
             }
         }
@@ -448,14 +540,21 @@ fn load_asset(
         skeleton: file.skeleton,
         animation: file.animation,
         navigation: file.navigation,
+        audio_clip: file.audio_clip,
+        audio_stream: file.audio_stream,
+        sound_event: file.sound_event,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
-    let source_path = source.source();
-    let source_relative = portable_relative_path(source_path)
-        .with_context(|| format!("invalid source path in `{}`", path.display()))?;
-    let source_path = resolve_source(source_root, path, source_path)?;
-    let source_bytes = fs::read(&source_path)
-        .with_context(|| format!("failed to read `{}`", source_path.display()))?;
+    let (source_relative, source_path, source_bytes) = if let Some(source_path) = source.source() {
+        let source_relative = portable_relative_path(source_path)
+            .with_context(|| format!("invalid source path in `{}`", path.display()))?;
+        let source_path = resolve_source(source_root, path, source_path)?;
+        let source_bytes = fs::read(&source_path)
+            .with_context(|| format!("failed to read `{}`", source_path.display()))?;
+        (source_relative, source_path, source_bytes)
+    } else {
+        (String::new(), path.to_owned(), Vec::new())
+    };
     let source_hash = ContentHash::hash_bytes(&source_bytes);
     let manifest = AssetManifest {
         schema: file.schema,
@@ -539,6 +638,28 @@ fn asset_source(
             validate_navigation_manifest(&mut navigation, audience, path)?;
             AssetSource::Navigation(navigation)
         }
+        AssetKind::AudioClip => {
+            let clip = required_section(sections.audio_clip, "audio_clip", path)?;
+            validate_audio_source(&clip.source, audience, "audio_clip", path)?;
+            if let Some(region) = clip.loop_region {
+                let _region =
+                    blackflower_audio_media::LoopRegion::new(region.start_frame, region.end_frame)
+                        .with_context(|| {
+                            format!("invalid audio clip loop in `{}`", path.display())
+                        })?;
+            }
+            AssetSource::AudioClip(clip)
+        }
+        AssetKind::AudioStream => {
+            let stream = required_section(sections.audio_stream, "audio_stream", path)?;
+            validate_audio_source(&stream.source, audience, "audio_stream", path)?;
+            AssetSource::AudioStream(stream)
+        }
+        AssetKind::SoundEvent => {
+            let event = required_section(sections.sound_event, "sound_event", path)?;
+            validate_sound_event_manifest(&event, audience, path)?;
+            AssetSource::SoundEvent(event)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
@@ -556,7 +677,84 @@ impl SourceSections {
             + usize::from(self.skeleton.is_some())
             + usize::from(self.animation.is_some())
             + usize::from(self.navigation.is_some())
+            + usize::from(self.audio_clip.is_some())
+            + usize::from(self.audio_stream.is_some())
+            + usize::from(self.sound_event.is_some())
     }
+}
+
+fn validate_audio_source(
+    source: &Path,
+    audience: AssetAudience,
+    kind: &str,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "{kind} asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase);
+    if !matches!(extension.as_deref(), Some("wav" | "flac")) {
+        bail!(
+            "{kind} source in `{}` must use `.wav` or `.flac`",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_sound_event_manifest(
+    event: &SoundEventManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "sound_event asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    let loop_region = event
+        .loop_region
+        .map(|region| {
+            blackflower_audio_media::LoopRegion::new(region.start_frame, region.end_frame)
+        })
+        .transpose()?;
+    let attenuation = event
+        .attenuation
+        .map(|value| blackflower_audio_media::Attenuation {
+            min_distance: value.min_distance,
+            max_distance: value.max_distance,
+        });
+    let concurrency =
+        event
+            .concurrency
+            .as_ref()
+            .map(|value| blackflower_audio_media::Concurrency {
+                group: value.group.clone(),
+                max_voices: value.max_voices,
+            });
+    blackflower_audio_media::SoundEvent {
+        media: event.media.clone(),
+        gain_db: event.gain_db,
+        priority: event.priority,
+        spatialization: match event.spatialization {
+            AudioSpatializationManifest::TwoDimensional => {
+                blackflower_audio_media::Spatialization::TwoDimensional
+            }
+            AudioSpatializationManifest::Hrtf => blackflower_audio_media::Spatialization::Hrtf,
+        },
+        loop_region,
+        attenuation,
+        concurrency,
+    }
+    .validate()
+    .with_context(|| format!("invalid sound event policy in `{}`", path.display()))
 }
 
 fn required_section<T>(section: Option<T>, name: &str, path: &Path) -> anyhow::Result<T> {
@@ -969,9 +1167,10 @@ fn portable_relative_path(path: &Path) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::str::FromStr;
 
     use anyhow::Context;
-    use blackflower_assets::{AssetAudience, AssetKind};
+    use blackflower_assets::{AssetAudience, AssetId, AssetKind, PackageName};
     use tempfile::TempDir;
 
     use super::{AssetSource, Repository};
@@ -1043,6 +1242,69 @@ cost = 1.0
         };
         assert_eq!(navigation.areas[0].key, "ground");
         assert_eq!(navigation.areas[1].key, "water");
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the fixture spells out both sides of the source-less audio dependency"
+    )]
+    fn sound_event_is_source_less_and_closes_over_media() -> anyhow::Result<()> {
+        let directory = TempDir::new()?;
+        let media = directory.path().join("media");
+        let event = directory.path().join("event");
+        let package = directory.path().join("packages/pak000");
+        fs::create_dir(&media)?;
+        fs::create_dir(&event)?;
+        fs::create_dir_all(&package)?;
+        fs::write(media.join("shot.wav"), b"fixture")?;
+        fs::write(
+            media.join("asset.toml"),
+            r#"
+schema = 1
+id = "audio/shot"
+kind = "audio_clip"
+audience = "presentation"
+
+[audio_clip]
+source = "shot.wav"
+"#,
+        )?;
+        fs::write(
+            event.join("asset.toml"),
+            r#"
+schema = 1
+id = "sound_events/shot"
+kind = "sound_event"
+audience = "presentation"
+
+[sound_event]
+media = "audio/shot"
+gain_db = 0.0
+priority = 100
+spatialization = "hrtf"
+"#,
+        )?;
+        fs::write(
+            package.join("package.toml"),
+            r#"
+schema = 1
+assets = ["sound_events/shot"]
+"#,
+        )?;
+
+        let repository = Repository::load(directory.path())?;
+        let selected = repository.selected_assets(&PackageName::from_str("pak000")?)?;
+        assert_eq!(selected.len(), 2);
+        assert!(selected.contains(&AssetId::from_str("audio/shot")?));
+        let event_id = AssetId::from_str("sound_events/shot")?;
+        let loaded = repository
+            .assets
+            .get(&event_id)
+            .context("sound event was not loaded")?;
+        assert!(loaded.source_bytes.is_empty());
+        assert_eq!(loaded.manifest.kind(), AssetKind::SoundEvent);
         Ok(())
     }
 }

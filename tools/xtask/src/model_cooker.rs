@@ -161,6 +161,10 @@ fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "attachment resolution exhaustively rejects every non-model-attachment asset kind"
+)]
 fn resolve_attachments(
     source: &LoadedAsset,
     manifest: &ModelManifest,
@@ -198,7 +202,10 @@ fn resolve_attachments(
             | AssetSource::Model(_)
             | AssetSource::Skeleton(_)
             | AssetSource::Animation(_)
-            | AssetSource::Navigation(_) => {
+            | AssetSource::Navigation(_)
+            | AssetSource::AudioClip(_)
+            | AssetSource::AudioStream(_)
+            | AssetSource::SoundEvent(_) => {
                 bail!(
                     "model attachment `{}` has unsupported kind {:?}",
                     attachment.asset,

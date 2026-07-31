@@ -20,6 +20,14 @@ allow = [
     "Unicode-3.0",
     "Zlib",
 ]
+exceptions = [
+    # Kira's optional real-time allocation assertion support uses this
+    # single-clause BSD dependency.
+    { allow = ["BSD-1-Clause"], crate = "assert_no_alloc" },
+    # Kira uses triple_buffer to exchange mixer state without blocking the
+    # audio callback. MPL-2.0 applies at the dependency file boundary.
+    { allow = ["MPL-2.0"], crate = "triple_buffer" },
+]
 confidence-threshold = 0.93
 
 [licenses.private]

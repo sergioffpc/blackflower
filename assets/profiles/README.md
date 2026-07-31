@@ -5,9 +5,9 @@ stem is the profile name passed to `cargo xtask assets cook --profile`; there is
 no duplicate `name` field inside the document. Settings belong to the selected
 cook, never to individual assets.
 
-Profile schema 1 configures Luau, shader, texture, static mesh, and animation
-cooking. Model hierarchy cooking and lossless OpenVDB-to-NanoVDB conversion
-have no profile settings.
+Profile schema 1 configures Luau, shader, texture, static mesh, animation, and
+audio cooking. Model hierarchy cooking and lossless OpenVDB-to-NanoVDB
+conversion have no profile settings.
 Development keeps this schema at `1`; only the release process advances it.
 The repository defines two profiles:
 
@@ -47,6 +47,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 ```
 
 ```toml
@@ -85,6 +92,13 @@ optimize = true
 optimization_tolerance = 0.001
 optimization_distance = 0.1
 root_motion_tolerance = 0.001
+
+[audio]
+sample_rate = 48000
+opus_frame_ms = 20
+opus_complexity = 10
+opus_mono_bitrate = 64000
+opus_stereo_bitrate = 128000
 ```
 
 The intended behavior is:
@@ -163,6 +177,12 @@ Animation cooking supports:
 Per-joint optimization overrides are intentionally outside profile schema 1.
 The profile controls compression and sampling; clip semantics remain in
 `animation.extras.blackflower`.
+
+Audio cooking supports one portable contract in every profile: mono/stereo
+WAV or FLAC is resampled to 48 kHz, streams use Opus VBR with 20 ms frames and
+complexity 10, and the target bitrates are 64 kbit/s for mono and 128 kbit/s
+for stereo. These settings remain centralized in the selected profile; asset
+manifests choose media semantics, not encoder overrides.
 
 Both Luau profiles emit type information for modules marked with `--!native`.
 The runtime consumes it only when native codegen is explicitly enabled with an

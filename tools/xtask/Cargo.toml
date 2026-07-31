@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 blackflower-animation-format.workspace = true
 blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
+blackflower-audio-media.workspace = true
 blackflower-cooker-animation.workspace = true
 blackflower-cooker-navigation.workspace = true
 blackflower-cooker-volume.workspace = true
