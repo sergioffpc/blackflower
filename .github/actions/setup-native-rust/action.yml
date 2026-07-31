@@ -1,5 +1,5 @@
 name: Set up native Rust build
-description: Configure sccache, libclang, and the optional Cargo cache.
+description: Configure sccache, native Linux dependencies, libclang, and the optional Cargo cache.
 
 inputs:
   cargo-cache-key:
@@ -35,12 +35,12 @@ runs:
         rustc --version
         cargo --version
 
-    - name: Install libclang on Linux
+    - name: Install native dependencies on Linux
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends libclang-18-dev
+        sudo apt-get install --yes --no-install-recommends libasound2-dev libclang-18-dev
         libclang_path=/usr/lib/llvm-18/lib
         test -f "$libclang_path/libclang.so"
         echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
