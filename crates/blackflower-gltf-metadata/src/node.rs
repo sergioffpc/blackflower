@@ -42,6 +42,8 @@ impl NodeMetadata {
 struct NodeMetadataFile {
     schema: u32,
     node: NodeFile,
+    #[serde(default, rename = "navigation")]
+    _navigation: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +80,7 @@ pub(crate) fn metadata(root: &Value, name: &str) -> Result<Option<NodeMetadata>,
     }))
 }
 
-fn find_node<'a>(root: &'a Value, name: &str) -> Result<&'a Value, Error> {
+pub(crate) fn find_node<'a>(root: &'a Value, name: &str) -> Result<&'a Value, Error> {
     let Some(nodes) = root.get("nodes") else {
         return Err(Error::NodeNotFound(name.to_owned()));
     };
@@ -237,7 +239,7 @@ mod tests {
                     "name": "Spawn",
                     "extras": {
                         "blackflower": {
-                            "schema": 2,
+                            "schema": 99,
                             "node": {"kind": "spawn_point"}
                         }
                     }
@@ -246,7 +248,7 @@ mod tests {
         )?;
         assert!(matches!(
             unsupported.node_metadata("Spawn"),
-            Err(Error::UnsupportedNodeSchema { schema: 2, .. })
+            Err(Error::UnsupportedNodeSchema { schema: 99, .. })
         ));
         Ok(())
     }

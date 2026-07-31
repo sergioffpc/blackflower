@@ -28,6 +28,8 @@ pub enum AssetKind {
     Skeleton,
     /// Blackflower `.bfanim` containing one clip and its authored policy.
     AnimationClip,
+    /// Blackflower `.bfnav` containing tiled Detour data and baked area policy.
+    NavigationMesh,
 }
 
 /// Runtime domains that consume an asset.
@@ -80,6 +82,10 @@ pub struct ToolchainIdentity {
     pub blosc: String,
     /// Pinned zlib implementation accepted for OpenVDB sources.
     pub zlib: String,
+    /// Pinned RecastNavigation cooker and `.bfnav` schema.
+    pub recast_navigation: String,
+    /// Host platform participating in native Recast output identity.
+    pub navigation_cooker_platform: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

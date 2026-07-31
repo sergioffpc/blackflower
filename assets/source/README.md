@@ -156,6 +156,69 @@ counts, computes full checksums, and emits uncompressed `Codec::NONE` NanoVDB.
 There is no encoding or volume-quality setting in `asset.toml` or in the
 cooking profile.
 
+Navigation meshes are simulation-only and keep their complete physical,
+semantic, and Recast policy in one manifest:
+
+```toml
+schema = 1
+id = "levels/arena/navigation/humanoid"
+kind = "navigation_mesh"
+audience = "simulation"
+
+[navigation]
+source = "arena_navigation.glb"
+profile_id = "humanoid"
+
+[navigation.agent]
+height = 1.80
+radius = 0.35
+max_climb = 0.40
+max_slope_degrees = 45.0
+
+[navigation.build]
+cell_size = 0.20
+cell_height = 0.10
+tile_size = 64
+region_min_area = 8
+region_merge_area = 20
+max_edge_length = 12.0
+max_simplification_error = 1.3
+max_vertices_per_polygon = 6
+detail_sample_distance = 6.0
+detail_sample_max_error = 1.0
+
+[[navigation.areas]]
+key = "ground"
+traversable = true
+cost = 1.0
+
+[[navigation.areas]]
+key = "water"
+traversable = false
+```
+
+No navigation field has a default, profile inheritance, include, command-line
+override, or Lua source. The cooker sorts area keys alphabetically and assigns
+their Detour IDs from 0 through 63. A traversable area requires a finite
+positive cost; a blocked area omits `cost` and is encoded with canonical cost
+zero and no traversable polygon flag.
+
+The source may contain the complete level, but Recast imports only marked nodes
+reachable from the glTF default scene (or the sole scene when no default is
+declared). Marking uses schema-1 `extras.blackflower.navigation` metadata.
+`surface` nodes require an authored area key, `obstacle` nodes cut blocked
+spans, and `off_mesh_link` nodes provide exactly two endpoints plus an area,
+direction, and radius. Metadata is object-level in this schema and every marked
+node requires a stable ID. World transforms and mirrored winding are applied
+before cooking.
+
+The host-only cooker uses tiled watershed Recast and packages ordered Detour
+tile payloads in `.bfnav`. That container also records the full agent and build
+values and their hashes, the pinned Recast/Detour versions, 32-bit polygon
+references, tiled navmesh parameters, and the canonical area table. At runtime,
+`NavMeshAsset` instantiates Detour and compiles the area table to native flags
+and a 64-entry cost array. Recast and Lua are not runtime query dependencies.
+
 Skeleton and animation assets are presentation-only. A skeleton selects one
 exact named skin and cooks it to `.bfskel`:
 

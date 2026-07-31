@@ -3,6 +3,7 @@
 mod animation;
 mod container;
 mod error;
+mod navigation;
 mod node;
 mod validation;
 
@@ -15,6 +16,7 @@ pub use animation::{
     MotionAxis, RootMotionMetadata, RootMotionReference,
 };
 pub use error::Error;
+pub use navigation::{NavigationDirection, NavigationMetadata, NavigationRole};
 pub use node::NodeMetadata;
 pub use validation::GLTF_VERSION;
 
@@ -39,6 +41,7 @@ impl Document {
         let root = parse_root(&bytes)?;
         validation::validate_root(&root)?;
         validation::validate_file(path, &root)?;
+        navigation::validate_all(&root)?;
         Ok(Self { root })
     }
 
@@ -50,6 +53,7 @@ impl Document {
         let root = parse_root(bytes)?;
         validation::validate_root(&root)?;
         validation::validate_bytes(bytes)?;
+        navigation::validate_all(&root)?;
         Ok(Self { root })
     }
 
@@ -72,6 +76,24 @@ impl Document {
     /// A node without `extras.blackflower` returns `None`.
     pub fn node_metadata(&self, node: &str) -> Result<Option<NodeMetadata>, Error> {
         node::metadata(&self.root, node)
+    }
+
+    /// Extract navigation-cooking metadata from exactly one named glTF node.
+    ///
+    /// A node without schema-1 navigation metadata returns `None`.
+    pub fn navigation_metadata(&self, node: &str) -> Result<Option<NavigationMetadata>, Error> {
+        navigation::metadata(&self.root, node)
+    }
+
+    /// Extract navigation metadata by stable glTF node index.
+    ///
+    /// This lets cookers validate navigation metadata on unnamed nodes rather
+    /// than silently ignoring owned extras.
+    pub fn navigation_metadata_at(
+        &self,
+        node_index: usize,
+    ) -> Result<Option<NavigationMetadata>, Error> {
+        navigation::metadata_at(&self.root, node_index)
     }
 }
 

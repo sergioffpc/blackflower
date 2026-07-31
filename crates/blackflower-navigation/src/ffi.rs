@@ -91,6 +91,10 @@ pub(crate) fn recastnavigation_version() -> (u32, u32, u32) {
     (version.major, version.minor, version.patch)
 }
 
+pub(crate) fn detour_navmesh_version() -> u32 {
+    unsafe { raw::bf_navigation_detour_navmesh_version() }
+}
+
 pub(crate) fn create_single_tile(data: &[u8]) -> Result<NavMeshPtr, Status> {
     let mut pointer = std::ptr::null_mut();
     let status = unsafe {

@@ -11,6 +11,7 @@ members = [
     "crates/blackflower-audio-spatial",
     "crates/blackflower-audio-voice",
     "crates/blackflower-cooker-animation",
+    "crates/blackflower-cooker-navigation",
     "crates/blackflower-cooker-volume",
     "crates/blackflower-ecs",
     "crates/blackflower-ecs-derive",
@@ -47,6 +48,7 @@ blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
 blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
 blackflower-cooker-animation = { path = "crates/blackflower-cooker-animation" }
+blackflower-cooker-navigation = { path = "crates/blackflower-cooker-navigation" }
 blackflower-cooker-volume = { path = "crates/blackflower-cooker-volume" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs-derive" }

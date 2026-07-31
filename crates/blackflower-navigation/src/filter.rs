@@ -37,6 +37,26 @@ impl QueryFilter {
         self
     }
 
+    /// Polygon flags accepted by this filter.
+    #[must_use]
+    pub const fn include_flags(&self) -> u16 {
+        self.include_flags
+    }
+
+    /// Polygon flags rejected by this filter.
+    #[must_use]
+    pub const fn exclude_flags(&self) -> u16 {
+        self.exclude_flags
+    }
+
+    /// Return the traversal multiplier configured for one Detour area.
+    pub fn area_cost(&self, area: u8) -> Result<f32, Error> {
+        self.area_costs
+            .get(usize::from(area))
+            .copied()
+            .ok_or(Error::InvalidArea(area))
+    }
+
     /// Set the finite, positive traversal cost for one Detour area.
     pub fn with_area_cost(mut self, area: u8, cost: f32) -> Result<Self, Error> {
         let area_index = usize::from(area);

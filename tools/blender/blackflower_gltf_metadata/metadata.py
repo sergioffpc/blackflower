@@ -137,8 +137,16 @@ def build_animation_metadata(
     }
 
 
-def build_node_metadata(kind: str, identifier: str = "") -> dict[str, object]:
-    """Build schema-1 typed node metadata for model and level objects."""
+def build_node_metadata(
+    kind: str,
+    identifier: str = "",
+    *,
+    navigation_role: str = "none",
+    area_key: str = "",
+    direction: str = "bidirectional",
+    radius: float = 0.0,
+) -> dict[str, object]:
+    """Build schema-1 typed node metadata, including navigation policy."""
 
     if not isinstance(kind, str):
         raise MetadataError("node kind must be text")
@@ -156,7 +164,32 @@ def build_node_metadata(kind: str, identifier: str = "") -> dict[str, object]:
     if identifier:
         _validate_text(identifier, "node id", MAX_NODE_ID_BYTES)
         node["id"] = identifier
-    return {"schema": NODE_SCHEMA, "node": node}
+    if navigation_role == "none":
+        return {"schema": NODE_SCHEMA, "node": node}
+    if not identifier:
+        raise MetadataError("navigation node id is required")
+    if navigation_role not in {"surface", "obstacle", "off_mesh_link"}:
+        raise MetadataError("navigation role is not supported")
+
+    navigation: dict[str, object] = {"role": navigation_role}
+    if navigation_role in {"surface", "off_mesh_link"}:
+        _validate_portable_key(area_key, "navigation area key")
+        navigation["area_key"] = area_key
+    elif area_key:
+        raise MetadataError("navigation obstacle cannot declare an area key")
+    if navigation_role == "off_mesh_link":
+        if direction not in {"one_way", "bidirectional"}:
+            raise MetadataError("off-mesh link direction is not supported")
+        link_radius = _finite_number(radius, "off-mesh link radius")
+        if link_radius <= 0.0:
+            raise MetadataError("off-mesh link radius must be greater than zero")
+        navigation["direction"] = direction
+        navigation["radius"] = _float32(link_radius)
+    return {
+        "schema": NODE_SCHEMA,
+        "node": node,
+        "navigation": navigation,
+    }
 
 
 def merge_extras(
@@ -205,6 +238,17 @@ def _validate_text(value: str, field: str, maximum_bytes: int) -> None:
         raise MetadataError(
             f"{field} must be non-empty, unpadded, free of control characters, "
             f"and at most {maximum_bytes} UTF-8 bytes"
+        )
+
+
+def _validate_portable_key(value: str, field: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value.encode("utf-8")) > 64
+        or _NODE_KIND.fullmatch(value) is None
+    ):
+        raise MetadataError(
+            f"{field} must be lower_snake_case and at most 64 UTF-8 bytes"
         )
 
 

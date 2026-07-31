@@ -1,6 +1,27 @@
 /// Errors produced while loading or querying a Detour navigation mesh.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    /// The `.bfnav` container is malformed, non-canonical, or truncated.
+    #[error("invalid Blackflower navigation asset: {0}")]
+    InvalidAsset(String),
+    /// The `.bfnav` schema is not supported by this runtime.
+    #[error("unsupported Blackflower navigation asset schema {0}")]
+    UnsupportedAssetSchema(u32),
+    /// The cooked Recast or Detour data does not match the runtime toolchain.
+    #[error("incompatible Blackflower navigation toolchain")]
+    IncompatibleAssetToolchain,
+    /// A navigation profile identifier is not portable.
+    #[error("invalid navigation agent profile identifier")]
+    InvalidProfileId,
+    /// Physical agent dimensions are invalid.
+    #[error("invalid navigation agent dimensions")]
+    InvalidAgentProfile,
+    /// Recast build settings are invalid.
+    #[error("invalid navigation build settings")]
+    InvalidBuildSettings,
+    /// A semantic navigation area key is not portable.
+    #[error("invalid navigation area key")]
+    InvalidAreaKey,
     /// The tile bytes are empty, truncated, or incompatible with Detour 1.6.0.
     #[error("invalid Detour navigation mesh tile data")]
     InvalidNavMeshData,

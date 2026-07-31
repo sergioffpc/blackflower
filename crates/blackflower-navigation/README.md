@@ -40,22 +40,25 @@ git add crates/blackflower-navigation/vendor/recastnavigation
 
 ## Runtime API
 
-The asset cooker must store the tile bytes produced by
-`dtCreateNavMeshData`. The runtime copies those bytes into Detour-owned memory;
-callers do not need to preserve their source buffer. Tile data is a trusted
-versioned asset format and must match the pinned Detour version.
+The asset cooker stores the tile bytes produced by `dtCreateNavMeshData` in a
+versioned `.bfnav` container. The container retains the complete physical agent
+profile, complete Recast settings, native version identity, canonical semantic
+area table, tiled `dtNavMeshParams`, and ordered tile payloads. The runtime
+validates this metadata before copying tile bytes into Detour-owned memory.
 The runtime uses Detour's default 32-bit polygon references, so the cooker must
 leave `DT_POLYREF64` disabled as well.
 
 ```rust,no_run
-use blackflower_navigation::{NavMesh, QueryFilter};
+use blackflower_navigation::NavMeshAsset;
+use bytes::Bytes;
 use glam::Vec3A;
 
-# fn cooked_tile_data() -> Vec<u8> { Vec::new() }
+# fn cooked_navigation() -> Bytes { Bytes::new() }
 # fn example() -> Result<(), blackflower_navigation::Error> {
-let navmesh = NavMesh::from_tile_data(&cooked_tile_data())?;
+let asset = NavMeshAsset::from_bytes(cooked_navigation())?;
+let navmesh = asset.instantiate()?;
 let query = navmesh.query()?;
-let filter = QueryFilter::new();
+let filter = asset.query_filter()?;
 let search_extents = Vec3A::new(2.0, 4.0, 2.0);
 
 let path = query.find_path(
@@ -72,10 +75,10 @@ for point in path.points() {
 # }
 ```
 
-For tiled assets, initialize `NavMesh::tiled` with the exact cooker parameters
-and add every tile with `NavMesh::add_tile` before creating queries. Query
-filters expose Detour's include/exclude polygon flags and 64 per-area traversal
-costs.
+`NavMeshAsset::query_filter` compiles the baked policy to Detour's native
+include flags and 64-entry cost array. Traversable polygons use flag bit 0;
+blocked polygons carry no flags. Lua is not called while loading the asset or
+while visiting polygons during a query.
 
 `NavMesh` and `Query` are neither `Send` nor `Sync`. A query owns mutable search
 state and borrows its mesh, preventing tile mutation or mesh destruction while

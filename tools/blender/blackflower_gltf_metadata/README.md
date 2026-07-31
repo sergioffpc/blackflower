@@ -16,7 +16,7 @@ In Blender 4.2 or newer, open **Edit > Preferences > Add-ons**, choose
 **Install from Disk**, and select:
 
 ```text
-target/blender/blackflower_gltf_metadata-0.2.0.zip
+target/blender/blackflower_gltf_metadata-0.3.0.zip
 ```
 
 The extension uses the user-extension hooks provided by Blender's bundled glTF
@@ -119,9 +119,40 @@ The exported glTF node receives:
 }
 ```
 
-This first node schema deliberately contains only identity. Domain-specific
-map, physics, navigation, and acoustic fields should be added as typed schema
-revisions with matching cooker support, not as an arbitrary property bag.
+## Navigation geometry
+
+In the same Object Properties panel, choose a **Navigation Role**:
+
+- **Surface** rasterizes triangle geometry using an area key declared in the
+  navigation asset's `asset.toml`.
+- **Obstacle** rasterizes triangle geometry as blocked spans.
+- **Off-mesh Link** exports one line primitive with exactly two indexed
+  endpoints, an area key, direction, and positive endpoint radius.
+
+Every navigation object requires a stable **ID**. Navigation metadata uses
+strict node schema 1:
+
+```json
+{
+  "extras": {
+    "blackflower": {
+      "schema": 1,
+      "node": {
+        "kind": "navigation_surface",
+        "id": "floor_main"
+      },
+      "navigation": {
+        "role": "surface",
+        "area_key": "ground"
+      }
+    }
+  }
+}
+```
+
+Area costs, traversal permissions, physical agent dimensions, and Recast build
+settings are not duplicated in Blender or Lua. They live exclusively in the
+navigation `asset.toml`.
 
 ## License
 

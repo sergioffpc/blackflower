@@ -229,6 +229,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-cooker-navigation"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "blackflower-gltf-metadata",
+ "blackflower-navigation",
+ "blake3",
+ "bytes",
+ "cmake",
+ "glam",
+ "gltf",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "blackflower-cooker-volume"
 version = "0.1.0"
 dependencies = [
@@ -292,6 +309,8 @@ name = "blackflower-navigation"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blake3",
+ "bytes",
  "cmake",
  "glam",
  "thiserror",
@@ -2860,8 +2879,10 @@ dependencies = [
  "blackflower-animation-format",
  "blackflower-assets",
  "blackflower-cooker-animation",
+ "blackflower-cooker-navigation",
  "blackflower-cooker-volume",
  "blackflower-gltf-metadata",
+ "blackflower-navigation",
  "blackflower-rendering-models",
  "blackflower-rendering-textures",
  "blackflower-scripting",
