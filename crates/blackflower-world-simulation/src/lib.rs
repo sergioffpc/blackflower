@@ -24,5 +24,6 @@ pub use systems::{
 };
 pub use types::SimulationTick;
 pub use world::{
-    SIMULATION_TICK_DELTA_SECONDS, SimulationExecution, SimulationExecutionContext, SimulationWorld,
+    AcousticRuntimeError, SIMULATION_TICK_DELTA_SECONDS, SimulationExecution,
+    SimulationExecutionContext, SimulationWorld,
 };

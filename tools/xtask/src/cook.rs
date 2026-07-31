@@ -197,17 +197,21 @@ fn toolchain_identity() -> ToolchainIdentity {
         ),
         navigation_cooker_platform: navigation_cooker_platform(),
         audio: format!(
-            "hound/{}+claxon/{}+rubato/{}+ogg/{}+opus/1.5.2;bfaudio={};bfsound={};{}",
+            "hound/{}+claxon/{}+rubato/{};flac-stream=pass-through;bfaudio={};bfsound={};{}",
             blackflower_audio_media::HOUND_VERSION,
             blackflower_audio_media::CLAXON_VERSION,
             blackflower_audio_media::RUBATO_VERSION,
-            blackflower_audio_media::OGG_VERSION,
             blackflower_audio_media::AUDIO_CLIP_SCHEMA,
             blackflower_audio_media::SOUND_EVENT_SCHEMA,
             blackflower_audio_media::COOKER_RECIPE,
         ),
         steam_audio_acoustics: steam_audio_identity(),
         acoustics_cooker_platform: crate::acoustic_cooker::platform_identity(),
+        authoritative_acoustics: format!(
+            "bfacmat/bfactpl/bfacpfb/bfacsim/bfacprf={};{}",
+            blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA,
+            blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE,
+        ),
     }
 }
 
@@ -529,12 +533,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -588,12 +596,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -647,12 +659,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -706,12 +722,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -765,12 +785,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -866,6 +890,86 @@ spatialization = "hrtf"
             .context("second event is missing")?;
         assert_eq!(first_event.content_hash, second_event.content_hash);
         assert_ne!(first_event.recipe_hash, second_event.recipe_hash);
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the cook-time-only dependency acceptance test keeps source mutation and catalog proof together"
+    )]
+    fn emission_profile_uses_media_only_at_cook_time_and_invalidates_with_it() -> anyhow::Result<()>
+    {
+        let fixture = Fixture::new()?;
+        let media_directory = fixture.source.join("audio/step");
+        fs::create_dir_all(&media_directory)?;
+        fs::write(
+            media_directory.join("step.wav"),
+            pcm16_wav(48_000, 1, 960, 1),
+        )?;
+        fs::write(
+            media_directory.join("asset.toml"),
+            r#"
+schema = 1
+id = "audio/step"
+kind = "audio_clip"
+audience = "presentation"
+
+[audio_clip]
+source = "step.wav"
+"#,
+        )?;
+        fixture.write_manifest(
+            "acoustics/emissions/step",
+            r#"
+schema = 1
+id = "acoustics/emissions/step"
+kind = "acoustic_emission_profile"
+audience = "simulation"
+
+[acoustic_emission]
+media = "audio/step"
+client_event_id = 42
+reference_spl_db = 62.0
+directivity = 0.25
+class = "footstep"
+"#,
+        )?;
+        let request = fixture.request("pak000", &["acoustics/emissions/step"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let trust_store = fixture.trust_store()?;
+        let emission_id = AssetId::from_str("acoustics/emissions/step")?;
+        let first_package = AssetPackage::open(&first.path, &trust_store)?;
+        let first_record = first_package
+            .catalog()
+            .find(&emission_id)
+            .context("first emission profile is missing")?
+            .clone();
+        assert!(first_record.dependencies.is_empty());
+        assert!(
+            first_package
+                .catalog()
+                .find(&AssetId::from_str("audio/step")?)
+                .is_none()
+        );
+        let first_profile = blackflower_acoustics::AcousticEmissionProfile::from_bytes(
+            first_package.read_asset(&emission_id)?.as_ref(),
+        )?;
+        assert_eq!(first_profile.client_event_id, 42);
+        drop(first_package);
+
+        fs::write(
+            media_directory.join("step.wav"),
+            pcm16_wav(48_000, 1, 960, 3),
+        )?;
+        let second = fixture.pipeline.cook(&request)?;
+        let second_package = AssetPackage::open(&second.path, &trust_store)?;
+        let second_record = second_package
+            .catalog()
+            .find(&emission_id)
+            .context("second emission profile is missing")?;
+        assert_ne!(first_record.content_hash, second_record.content_hash);
+        assert_ne!(first_record.recipe_hash, second_record.recipe_hash);
         Ok(())
     }
 
@@ -1147,6 +1251,22 @@ traversable = false
         fs::create_dir_all(&directory)?;
         fs::write(directory.join("room.gltf"), ACOUSTIC_GLTF)?;
         fs::write(
+            directory.join("materials.asset.toml"),
+            r#"schema = 1
+id = "levels/room/acoustics/materials"
+kind = "acoustic_material_library"
+audience = "shared"
+
+[acoustic_materials]
+
+[[acoustic_materials.materials]]
+id = "acoustics/materials/concrete"
+absorption = [0.2, 0.3, 0.4]
+scattering = 0.1
+transmission = [0.0, 0.0, 0.0]
+"#,
+        )?;
+        fs::write(
             directory.join("scene.asset.toml"),
             r#"schema = 1
 id = "levels/room/acoustics/scene"
@@ -1155,12 +1275,19 @@ audience = "presentation"
 
 [acoustic_scene]
 source = "room.gltf"
+materials = "levels/room/acoustics/materials"
+"#,
+        )?;
+        fs::write(
+            directory.join("topology.asset.toml"),
+            r#"schema = 1
+id = "levels/room/acoustics/topology"
+kind = "acoustic_topology"
+audience = "shared"
 
-[[acoustic_scene.materials]]
-id = "acoustics/materials/concrete"
-absorption = [0.2, 0.3, 0.4]
-scattering = 0.1
-transmission = [0.0, 0.0, 0.0]
+[acoustic_topology]
+source = "room.gltf"
+instances = []
 "#,
         )?;
         fs::write(
@@ -1188,6 +1315,7 @@ audience = "presentation"
 
 [acoustic]
 source = "room.gltf"
+topology = "levels/room/acoustics/topology"
 
 [[acoustic.zones]]
 id = "ground_floor"
@@ -1236,6 +1364,7 @@ probes = "levels/room/acoustics/ground-floor-probes"
         assert_eq!(probes.zone(), "ground_floor");
         assert_eq!(probes.layers().len(), 2);
         assert_eq!(environment.zones()[0].scene(), scene_id.as_str());
+        assert_eq!(environment.topology(), "levels/room/acoustics/topology");
         assert!(
             store
                 .resolve(&environment_id)
@@ -1279,12 +1408,12 @@ probes = "levels/room/acoustics/ground-floor-probes"
         assert_ne!(first_probe_recipe, third_probe_recipe);
         drop(store);
 
-        let scene_manifest = directory.join("scene.asset.toml");
-        let changed_material = fs::read_to_string(&scene_manifest)?.replace(
+        let material_manifest = directory.join("materials.asset.toml");
+        let changed_material = fs::read_to_string(&material_manifest)?.replace(
             "absorption = [0.2, 0.3, 0.4]",
             "absorption = [0.25, 0.3, 0.4]",
         );
-        fs::write(&scene_manifest, changed_material)?;
+        fs::write(&material_manifest, changed_material)?;
         let fourth = fixture.pipeline.cook(&request)?;
         assert_ne!(third.package_hash, fourth.package_hash);
         let store = fixture.open_store()?;
@@ -1304,6 +1433,129 @@ probes = "levels/room/acoustics/ground-floor-probes"
                 .record()
                 .recipe_hash
         );
+        Ok(())
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the Stage 9 asset graph acceptance test keeps all manifests and dependency assertions together"
+    )]
+    fn cooks_authoritative_material_topology_prefab_and_simulation_scene() -> anyhow::Result<()> {
+        let fixture = Fixture::new()?;
+        let directory = fixture.source.join("levels/dynamic-room");
+        fs::create_dir_all(&directory)?;
+        fs::write(directory.join("room.gltf"), ACOUSTIC_GLTF)?;
+        fs::write(
+            directory.join("materials.asset.toml"),
+            r#"schema = 1
+id = "levels/dynamic-room/acoustics/materials"
+kind = "acoustic_material_library"
+audience = "shared"
+
+[acoustic_materials]
+
+[[acoustic_materials.materials]]
+id = "acoustics/materials/concrete"
+absorption = [0.2, 0.3, 0.4]
+scattering = 0.1
+transmission = [0.01, 0.02, 0.03]
+"#,
+        )?;
+        fs::write(
+            directory.join("door.asset.toml"),
+            r#"schema = 1
+id = "levels/dynamic-room/acoustics/door"
+kind = "acoustic_prefab"
+audience = "shared"
+
+[acoustic_prefab]
+source = "room.gltf"
+name = "door"
+materials = "levels/dynamic-room/acoustics/materials"
+
+[[acoustic_prefab.states]]
+id = 0
+name = "removed"
+
+[[acoustic_prefab.states]]
+id = 1
+name = "intact"
+node = "door"
+"#,
+        )?;
+        fs::write(
+            directory.join("topology.asset.toml"),
+            r#"schema = 1
+id = "levels/dynamic-room/acoustics/topology"
+kind = "acoustic_topology"
+audience = "shared"
+
+[acoustic_topology]
+source = "room.gltf"
+
+[[acoustic_topology.instances]]
+id = 10
+prefab = "levels/dynamic-room/acoustics/door"
+default_state = 0
+zones = ["ground_floor_volume"]
+"#,
+        )?;
+        fs::write(
+            directory.join("simulation.asset.toml"),
+            r#"schema = 1
+id = "levels/dynamic-room/acoustics/simulation"
+kind = "acoustic_simulation_scene"
+audience = "simulation"
+
+[acoustic_simulation]
+source = "room.gltf"
+materials = "levels/dynamic-room/acoustics/materials"
+topology = "levels/dynamic-room/acoustics/topology"
+"#,
+        )?;
+        let request = fixture.request("pak000", &["levels/dynamic-room/acoustics/simulation"])?;
+        let first = fixture.pipeline.cook(&request)?;
+        let first_bytes = fs::read(&first.path)?;
+        let store = fixture.open_store()?;
+        let materials = AssetId::from_str("levels/dynamic-room/acoustics/materials")?;
+        let prefab = AssetId::from_str("levels/dynamic-room/acoustics/door")?;
+        let topology = AssetId::from_str("levels/dynamic-room/acoustics/topology")?;
+        let simulation = AssetId::from_str("levels/dynamic-room/acoustics/simulation")?;
+        assert_eq!(
+            store
+                .resolve(&simulation)
+                .context("missing simulation")?
+                .record()
+                .dependencies,
+            vec![materials.clone(), topology.clone()]
+        );
+        assert_eq!(
+            store
+                .resolve(&topology)
+                .context("missing topology")?
+                .record()
+                .dependencies,
+            vec![prefab.clone()]
+        );
+        let material_asset = blackflower_acoustics::AcousticMaterialLibrary::from_bytes(
+            &store.read_asset(&materials)?,
+        )?;
+        let prefab_asset =
+            blackflower_acoustics::AcousticPrefab::from_bytes(&store.read_asset(&prefab)?)?;
+        let topology_asset =
+            blackflower_acoustics::AcousticTopology::from_bytes(&store.read_asset(&topology)?)?;
+        let simulation_asset = blackflower_acoustics::AcousticSimulationScene::from_bytes(
+            &store.read_asset(&simulation)?,
+        )?;
+        assert_eq!(material_asset.materials().len(), 1);
+        assert_eq!(prefab_asset.states().len(), 2);
+        assert_eq!(topology_asset.instances().len(), 1);
+        assert_eq!(simulation_asset.triangles.len(), 2);
+        drop(store);
+        let second = fixture.pipeline.cook(&request)?;
+        assert_eq!(first.package_hash, second.package_hash);
+        assert_eq!(first_bytes, fs::read(second.path)?);
         Ok(())
     }
 

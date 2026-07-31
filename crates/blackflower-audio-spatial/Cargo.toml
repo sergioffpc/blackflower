@@ -8,6 +8,8 @@ publish.workspace = true
 links = "phonon"
 
 [dependencies]
+blackflower-acoustics.workspace = true
+
 blake3.workspace = true
 glam.workspace = true
 thiserror.workspace = true

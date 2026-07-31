@@ -8,11 +8,46 @@ use crate::types::{AudioSettings, BinauralParams, TailState};
 
 pub(crate) struct ContextInner {
     pub(crate) pointer: ffi::ContextPtr,
+    embree: Option<ffi::EmbreeDevicePtr>,
+    backend: RayTracerBackend,
 }
 
 impl Drop for ContextInner {
     fn drop(&mut self) {
+        if let Some(embree) = self.embree {
+            ffi::destroy_embree_device(embree);
+        }
         ffi::destroy_context(self.pointer);
+    }
+}
+
+impl ContextInner {
+    pub(crate) const fn embree_device(&self) -> Option<ffi::EmbreeDevicePtr> {
+        self.embree
+    }
+
+    pub(crate) const fn ray_tracer_backend(&self) -> RayTracerBackend {
+        self.backend
+    }
+}
+
+/// CPU ray tracer used by Steam Audio scene queries and reflections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RayTracerBackend {
+    /// Steam Audio's portable built-in ray tracer.
+    BuiltIn,
+    /// The statically linked Embree backend.
+    Embree,
+}
+
+impl RayTracerBackend {
+    /// Whether this backend was compiled for the current target.
+    #[must_use]
+    pub const fn is_available(self) -> bool {
+        match self {
+            Self::BuiltIn => true,
+            Self::Embree => crate::STEAM_AUDIO_EMBREE_ENABLED,
+        }
     }
 }
 
@@ -22,13 +57,48 @@ pub struct Context {
 }
 
 impl Context {
-    /// Create a context using the statically linked Steam Audio SDK.
+    /// Create a context using Embree when supported, with the built-in backend
+    /// retained as the portable fallback.
     pub fn new() -> Result<Self, Error> {
+        let backend = if crate::STEAM_AUDIO_EMBREE_ENABLED {
+            RayTracerBackend::Embree
+        } else {
+            RayTracerBackend::BuiltIn
+        };
+        Self::with_ray_tracer(backend)
+    }
+
+    /// Create a context with an explicit Steam Audio ray tracer backend.
+    pub fn with_ray_tracer(backend: RayTracerBackend) -> Result<Self, Error> {
+        if !backend.is_available() {
+            return Err(Error::RayTracerUnavailable { backend });
+        }
         let pointer = ffi::create_context()
             .map_err(|status| Error::from_status("iplContextCreate", status))?;
+        let embree = if backend == RayTracerBackend::Embree {
+            match ffi::create_embree_device(pointer) {
+                Ok(device) => Some(device),
+                Err(status) => {
+                    ffi::destroy_context(pointer);
+                    return Err(Error::from_status("iplEmbreeDeviceCreate", status));
+                }
+            }
+        } else {
+            None
+        };
         Ok(Self {
-            inner: Arc::new(ContextInner { pointer }),
+            inner: Arc::new(ContextInner {
+                pointer,
+                embree,
+                backend,
+            }),
         })
+    }
+
+    /// Ray tracer selected for runtime scenes and loaded acoustic assets.
+    #[must_use]
+    pub fn ray_tracer_backend(&self) -> RayTracerBackend {
+        self.inner.backend
     }
 
     /// Create Steam Audio's built-in HRTF for one audio configuration.
@@ -59,9 +129,18 @@ impl Context {
         })
     }
 
-    /// Create a mutable scene using Steam Audio's built-in ray tracer.
+    /// Create a mutable scene using this context's selected ray tracer.
     pub fn create_scene(&mut self) -> Result<crate::Scene, Error> {
-        crate::Scene::new(Arc::clone(&self.inner))
+        crate::Scene::new(Arc::clone(&self.inner), self.inner.backend)
+    }
+
+    /// Create a scene with Steam Audio's built-in ray tracer for serialization.
+    ///
+    /// Steam Audio only permits [`crate::Scene::to_acoustic_asset`] on built-in
+    /// scenes. The resulting asset can subsequently be loaded into an Embree
+    /// scene through [`Self::load_acoustic_scene`].
+    pub fn create_serializable_scene(&mut self) -> Result<crate::Scene, Error> {
+        crate::Scene::new(Arc::clone(&self.inner), RayTracerBackend::BuiltIn)
     }
 
     /// Load a committed Steam Audio scene from `.bfacscn` bytes parsed off the

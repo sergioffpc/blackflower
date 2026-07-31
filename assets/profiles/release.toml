@@ -35,12 +35,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 16384
 diffuse_samples = 1024
 bounces = 32

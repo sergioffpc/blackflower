@@ -1,8 +1,17 @@
-use crate::ffi::Status;
+use crate::{RayTracerBackend, ffi::Status};
 
 /// Errors produced while initializing or using Steam Audio.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The selected ray tracer was not compiled for this target.
+    #[error("Steam Audio ray tracer {backend:?} is unavailable on this target")]
+    RayTracerUnavailable {
+        /// Requested backend.
+        backend: RayTracerBackend,
+    },
+    /// Steam Audio only serializes scenes using its built-in ray tracer.
+    #[error("Steam Audio scene serialization requires the built-in ray tracer")]
+    SceneSerializationRequiresBuiltIn,
     /// Steam Audio rejected an operation.
     #[error("Steam Audio operation {operation} failed")]
     NativeFailure {
@@ -83,6 +92,12 @@ pub enum Error {
     /// A scene or probe batch belongs to another Steam Audio context.
     #[error("acoustic object belongs to another Steam Audio context")]
     WrongAcousticContext,
+    /// An environmental effect was configured with an empty frame.
+    #[error("environmental effect frame size must be non-zero")]
+    InvalidEffectFrame,
+    /// A reflection update capacity or crossfade duration is invalid.
+    #[error("invalid reflection simulator settings")]
+    InvalidReflectionSettings,
 }
 
 impl Error {

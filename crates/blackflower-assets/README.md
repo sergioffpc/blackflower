@@ -46,12 +46,17 @@ one-clip `.bfanim` assets cooked from glTF or GLB. Animation records carry
 their skeleton `AssetId` as a typed catalog dependency. Model records carry
 their Mesh and Volume attachment IDs as typed dependencies. Package selection
 closes over both relationships before cooking. It also supports tiled
-`.bfnav`, 48 kHz PCM16 `.bfaudio`, standard Ogg/Opus streams, and source-less
+`.bfnav`, 48 kHz PCM16 `.bfaudio`, lossless 48 kHz FLAC streams, and source-less
 `.bfsound` event policy. Sound-event records carry their media `AssetId` as a
 typed dependency, so package selection and recipe identity close over audio
 references. Static acoustics adds `.bfacscn` scenes, `.bfacprb` probe batches,
-and `.bfac` zone descriptors: probes depend on their scene, and the descriptor
-depends on both. These domain kinds do not change the package overlay contract.
+and schema-2 `.bfac` zone descriptors: probes depend on their scene, and the
+descriptor depends on scenes, probes, and `.bfactpl` topology. Stage 9 adds the
+shared `.bfacmat`, `.bfactpl`, and `.bfacpfb` contracts plus simulation-only
+`.bfacsim` and `.bfacprf`. An emission profile reads its audio media only while
+cooking and therefore does not force WAV, PCM, FLAC, `.bfaudio`, or
+`.bfsound` into a server package. These domain kinds do not change the package
+overlay contract.
 
 ## Optional hot reload
 

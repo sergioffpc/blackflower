@@ -32,7 +32,7 @@ pub enum AssetKind {
     NavigationMesh,
     /// Blackflower `.bfaudio` containing 48 kHz PCM16 clip data.
     AudioClip,
-    /// Standard Ogg/Opus stream cooked for worker-thread decoding.
+    /// Lossless 48 kHz FLAC stream validated for worker-thread decoding.
     AudioStream,
     /// Blackflower `.bfsound` containing source-less playback policy.
     SoundEvent,
@@ -42,6 +42,16 @@ pub enum AssetKind {
     AcousticProbeBatch,
     /// Blackflower `.bfac` mapping zones to scene and probe-batch assets.
     AcousticEnvironment,
+    /// Blackflower `.bfacmat` containing canonical quantized acoustic materials.
+    AcousticMaterialLibrary,
+    /// Blackflower `.bfactpl` containing zones, portals, instances, and state sets.
+    AcousticTopology,
+    /// Blackflower `.bfacpfb` containing rigid local geometry and finite variants.
+    AcousticPrefab,
+    /// Blackflower `.bfacsim` containing authoritative geometry, BVH, and path graph.
+    AcousticSimulationScene,
+    /// Blackflower `.bfacprf` containing authoritative source strength and spectral envelope.
+    AcousticEmissionProfile,
 }
 
 /// Runtime domains that consume an asset.
@@ -104,6 +114,8 @@ pub struct ToolchainIdentity {
     pub steam_audio_acoustics: String,
     /// Host platform participating in native Steam Audio bake output identity.
     pub acoustics_cooker_platform: String,
+    /// Pure-Rust authoritative acoustic formats and deterministic cooker recipe.
+    pub authoritative_acoustics: String,
 }
 
 /// Exact versioned cooking profile used to produce a package.

@@ -51,6 +51,7 @@ jobs:
         with:
           cargo-cache-key: cargo
           cargo-cache-restore-key: cargo
+          install-ispc: "true"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -188,6 +189,7 @@ jobs:
         with:
           cargo-cache-key: assets-full
           cargo-cache-restore-key: assets
+          install-ispc: "true"
 
       - name: Run asset Clippy
         run: .github/scripts/run-asset-checks.sh clippy
@@ -229,6 +231,7 @@ jobs:
         with:
           cargo-cache-key: assets-smoke
           cargo-cache-restore-key: assets
+          install-ispc: "true"
 
       - name: Compile and link volume cooker
         run: >-
@@ -330,12 +333,15 @@ jobs:
       fail-fast: false
       matrix:
         package:
+          - blackflower-acoustics
           - blackflower-animation
+          - blackflower-audio-capture
           - blackflower-cooker-animation
           - blackflower-audio-spatial
           - blackflower-audio-voice
           - blackflower-ecs
           - blackflower-navigation
+          - blackflower-networking
           - blackflower-physics
           - blackflower-rendering-textures
           - blackflower-rendering-volumes
@@ -365,6 +371,8 @@ jobs:
 
       - name: Set up native Rust build
         uses: ./.github/actions/setup-native-rust
+        with:
+          install-ispc: ${{ matrix.package == 'blackflower-audio-spatial' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check

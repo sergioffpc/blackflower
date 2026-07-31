@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use glam::Vec3A;
 
+use crate::RayTracerBackend;
 use crate::error::Error;
 use crate::ffi;
 use crate::hrtf::ContextInner;
@@ -62,7 +63,9 @@ impl AcousticTriangle {
         Self([first, second, third])
     }
 
-    const fn indices(self) -> [u32; 3] {
+    /// Return the three vertex indices.
+    #[must_use]
+    pub const fn indices(self) -> [u32; 3] {
         self.0
     }
 }
@@ -70,6 +73,7 @@ impl AcousticTriangle {
 pub(crate) struct SceneInner {
     pub(crate) context: Arc<ContextInner>,
     pub(crate) pointer: ffi::ScenePtr,
+    backend: RayTracerBackend,
 }
 
 impl Drop for SceneInner {
@@ -84,11 +88,26 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub(crate) fn new(context: Arc<ContextInner>) -> Result<Self, Error> {
-        let pointer = ffi::create_scene(context.pointer)
+    pub(crate) fn new(
+        context: Arc<ContextInner>,
+        backend: RayTracerBackend,
+    ) -> Result<Self, Error> {
+        let embree = match backend {
+            RayTracerBackend::BuiltIn => None,
+            RayTracerBackend::Embree => Some(
+                context
+                    .embree_device()
+                    .ok_or(Error::RayTracerUnavailable { backend })?,
+            ),
+        };
+        let pointer = ffi::create_scene(context.pointer, embree)
             .map_err(|status| Error::from_status("iplSceneCreate", status))?;
         Ok(Self {
-            inner: Rc::new(SceneInner { context, pointer }),
+            inner: Rc::new(SceneInner {
+                context,
+                pointer,
+                backend,
+            }),
         })
     }
 
@@ -96,11 +115,22 @@ impl Scene {
         context: Arc<ContextInner>,
         serialized: &[u8],
     ) -> Result<Self, Error> {
-        let pointer = ffi::load_scene(context.pointer, serialized)
+        let pointer = ffi::load_scene(context.pointer, context.embree_device(), serialized)
             .map_err(|status| Error::from_status("iplSceneLoad", status))?;
+        let backend = context.ray_tracer_backend();
         Ok(Self {
-            inner: Rc::new(SceneInner { context, pointer }),
+            inner: Rc::new(SceneInner {
+                context,
+                pointer,
+                backend,
+            }),
         })
+    }
+
+    /// Ray tracer used by this scene.
+    #[must_use]
+    pub fn ray_tracer_backend(&self) -> RayTracerBackend {
+        self.inner.backend
     }
 
     /// Serialize the committed scene into a validated `.bfacscn` asset.
@@ -110,6 +140,9 @@ impl Scene {
         triangle_count: u32,
         material_count: u32,
     ) -> Result<crate::AcousticScene, Error> {
+        if self.inner.backend != RayTracerBackend::BuiltIn {
+            return Err(Error::SceneSerializationRequiresBuiltIn);
+        }
         let serialized = ffi::save_scene(self.inner.context.pointer, self.inner.pointer)
             .map_err(|status| Error::from_status("iplSceneSave", status))?;
         crate::AcousticScene::encode(serialized, vertex_count, triangle_count, material_count)
@@ -139,6 +172,27 @@ impl Scene {
         .map_err(|status| Error::from_status("iplStaticMeshCreate", status))?;
         Ok(StaticMesh {
             scene: Rc::clone(&self.inner),
+            pointer,
+            added: false,
+        })
+    }
+
+    /// Create one rigid instance of a committed sub-scene.
+    pub fn create_instanced_mesh(
+        &mut self,
+        sub_scene: &Scene,
+        transform: [[f32; 4]; 4],
+    ) -> Result<InstancedMesh, Error> {
+        if !Arc::ptr_eq(&self.inner.context, &sub_scene.inner.context) {
+            return Err(Error::WrongAcousticContext);
+        }
+        validate_transform(transform)?;
+        let pointer =
+            ffi::create_instanced_mesh(self.inner.pointer, sub_scene.inner.pointer, transform)
+                .map_err(|status| Error::from_status("iplInstancedMeshCreate", status))?;
+        Ok(InstancedMesh {
+            scene: Rc::clone(&self.inner),
+            sub_scene: Rc::clone(&sub_scene.inner),
             pointer,
             added: false,
         })
@@ -185,6 +239,61 @@ impl Drop for StaticMesh {
     fn drop(&mut self) {
         self.remove();
         ffi::destroy_static_mesh(self.pointer);
+    }
+}
+
+/// Rigid Steam Audio sub-scene instance updated and committed off the callback.
+pub struct InstancedMesh {
+    scene: Rc<SceneInner>,
+    sub_scene: Rc<SceneInner>,
+    pointer: ffi::InstancedMeshPtr,
+    added: bool,
+}
+
+impl InstancedMesh {
+    /// Add this instance to its parent scene.
+    pub fn add(&mut self) {
+        if !self.added {
+            ffi::add_instanced_mesh(self.scene.pointer, self.pointer);
+            self.added = true;
+        }
+    }
+
+    /// Remove this instance from its parent scene.
+    pub fn remove(&mut self) {
+        if self.added {
+            ffi::remove_instanced_mesh(self.scene.pointer, self.pointer);
+            self.added = false;
+        }
+    }
+
+    /// Coalesce a new rigid transform before the parent scene's next commit.
+    pub fn update_transform(&mut self, transform: [[f32; 4]; 4]) -> Result<(), Error> {
+        validate_transform(transform)?;
+        ffi::update_instanced_mesh_transform(self.scene.pointer, self.pointer, transform);
+        Ok(())
+    }
+
+    /// Whether this instance is pending or present in its parent scene.
+    #[must_use]
+    pub const fn is_added(&self) -> bool {
+        self.added
+    }
+}
+
+impl Drop for InstancedMesh {
+    fn drop(&mut self) {
+        self.remove();
+        ffi::destroy_instanced_mesh(self.pointer);
+        let _keep_sub_scene_alive = &self.sub_scene;
+    }
+}
+
+fn validate_transform(transform: [[f32; 4]; 4]) -> Result<(), Error> {
+    if transform.into_iter().flatten().all(f32::is_finite) {
+        Ok(())
+    } else {
+        Err(Error::InvalidSceneGeometry)
     }
 }
 

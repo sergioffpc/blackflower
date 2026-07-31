@@ -208,7 +208,12 @@ fn resolve_attachments(
             | AssetSource::SoundEvent(_)
             | AssetSource::AcousticScene(_)
             | AssetSource::AcousticProbes(_)
-            | AssetSource::Acoustic(_) => {
+            | AssetSource::Acoustic(_)
+            | AssetSource::AcousticMaterials(_)
+            | AssetSource::AcousticTopology(_)
+            | AssetSource::AcousticPrefab(_)
+            | AssetSource::AcousticSimulation(_)
+            | AssetSource::AcousticEmission(_) => {
                 bail!(
                     "model attachment `{}` has unsupported kind {:?}",
                     attachment.asset,

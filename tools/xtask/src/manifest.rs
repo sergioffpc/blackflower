@@ -37,6 +37,11 @@ impl AssetManifest {
             AssetSource::AcousticScene(_) => AssetKind::AcousticScene,
             AssetSource::AcousticProbes(_) => AssetKind::AcousticProbeBatch,
             AssetSource::Acoustic(_) => AssetKind::AcousticEnvironment,
+            AssetSource::AcousticMaterials(_) => AssetKind::AcousticMaterialLibrary,
+            AssetSource::AcousticTopology(_) => AssetKind::AcousticTopology,
+            AssetSource::AcousticPrefab(_) => AssetKind::AcousticPrefab,
+            AssetSource::AcousticSimulation(_) => AssetKind::AcousticSimulationScene,
+            AssetSource::AcousticEmission(_) => AssetKind::AcousticEmissionProfile,
         }
     }
 
@@ -51,14 +56,30 @@ impl AssetManifest {
                 .into_iter()
                 .collect(),
             AssetSource::SoundEvent(manifest) => vec![manifest.media.clone()],
+            AssetSource::AcousticScene(manifest) => vec![manifest.materials.clone()],
             AssetSource::AcousticProbes(manifest) => vec![manifest.scene.clone()],
             AssetSource::Acoustic(manifest) => manifest
                 .zones
                 .iter()
                 .flat_map(|zone| [zone.scene.clone(), zone.probes.clone()])
+                .chain([manifest.topology.clone()])
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
+            AssetSource::AcousticTopology(manifest) => manifest
+                .instances
+                .iter()
+                .map(|instance| instance.prefab.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            AssetSource::AcousticPrefab(manifest) => vec![manifest.materials.clone()],
+            AssetSource::AcousticSimulation(manifest) => {
+                let mut dependencies = vec![manifest.materials.clone(), manifest.topology.clone()];
+                dependencies.sort();
+                dependencies.dedup();
+                dependencies
+            }
             AssetSource::Blob(_)
             | AssetSource::Luau(_)
             | AssetSource::Shader(_)
@@ -69,7 +90,8 @@ impl AssetManifest {
             AssetSource::Navigation(_)
             | AssetSource::AudioClip(_)
             | AssetSource::AudioStream(_)
-            | AssetSource::AcousticScene(_) => Vec::new(),
+            | AssetSource::AcousticMaterials(_)
+            | AssetSource::AcousticEmission(_) => Vec::new(),
         }
     }
 }
@@ -92,6 +114,11 @@ pub(crate) enum AssetSource {
     AcousticScene(AcousticSceneManifest),
     AcousticProbes(AcousticProbesManifest),
     Acoustic(AcousticManifest),
+    AcousticMaterials(AcousticMaterialLibraryManifest),
+    AcousticTopology(AcousticTopologyManifest),
+    AcousticPrefab(AcousticPrefabManifest),
+    AcousticSimulation(AcousticSimulationManifest),
+    AcousticEmission(AcousticEmissionProfileManifest),
 }
 
 impl AssetSource {
@@ -113,6 +140,10 @@ impl AssetSource {
             Self::AcousticScene(manifest) => Some(&manifest.source),
             Self::AcousticProbes(manifest) => Some(&manifest.source),
             Self::Acoustic(manifest) => Some(&manifest.source),
+            Self::AcousticMaterials(_) | Self::AcousticEmission(_) => None,
+            Self::AcousticTopology(manifest) => Some(&manifest.source),
+            Self::AcousticPrefab(manifest) => Some(&manifest.source),
+            Self::AcousticSimulation(manifest) => Some(&manifest.source),
         }
     }
 }
@@ -244,7 +275,7 @@ pub(crate) struct AudioClipManifest {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AcousticSceneManifest {
     pub(crate) source: PathBuf,
-    pub(crate) materials: Vec<AcousticMaterialManifest>,
+    pub(crate) materials: AssetId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,6 +331,12 @@ pub(crate) struct AcousticMaterialManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct AcousticMaterialLibraryManifest {
+    pub(crate) materials: Vec<AcousticMaterialManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AcousticProbesManifest {
     pub(crate) source: PathBuf,
     pub(crate) volume: String,
@@ -326,7 +363,71 @@ pub(crate) enum AcousticProbeGenerationManifest {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AcousticManifest {
     pub(crate) source: PathBuf,
+    pub(crate) topology: AssetId,
     pub(crate) zones: Vec<AcousticZoneManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticTopologyManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) instances: Vec<AcousticTopologyInstanceManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticTopologyInstanceManifest {
+    pub(crate) id: u32,
+    pub(crate) prefab: AssetId,
+    pub(crate) default_state: u32,
+    pub(crate) zones: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticPrefabManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) name: String,
+    pub(crate) materials: AssetId,
+    pub(crate) states: Vec<AcousticPrefabStateManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticPrefabStateManifest {
+    pub(crate) id: u32,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) node: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticSimulationManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) materials: AssetId,
+    pub(crate) topology: AssetId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticEmissionProfileManifest {
+    pub(crate) media: AssetId,
+    pub(crate) client_event_id: u32,
+    pub(crate) reference_spl_db: f32,
+    pub(crate) directivity: f32,
+    pub(crate) class: AcousticSoundClassManifest,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AcousticSoundClassManifest {
+    Footstep,
+    Gunshot,
+    Voice,
+    Impact,
+    Explosion,
+    Mechanical,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,6 +488,11 @@ struct AssetManifestFile {
     acoustic_scene: Option<AcousticSceneManifest>,
     acoustic_probes: Option<AcousticProbesManifest>,
     acoustic: Option<AcousticManifest>,
+    acoustic_materials: Option<AcousticMaterialLibraryManifest>,
+    acoustic_topology: Option<AcousticTopologyManifest>,
+    acoustic_prefab: Option<AcousticPrefabManifest>,
+    acoustic_simulation: Option<AcousticSimulationManifest>,
+    acoustic_emission: Option<AcousticEmissionProfileManifest>,
 }
 
 struct SourceSections {
@@ -406,6 +512,11 @@ struct SourceSections {
     acoustic_scene: Option<AcousticSceneManifest>,
     acoustic_probes: Option<AcousticProbesManifest>,
     acoustic: Option<AcousticManifest>,
+    acoustic_materials: Option<AcousticMaterialLibraryManifest>,
+    acoustic_topology: Option<AcousticTopologyManifest>,
+    acoustic_prefab: Option<AcousticPrefabManifest>,
+    acoustic_simulation: Option<AcousticSimulationManifest>,
+    acoustic_emission: Option<AcousticEmissionProfileManifest>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -511,6 +622,23 @@ impl Repository {
             if let AssetSource::Acoustic(manifest) = &asset.manifest.source {
                 self.validate_acoustic_zones(id, manifest)?;
             }
+            if let AssetSource::AcousticEmission(manifest) = &asset.manifest.source {
+                let media = self.assets.get(&manifest.media).with_context(|| {
+                    format!(
+                        "acoustic emission profile `{id}` references missing cook-time media `{}`",
+                        manifest.media
+                    )
+                })?;
+                if !matches!(
+                    media.manifest.source,
+                    AssetSource::AudioClip(_) | AssetSource::AudioStream(_)
+                ) {
+                    bail!(
+                        "acoustic emission profile `{id}` references non-audio media `{}`",
+                        manifest.media
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -565,9 +693,24 @@ fn validate_dependency_target(
         AssetSource::AcousticProbes(_) => {
             matches!(target.manifest.source, AssetSource::AcousticScene(_))
         }
+        AssetSource::AcousticScene(_) => {
+            matches!(target.manifest.source, AssetSource::AcousticMaterials(_))
+        }
         AssetSource::Acoustic(_) => matches!(
             target.manifest.source,
-            AssetSource::AcousticScene(_) | AssetSource::AcousticProbes(_)
+            AssetSource::AcousticScene(_)
+                | AssetSource::AcousticProbes(_)
+                | AssetSource::AcousticTopology(_)
+        ),
+        AssetSource::AcousticTopology(_) => {
+            matches!(target.manifest.source, AssetSource::AcousticPrefab(_))
+        }
+        AssetSource::AcousticPrefab(_) => {
+            matches!(target.manifest.source, AssetSource::AcousticMaterials(_))
+        }
+        AssetSource::AcousticSimulation(_) => matches!(
+            target.manifest.source,
+            AssetSource::AcousticMaterials(_) | AssetSource::AcousticTopology(_)
         ),
         AssetSource::Blob(_)
         | AssetSource::Luau(_)
@@ -579,7 +722,8 @@ fn validate_dependency_target(
         | AssetSource::Navigation(_)
         | AssetSource::AudioClip(_)
         | AssetSource::AudioStream(_)
-        | AssetSource::AcousticScene(_) => true,
+        | AssetSource::AcousticMaterials(_)
+        | AssetSource::AcousticEmission(_) => true,
     };
     if valid {
         Ok(())
@@ -658,6 +802,11 @@ fn load_asset(
         acoustic_scene: file.acoustic_scene,
         acoustic_probes: file.acoustic_probes,
         acoustic: file.acoustic,
+        acoustic_materials: file.acoustic_materials,
+        acoustic_topology: file.acoustic_topology,
+        acoustic_prefab: file.acoustic_prefab,
+        acoustic_simulation: file.acoustic_simulation,
+        acoustic_emission: file.acoustic_emission,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
     let (source_relative, source_path, source_bytes) = if let Some(source_path) = source.source() {
@@ -790,6 +939,34 @@ fn asset_source(
             validate_acoustic_manifest(&mut acoustic, audience, path)?;
             AssetSource::Acoustic(acoustic)
         }
+        AssetKind::AcousticMaterialLibrary => {
+            let mut materials =
+                required_section(sections.acoustic_materials, "acoustic_materials", path)?;
+            validate_acoustic_material_library(&mut materials, audience, path)?;
+            AssetSource::AcousticMaterials(materials)
+        }
+        AssetKind::AcousticTopology => {
+            let mut topology =
+                required_section(sections.acoustic_topology, "acoustic_topology", path)?;
+            validate_acoustic_topology(&mut topology, audience, path)?;
+            AssetSource::AcousticTopology(topology)
+        }
+        AssetKind::AcousticPrefab => {
+            let mut prefab = required_section(sections.acoustic_prefab, "acoustic_prefab", path)?;
+            validate_acoustic_prefab(&mut prefab, audience, path)?;
+            AssetSource::AcousticPrefab(prefab)
+        }
+        AssetKind::AcousticSimulationScene => {
+            let simulation =
+                required_section(sections.acoustic_simulation, "acoustic_simulation", path)?;
+            validate_acoustic_simulation(&simulation, audience, path)?;
+            AssetSource::AcousticSimulation(simulation)
+        }
+        AssetKind::AcousticEmissionProfile => {
+            let emission = required_section(sections.acoustic_emission, "acoustic_emission", path)?;
+            validate_acoustic_emission(&emission, audience, path)?;
+            AssetSource::AcousticEmission(emission)
+        }
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)
@@ -813,6 +990,11 @@ impl SourceSections {
             + usize::from(self.acoustic_scene.is_some())
             + usize::from(self.acoustic_probes.is_some())
             + usize::from(self.acoustic.is_some())
+            + usize::from(self.acoustic_materials.is_some())
+            + usize::from(self.acoustic_topology.is_some())
+            + usize::from(self.acoustic_prefab.is_some())
+            + usize::from(self.acoustic_simulation.is_some())
+            + usize::from(self.acoustic_emission.is_some())
     }
 }
 
@@ -848,39 +1030,6 @@ fn validate_acoustic_scene_manifest(
 ) -> anyhow::Result<()> {
     validate_acoustic_audience(audience, path)?;
     validate_gltf_source(&acoustic.source, "acoustic scene", path)?;
-    if acoustic.materials.is_empty() {
-        bail!(
-            "acoustic scene manifest `{}` must declare at least one material",
-            path.display()
-        );
-    }
-    acoustic
-        .materials
-        .sort_by(|left, right| left.id.cmp(&right.id));
-    for material in &acoustic.materials {
-        blackflower_cooker_acoustics::AcousticMaterialDefinition::new(
-            material.id.clone(),
-            material.absorption,
-            material.scattering,
-            material.transmission,
-        )
-        .with_context(|| {
-            format!(
-                "invalid acoustic material `{}` in `{}`",
-                material.id,
-                path.display()
-            )
-        })?;
-    }
-    for pair in acoustic.materials.windows(2) {
-        if pair[0].id == pair[1].id {
-            bail!(
-                "duplicate acoustic material `{}` in `{}`",
-                pair[0].id,
-                path.display()
-            );
-        }
-    }
     Ok(())
 }
 
@@ -963,6 +1112,180 @@ fn validate_acoustic_audience(audience: AssetAudience, path: &Path) -> anyhow::R
         );
     }
     Ok(())
+}
+
+fn validate_acoustic_material_library(
+    materials: &mut AcousticMaterialLibraryManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_stage9_audience(
+        audience,
+        AssetAudience::Shared,
+        "acoustic material library",
+        path,
+    )?;
+    materials
+        .materials
+        .sort_by(|left, right| left.id.cmp(&right.id));
+    let definitions = materials
+        .materials
+        .iter()
+        .map(|material| {
+            Ok(blackflower_acoustics::AcousticMaterial {
+                id: material.id.clone(),
+                absorption: quantize_bands(material.absorption)?,
+                scattering_q16: quantize_fraction(material.scattering)?,
+                transmission: quantize_bands(material.transmission)?,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let _library = blackflower_acoustics::AcousticMaterialLibrary::new(definitions)
+        .with_context(|| format!("invalid acoustic material library in `{}`", path.display()))?;
+    Ok(())
+}
+
+fn validate_acoustic_topology(
+    topology: &mut AcousticTopologyManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_stage9_audience(audience, AssetAudience::Shared, "acoustic topology", path)?;
+    validate_gltf_source(&topology.source, "acoustic topology", path)?;
+    topology.instances.sort_by_key(|instance| instance.id);
+    for instance in &mut topology.instances {
+        instance.zones.sort();
+        instance.zones.dedup();
+        if instance.zones.is_empty() {
+            bail!(
+                "acoustic topology instance {} in `{}` has no zones",
+                instance.id,
+                path.display()
+            );
+        }
+        for zone in &instance.zones {
+            validate_selection_name(zone, "acoustic topology instance zone", path)?;
+        }
+    }
+    if topology
+        .instances
+        .windows(2)
+        .any(|pair| pair[0].id == pair[1].id)
+    {
+        bail!(
+            "acoustic topology in `{}` has duplicate instance IDs",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_acoustic_prefab(
+    prefab: &mut AcousticPrefabManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_stage9_audience(audience, AssetAudience::Shared, "acoustic prefab", path)?;
+    validate_gltf_source(&prefab.source, "acoustic prefab", path)?;
+    validate_selection_name(&prefab.name, "acoustic prefab", path)?;
+    if prefab.states.is_empty() {
+        bail!(
+            "acoustic prefab in `{}` must declare at least one state",
+            path.display()
+        );
+    }
+    prefab.states.sort_by_key(|state| state.id);
+    for state in &prefab.states {
+        validate_selection_name(&state.name, "acoustic prefab state", path)?;
+        if let Some(node) = &state.node {
+            validate_selection_name(node, "acoustic prefab state node", path)?;
+        }
+    }
+    if prefab
+        .states
+        .windows(2)
+        .any(|pair| pair[0].id == pair[1].id)
+    {
+        bail!(
+            "acoustic prefab in `{}` has duplicate state IDs",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_acoustic_simulation(
+    simulation: &AcousticSimulationManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_stage9_audience(
+        audience,
+        AssetAudience::Simulation,
+        "acoustic simulation scene",
+        path,
+    )?;
+    validate_gltf_source(&simulation.source, "acoustic simulation scene", path)
+}
+
+fn validate_acoustic_emission(
+    emission: &AcousticEmissionProfileManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    validate_stage9_audience(
+        audience,
+        AssetAudience::Simulation,
+        "acoustic emission profile",
+        path,
+    )?;
+    if !emission.reference_spl_db.is_finite()
+        || !(-120.0..=240.0).contains(&emission.reference_spl_db)
+        || !emission.directivity.is_finite()
+        || !(0.0..=1.0).contains(&emission.directivity)
+    {
+        bail!(
+            "invalid acoustic emission calibration in `{}`",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_stage9_audience(
+    actual: AssetAudience,
+    expected: AssetAudience,
+    kind: &str,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if actual != expected {
+        bail!(
+            "{kind} asset manifest `{}` must use audience `{:?}`",
+            path.display(),
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "validated unit fractions are intentionally quantized to Q0.16"
+)]
+fn quantize_fraction(value: f32) -> anyhow::Result<u16> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        bail!("acoustic coefficient must be a finite unit fraction");
+    }
+    Ok((f64::from(value) * f64::from(u16::MAX)).round() as u16)
+}
+
+fn quantize_bands(values: [f32; 3]) -> anyhow::Result<blackflower_acoustics::BandEnergy> {
+    Ok(blackflower_acoustics::BandEnergy([
+        quantize_fraction(values[0])?,
+        quantize_fraction(values[1])?,
+        quantize_fraction(values[2])?,
+    ]))
 }
 
 fn validate_sound_event_manifest(

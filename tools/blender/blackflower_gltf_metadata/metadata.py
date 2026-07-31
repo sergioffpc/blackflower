@@ -148,6 +148,8 @@ def build_node_metadata(
     acoustics_kind: str = "none",
     geometry_class: str = "static",
     acoustic_zone: str = "",
+    acoustic_zone_a: str = "",
+    acoustic_zone_b: str = "",
 ) -> dict[str, object]:
     """Build schema-1 typed node metadata for level cooking."""
 
@@ -196,6 +198,8 @@ def build_node_metadata(
         expected_kinds = {
             "geometry": "acoustic_geometry",
             "zone": "acoustic_zone",
+            "zone_volume": "acoustic_zone_volume",
+            "portal": "acoustic_portal",
             "probe_volume": "acoustic_probe_volume",
         }
         expected_kind = expected_kinds.get(acoustics_kind)
@@ -218,6 +222,13 @@ def build_node_metadata(
         elif acoustics_kind == "probe_volume":
             _validate_text(acoustic_zone, "acoustic zone id", MAX_NODE_ID_BYTES)
             acoustics["zone"] = acoustic_zone
+        elif acoustics_kind == "portal":
+            _validate_text(acoustic_zone_a, "portal zone A", MAX_NODE_ID_BYTES)
+            _validate_text(acoustic_zone_b, "portal zone B", MAX_NODE_ID_BYTES)
+            if acoustic_zone_a == acoustic_zone_b:
+                raise MetadataError("portal zones must differ")
+            acoustics["zone_a"] = acoustic_zone_a
+            acoustics["zone_b"] = acoustic_zone_b
         result["acoustics"] = acoustics
 
     return result

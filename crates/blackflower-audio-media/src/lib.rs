@@ -24,7 +24,7 @@ pub const AUDIO_CLIP_SCHEMA: u32 = 1;
 pub const SOUND_EVENT_SCHEMA: u32 = 1;
 
 /// Stable audio cooking algorithm identity.
-pub const COOKER_RECIPE: &str = "audio-media-v1;pcm16-le;opus-vbr-20ms";
+pub const COOKER_RECIPE: &str = "audio-media-v2;pcm16-le;flac-stream-pass-through";
 
 /// Pinned authored WAV decoder.
 pub const HOUND_VERSION: &str = "3.5.1";
@@ -34,6 +34,3 @@ pub const CLAXON_VERSION: &str = "0.4.3";
 
 /// Pinned offline resampler.
 pub const RUBATO_VERSION: &str = "0.16.2";
-
-/// Pinned Ogg transport implementation.
-pub const OGG_VERSION: &str = "0.9.2";

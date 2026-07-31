@@ -1,31 +1,17 @@
 use std::io::Cursor;
 
-use blackflower_audio_voice::{Application, Channels, Encoder, FrameDuration, SampleRate};
-use ogg::writing::{PacketWriteEndInfo, PacketWriter};
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
 use crate::{AUDIO_SAMPLE_RATE, AudioClip, Error, LoopRegion};
 
-const OPUS_FRAME_SAMPLES: usize = 960;
-const OPUS_SERIAL: u32 = 0xBFA0_0001;
-const OPUS_VENDOR: &[u8] = b"blackflower";
-
-/// Strict profile-derived stream encoder configuration.
+/// Strict profile-derived lossless audio configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AudioCookSettings {
     /// Runtime/cooking sample rate. Must be 48,000.
     pub sample_rate: u32,
-    /// Opus frame duration. Must be 20 milliseconds.
-    pub opus_frame_ms: u8,
-    /// Opus encoder complexity from 0 through 10.
-    pub opus_complexity: u8,
-    /// Mono target bitrate in bits per second.
-    pub opus_mono_bitrate: u32,
-    /// Stereo target bitrate in bits per second.
-    pub opus_stereo_bitrate: u32,
 }
 
 impl AudioCookSettings {
@@ -33,17 +19,6 @@ impl AudioCookSettings {
     pub fn validate(self) -> Result<(), Error> {
         if self.sample_rate != AUDIO_SAMPLE_RATE {
             return Err(Error::InvalidField("audio.sample_rate"));
-        }
-        if self.opus_frame_ms != 20 {
-            return Err(Error::InvalidField("audio.opus_frame_ms"));
-        }
-        if self.opus_complexity > 10 {
-            return Err(Error::InvalidField("audio.opus_complexity"));
-        }
-        if !(500..=512_000).contains(&self.opus_mono_bitrate)
-            || !(500..=512_000).contains(&self.opus_stereo_bitrate)
-        {
-            return Err(Error::InvalidField("audio.opus_bitrate"));
         }
         Ok(())
     }
@@ -62,15 +37,23 @@ pub fn cook_clip(
     AudioClip::encode(resampled.channel_count, &pcm, loop_region)
 }
 
-/// Cook authored WAV/FLAC into deterministic standard Ogg/Opus.
+/// Validate and preserve one authored 48 kHz FLAC stream losslessly.
 pub fn cook_stream(
     extension: &str,
     source: &[u8],
     settings: AudioCookSettings,
 ) -> Result<Vec<u8>, Error> {
     settings.validate()?;
-    let decoded = resample(decode_source(extension, source)?)?;
-    encode_ogg_opus(&decoded, settings)
+    if !extension.eq_ignore_ascii_case("flac") {
+        return Err(Error::UnsupportedSource(
+            "streaming audio source extension must be .flac",
+        ));
+    }
+    let decoded = decode_flac(source)?;
+    if decoded.sample_rate != settings.sample_rate {
+        return Err(Error::InvalidField("audio stream sample_rate"));
+    }
+    Ok(source.to_vec())
 }
 
 struct DecodedAudio {
@@ -247,97 +230,6 @@ fn quantize(sample: f32) -> i16 {
     (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "the encoder writes the three ordered Ogg Opus packet classes and their granules"
-)]
-fn encode_ogg_opus(audio: &DecodedAudio, settings: AudioCookSettings) -> Result<Vec<u8>, Error> {
-    let channels = match audio.channel_count {
-        1 => Channels::Mono,
-        2 => Channels::Stereo,
-        value => return Err(Error::UnsupportedChannels(u32::from(value))),
-    };
-    let mut encoder = Encoder::new(SampleRate::Hz48K, channels, Application::Audio)?;
-    encoder.set_vbr(true)?;
-    encoder.set_complexity(settings.opus_complexity)?;
-    encoder.set_bitrate(match channels {
-        Channels::Mono => settings.opus_mono_bitrate,
-        Channels::Stereo => settings.opus_stereo_bitrate,
-    })?;
-    let pre_skip =
-        u16::try_from(encoder.lookahead()?).map_err(|_error| Error::InvalidField("lookahead"))?;
-    let frames = audio.channels[0].len();
-    let interleaved = interleave(&audio.channels);
-    let channel_count = channels.count();
-    let packet_count = frames
-        .checked_add(usize::from(pre_skip))
-        .ok_or(Error::InvalidField("frame_count"))?
-        .div_ceil(OPUS_FRAME_SAMPLES);
-    let mut writer = PacketWriter::new(Vec::new());
-    writer
-        .write_packet(
-            opus_head(audio.channel_count, pre_skip),
-            OPUS_SERIAL,
-            PacketWriteEndInfo::EndPage,
-            0,
-        )
-        .map_err(|error| Error::Ogg(error.to_string()))?;
-    writer
-        .write_packet(opus_tags(), OPUS_SERIAL, PacketWriteEndInfo::EndPage, 0)
-        .map_err(|error| Error::Ogg(error.to_string()))?;
-    let mut input = vec![0.0; OPUS_FRAME_SAMPLES * channel_count];
-    let mut packet = vec![0_u8; 4_000];
-    for packet_index in 0..packet_count {
-        input.fill(0.0);
-        let start_frame = packet_index * OPUS_FRAME_SAMPLES;
-        let end_frame = (start_frame + OPUS_FRAME_SAMPLES).min(frames);
-        let source_start = start_frame * channel_count;
-        let source_end = end_frame * channel_count;
-        input[..source_end - source_start].copy_from_slice(&interleaved[source_start..source_end]);
-        let length = encoder.encode(FrameDuration::Ms20, &input, &mut packet)?;
-        let end = if packet_index + 1 == packet_count {
-            PacketWriteEndInfo::EndStream
-        } else {
-            PacketWriteEndInfo::NormalPacket
-        };
-        let granule = if end == PacketWriteEndInfo::EndStream {
-            u64::from(pre_skip)
-                .checked_add(
-                    u64::try_from(frames).map_err(|_error| Error::InvalidField("frame_count"))?,
-                )
-                .ok_or(Error::InvalidField("granule_position"))?
-        } else {
-            u64::try_from((packet_index + 1) * OPUS_FRAME_SAMPLES)
-                .map_err(|_error| Error::InvalidField("granule_position"))?
-        };
-        writer
-            .write_packet(packet[..length].to_vec(), OPUS_SERIAL, end, granule)
-            .map_err(|error| Error::Ogg(error.to_string()))?;
-    }
-    Ok(writer.into_inner())
-}
-
-fn opus_head(channels: u8, pre_skip: u16) -> Vec<u8> {
-    let mut packet = Vec::with_capacity(19);
-    packet.extend_from_slice(b"OpusHead");
-    packet.push(1);
-    packet.push(channels);
-    packet.extend_from_slice(&pre_skip.to_le_bytes());
-    packet.extend_from_slice(&AUDIO_SAMPLE_RATE.to_le_bytes());
-    packet.extend_from_slice(&0_i16.to_le_bytes());
-    packet.push(0);
-    packet
-}
-
-fn opus_tags() -> Vec<u8> {
-    let mut packet = Vec::new();
-    packet.extend_from_slice(b"OpusTags");
-    packet.extend_from_slice(&u32::try_from(OPUS_VENDOR.len()).unwrap_or(0).to_le_bytes());
-    packet.extend_from_slice(OPUS_VENDOR);
-    packet.extend_from_slice(&0_u32.to_le_bytes());
-    packet
-}
-
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
@@ -359,15 +251,12 @@ mod tests {
 
     #[test]
     fn stream_cook_round_trips_frame_count_and_seek() -> Result<(), Error> {
-        let source = pcm16_wav(48_000, 2, 1_920);
+        let source = flac_48k_stereo_1_920()?;
         let settings = AudioCookSettings {
             sample_rate: 48_000,
-            opus_frame_ms: 20,
-            opus_complexity: 10,
-            opus_mono_bitrate: 64_000,
-            opus_stereo_bitrate: 128_000,
         };
-        let bytes = cook_stream("wav", &source, settings)?;
+        let bytes = cook_stream("flac", &source, settings)?;
+        assert_eq!(bytes, source);
         let stream = AudioStream::from_bytes(Bytes::from(bytes))?;
         assert_eq!(stream.frame_count(), 1_920);
         assert_eq!(stream.channels(), 2);
@@ -376,7 +265,30 @@ mod tests {
         let frames = decoder.decode()?;
         assert!(!frames.is_empty());
         assert_eq!(decoder.position(), 1_920.min(1_000 + frames.len()));
+        assert!(matches!(
+            cook_stream("wav", &pcm16_wav(48_000, 2, 1_920), settings),
+            Err(Error::UnsupportedSource(_))
+        ));
+        let mut corrupted = source;
+        let Some(checksum) = corrupted.last_mut() else {
+            return Err(Error::InvalidField("test FLAC"));
+        };
+        *checksum ^= 1;
+        let corrupted = AudioStream::from_bytes(Bytes::from(corrupted))?;
+        assert!(matches!(corrupted.decoder()?.decode(), Err(Error::Flac(_))));
         Ok(())
+    }
+
+    fn flac_48k_stereo_1_920() -> Result<Vec<u8>, Error> {
+        const HEX: &str = "664c614300000022100010000000100000100bb802f0000007809b7aed5b7acd844124ead0e6d35e9fbb84000028200000007265666572656e6365206c6962464c414320312e352e3020323032353032313100000000fff87a1800077fb100000000000019cb";
+        HEX.as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digits =
+                    std::str::from_utf8(pair).map_err(|_error| Error::InvalidField("test FLAC"))?;
+                u8::from_str_radix(digits, 16).map_err(|_error| Error::InvalidField("test FLAC"))
+            })
+            .collect()
     }
 
     fn pcm16_wav(sample_rate: u32, channels: u16, frames: u32) -> Vec<u8> {

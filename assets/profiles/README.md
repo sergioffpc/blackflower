@@ -50,12 +50,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 1024
 diffuse_samples = 64
 bounces = 4
@@ -112,12 +116,16 @@ root_motion_tolerance = 0.001
 
 [audio]
 sample_rate = 48000
-opus_frame_ms = 20
-opus_complexity = 10
-opus_mono_bitrate = 64000
-opus_stereo_bitrate = 128000
 
 [acoustics]
+sound_speed_meters_per_second = 343
+max_receivers = 96
+max_active_emissions = 512
+max_candidate_pairs_per_tick = 4096
+max_paths_per_pair = 4
+max_transmission_surfaces = 8
+max_client_voices = 128
+reflections_crossfade_ms = 200
 reflection_rays = 16384
 diffuse_samples = 1024
 bounces = 32
@@ -212,11 +220,11 @@ Per-joint optimization overrides are intentionally outside profile schema 1.
 The profile controls compression and sampling; clip semantics remain in
 `animation.extras.blackflower`.
 
-Audio cooking supports one portable contract in every profile: mono/stereo
-WAV or FLAC is resampled to 48 kHz, streams use Opus VBR with 20 ms frames and
-complexity 10, and the target bitrates are 64 kbit/s for mono and 128 kbit/s
-for stereo. These settings remain centralized in the selected profile; asset
-manifests choose media semantics, not encoder overrides.
+Audio cooking supports one portable contract in every profile: clips authored
+as mono/stereo WAV or FLAC are resampled to 48 kHz, while streams must already
+be mono/stereo 48 kHz FLAC and remain lossless. The selected profile owns the
+sample rate; asset manifests choose media semantics and cannot select codecs
+or encoder overrides. Opus settings belong exclusively to live voice runtime.
 
 Static-acoustics profiles own Steam Audio bake quality: reflection rays,
 diffuse samples, bounces, simulated/saved IR duration, ambisonic order,
@@ -224,6 +232,12 @@ threading, ray batches, irradiance distance, bake batches, and path visibility
 and range parameters. `bake_threads` is deliberately `1` in both repository
 profiles to make bake ordering stable. Probe `generation`, `spacing_meters`,
 and `height_meters` remain asset-specific in the `.bfacprb` manifest.
+
+The same versioned `[acoustics]` section owns authoritative runtime limits:
+343 m/s sound speed, 96 receivers, 512 active emissions, 4,096 candidate pairs
+per tick, four paths per pair, eight transmission surfaces, 128 client voices,
+and a 200 ms reflection crossfade. Asset manifests cannot override these
+budgets.
 
 Both Luau profiles emit type information for modules marked with `--!native`.
 The runtime consumes it only when native codegen is explicitly enabled with an

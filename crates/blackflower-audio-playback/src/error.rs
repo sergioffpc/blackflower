@@ -17,4 +17,6 @@ pub enum Error {
     UnknownVoice,
     #[error("invalid playback field `{0}`")]
     InvalidField(&'static str),
+    #[error("live voice codec failed: {0}")]
+    VoiceCodec(#[from] blackflower_audio_voice::Error),
 }

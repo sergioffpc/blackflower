@@ -103,9 +103,11 @@ The first node schema establishes typed identity for model and level objects:
 Node names used for lookup must be unique. Schema 1 also accepts the strict
 typed `navigation` and `acoustics` members implemented by their cookers.
 
-Acoustic nodes use `acoustic_geometry`, `acoustic_zone`, or
-`acoustic_probe_volume` identity kinds. Geometry is classified as `static`,
-`dynamic_rigid`, `dynamic_state`, or `ignored`; Stage 8 imports only `static`.
-A probe volume names its zone but never contains placement or bake quality.
+Acoustic nodes use `acoustic_geometry`, `acoustic_zone`,
+`acoustic_zone_volume`, `acoustic_portal`, or `acoustic_probe_volume` identity
+kinds. Geometry is classified as `static`, `dynamic_rigid`, `dynamic_state`,
+or `ignored`; Stage 8 imports only `static`, while Stage 9 prefabs explicitly
+select rigid/state nodes. A portal names two different zone IDs. A probe volume
+names its zone but never contains placement or bake quality.
 Material objects use the same schema number and reference a portable acoustic
 material ID through `acoustics.material`.

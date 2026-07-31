@@ -183,7 +183,7 @@ fn cook_asset(
             .context("sound event cooker rejected policy")
             .map(|bytes| CookedPayload::plain(Bytes::from(bytes))),
         AssetSource::AcousticScene(manifest) => {
-            let acoustic = acoustic_cooker::cook_scene(source, manifest)?;
+            let acoustic = acoustic_cooker::cook_scene(source, manifest, cooked)?;
             Ok(CookedPayload {
                 bytes: acoustic.bytes,
                 derived_source_hash: acoustic.source_hash,
@@ -199,6 +199,41 @@ fn cook_asset(
         }
         AssetSource::Acoustic(manifest) => {
             let acoustic = acoustic_cooker::cook_environment(source, manifest, cooked)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticMaterials(manifest) => {
+            let acoustic = acoustic_cooker::cook_materials(manifest)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticTopology(manifest) => {
+            let acoustic = acoustic_cooker::cook_topology(source, manifest)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticPrefab(manifest) => {
+            let acoustic = acoustic_cooker::cook_prefab(source, manifest, cooked)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticSimulation(manifest) => {
+            let acoustic = acoustic_cooker::cook_simulation(source, manifest, cooked)?;
+            Ok(CookedPayload {
+                bytes: acoustic.bytes,
+                derived_source_hash: acoustic.source_hash,
+            })
+        }
+        AssetSource::AcousticEmission(manifest) => {
+            let acoustic = acoustic_cooker::cook_emission(manifest, repository, profile)?;
             Ok(CookedPayload {
                 bytes: acoustic.bytes,
                 derived_source_hash: acoustic.source_hash,
@@ -304,7 +339,13 @@ fn recipe_hash(
     hasher.text(&source.source_relative);
     if !matches!(
         &source.manifest.source,
-        AssetSource::AcousticScene(_) | AssetSource::AcousticProbes(_) | AssetSource::Acoustic(_)
+        AssetSource::AcousticScene(_)
+            | AssetSource::AcousticProbes(_)
+            | AssetSource::Acoustic(_)
+            | AssetSource::AcousticTopology(_)
+            | AssetSource::AcousticPrefab(_)
+            | AssetSource::AcousticSimulation(_)
+            | AssetSource::AcousticEmission(_)
     ) {
         hasher.bytes(source.source_hash.as_bytes());
     }
@@ -417,10 +458,7 @@ fn recipe_hash(
             hasher.serializable(manifest)?;
             hasher.serializable(&profile.audio)?;
             hasher.text(blackflower_audio_media::COOKER_RECIPE);
-            hasher.text(blackflower_audio_media::HOUND_VERSION);
             hasher.text(blackflower_audio_media::CLAXON_VERSION);
-            hasher.text(blackflower_audio_media::RUBATO_VERSION);
-            hasher.text(blackflower_audio_media::OGG_VERSION);
         }
         AssetSource::SoundEvent(manifest) => {
             hasher.text("sound_event");
@@ -454,7 +492,51 @@ fn recipe_hash(
         AssetSource::Acoustic(manifest) => {
             hasher.text("acoustic_environment");
             hasher.serializable(manifest)?;
-            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ENVIRONMENT_SCHEMA);
+        }
+        AssetSource::AcousticMaterials(manifest) => {
+            hasher.text("acoustic_material_library");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE);
+            hasher.u32(blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA);
+        }
+        AssetSource::AcousticTopology(manifest) => {
+            hasher.text("acoustic_topology");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE);
+            hasher.u32(blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA);
+            let source_hash = derived_source_hash
+                .context("cooked acoustic topology is missing its derived source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::AcousticPrefab(manifest) => {
+            hasher.text("acoustic_prefab");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE);
+            hasher.u32(blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA);
+            let source_hash = derived_source_hash
+                .context("cooked acoustic prefab is missing its derived source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::AcousticSimulation(manifest) => {
+            hasher.text("acoustic_simulation_scene");
+            hasher.serializable(manifest)?;
+            hasher.text(blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE);
+            hasher.u32(blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA);
+            let source_hash = derived_source_hash
+                .context("cooked acoustic simulation scene is missing its derived source hash")?;
+            hasher.bytes(source_hash.as_bytes());
+        }
+        AssetSource::AcousticEmission(manifest) => {
+            hasher.text("acoustic_emission_profile");
+            hasher.serializable(manifest)?;
+            hasher.serializable(&profile.audio)?;
+            hasher.text(blackflower_cooker_acoustics::AUTHORITATIVE_COOKER_RECIPE);
+            hasher.text(blackflower_audio_media::COOKER_RECIPE);
+            hasher.u32(blackflower_acoustics::ACOUSTIC_ASSET_SCHEMA);
+            let source_hash = derived_source_hash
+                .context("cooked acoustic emission profile is missing its media hash")?;
+            hasher.bytes(source_hash.as_bytes());
         }
     }
     Ok(RecipeHash::from_bytes(*hasher.finish().as_bytes()))

@@ -1,8 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
+use blackflower_acoustics::{AudibleSoundDelivery, AudibleVoiceDelivery};
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
+use crate::audio::{AudioCommand, PresentationAudioError, PresentationAudioState};
 use crate::telemetry;
 use crate::telemetry::FrameObservation;
 use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
@@ -10,6 +13,7 @@ use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
 #[derive(Debug)]
 struct ExecutionState {
     frame: AtomicU64,
+    audio: Mutex<PresentationAudioState>,
 }
 
 /// Snapshot of the presentation execution visible to registered systems.
@@ -33,6 +37,7 @@ impl FrameExecutionContext {
         Self {
             state: Arc::new(ExecutionState {
                 frame: AtomicU64::new(FrameIndex::ZERO.get()),
+                audio: Mutex::new(PresentationAudioState::default()),
             }),
         }
     }
@@ -49,6 +54,33 @@ impl FrameExecutionContext {
         self.state
             .frame
             .store(execution.frame.get(), Ordering::Release);
+    }
+
+    fn audio(&self) -> Result<MutexGuard<'_, PresentationAudioState>, PresentationAudioError> {
+        self.state
+            .audio
+            .lock()
+            .map_err(|_error| PresentationAudioError::Unavailable)
+    }
+
+    pub(crate) fn reset_audio_transient(&self) -> Result<(), PresentationAudioError> {
+        self.audio()?.reset_transient();
+        Ok(())
+    }
+
+    pub(crate) fn update_audio_emitters(&self) -> Result<(), PresentationAudioError> {
+        self.audio()?.update_emitters();
+        Ok(())
+    }
+
+    pub(crate) fn build_audio_commands(&self) -> Result<(), PresentationAudioError> {
+        self.audio()?.build();
+        Ok(())
+    }
+
+    pub(crate) fn submit_audio_commands(&self) -> Result<(), PresentationAudioError> {
+        self.audio()?.submit();
+        Ok(())
     }
 }
 
@@ -133,6 +165,31 @@ impl PresentationWorld {
     #[must_use]
     pub fn execution_context(&self) -> FrameExecutionContext {
         self.execution_context.clone()
+    }
+
+    /// Queue one server-authorized remote sound for the next presentation frame.
+    pub fn queue_audible_sound(
+        &self,
+        delivery: AudibleSoundDelivery,
+    ) -> Result<(), PresentationAudioError> {
+        self.execution_context.audio()?.queue_sound(delivery);
+        Ok(())
+    }
+
+    /// Queue one server-gated physical-world voice packet for the next frame.
+    pub fn queue_audible_voice(
+        &self,
+        delivery: AudibleVoiceDelivery,
+    ) -> Result<(), PresentationAudioError> {
+        self.execution_context.audio()?.queue_voice(delivery);
+        Ok(())
+    }
+
+    /// Drain immutable audio commands after `SubmitAudioCommands` accepts them.
+    pub fn drain_submitted_audio_commands(
+        &self,
+    ) -> Result<Vec<AudioCommand>, PresentationAudioError> {
+        Ok(self.execution_context.audio()?.drain_submitted())
     }
 
     /// Advance the presentation pipeline by one frame using a validated delta.
