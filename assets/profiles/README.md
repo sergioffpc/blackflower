@@ -198,8 +198,10 @@ LOD is then optimized for vertex cache, overdraw when enabled, and vertex
 fetch. A target that cannot reduce the preceding LOD within the error limit is
 omitted rather than duplicating geometry.
 
-Model assets preserve the selected hierarchy and resolve explicit Mesh and
-Volume attachments; those semantics live entirely in `asset.toml`. Volume
+Model assets preserve the selected hierarchy as canonical local matrices and
+resolve explicit Mesh and Volume attachments; those semantics live entirely
+in `asset.toml`. Coordinate conversion and quaternion normalization are fixed
+cooker policy rather than profile settings. Volume
 assets always preserve directly supported grid types, record bounds and active
 voxel counts, compute full checksums, and emit uncompressed NanoVDB. Encoding,
 quantization, statistics, and tolerance switches are intentionally not profile

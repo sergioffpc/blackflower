@@ -1,62 +1,110 @@
+# Strict cooking-profile schema version; currently must be 1.
 schema = 1
 
 [scripting.luau]
+# Luau bytecode optimization level: none, baseline, or aggressive.
 optimization = "baseline"
+# Luau debug metadata level: none, line_info, or full.
 debug = "full"
+# Luau type metadata scope: native_modules or all_modules.
 type_info = "native_modules"
 
 [shaders]
+# Compiled shader output format; currently only spirv is supported.
 target = "spirv"
+# Required SPIR-V version contract; currently only spirv_1_5 is supported.
 capability = "spirv_1_5"
+# Slang optimization level: none, default, high, or maximal.
 optimization = "none"
+# SPIR-V debug information level: none, minimal, standard, or maximal.
 debug = "standard"
 
 [textures]
+# Canonical LDR encoding stored in KTX2; currently only uastc is supported.
 ldr_encoding = "uastc"
+# Canonical HDR encoding stored in KTX2; currently only rgba16f is supported.
 hdr_encoding = "rgba16f"
+# UASTC encoding effort; high also enables deterministic rate-distortion optimization.
 quality = "fast"
+# KTX2 Zstandard supercompression level from 1 through 22.
 zstd_level = 3
+# Whether to emit a complete mip chain; strict profiles currently require true.
 generate_mipmaps = true
 
 [meshes]
+# Additional LOD triangle targets as strictly decreasing percentages of the base mesh.
 lod_triangle_percents = [50, 25, 12]
+# Maximum normalized simplification error for each generated LOD, in the range (0, 1].
 lod_target_error = 0.01
+# Whether to reorder triangles to reduce overdraw after vertex-cache optimization.
 optimize_overdraw = true
+# Allowed vertex-cache degradation during overdraw optimization, from 1.0 through 2.0.
 overdraw_threshold = 1.05
+# Whether mesh simplification must preserve border vertices.
 lock_borders = true
 
 [animations]
+# Animation sampling rate in hertz; zero lets ozz use the importer default.
 sampling_rate_hz = 0.0
+# Seconds between ozz iframe keys; zero disables iframe generation.
 iframe_interval_seconds = 10.0
+# Whether to enable hierarchical animation-key reduction.
 optimize = true
+# Maximum hierarchy error accepted by animation-key reduction.
 optimization_tolerance = 0.001
+# Distance from each joint at which hierarchical optimization error is measured.
 optimization_distance = 0.1
+# Maximum reduction error accepted for extracted root-motion tracks.
 root_motion_tolerance = 0.001
 
 [audio]
+# Runtime and cooking sample rate in hertz; currently must be 48000.
 sample_rate = 48000
 
 [acoustics]
+# Authoritative propagation speed in meters per second; currently fixed at 343.
 sound_speed_meters_per_second = 343
+# Maximum number of acoustic receivers retained by the authoritative solver.
 max_receivers = 96
+# Maximum number of active sound emissions retained per simulation tick.
 max_active_emissions = 512
+# Maximum receiver-emission pairs allowed to use indirect pathing per tick.
 max_candidate_pairs_per_tick = 4096
+# Maximum precomputed portal routes retained for each pair of acoustic zones.
 max_paths_per_pair = 4
+# Maximum static and dynamic transmission surfaces evaluated along one direct path.
 max_transmission_surfaces = 8
+# Maximum encoded voice deliveries emitted for one receiver per tick.
 max_client_voices = 128
+# Crossfade duration in milliseconds when publishing updated reflection data.
 reflections_crossfade_ms = 200
+# Rays traced from each probe when baking reflections; more rays improve accuracy and cost.
 reflection_rays = 1024
+# Diffuse reflection directions sampled during a reflections bake.
 diffuse_samples = 64
+# Maximum number of solid-geometry reflections simulated for each ray.
 bounces = 4
+# Simulated impulse-response length in seconds, including any unsaved reverb tail.
 simulated_duration_seconds = 1.0
+# Impulse-response length saved per probe; must not exceed the simulated duration.
 saved_duration_seconds = 0.5
+# Ambisonic order of baked impulse responses, from 1 through 3.
 ambisonic_order = 1
+# Worker threads used by both reflections and pathing bakes.
 bake_threads = 1
+# Rays supplied to a custom ray-tracer callback in each batch.
 ray_batch_size = 64
+# Minimum source-to-surface distance used when calculating incident sound energy.
 irradiance_min_distance_meters = 0.1
+# Probes baked simultaneously when the selected backend supports probe batching.
 bake_batch_size = 1
+# Point samples around each probe; each probe pair traces path_samples squared rays.
 path_samples = 16
+# Radius in meters of the sphere used to sample visibility around each probe.
 path_radius_meters = 0.5
+# Minimum unoccluded-ray fraction required for two probes to be mutually visible.
 path_visibility_threshold = 0.5
+# Maximum probe separation in meters considered for mutual visibility.
 path_visibility_range_meters = 50.0
+# Maximum stored probe-to-probe path length in meters.
 path_range_meters = 100.0
