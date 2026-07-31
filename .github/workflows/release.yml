@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  binaries:
+    name: Binaries (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            intel_llvm: true
+            ispc: true
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            intel_llvm: false
+            ispc: false
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            intel_llvm: true
+            ispc: true
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            intel_llvm: false
+            ispc: false
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            intel_llvm: false
+            ispc: true
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            intel_llvm: false
+            ispc: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize runtime submodules
+        shell: bash
+        run: .github/scripts/init-ci-submodules.sh runtime
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: release-${{ matrix.target }}
+          cargo-cache-restore-key: release-${{ matrix.target }}
+          install-intel-llvm: ${{ matrix.intel_llvm }}
+          install-ispc: ${{ matrix.ispc }}
+
+      - name: Verify x86-64 native toolchain
+        if: matrix.ispc
+        shell: bash
+        env:
+          EXPECT_INTEL_LLVM: ${{ matrix.intel_llvm }}
+        run: |
+          test -n "$BLACKFLOWER_ISPC"
+          "$BLACKFLOWER_ISPC" --version | grep '1.31.0'
+          if [ "$EXPECT_INTEL_LLVM" = "true" ]; then
+            test "$BLACKFLOWER_NATIVE_COMPILER" = "IntelLLVM"
+            test -n "$CC"
+            test -n "$CXX"
+            "$CC" --version
+            "$CXX" --version
+          fi
+
+      - name: Build Steam Audio native contract
+        if: matrix.ispc
+        shell: bash
+        run: >-
+          cargo build --release --locked
+          --target ${{ matrix.target }}
+          --package blackflower-audio-spatial
+
+      - name: Build release executables
+        shell: bash
+        run: >-
+          cargo build --release --locked
+          --target ${{ matrix.target }}
+          --package blackflower
+          --package blackflower-server
+          --package blackflower-harness
+
+      - name: Package Unix executables
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          package="$RUNNER_TEMP/blackflower-$TARGET"
+          mkdir -p "$package"
+          cp "target/$TARGET/release/blackflower" "$package/"
+          cp "target/$TARGET/release/blackflower-server" "$package/"
+          cp "target/$TARGET/release/blackflower-harness" "$package/"
+          cp LICENSE README.md "$package/"
+          tar -C "$RUNNER_TEMP" -czf "blackflower-$TARGET.tar.gz" "blackflower-$TARGET"
+
+      - name: Package Windows executables
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "blackflower-$env:TARGET"
+          New-Item -ItemType Directory -Path $package | Out-Null
+          Copy-Item "target/$env:TARGET/release/blackflower.exe" $package
+          Copy-Item "target/$env:TARGET/release/blackflower-server.exe" $package
+          Copy-Item "target/$env:TARGET/release/blackflower-harness.exe" $package
+          Copy-Item LICENSE, README.md $package
+          Compress-Archive -Path "$package/*" -DestinationPath "blackflower-$env:TARGET.zip"
+
+      - name: Upload Unix binaries
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: blackflower-${{ matrix.target }}
+          path: blackflower-${{ matrix.target }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Windows binaries
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: blackflower-${{ matrix.target }}
+          path: blackflower-${{ matrix.target }}.zip
+          compression-level: 0
+          if-no-files-found: error
+
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize documentation submodules
+        run: |
+          .github/scripts/init-ci-submodules.sh runtime
+          .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: release-docs
+          cargo-cache-restore-key: release-docs
+          install-ispc: "true"
+
+      - name: Generate workspace documentation
+        run: cargo doc --workspace --all-features --no-deps --locked
+
+      - name: Package documentation
+        run: tar -C target -czf blackflower-docs.tar.gz doc
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: blackflower-docs
+          path: blackflower-docs.tar.gz
+          compression-level: 0
+          if-no-files-found: error

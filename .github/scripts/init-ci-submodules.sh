@@ -27,7 +27,6 @@ initialize_volume_cooker()
         crates/blackflower-cooker-volume/vendor/boost \
         crates/blackflower-cooker-volume/vendor/c-blosc \
         crates/blackflower-cooker-volume/vendor/oneTBB \
-        crates/blackflower-cooker-volume/vendor/zlib \
         crates/blackflower-rendering-volumes/vendor/openvdb
     git -C crates/blackflower-cooker-volume/vendor/boost \
         submodule update --init --depth 1 \
@@ -67,12 +66,12 @@ case "$mode" in
             crates/blackflower-audio-spatial/vendor/libmysofa \
             crates/blackflower-audio-spatial/vendor/pffft \
             crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-            crates/blackflower-audio-spatial/vendor/zlib \
             crates/blackflower-audio-voice/vendor/opus \
             crates/blackflower-ecs/vendor/flecs \
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-physics/vendor/JoltPhysics \
-            crates/blackflower-rendering-volumes/vendor/openvdb
+            crates/blackflower-rendering-volumes/vendor/openvdb \
+            vendor/zlib
         ;;
     assets)
         git submodule update --init --depth 1 \
@@ -80,14 +79,14 @@ case "$mode" in
             crates/blackflower-audio-voice/vendor/opus \
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-scripting/vendor/luau \
-            crates/blackflower-rendering-textures/vendor/KTX-Software
+            crates/blackflower-rendering-textures/vendor/KTX-Software \
+            vendor/zlib
         git submodule update --init --recursive --depth 1 \
             crates/blackflower-audio-spatial/vendor/flatbuffers \
             crates/blackflower-audio-spatial/vendor/embree \
             crates/blackflower-audio-spatial/vendor/libmysofa \
             crates/blackflower-audio-spatial/vendor/pffft \
-            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-            crates/blackflower-audio-spatial/vendor/zlib
+            crates/blackflower-audio-spatial/vendor/steam-audio-sdk
         initialize_slang
         initialize_volume_cooker
         ;;
@@ -107,13 +106,14 @@ case "$mode" in
                     crates/blackflower-audio-spatial/vendor/libmysofa \
                     crates/blackflower-audio-spatial/vendor/pffft \
                     crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-                    crates/blackflower-audio-spatial/vendor/zlib
+                    vendor/zlib
                 ;;
             blackflower-audio-capture|blackflower-audio-voice|blackflower-networking)
                 git submodule update --init --recursive --depth 1 \
                     crates/blackflower-audio-voice/vendor/opus
                 ;;
             blackflower-cooker-volume)
+                git submodule update --init --depth 1 vendor/zlib
                 initialize_volume_cooker
                 ;;
             blackflower-ecs)

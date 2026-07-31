@@ -8,7 +8,7 @@ use std::process::Command;
 
 const EXPECTED_SDK_VERSION: &str = "4.8.1";
 const EXPECTED_EMBREE_VERSION: &str = "4.4.1";
-const EXPECTED_ISPC_VERSION: &str = "1.12.0";
+const EXPECTED_ISPC_VERSION: &str = "1.31.0";
 const SDK_ROOT: &str = "vendor/steam-audio-sdk/core";
 const SDK_BUILD: &str = "vendor/steam-audio-sdk/core/CMakeLists.txt";
 const SDK_INCLUDE: &str = "vendor/steam-audio-sdk/core/src/core";
@@ -18,7 +18,7 @@ const EMBREE_BUILD: &str = "vendor/embree/CMakeLists.txt";
 const FLATBUFFERS_ROOT: &str = "vendor/flatbuffers";
 const MYSOFA_ROOT: &str = "vendor/libmysofa";
 const PFFFT_ROOT: &str = "vendor/pffft";
-const ZLIB_ROOT: &str = "vendor/zlib";
+const ZLIB_ROOT: &str = "../../vendor/zlib";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 
 struct NativeLibraries {
@@ -342,7 +342,7 @@ fn find_ispc() -> Result<PathBuf, Box<dyn Error>> {
                     .find(|candidate| candidate.is_file())
             })
         })
-        .ok_or("Embree support requires ISPC 1.12.0; set BLACKFLOWER_ISPC to its executable")?;
+        .ok_or("Embree support requires ISPC 1.31.0; set BLACKFLOWER_ISPC to its executable")?;
     let output = Command::new(&executable).arg("--version").output()?;
     let version = String::from_utf8_lossy(&output.stdout);
     if output.status.success() && version.contains(EXPECTED_ISPC_VERSION) {
@@ -531,6 +531,7 @@ fn build_steam_audio(
     if libraries.embree.is_some() {
         patch_steam_audio_embree_include(&source)?;
         patch_steam_audio_embree_scene_loading(&source)?;
+        patch_steam_audio_ispc_version(&source)?;
         patch_steam_audio_embree_arm64(&source)?;
     }
     let output = out_dir.join("native/steam-audio");
@@ -602,6 +603,15 @@ fn build_steam_audio(
             .map(|_ispc| find_static_library(&destination, "ispckernels", "ispckernels"))
             .transpose()?,
     })
+}
+
+fn patch_steam_audio_ispc_version(source: &Path) -> Result<(), Box<dyn Error>> {
+    replace_exact(
+        &source.join("CMakeLists.txt"),
+        "find_package(ISPC 1.12 EXACT)",
+        "find_package(ISPC 1.31 EXACT)",
+        "Steam Audio ISPC version contract changed",
+    )
 }
 
 fn patch_steam_audio_embree_include(source: &Path) -> Result<(), Box<dyn Error>> {
@@ -810,7 +820,7 @@ fn patch_steam_audio_embree_arm64(source: &Path) -> Result<(), Box<dyn Error>> {
     replace_exact(
         &root_cmake,
         r#"if (STEAMAUDIO_ENABLE_EMBREE)
-    find_package(ISPC 1.12 EXACT)
+    find_package(ISPC 1.31 EXACT)
     find_package(Embree 4)
     if (NOT ISPC_FOUND OR NOT Embree_FOUND)
         message(STATUS "Disabling Embree")
@@ -819,7 +829,7 @@ fn patch_steam_audio_embree_arm64(source: &Path) -> Result<(), Box<dyn Error>> {
 endif()"#,
         r#"if (STEAMAUDIO_ENABLE_EMBREE)
     if (NOT BLACKFLOWER_EMBREE_CPP_REFLECTION)
-        find_package(ISPC 1.12 EXACT)
+        find_package(ISPC 1.31 EXACT)
     endif()
     find_package(Embree 4)
     if ((NOT BLACKFLOWER_EMBREE_CPP_REFLECTION AND NOT ISPC_FOUND) OR NOT Embree_FOUND)
