@@ -1,3 +1,6 @@
+[submodule "vendor/zlib"]
+	path = vendor/zlib
+	url = https://github.com/madler/zlib.git
 [submodule "crates/blackflower-ecs/vendor/flecs"]
 	path = crates/blackflower-ecs/vendor/flecs
 	url = https://github.com/SanderMertens/flecs.git
@@ -22,9 +25,6 @@
 [submodule "crates/blackflower-audio-spatial/vendor/embree"]
 	path = crates/blackflower-audio-spatial/vendor/embree
 	url = https://github.com/RenderKit/embree.git
-[submodule "crates/blackflower-audio-spatial/vendor/zlib"]
-	path = crates/blackflower-audio-spatial/vendor/zlib
-	url = https://github.com/madler/zlib.git
 [submodule "crates/blackflower-navigation/vendor/recastnavigation"]
 	path = crates/blackflower-navigation/vendor/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
@@ -52,6 +52,3 @@
 [submodule "crates/blackflower-cooker-volume/vendor/c-blosc"]
 	path = crates/blackflower-cooker-volume/vendor/c-blosc
 	url = https://github.com/Blosc/c-blosc.git
-[submodule "crates/blackflower-cooker-volume/vendor/zlib"]
-	path = crates/blackflower-cooker-volume/vendor/zlib
-	url = https://github.com/madler/zlib.git

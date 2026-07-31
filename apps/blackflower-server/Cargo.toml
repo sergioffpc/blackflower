@@ -12,7 +12,6 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
 blackflower-observability.workspace = true
-blackflower-world-simulation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
 

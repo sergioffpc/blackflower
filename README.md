@@ -5,6 +5,13 @@ simulation. The project is organized around an authoritative server, a
 deterministic fixed-step simulation, and a client that owns prediction and
 presentation.
 
+## Engine conventions
+
+Blackflower engine space is right-handed: `+X` points right, `+Y` points up,
+and `-Z` points forward. Linear distances use metres and angles use radians.
+The normative basis, rotation, unit, matrix-layout, and foreign-format boundary
+rules are recorded in the [coordinate-system contract](docs/coordinate-system.md).
+
 ## Workspace
 
 | Path | Responsibility |
@@ -165,6 +172,33 @@ statically from pinned submodules. See the
 [scripting setup](crates/blackflower-scripting/README.md) for details.
 Steam Audio builds on supported x86-64 targets additionally require
 the pinned ISPC compiler documented by the spatial audio setup.
+
+IntelLLVM can be selected for native C/C++ dependencies by exporting `CC` and
+`CXX` before invoking Cargo (`icx`/`icpx` on Linux, `icx-cl` with the Ninja
+generator on Windows). Rust code is still compiled by the pinned Rust
+toolchain and its LLVM backend. Intel does not provide its current oneAPI
+C/C++ compiler for macOS or ARM64, so those targets use their platform
+compiler.
+
+## Release builds
+
+Pushing a `v*` tag runs the release workflow and uploads six binary archives:
+
+| Operating system | x86-64 native toolchain | ARM64 native toolchain |
+| --- | --- | --- |
+| Linux | IntelLLVM 2025.0.4 + ISPC 1.31.0 | Platform C/C++ compiler |
+| Windows | IntelLLVM 2025.0.4 + ISPC 1.31.0 | MSVC |
+| macOS | AppleClang + ISPC 1.31.0 | AppleClang |
+
+Each archive contains `blackflower`, `blackflower-server`, and
+`blackflower-harness` (with `.exe` suffixes on Windows). The x86-64 jobs also
+build the statically linked Steam Audio crate, so the pinned ISPC,
+Steam Audio, and Embree combination is part of the release gate. ARM64 Windows
+uses GitHub's public-preview hosted runner and remains a required matrix entry.
+
+Rust API documentation is generated and uploaded only by this tag workflow.
+Pull-request CI continues to compile and test documentation examples, but does
+not run `cargo doc` or publish a documentation artifact.
 
 Enable the versioned Git hooks after cloning:
 

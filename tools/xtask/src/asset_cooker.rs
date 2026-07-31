@@ -388,6 +388,8 @@ fn recipe_hash(
             hasher.text("mesh");
             hasher.text(&manifest.mesh);
             hasher.serializable(&profile.meshes)?;
+            hasher.text(mesh_cooker::COOKER_RECIPE);
+            hasher.text(crate::coordinate_system::COOKER_RECIPE);
             hasher.text(mesh_cooker::MESHOPT_VERSION);
             let source_hash =
                 derived_source_hash.context("cooked mesh is missing its buffer source hash")?;
@@ -401,6 +403,7 @@ fn recipe_hash(
                 hasher.text(attachment.asset.as_str());
             }
             hasher.text(model_cooker::COOKER_RECIPE);
+            hasher.text(crate::coordinate_system::COOKER_RECIPE);
         }
         AssetSource::Volume(manifest) => {
             hasher.text("volume");
@@ -492,7 +495,7 @@ fn recipe_hash(
         AssetSource::Acoustic(manifest) => {
             hasher.text("acoustic_environment");
             hasher.serializable(manifest)?;
-            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ENVIRONMENT_SCHEMA);
+            hasher.u32(blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA);
         }
         AssetSource::AcousticMaterials(manifest) => {
             hasher.text("acoustic_material_library");
@@ -573,7 +576,7 @@ impl CanonicalHasher {
     }
 
     fn serializable(&mut self, value: &impl serde::Serialize) -> anyhow::Result<()> {
-        self.bytes(&serde_json::to_vec(value)?);
+        self.bytes(&crate::canonical_toml::encode_value(value)?);
         Ok(())
     }
 

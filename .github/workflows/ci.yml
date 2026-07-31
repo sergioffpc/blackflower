@@ -43,6 +43,9 @@ jobs:
           HEAD_OID: ${{ github.event.pull_request.head.sha || github.sha }}
         run: .github/scripts/validate-commit-range.sh "$BASE_OID" "$HEAD_OID"
 
+      - name: Check Rust test layout
+        run: scripts/check-test-layout.sh
+
       - name: Initialize runtime submodules
         run: .github/scripts/init-ci-submodules.sh runtime
 

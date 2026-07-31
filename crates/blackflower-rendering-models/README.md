@@ -12,7 +12,7 @@ and zero or more successively coarser LODs. Every LOD contains a fixed vertex
 layout, triangle-list indices, object-space bounds, and the accumulated
 meshoptimizer geometric error.
 
-The first format revision stores:
+`BFMESH` version 1 stores:
 
 - position as three `f32` values
 - optional normal as three `f32` values
@@ -43,10 +43,18 @@ println!(
 
 `ModelAsset` preserves every node in the selected glTF scene in parent-before-
 child depth-first order. Nodes retain their optional authored name and their
-original local transform representation: decomposed TRS remains TRS and an
-authored matrix remains a matrix. Attachments contain a resolved node index,
-the complete logical `AssetId`, and an inferred Mesh or Volume kind.
+canonical column-major local matrix in Blackflower's right-handed, Y-up,
+`-Z`-forward [engine coordinate system](../../docs/coordinate-system.md). The
+cooker normalizes and sign-canonicalizes authored quaternions before composing
+TRS and changes the basis of both TRS and authored matrices without decomposing
+matrices. Attachments contain a resolved node index, the complete logical
+`AssetId`, and an inferred Mesh or Volume kind.
 
-The `.bfmodel` decoder rejects malformed forests, non-finite transforms,
-non-normalized quaternions, out-of-range nodes, non-canonical attachment
-ordering, repeated node/asset pairs, and more than one mesh on a node.
+The `.bfmodel` version-1 decoder rejects malformed forests, non-finite
+matrices, out-of-range nodes, non-canonical attachment ordering, repeated
+node/asset pairs, and more than one mesh on a node. Version 1 is matrix-only.
+
+`BFMESH` version 1 stores positions, normals, and tangent directions in the
+same canonical coordinate system. The cooker performs the glTF-to-Blackflower
+180-degree Y rotation before optimization and bounds generation. This rotation
+preserves handedness, so index winding and the tangent `w` sign do not change.

@@ -11,9 +11,9 @@ use blackflower_audio_spatial::{
 
 pub use error::Error;
 
-/// Versioned semantic recipe for Stage 8 acoustic cooking.
+/// Versioned semantic recipe for static acoustic cooking.
 pub const COOKER_RECIPE: &str = "blackflower-static-acoustics-v1";
-/// Versioned semantic recipe for authoritative Stage 9 acoustic cooking.
+/// Versioned semantic recipe for authoritative acoustic cooking.
 pub const AUTHORITATIVE_COOKER_RECIPE: &str =
     "blackflower-authoritative-acoustics-v1;mm;q0.16;20ms";
 /// Pinned Steam Audio source revision.

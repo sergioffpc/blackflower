@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AabbMm, AcousticBvh, BandEnergy, Error, PositionMm, QuantizedTriangle, SoundClass};
 
-/// Current schema for all Stage 9 authoritative acoustic containers.
+/// Current schema for all authoritative acoustic containers.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
 
 const MATERIAL_MAGIC: &[u8; 8] = b"BFACMAT\0";
@@ -424,8 +424,9 @@ fn encode_container<T: Serialize>(
     format: &'static str,
     value: &T,
 ) -> Result<Vec<u8>, Error> {
-    let payload =
-        serde_json::to_vec(value).map_err(|_error| invalid(format, "JSON encode failed"))?;
+    let payload = toml::to_string(value)
+        .map_err(|_error| invalid(format, "TOML encode failed"))?
+        .into_bytes();
     if payload.is_empty() || payload.len() > MAX_ASSET_BYTES {
         return Err(invalid(format, "payload size is invalid"));
     }
@@ -469,11 +470,11 @@ fn decode_container<T: DeserializeOwned + Serialize>(
     if blake3::hash(payload).as_bytes() != checksum {
         return Err(invalid(format, "checksum does not match"));
     }
-    let value: T = serde_json::from_slice(payload)
-        .map_err(|_error| invalid(format, "payload JSON is invalid"))?;
-    let canonical = serde_json::to_vec(&value)
-        .map_err(|_error| invalid(format, "canonical JSON encode failed"))?;
-    if canonical != payload {
+    let value: T =
+        toml::from_slice(payload).map_err(|_error| invalid(format, "payload TOML is invalid"))?;
+    let canonical = toml::to_string(&value)
+        .map_err(|_error| invalid(format, "canonical TOML encode failed"))?;
+    if canonical.as_bytes() != payload {
         return Err(invalid(format, "payload is not canonical"));
     }
     Ok(value)
@@ -541,113 +542,5 @@ const fn invalid(format: &'static str, reason: &'static str) -> Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn material_container_is_deterministic_and_strict() -> Result<(), Error> {
-        let library = AcousticMaterialLibrary::new(vec![AcousticMaterial {
-            id: "concrete".to_owned(),
-            absorption: BandEnergy([4_000, 6_000, 8_000]),
-            scattering_q16: 10_000,
-            transmission: BandEnergy([1_000, 500, 100]),
-        }])?;
-        let first = library.to_bytes()?;
-        let second = library.to_bytes()?;
-        assert_eq!(first, second);
-        assert_eq!(AcousticMaterialLibrary::from_bytes(&first)?, library);
-        let mut corrupt = first;
-        let last = corrupt.len() - 1;
-        corrupt[last] ^= 1;
-        assert!(AcousticMaterialLibrary::from_bytes(&corrupt).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn v1_or_unknown_schema_is_rejected() -> Result<(), Error> {
-        let profile = AcousticEmissionProfile::new(AcousticEmissionProfile {
-            client_event_id: 7,
-            reference_spl_db_q8: 80 * 256,
-            directivity_q16: 0,
-            class: SoundClass::Footstep,
-            frames: vec![SpectralEnvelopeFrame {
-                amplitude_q16: u16::MAX,
-                bands: BandEnergy::UNITY,
-            }],
-        })?;
-        let mut bytes = profile.to_bytes()?;
-        bytes[8..12].copy_from_slice(&2_u32.to_le_bytes());
-        assert!(AcousticEmissionProfile::from_bytes(&bytes).is_err());
-        Ok(())
-    }
-
-    #[test]
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one format acceptance proof compares every Stage 9 container's canonical bytes"
-    )]
-    fn every_stage_nine_container_round_trips_canonically() -> Result<(), Error> {
-        let topology = AcousticTopology::new(
-            vec![AcousticZoneVolume {
-                id: 1,
-                name: "room".to_owned(),
-                bounds: AabbMm::new(
-                    PositionMm::new(-1_000, -1_000, -1_000),
-                    PositionMm::new(1_000, 1_000, 1_000),
-                )?,
-            }],
-            Vec::new(),
-            Vec::new(),
-        )?;
-        let topology_bytes = topology.to_bytes()?;
-        assert_eq!(AcousticTopology::from_bytes(&topology_bytes)?, topology);
-
-        let prefab = AcousticPrefab::new(
-            "removed".to_owned(),
-            "materials".to_owned(),
-            vec![PrefabState {
-                id: 0,
-                name: "removed".to_owned(),
-                triangles: Vec::new(),
-                bvh: AcousticBvh::build(&[])?,
-            }],
-        )?;
-        let prefab_bytes = prefab.to_bytes()?;
-        assert_eq!(AcousticPrefab::from_bytes(&prefab_bytes)?, prefab);
-
-        let simulation = AcousticSimulationScene::new(AcousticSimulationScene {
-            materials: "materials".to_owned(),
-            topology: "topology".to_owned(),
-            triangles: Vec::new(),
-            bvh: AcousticBvh::build(&[])?,
-            paths: Vec::new(),
-            zones: vec![ZoneResponse {
-                zone: 1,
-                late_gain: BandEnergy([40_000; 3]),
-                decay_ms: 200,
-            }],
-        })?;
-        let simulation_bytes = simulation.to_bytes()?;
-        assert_eq!(
-            AcousticSimulationScene::from_bytes(&simulation_bytes)?,
-            simulation
-        );
-
-        let profile = AcousticEmissionProfile::new(AcousticEmissionProfile {
-            client_event_id: 7,
-            reference_spl_db_q8: 80 * 256,
-            directivity_q16: 0,
-            class: SoundClass::Footstep,
-            frames: vec![SpectralEnvelopeFrame {
-                amplitude_q16: u16::MAX,
-                bands: BandEnergy::UNITY,
-            }],
-        })?;
-        let profile_bytes = profile.to_bytes()?;
-        assert_eq!(
-            AcousticEmissionProfile::from_bytes(&profile_bytes)?,
-            profile
-        );
-        Ok(())
-    }
-}
+#[path = "../tests/unit/asset.rs"]
+mod tests;

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AssetId, ContentHash, ProfileHash, ProfileName, RecipeHash};
 
-/// Current embedded JSON catalog schema.
+/// Current embedded TOML catalog schema.
 pub const ASSET_CATALOG_SCHEMA: u32 = 1;
 
 /// Runtime representation used to decode an asset object.
@@ -150,7 +150,7 @@ pub struct AssetRecord {
     pub object_path: String,
 }
 
-/// Strict catalog embedded at `/blackflower/catalog.json`.
+/// Strict catalog embedded at `/blackflower/catalog.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssetCatalog {

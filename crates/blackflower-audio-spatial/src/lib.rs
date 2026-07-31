@@ -30,7 +30,6 @@ pub const EMBREE_VERSION: (u32, u32, u32) = (4, 4, 1);
 /// Whether this target includes Steam Audio's statically linked Embree backend.
 pub const STEAM_AUDIO_EMBREE_ENABLED: bool = cfg!(blackflower_steam_audio_embree);
 pub use asset::{
-    ACOUSTIC_ASSET_SCHEMA, ACOUSTIC_ENVIRONMENT_SCHEMA, AcousticEnvironment, AcousticProbe,
-    AcousticScene, AcousticZone, BakedDataIdentifier, BakedDataType, BakedDataVariation,
-    BakedLayer, ProbeBatch,
+    ACOUSTIC_ASSET_SCHEMA, AcousticEnvironment, AcousticProbe, AcousticScene, AcousticZone,
+    BakedDataIdentifier, BakedDataType, BakedDataVariation, BakedLayer, ProbeBatch,
 };

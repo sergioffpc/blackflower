@@ -14,7 +14,7 @@ use crate::{
     PackageHash, PackageName, PackagePayloadHash,
 };
 
-const CATALOG_PATH: &str = "blackflower/catalog.json";
+const CATALOG_PATH: &str = "blackflower/catalog.toml";
 const OBJECT_ROOT: &str = "objects/blake3";
 const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 const ARCHIVE_BLOCK_SIZE: u32 = 128 * 1024;
@@ -346,10 +346,21 @@ fn read_catalog(
     reader
         .read_to_end(&mut bytes)
         .map_err(|source| io_error(path, source))?;
-    serde_json::from_slice(&bytes).map_err(|source| Error::CatalogJson {
+    let catalog: AssetCatalog = toml::from_slice(&bytes).map_err(|source| Error::CatalogToml {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    let canonical = toml::to_string(&catalog).map_err(|source| Error::InvalidCatalog {
+        path: path.to_path_buf(),
+        reason: format!("catalog cannot be encoded as canonical TOML: {source}"),
+    })?;
+    if canonical.as_bytes() != bytes {
+        return Err(Error::InvalidCatalog {
+            path: path.to_path_buf(),
+            reason: "catalog TOML is not canonical".to_owned(),
+        });
+    }
+    Ok(catalog)
 }
 
 fn validate_catalog_and_nodes(

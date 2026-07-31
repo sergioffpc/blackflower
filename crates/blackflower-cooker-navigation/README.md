@@ -1,6 +1,6 @@
 # Blackflower navigation cooker
 
-`blackflower-cooker-navigation` is the host-only Stage 6 bridge from authored
+`blackflower-cooker-navigation` is the host-only bridge from authored
 glTF/GLB geometry to tiled Recast/Detour data. It imports only nodes carrying
 typed Blackflower navigation metadata, applies their world transforms, bakes
 with the physical agent and complete Recast settings from `asset.toml`, and

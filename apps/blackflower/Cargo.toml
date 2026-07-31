@@ -12,8 +12,6 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
 blackflower-observability.workspace = true
-blackflower-world-prediction = { workspace = true, features = ["observability"] }
-blackflower-world-presentation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
 

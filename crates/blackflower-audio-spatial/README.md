@@ -11,7 +11,7 @@ loads checksummed `.bfacscn` scenes and `.bfacprb` probe batches, uses Steam
 Audio's built-in HRTF, and processes fixed-size mono PCM frames into
 deinterleaved stereo with one stateful `BinauralEffect` per source. Device
 output, decoding, mixing, and authoritative gameplay simulation remain outside
-this crate. Stage 9 adds rigid `InstancedMesh` scene updates, allocation-free
+this crate. It also provides rigid `InstancedMesh` scene updates, allocation-free
 `DirectEffect`/`PathEffect`, a lock-free triple parameter exchange, and an
 off-callback dirty-zone `ReflectionSimulator`. Steam Audio reflections remain
 presentation-only and cannot change audibility.
@@ -30,15 +30,14 @@ loaded scene uses the context's selected backend, including Embree. Calling
 `Error::SceneSerializationRequiresBuiltIn` instead of crossing the invalid
 native API path.
 
-The native scene/probe containers use schema 1 and embed the exact Steam Audio 4.8.1
+The native acoustic containers use schema 1 and embed the exact Steam Audio 4.8.1
 serialization behind Blackflower headers, counts, layer identifiers, and
 BLAKE3 checksums:
 
 - `.bfacscn`: immutable committed static scene;
 - `.bfacprb`: deterministic probe order plus base reflections/parametric
   reverb and dynamic pathing layers;
-- `.bfac`: schema-2 ordered zone references plus the shared `.bfactpl`
-  topology. Schema 1 is rejected and requires a full recook.
+- `.bfac`: ordered zone references plus the shared `.bfactpl` topology.
 
 Parsing and native object creation are explicit worker/loading operations.
 They are not permitted in an audio callback.
@@ -50,12 +49,11 @@ links it statically:
 
 - Steam Audio 4.8.1 as `libphonon.a` or `phonon.lib`;
 - Embree 4.4.1 on supported x86-64 and ARM64 targets. Steam Audio's ISPC
-  reflection kernels remain enabled on x86-64; ARM64 uses its portable C++
-  reflection simulator over the Embree scene because Steam Audio 4.8.1 pins an
-  ISPC release that cannot emit macOS ARM64 objects;
+  reflection kernels use ISPC 1.31.0 on x86-64; ARM64 deliberately uses its
+  portable C++ reflection simulator over the Embree scene;
 - PFFFT as the fallback FFT implementation;
 - libmysofa for SOFA HRTF data;
-- zlib as libmysofa's compression dependency;
+- the repository-global zlib source as libmysofa's compression dependency;
 - FlatBuffers' `flatc` as a host-only schema compiler. FlatBuffers is
   header-only at runtime.
 
@@ -99,7 +97,7 @@ Audio:
 | FlatBuffers | `6df40a2471737b27271bdd9b900ab5f3aec746c7` | Apache-2.0 |
 | libmysofa | `dd315a8ec1fee7193d40e4a59b12c5590a4a918c` | BSD-3-Clause |
 | PFFFT | `e0bf595c98ded55cc457a371c1b29c8cab552628` | BSD-3-Clause |
-| zlib | `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf` | Zlib |
+| zlib (global `vendor/zlib`) | `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf` | Zlib |
 
 Initialize them after cloning:
 
@@ -116,14 +114,33 @@ by bindgen. When libclang is outside the platform's normal search path, set
 `LIBCLANG_PATH` to the directory containing `libclang.so`, `libclang.dylib` or
 `libclang.dll`.
 
-Supported x86-64 builds additionally require the exact ISPC 1.12.0
-compiler expected by Steam Audio. Set `BLACKFLOWER_ISPC` to that executable or
-place it on `PATH`. CI installs the official release archive after verifying
-its pinned SHA-256 digest; the same helper is available locally:
+Supported x86-64 builds additionally require the exact ISPC 1.31.0 compiler.
+Steam Audio 4.8.1 requests ISPC 1.12 upstream; Blackflower patches that exact
+version check to 1.31 and exercises Steam Audio's reflection kernels together
+with Embree 4.4.1 in every x86-64 release job. Set `BLACKFLOWER_ISPC` to the
+compiler executable or place it on `PATH`. CI installs the architecture-specific
+official release archive after verifying its pinned SHA-256 digest; the same
+helper is available locally on Linux and macOS x86-64/ARM64 and Windows
+x86-64:
 
 ```sh
 python3 .github/scripts/install-ispc.py --output /tmp/blackflower-ispc
 ```
+
+The release workflow uses IntelLLVM 2025.0.4 for native C/C++ compilation on
+Linux and Windows x86-64. Equivalent local builds can select an existing
+oneAPI installation explicitly:
+
+```sh
+CC=icx CXX=icpx \
+BLACKFLOWER_ISPC=/path/to/ispc \
+cargo build --release --package blackflower-audio-spatial
+```
+
+On Windows use `icx-cl` for both `CC` and `CXX` and set
+`CMAKE_GENERATOR=Ninja`. macOS uses AppleClang because IntelLLVM does not
+support macOS. Rust sources continue to use `rustc`; these variables select
+only the C/C++ compiler used by native dependencies.
 
 Native builds compile the pinned `flatc` automatically. Cross-compilation
 cannot run a target executable on the build host, so it additionally requires
@@ -160,6 +177,8 @@ effect.process_mono(
 # }
 ```
 
-Steam Audio uses a right-handed coordinate system: positive x points right,
-positive y points up and negative z points ahead. `BinauralParams` expects a
-listener-relative direction and normalizes it before crossing the FFI boundary.
+Steam Audio uses the same basis as Blackflower's
+[engine coordinate system](../../docs/coordinate-system.md): positive x points
+right, positive y points up and negative z points ahead. `BinauralParams`
+expects a listener-relative direction and normalizes it before crossing the
+FFI boundary.

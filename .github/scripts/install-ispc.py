@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the exact ISPC build required by the pinned Steam Audio SDK."""
+"""Install Blackflower's pinned ISPC compiler from an official release archive."""
 
 from __future__ import annotations
 
@@ -14,25 +14,44 @@ import zipfile
 from pathlib import Path
 
 
-VERSION = "1.12.0"
+VERSION = "1.31.0"
 RELEASE_ROOT = f"https://github.com/ispc/ispc/releases/download/v{VERSION}"
 ARTIFACTS = {
-    "Linux": (
-        "ispc-v1.12.0b-linux.tar.gz",
-        "7a2bdd5fff5c1882639cfbd66bca31dbb68c7177f3013e80b0813a37fe0fdc23",
-        "ispc-v1.12.0-linux/bin/ispc",
+    ("Linux", "x86_64"): (
+        "ispc-v1.31.0-linux.tar.gz",
+        "d74089c835e10fd7e2c4b9225ced38b87d1fb53d35c7ceabd48cdf035da11b11",
+        "ispc-v1.31.0-linux/bin/ispc",
     ),
-    "Darwin": (
-        "ispc-v1.12.0-macOS.tar.gz",
-        "e6c917b964e43218c422b46c9a6c71b876d88d0791da2ee3732b20a2e209c018",
-        "ispc-v1.12.0-macOS/bin/ispc",
+    ("Linux", "aarch64"): (
+        "ispc-v1.31.0-linux.aarch64.tar.gz",
+        "660ccac47ff7e0980b89b00a3ebd70201acf55f9e816c127fc28e868ab456193",
+        "ispc-v1.31.0-linux.aarch64/bin/ispc",
     ),
-    "Windows": (
-        "ispc-v1.12.0-windows.zip",
-        "a35eb79c52456dfbd560edbfec99dae67f1beffd39b106922f5d02cd908c6454",
-        "ispc-v1.12.0-windows/bin/ispc.exe",
+    ("Darwin", "x86_64"): (
+        "ispc-v1.31.0-macOS.x86_64.tar.gz",
+        "ab800e62acb8fe95c07c501e986a51ed14a839090c0e8105bd8e75df2b095eab",
+        "ispc-v1.31.0-macOS.x86_64/bin/ispc",
+    ),
+    ("Darwin", "aarch64"): (
+        "ispc-v1.31.0-macOS.arm64.tar.gz",
+        "eac8009da38d41074d0adcf1fad4a3412fc9644a81ee5a49efeb07eac505b6ec",
+        "ispc-v1.31.0-macOS.arm64/bin/ispc",
+    ),
+    ("Windows", "x86_64"): (
+        "ispc-v1.31.0-windows.zip",
+        "9a18793800b91d5be7b851513672cd9a81a985a5a5dfec5611c2318e8ad4140a",
+        "ispc-v1.31.0-windows/bin/ispc.exe",
     ),
 }
+
+
+def architecture() -> str:
+    machine = platform.machine().lower()
+    if machine in {"amd64", "x64", "x86_64"}:
+        return "x86_64"
+    if machine in {"aarch64", "arm64"}:
+        return "aarch64"
+    return machine
 
 
 def arguments() -> argparse.Namespace:
@@ -61,10 +80,13 @@ def extract(archive: Path, destination: Path) -> None:
 def main() -> None:
     output = arguments().output.resolve()
     system = platform.system()
+    machine = architecture()
     try:
-        filename, expected_digest, executable_relative = ARTIFACTS[system]
+        filename, expected_digest, executable_relative = ARTIFACTS[(system, machine)]
     except KeyError as error:
-        raise SystemExit(f"ISPC {VERSION} is not configured for {system}") from error
+        raise SystemExit(
+            f"ISPC {VERSION} is not configured for {system} {machine}"
+        ) from error
 
     executable = output / ("ispc.exe" if system == "Windows" else "ispc")
     if executable.is_file():

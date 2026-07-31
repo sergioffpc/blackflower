@@ -9,44 +9,26 @@ const MAGIC: &[u8; 8] = b"BFMODEL\0";
 const FORMAT_VERSION: u32 = 1;
 const NO_PARENT: u32 = u32::MAX;
 
-/// Local transform representation preserved from the source glTF node.
+/// Canonical column-major local transform matrix in Blackflower coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum NodeTransform {
-    /// Authored translation, rotation, and scale values.
-    Trs {
-        translation: [f32; 3],
-        rotation: [f32; 4],
-        scale: [f32; 3],
-    },
-    /// Authored column-major 4x4 matrix.
-    Matrix([f32; 16]),
-}
+pub struct NodeTransform([f32; 16]);
 
 impl NodeTransform {
-    /// Creates a validated authored TRS transform.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for non-finite components or a non-unit quaternion.
-    pub fn trs(translation: [f32; 3], rotation: [f32; 4], scale: [f32; 3]) -> Result<Self, Error> {
-        let value = Self::Trs {
-            translation,
-            rotation,
-            scale,
-        };
-        validate_transform(value, Error::InvalidInput)?;
-        Ok(value)
-    }
-
-    /// Creates a validated authored matrix transform.
+    /// Creates a validated canonical matrix transform.
     ///
     /// # Errors
     ///
     /// Returns an error when any matrix component is non-finite.
     pub fn matrix(value: [f32; 16]) -> Result<Self, Error> {
-        let value = Self::Matrix(value);
+        let value = Self(value);
         validate_transform(value, Error::InvalidInput)?;
         Ok(value)
+    }
+
+    /// Returns the column-major matrix values.
+    #[must_use]
+    pub const fn to_cols_array(self) -> [f32; 16] {
+        self.0
     }
 }
 
@@ -91,7 +73,7 @@ impl ModelNode {
         self.parent
     }
 
-    /// Authored local transform.
+    /// Canonical local transform matrix.
     #[must_use]
     pub const fn transform(&self) -> NodeTransform {
         self.transform
@@ -200,7 +182,7 @@ pub fn encode_model(nodes: &[ModelNode], attachments: &[ModelAttachment]) -> Res
     for node in nodes {
         output.put_u32_le(node.parent.unwrap_or(NO_PARENT));
         put_optional_text(&mut output, node.name.as_deref())?;
-        put_transform(&mut output, node.transform);
+        put_floats(&mut output, &node.transform.0);
     }
     for attachment in attachments {
         output.put_u32_le(attachment.node);
@@ -347,53 +329,10 @@ fn validate_attachments(
 }
 
 fn validate_transform(transform: NodeTransform, error: fn(String) -> Error) -> Result<(), Error> {
-    match transform {
-        NodeTransform::Trs {
-            translation,
-            rotation,
-            scale,
-        } => {
-            if !translation
-                .into_iter()
-                .chain(rotation)
-                .chain(scale)
-                .all(f32::is_finite)
-            {
-                return Err(error("model transform contains non-finite data".to_owned()));
-            }
-            let length_squared = rotation.into_iter().map(|value| value * value).sum::<f32>();
-            if (length_squared - 1.0).abs() > 0.000_1 {
-                return Err(error(
-                    "model rotation quaternion must be normalized".to_owned(),
-                ));
-            }
-        }
-        NodeTransform::Matrix(matrix) => {
-            if !matrix.into_iter().all(f32::is_finite) {
-                return Err(error("model matrix contains non-finite data".to_owned()));
-            }
-        }
+    if !transform.0.into_iter().all(f32::is_finite) {
+        return Err(error("model matrix contains non-finite data".to_owned()));
     }
     Ok(())
-}
-
-fn put_transform(output: &mut BytesMut, transform: NodeTransform) {
-    match transform {
-        NodeTransform::Trs {
-            translation,
-            rotation,
-            scale,
-        } => {
-            output.put_u8(0);
-            put_floats(output, &translation);
-            put_floats(output, &rotation);
-            put_floats(output, &scale);
-        }
-        NodeTransform::Matrix(matrix) => {
-            output.put_u8(1);
-            put_floats(output, &matrix);
-        }
-    }
 }
 
 fn put_floats(output: &mut BytesMut, values: &[f32]) {
@@ -493,19 +432,7 @@ impl<'a> Reader<'a> {
     }
 
     fn transform(&mut self) -> Result<NodeTransform, Error> {
-        let transform = match self.u8()? {
-            0 => NodeTransform::Trs {
-                translation: self.f32_array()?,
-                rotation: self.f32_array()?,
-                scale: self.f32_array()?,
-            },
-            1 => NodeTransform::Matrix(self.f32_array()?),
-            value => {
-                return Err(Error::InvalidAsset(format!(
-                    "unsupported model transform kind {value}"
-                )));
-            }
-        };
+        let transform = NodeTransform(self.f32_array()?);
         validate_transform(transform, Error::InvalidAsset)?;
         Ok(transform)
     }
@@ -518,3 +445,7 @@ impl<'a> Reader<'a> {
         Ok(values)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/model.rs"]
+mod tests;

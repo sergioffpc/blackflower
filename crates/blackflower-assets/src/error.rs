@@ -149,16 +149,16 @@ pub enum Error {
         reason: &'static str,
     },
     /// The package did not contain the catalog at its fixed path.
-    #[error("asset package `{0}` is missing `/blackflower/catalog.json`")]
+    #[error("asset package `{0}` is missing `/blackflower/catalog.toml`")]
     MissingCatalog(PathBuf),
-    /// The embedded catalog was not valid JSON.
+    /// The embedded catalog was not valid TOML.
     #[error("invalid asset catalog in `{path}`")]
-    CatalogJson {
+    CatalogToml {
         /// Package path.
         path: PathBuf,
-        /// JSON parsing error.
+        /// TOML parsing error.
         #[source]
-        source: serde_json::Error,
+        source: toml::de::Error,
     },
     /// The catalog uses an unsupported schema.
     #[error("unsupported asset catalog schema {schema} in `{path}`")]

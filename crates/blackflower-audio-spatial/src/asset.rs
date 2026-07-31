@@ -6,8 +6,6 @@ use crate::{Error, STEAM_AUDIO_VERSION};
 
 /// Schema shared by `.bfacscn`, `.bfacprb`, and `.bfac`.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
-/// Current `.bfac` environment schema. Version 1 is rejected and must be recooked.
-pub const ACOUSTIC_ENVIRONMENT_SCHEMA: u32 = 2;
 
 const SCENE_MAGIC: &[u8; 8] = b"BFACSCN\0";
 const PROBES_MAGIC: &[u8; 8] = b"BFACPRB\0";
@@ -419,7 +417,7 @@ impl AcousticEnvironment {
         }
         let mut bytes = Vec::new();
         bytes.extend_from_slice(ENVIRONMENT_MAGIC);
-        push_u32(&mut bytes, ACOUSTIC_ENVIRONMENT_SCHEMA);
+        push_u32(&mut bytes, ACOUSTIC_ASSET_SCHEMA);
         push_text(&mut bytes, &topology)?;
         push_len(&mut bytes, zones.len())?;
         for zone in &zones {
@@ -438,12 +436,7 @@ impl AcousticEnvironment {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(bytes, "acoustic environment");
         reader.magic(ENVIRONMENT_MAGIC)?;
-        if reader.u32()? != ACOUSTIC_ENVIRONMENT_SCHEMA {
-            return Err(invalid(
-                "acoustic environment",
-                "schema is unsupported; recook .bfac v2",
-            ));
-        }
+        reader.schema()?;
         let topology = reader.text()?.to_owned();
         let count = reader.count()?;
         let mut zones = Vec::new();
@@ -635,7 +628,7 @@ impl<'a> Reader<'a> {
         match (data_type, variation) {
             (BakedDataType::Reflections, BakedDataVariation::Reverb)
             | (BakedDataType::Pathing, BakedDataVariation::Dynamic) => {}
-            _ => return Err(invalid(self.format, "unsupported Stage 8 baked layer")),
+            _ => return Err(invalid(self.format, "unsupported baked layer")),
         }
         Ok(BakedDataIdentifier {
             data_type,
@@ -718,62 +711,5 @@ const fn invalid(format: &'static str, reason: &'static str) -> Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AcousticEnvironment, AcousticProbe, AcousticScene, AcousticZone, BakedDataIdentifier,
-        BakedLayer, ProbeBatch,
-    };
-    use crate::Vec3A;
-
-    #[test]
-    fn scene_and_probe_formats_round_trip_and_reject_corruption() -> Result<(), crate::Error> {
-        let scene = AcousticScene::encode(vec![1, 2, 3], 3, 1, 1)?;
-        let decoded = AcousticScene::from_bytes(scene.bytes())?;
-        assert_eq!(decoded.triangle_count(), 1);
-        let mut corrupt = scene.bytes().to_vec();
-        let last = corrupt.len() - 1;
-        corrupt[last] ^= 1;
-        assert!(AcousticScene::from_bytes(&corrupt).is_err());
-
-        let reverb = BakedDataIdentifier::reverb()?;
-        let pathing = BakedDataIdentifier::dynamic_pathing()?;
-        let batch = ProbeBatch::encode(
-            "ground_floor".to_owned(),
-            vec![AcousticProbe::new(Vec3A::Y, 2.0)?],
-            vec![BakedLayer::new(reverb, 10), BakedLayer::new(pathing, 20)],
-            vec![4, 5, 6],
-        )?;
-        let decoded = ProbeBatch::from_bytes(batch.bytes())?;
-        assert_eq!(decoded.zone(), "ground_floor");
-        assert_eq!(decoded.probes().len(), 1);
-        assert_eq!(decoded.layers().len(), 2);
-        Ok(())
-    }
-
-    #[test]
-    fn environment_is_sorted_and_strict() -> Result<(), crate::Error> {
-        let environment = AcousticEnvironment::new(
-            "levels/topology",
-            vec![
-                AcousticZone::new("upper", "levels/scene", "levels/upper")?,
-                AcousticZone::new("ground", "levels/scene", "levels/ground")?,
-            ],
-        )?;
-        assert_eq!(environment.zones()[0].id(), "ground");
-        assert_eq!(environment.topology(), "levels/topology");
-        assert_eq!(
-            AcousticEnvironment::from_bytes(environment.bytes())?.zones(),
-            environment.zones()
-        );
-        let mut version_one = environment.bytes().to_vec();
-        version_one[8..12].copy_from_slice(&1_u32.to_le_bytes());
-        let Err(error) = AcousticEnvironment::from_bytes(&version_one) else {
-            return Err(crate::Error::InvalidAcousticAsset {
-                format: "environment",
-                reason: "v1 environment was accepted",
-            });
-        };
-        assert!(error.to_string().contains("recook .bfac v2"));
-        Ok(())
-    }
-}
+#[path = "../tests/unit/asset.rs"]
+mod tests;
