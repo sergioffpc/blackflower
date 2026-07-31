@@ -13,6 +13,11 @@ check_format() {
     cargo fmt --all -- --check
 }
 
+check_test_layout() {
+    printf 'Checking Rust test layout...\n'
+    "$script_directory/check-test-layout.sh"
+}
+
 run_clippy() {
     printf 'Running Clippy...\n'
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
@@ -29,11 +34,13 @@ run_tests() {
 
 case "$mode" in
     all)
+        check_test_layout
         check_format
         run_clippy
         run_tests
         ;;
     format)
+        check_test_layout
         check_format
         ;;
     *)

@@ -423,13 +423,5 @@ fn write_lock(value: &RwLock<ManagerState>) -> RwLockWriteGuard<'_, ManagerState
 }
 
 #[cfg(test)]
-mod tests {
-    use super::AssetStoreManager;
-
-    #[test]
-    fn manager_is_send_and_sync() {
-        fn assert_send_and_sync<T: Send + Sync>() {}
-
-        assert_send_and_sync::<AssetStoreManager>();
-    }
-}
+#[path = "../tests/unit/reload.rs"]
+mod tests;

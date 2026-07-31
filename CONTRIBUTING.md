@@ -62,6 +62,12 @@ exceptions must be specific and document their reason.
 
 ## Testing expectations
 
+Keep every Rust test implementation under the package-local `tests/` directory.
+Do not place `#[test]` functions or inline `mod tests { ... }` modules in `src/`.
+Tests that need private module access belong in `tests/unit/` and are linked from
+the production module with a conditional `#[path = "../tests/unit/<module>.rs"]`
+declaration. The test-layout check enforces this convention locally and in CI.
+
 Changes to simulation or networking code should add the narrowest useful tests.
 As the corresponding systems are introduced, prioritize:
 
