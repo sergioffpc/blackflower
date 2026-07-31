@@ -258,6 +258,15 @@ fn validate_winning_dependencies(packages: &[AssetPackage]) -> Result<(), Error>
                     actual: dependency_record.kind,
                 });
             }
+            if record.kind == AssetKind::Model
+                && !matches!(dependency_record.kind, AssetKind::Mesh | AssetKind::Volume)
+            {
+                return Err(Error::InvalidModelAttachmentKind {
+                    asset: record.id.clone(),
+                    dependency: dependency.clone(),
+                    actual: dependency_record.kind,
+                });
+            }
         }
     }
     Ok(())

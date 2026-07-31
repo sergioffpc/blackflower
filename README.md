@@ -13,25 +13,27 @@ presentation.
 | `apps/blackflower-server` | Authoritative server executable |
 | `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
-| `crates/blackflower-animation-cooker` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Pure Rust facade for the client audio stack |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
+| `crates/blackflower-cooker-animation` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
+| `crates/blackflower-cooker-volume` | Host-only OpenVDB-to-NanoVDB cooking |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-gltf-metadata` | Versioned Blackflower authoring metadata in glTF and GLB |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-networking` | Shared networking primitives |
+| `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
-| `crates/blackflower-simulation` | Authoritative fixed-step simulation |
-| `crates/blackflower-prediction` | Client prediction and reconciliation |
-| `crates/blackflower-presentation` | Client-only presentation systems |
-| `crates/blackflower-rendering-models` | Validated runtime static meshes and generated LOD chains |
+| `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
 | `crates/blackflower-shader-compiler` | Statically linked Slang-to-SPIR-V compiler binding |
 | `crates/blackflower-scripting` | Sandboxed Luau compilation and execution |
+| `crates/blackflower-world-prediction` | Client prediction and reconciliation |
+| `crates/blackflower-world-presentation` | Client-only presentation systems |
+| `crates/blackflower-world-simulation` | Authoritative fixed-step simulation |
 
 ## Running the applications
 
@@ -77,14 +79,16 @@ type-information settings, the portable SPIR-V compiler settings, and the KTX2
 mipmap, and Zstandard policy. It also owns meshoptimizer LOD targets, error
 limits, border locking, and overdraw optimization, plus Ozz sampling, iframe,
 optimization, and root-motion tolerances. Luau coverage instrumentation is
-always disabled. Each package embeds the profile name and canonical
+always disabled. Model hierarchy and lossless volume conversion have no
+profile settings. Each package embeds the profile name and canonical
 configuration hash.
 
 The package name selects its only composition manifest:
 `assets/source/packages/<logical-name>/package.toml`. Its explicit `assets`
 list becomes the package contents; the cooker does not infer additional
-members from handwritten dependencies. A selected animation clip does pull in
-its typed skeleton dependency automatically.
+members from handwritten dependencies. A selected animation clip pulls in its
+typed skeleton dependency automatically; a selected model pulls in every Mesh
+and Volume attachment.
 
 Runtime package directories use Quake-style lexical overrides. A package such
 as `pak900-hotfix.squashfs` overrides matching asset IDs from

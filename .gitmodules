@@ -40,3 +40,15 @@
 [submodule "crates/blackflower-rendering-textures/vendor/KTX-Software"]
 	path = crates/blackflower-rendering-textures/vendor/KTX-Software
 	url = https://github.com/KhronosGroup/KTX-Software.git
+[submodule "crates/blackflower-cooker-volume/vendor/boost"]
+	path = crates/blackflower-cooker-volume/vendor/boost
+	url = https://github.com/boostorg/boost.git
+[submodule "crates/blackflower-cooker-volume/vendor/oneTBB"]
+	path = crates/blackflower-cooker-volume/vendor/oneTBB
+	url = https://github.com/uxlfoundation/oneTBB.git
+[submodule "crates/blackflower-cooker-volume/vendor/c-blosc"]
+	path = crates/blackflower-cooker-volume/vendor/c-blosc
+	url = https://github.com/Blosc/c-blosc.git
+[submodule "crates/blackflower-cooker-volume/vendor/zlib"]
+	path = crates/blackflower-cooker-volume/vendor/zlib
+	url = https://github.com/madler/zlib.git

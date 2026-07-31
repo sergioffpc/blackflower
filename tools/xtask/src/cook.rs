@@ -20,7 +20,7 @@ use crate::asset_cooker::{
 };
 use crate::gltf_source;
 use crate::manifest::{Repository, SOURCE_SCHEMA};
-use crate::model_cooker::MESHOPT_VERSION;
+use crate::mesh_cooker::MESHOPT_VERSION;
 use crate::profile::CookingProfiles;
 
 const BLOCK_SIZE: u32 = 128 * 1024;
@@ -165,10 +165,24 @@ fn toolchain_identity() -> ToolchainIdentity {
         meshoptimizer: format!("meshopt/{MESHOPT_VERSION}"),
         ozz_animation: format!(
             "ozz/{}@{};bf-container={}",
-            blackflower_animation_cooker::OZZ_VERSION,
-            blackflower_animation_cooker::OZZ_REVISION,
+            blackflower_cooker_animation::OZZ_VERSION,
+            blackflower_cooker_animation::OZZ_REVISION,
             blackflower_animation_format::CONTAINER_SCHEMA,
         ),
+        openvdb: format!(
+            "openvdb/{}@{}",
+            blackflower_cooker_volume::OPENVDB_VERSION,
+            blackflower_cooker_volume::OPENVDB_REVISION,
+        ),
+        nanovdb: format!(
+            "nanovdb/{};{}",
+            blackflower_cooker_volume::NANOVDB_VERSION,
+            blackflower_cooker_volume::COOKER_RECIPE,
+        ),
+        boost: format!("boost/{}", blackflower_cooker_volume::BOOST_VERSION),
+        one_tbb: format!("oneTBB/{}", blackflower_cooker_volume::ONE_TBB_VERSION),
+        blosc: format!("c-blosc/{}", blackflower_cooker_volume::BLOSC_VERSION),
+        zlib: format!("zlib/{}", blackflower_cooker_volume::ZLIB_VERSION),
     }
 }
 
@@ -426,7 +440,7 @@ mod tests {
         AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
         AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
     };
-    use blackflower_rendering_models::ModelAsset;
+    use blackflower_rendering_models::MeshAsset;
     use blackflower_scripting::{Bytecode, Runtime, Value};
     use tempfile::TempDir;
 
@@ -457,7 +471,7 @@ quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -492,7 +506,7 @@ quality = "high"
 zstd_level = 15
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -527,7 +541,7 @@ quality = "high"
 zstd_level = 15
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -562,7 +576,7 @@ quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -597,7 +611,7 @@ quality = "fast"
 zstd_level = 3
 generate_mipmaps = true
 
-[models]
+[meshes]
 lod_triangle_percents = [50, 25, 12]
 lod_target_error = 0.01
 optimize_overdraw = true
@@ -796,7 +810,7 @@ root_motion_tolerance = 0.001
             resolved.package().catalog().toolchain.meshoptimizer,
             "meshopt/0.6.2"
         );
-        let model = ModelAsset::from_bytes(store.read_asset(&id)?)?;
+        let model = MeshAsset::from_bytes(store.read_asset(&id)?)?;
         assert_eq!(model.primitives().len(), 1);
         let lods = model.primitives()[0].lods();
         assert!(lods.len() >= 2);

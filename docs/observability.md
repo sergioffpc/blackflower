@@ -16,9 +16,9 @@ Logs and traces are not an authoritative journal.
 Runtime libraries emit signals but do not install process-global backends:
 
 - `blackflower-ecs` reports Flecs lifecycle, callback, allocation, and tick data;
-- `blackflower-simulation` reports authoritative fixed-step execution;
-- `blackflower-prediction` reports forward prediction and reconciliation;
-- `blackflower-presentation` reports variable-step presentation frames;
+- `blackflower-world-simulation` reports authoritative fixed-step execution;
+- `blackflower-world-prediction` reports forward prediction and reconciliation;
+- `blackflower-world-presentation` reports variable-step presentation frames;
 - `blackflower-observability` installs the process tracing subscriber,
   non-blocking log writer, Prometheus recorder/exporter, and selected profiler
   backend.
@@ -110,18 +110,18 @@ The initial domain metrics are:
 
 | Metric | Meaning |
 | --- | --- |
-| `blackflower_simulation_ticks_total{result}` | Authoritative tick outcomes |
-| `blackflower_simulation_system_executions_total{phase}` | Authoritative system executions aggregated by phase |
-| `blackflower_simulation_tick_duration_seconds` | Authoritative tick compute time |
-| `blackflower_simulation_deadline_misses_total` | Tick compute time above the fixed-step budget |
-| `blackflower_prediction_ticks_total{pass,result}` | Forward and re-simulated prediction outcomes |
-| `blackflower_prediction_tick_duration_seconds{pass}` | Prediction tick compute time |
-| `blackflower_prediction_reconciliations_total{result,reason}` | Reconciliation decisions |
-| `blackflower_prediction_reconciliation_duration_seconds` | Reconciliation wall time |
-| `blackflower_prediction_resimulated_ticks` | Work repeated by one reconciliation |
-| `blackflower_presentation_frames_total{result}` | Presentation frame outcomes |
-| `blackflower_presentation_frame_duration_seconds` | Presentation compute time |
-| `blackflower_presentation_frame_delta_seconds` | Validated variable frame delta |
+| `blackflower_world_simulation_ticks_total{result}` | Authoritative tick outcomes |
+| `blackflower_world_simulation_system_executions_total{phase}` | Authoritative system executions aggregated by phase |
+| `blackflower_world_simulation_tick_duration_seconds` | Authoritative tick compute time |
+| `blackflower_world_simulation_deadline_misses_total` | Tick compute time above the fixed-step budget |
+| `blackflower_world_prediction_ticks_total{pass,result}` | Forward and re-simulated prediction outcomes |
+| `blackflower_world_prediction_tick_duration_seconds{pass}` | Prediction tick compute time |
+| `blackflower_world_prediction_reconciliations_total{result,reason}` | Reconciliation decisions |
+| `blackflower_world_prediction_reconciliation_duration_seconds` | Reconciliation wall time |
+| `blackflower_world_prediction_resimulated_ticks` | Work repeated by one reconciliation |
+| `blackflower_world_presentation_frames_total{result}` | Presentation frame outcomes |
+| `blackflower_world_presentation_frame_duration_seconds` | Presentation compute time |
+| `blackflower_world_presentation_frame_delta_seconds` | Validated variable frame delta |
 
 At 240 Hz, an authoritative tick has a theoretical wall-clock budget of about
 4.17 ms. Alert policy should prioritize sustained deadline misses, tick lag,

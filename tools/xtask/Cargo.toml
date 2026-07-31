@@ -7,16 +7,18 @@ license.workspace = true
 publish = false
 
 [dependencies]
-anyhow.workspace = true
-backhand.workspace = true
-blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
-blackflower-animation-cooker.workspace = true
 blackflower-animation-format.workspace = true
+blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
+blackflower-cooker-animation.workspace = true
+blackflower-cooker-volume.workspace = true
 blackflower-gltf-metadata.workspace = true
 blackflower-rendering-models.workspace = true
 blackflower-rendering-textures.workspace = true
 blackflower-shader-compiler.workspace = true
 blackflower-scripting.workspace = true
+
+anyhow.workspace = true
+backhand.workspace = true
 blake3.workspace = true
 clap.workspace = true
 gltf.workspace = true

@@ -26,6 +26,8 @@ impl AssetManifest {
             AssetSource::Shader(_) => AssetKind::ShaderModule,
             AssetSource::Texture(_) => AssetKind::Texture2d,
             AssetSource::Mesh(_) => AssetKind::Mesh,
+            AssetSource::Model(_) => AssetKind::Model,
+            AssetSource::Volume(_) => AssetKind::Volume,
             AssetSource::Skeleton(_) => AssetKind::Skeleton,
             AssetSource::Animation(_) => AssetKind::AnimationClip,
         }
@@ -34,11 +36,19 @@ impl AssetManifest {
     pub(crate) fn dependencies(&self) -> Vec<AssetId> {
         match &self.source {
             AssetSource::Animation(manifest) => vec![manifest.skeleton.clone()],
+            AssetSource::Model(manifest) => manifest
+                .attachments
+                .iter()
+                .map(|attachment| attachment.asset.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             AssetSource::Blob(_)
             | AssetSource::Luau(_)
             | AssetSource::Shader(_)
             | AssetSource::Texture(_)
             | AssetSource::Mesh(_)
+            | AssetSource::Volume(_)
             | AssetSource::Skeleton(_) => Vec::new(),
         }
     }
@@ -51,8 +61,26 @@ pub(crate) enum AssetSource {
     Shader(ShaderManifest),
     Texture(TextureManifest),
     Mesh(MeshManifest),
+    Model(ModelManifest),
+    Volume(VolumeManifest),
     Skeleton(SkeletonManifest),
     Animation(AnimationManifest),
+}
+
+impl AssetSource {
+    fn source(&self) -> &Path {
+        match self {
+            Self::Blob(manifest) => &manifest.source,
+            Self::Luau(manifest) => &manifest.source,
+            Self::Shader(manifest) => &manifest.source,
+            Self::Texture(manifest) => &manifest.source,
+            Self::Mesh(manifest) => &manifest.source,
+            Self::Model(manifest) => &manifest.source,
+            Self::Volume(manifest) => &manifest.source,
+            Self::Skeleton(manifest) => &manifest.source,
+            Self::Animation(manifest) => &manifest.source,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -87,6 +115,29 @@ pub(crate) struct TextureManifest {
 pub(crate) struct MeshManifest {
     pub(crate) source: PathBuf,
     pub(crate) mesh: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModelManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) scene: String,
+    #[serde(default)]
+    pub(crate) attachments: Vec<ModelAttachmentManifest>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModelAttachmentManifest {
+    pub(crate) node: String,
+    pub(crate) asset: AssetId,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct VolumeManifest {
+    pub(crate) source: PathBuf,
+    pub(crate) grids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -143,6 +194,8 @@ struct AssetManifestFile {
     shader: Option<ShaderManifest>,
     texture: Option<TextureManifest>,
     mesh: Option<MeshManifest>,
+    model: Option<ModelManifest>,
+    volume: Option<VolumeManifest>,
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
 }
@@ -153,6 +206,8 @@ struct SourceSections {
     shader: Option<ShaderManifest>,
     texture: Option<TextureManifest>,
     mesh: Option<MeshManifest>,
+    model: Option<ModelManifest>,
+    volume: Option<VolumeManifest>,
     skeleton: Option<SkeletonManifest>,
     animation: Option<AnimationManifest>,
 }
@@ -251,8 +306,31 @@ impl Repository {
                 let target = self.assets.get(&dependency).with_context(|| {
                     format!("asset `{id}` references missing dependency `{dependency}`")
                 })?;
-                if !matches!(target.manifest.source, AssetSource::Skeleton(_)) {
-                    bail!("animation asset `{id}` dependency `{dependency}` is not a skeleton");
+                match &asset.manifest.source {
+                    AssetSource::Animation(_) => {
+                        if matches!(target.manifest.source, AssetSource::Skeleton(_)) {
+                            continue;
+                        }
+                        bail!("animation asset `{id}` dependency `{dependency}` is not a skeleton");
+                    }
+                    AssetSource::Model(_) => {
+                        if matches!(
+                            target.manifest.source,
+                            AssetSource::Mesh(_) | AssetSource::Volume(_)
+                        ) {
+                            continue;
+                        }
+                        bail!(
+                            "model asset `{id}` attachment `{dependency}` is not a mesh or volume"
+                        );
+                    }
+                    AssetSource::Blob(_)
+                    | AssetSource::Luau(_)
+                    | AssetSource::Shader(_)
+                    | AssetSource::Texture(_)
+                    | AssetSource::Mesh(_)
+                    | AssetSource::Volume(_)
+                    | AssetSource::Skeleton(_) => {}
                 }
             }
         }
@@ -315,19 +393,13 @@ fn load_asset(
         shader: file.shader,
         texture: file.texture,
         mesh: file.mesh,
+        model: file.model,
+        volume: file.volume,
         skeleton: file.skeleton,
         animation: file.animation,
     };
     let source = asset_source(file.kind, file.audience, sections, path)?;
-    let source_path = match &source {
-        AssetSource::Blob(manifest) => &manifest.source,
-        AssetSource::Luau(manifest) => &manifest.source,
-        AssetSource::Shader(manifest) => &manifest.source,
-        AssetSource::Texture(manifest) => &manifest.source,
-        AssetSource::Mesh(manifest) => &manifest.source,
-        AssetSource::Skeleton(manifest) => &manifest.source,
-        AssetSource::Animation(manifest) => &manifest.source,
-    };
+    let source_path = source.source();
     let source_relative = portable_relative_path(source_path)
         .with_context(|| format!("invalid source path in `{}`", path.display()))?;
     let source_path = resolve_source(source_root, path, source_path)?;
@@ -387,6 +459,16 @@ fn asset_source(
             validate_mesh_manifest(&mesh, audience, path)?;
             AssetSource::Mesh(mesh)
         }
+        AssetKind::Model => {
+            let mut model = required_section(sections.model, "model", path)?;
+            validate_model_manifest(&mut model, audience, path)?;
+            AssetSource::Model(model)
+        }
+        AssetKind::Volume => {
+            let mut volume = required_section(sections.volume, "volume", path)?;
+            validate_volume_manifest(&mut volume, audience, path)?;
+            AssetSource::Volume(volume)
+        }
         AssetKind::Skeleton => {
             let skeleton = required_section(sections.skeleton, "skeleton", path)?;
             validate_skeleton_manifest(&skeleton, audience, path)?;
@@ -409,6 +491,8 @@ impl SourceSections {
             + usize::from(self.shader.is_some())
             + usize::from(self.texture.is_some())
             + usize::from(self.mesh.is_some())
+            + usize::from(self.model.is_some())
+            + usize::from(self.volume.is_some())
             + usize::from(self.skeleton.is_some())
             + usize::from(self.animation.is_some())
     }
@@ -499,6 +583,73 @@ fn validate_mesh_manifest(
         );
     }
     validate_gltf_source(&mesh.source, "mesh", path)
+}
+
+fn validate_model_manifest(
+    model: &mut ModelManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "model asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    validate_gltf_source(&model.source, "model", path)?;
+    validate_selection_name(&model.scene, "scene", path)?;
+    for attachment in &model.attachments {
+        validate_selection_name(&attachment.node, "attachment node", path)?;
+    }
+    model
+        .attachments
+        .sort_by(|left, right| (&left.node, &left.asset).cmp(&(&right.node, &right.asset)));
+    for pair in model.attachments.windows(2) {
+        if pair[0].node == pair[1].node && pair[0].asset == pair[1].asset {
+            bail!(
+                "model manifest `{}` repeats attachment `{}` on node `{}`",
+                path.display(),
+                pair[0].asset,
+                pair[0].node
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_volume_manifest(
+    volume: &mut VolumeManifest,
+    audience: AssetAudience,
+    path: &Path,
+) -> anyhow::Result<()> {
+    if audience != AssetAudience::Presentation {
+        bail!(
+            "volume asset manifest `{}` must use audience `presentation`",
+            path.display()
+        );
+    }
+    let extension = volume
+        .source
+        .extension()
+        .and_then(|value| value.to_str())
+        .context("volume source must have a UTF-8 extension")?;
+    if !extension.eq_ignore_ascii_case("vdb") {
+        bail!(
+            "volume source in `{}` must use OpenVDB `.vdb`",
+            path.display()
+        );
+    }
+    if volume.grids.is_empty() {
+        bail!(
+            "volume manifest `{}` must select at least one grid",
+            path.display()
+        );
+    }
+    for grid in &volume.grids {
+        validate_selection_name(grid, "grid", path)?;
+    }
+    volume.grids.sort();
+    reject_duplicates(&volume.grids, "grid", path)
 }
 
 fn validate_texture_manifest(
@@ -612,7 +763,10 @@ fn validate_schema(schema: u32, path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn reject_duplicates(values: &[AssetId], label: &str, path: &Path) -> anyhow::Result<()> {
+fn reject_duplicates<T>(values: &[T], label: &str, path: &Path) -> anyhow::Result<()>
+where
+    T: std::fmt::Display + PartialEq,
+{
     for pair in values.windows(2) {
         if pair[0] == pair[1] {
             bail!("duplicate {label} `{}` in `{}`", pair[0], path.display());

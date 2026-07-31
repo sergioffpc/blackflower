@@ -59,6 +59,7 @@ jobs:
         run: >-
           cargo clippy --workspace
           --exclude blackflower-assets
+          --exclude blackflower-cooker-volume
           --exclude blackflower-gltf-metadata
           --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
@@ -71,6 +72,7 @@ jobs:
         run: >-
           cargo test --workspace
           --exclude blackflower-assets
+          --exclude blackflower-cooker-volume
           --exclude blackflower-gltf-metadata
           --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
@@ -142,12 +144,14 @@ jobs:
                Cargo.toml \
                assets \
                crates/blackflower-animation \
-               crates/blackflower-animation-cooker \
+               crates/blackflower-cooker-animation \
+               crates/blackflower-cooker-volume \
                crates/blackflower-animation-format \
                crates/blackflower-assets \
                crates/blackflower-gltf-metadata \
                crates/blackflower-rendering-models \
                crates/blackflower-rendering-textures \
+               crates/blackflower-rendering-volumes \
                crates/blackflower-scripting \
                crates/blackflower-shader-compiler \
                rust-toolchain.toml \
@@ -220,6 +224,11 @@ jobs:
         with:
           cargo-cache-key: assets-smoke
           cargo-cache-restore-key: assets
+
+      - name: Compile and link volume cooker
+        run: >-
+          cargo check --package blackflower-cooker-volume
+          --all-features --locked
 
       - name: Run shader cooking smoke test
         run: >-
@@ -311,7 +320,7 @@ jobs:
       matrix:
         package:
           - blackflower-animation
-          - blackflower-animation-cooker
+          - blackflower-cooker-animation
           - blackflower-audio-spatial
           - blackflower-audio-voice
           - blackflower-ecs
@@ -332,11 +341,16 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Check out repository and native submodules
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
+
+      - name: Initialize package native submodules
+        shell: bash
+        env:
+          NATIVE_PACKAGE: ${{ matrix.package }}
+        run: .github/scripts/init-ci-submodules.sh native "$NATIVE_PACKAGE"
 
       - name: Set up native Rust build
         uses: ./.github/actions/setup-native-rust

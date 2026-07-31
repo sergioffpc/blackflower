@@ -2,6 +2,7 @@ mod asset_cooker;
 mod cook;
 mod gltf_source;
 mod manifest;
+mod mesh_cooker;
 mod model_cooker;
 mod profile;
 mod texture_cooker;

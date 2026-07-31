@@ -11,9 +11,10 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
-anyhow.workspace = true
 blackflower-observability.workspace = true
-blackflower-simulation = { workspace = true, features = ["observability"] }
+blackflower-world-simulation = { workspace = true, features = ["observability"] }
+
+anyhow.workspace = true
 
 [lints]
 workspace = true

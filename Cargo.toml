@@ -5,29 +5,30 @@ members = [
     "apps/blackflower-harness",
     "apps/blackflower-server",
     "crates/blackflower-animation",
-    "crates/blackflower-animation-cooker",
     "crates/blackflower-animation-format",
     "crates/blackflower-assets",
     "crates/blackflower-audio",
     "crates/blackflower-audio-spatial",
     "crates/blackflower-audio-voice",
+    "crates/blackflower-cooker-animation",
+    "crates/blackflower-cooker-volume",
     "crates/blackflower-ecs",
     "crates/blackflower-ecs-derive",
     "crates/blackflower-gltf-metadata",
     "crates/blackflower-navigation",
     "crates/blackflower-networking",
+    "crates/blackflower-networking-replication",
     "crates/blackflower-observability",
     "crates/blackflower-physics",
-    "crates/blackflower-prediction",
-    "crates/blackflower-presentation",
     "crates/blackflower-rendering",
     "crates/blackflower-rendering-models",
     "crates/blackflower-rendering-textures",
     "crates/blackflower-rendering-volumes",
-    "crates/blackflower-replication",
     "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
-    "crates/blackflower-simulation",
+    "crates/blackflower-world-prediction",
+    "crates/blackflower-world-presentation",
+    "crates/blackflower-world-simulation",
     "tools/xtask",
 ]
 
@@ -40,29 +41,30 @@ publish = false
 
 [workspace.dependencies]
 blackflower-animation = { path = "crates/blackflower-animation" }
-blackflower-animation-cooker = { path = "crates/blackflower-animation-cooker" }
 blackflower-animation-format = { path = "crates/blackflower-animation-format" }
 blackflower-assets = { path = "crates/blackflower-assets" }
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-audio-spatial = { path = "crates/blackflower-audio-spatial" }
 blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
+blackflower-cooker-animation = { path = "crates/blackflower-cooker-animation" }
+blackflower-cooker-volume = { path = "crates/blackflower-cooker-volume" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs-derive" }
 blackflower-gltf-metadata = { path = "crates/blackflower-gltf-metadata" }
 blackflower-navigation = { path = "crates/blackflower-navigation" }
 blackflower-networking = { path = "crates/blackflower-networking" }
+blackflower-networking-replication = { path = "crates/blackflower-networking-replication" }
 blackflower-observability = { path = "crates/blackflower-observability" }
 blackflower-physics = { path = "crates/blackflower-physics" }
-blackflower-prediction = { path = "crates/blackflower-prediction" }
-blackflower-presentation = { path = "crates/blackflower-presentation" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
 blackflower-rendering-models = { path = "crates/blackflower-rendering-models" }
 blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
-blackflower-replication = { path = "crates/blackflower-replication" }
 blackflower-shader-compiler = { path = "crates/blackflower-shader-compiler" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
-blackflower-simulation = { path = "crates/blackflower-simulation" }
+blackflower-world-prediction = { path = "crates/blackflower-world-prediction" }
+blackflower-world-presentation = { path = "crates/blackflower-world-presentation" }
+blackflower-world-simulation = { path = "crates/blackflower-world-simulation" }
 
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 backhand = { version = "0.25.1", default-features = false, features = ["zstd"] }
@@ -75,13 +77,13 @@ clap = { version = "4.6.4", default-features = false, features = ["derive", "hel
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
-gltf = { version = "=1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_materials_unlit", "KHR_texture_transform"] }
+gltf = { version = "1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_materials_unlit", "KHR_texture_transform"] }
 half = { version = "2.7.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["exr", "png"] }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
-meshopt = { version = "=0.6.2", default-features = false }
-naga = { version = "=30.0.0", default-features = false, features = ["spv-in"] }
+meshopt = { version = "0.6.2", default-features = false }
+naga = { version = "30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
 profiling = { version = "1.0.18", default-features = false }
@@ -92,7 +94,7 @@ strum = { version = "0.28.0", default-features = false, features = ["derive"] }
 syn = { version = "3.0.3", default-features = false, features = ["full", "parsing", "printing", "proc-macro"] }
 tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.19", default-features = false }
-toml = { version = "1.1.4", default-features = false, features = ["parse", "serde"] }
+toml = { version = "1.1.4+spec-1.1.0", default-features = false, features = ["parse", "serde"] }
 tracing = { version = "0.1.44", default-features = false, features = ["attributes", "release_max_level_info", "std"] }
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }

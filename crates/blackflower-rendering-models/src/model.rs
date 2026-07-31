@@ -1,210 +1,180 @@
+use std::str::FromStr;
+
+use blackflower_assets::AssetId;
 use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::Error;
 
-const MAGIC: &[u8; 8] = b"BFMESH\0\0";
+const MAGIC: &[u8; 8] = b"BFMODEL\0";
 const FORMAT_VERSION: u32 = 1;
-const VERTEX_FLOATS: usize = 12;
-const VERTEX_BYTES: usize = VERTEX_FLOATS * size_of::<f32>();
-const MAX_PRIMITIVES: usize = 65_535;
-const MAX_LODS: usize = 16;
+const NO_PARENT: u32 = u32::MAX;
 
-/// Vertex channels carried by every vertex in a primitive.
+/// Local transform representation preserved from the source glTF node.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NodeTransform {
+    /// Authored translation, rotation, and scale values.
+    Trs {
+        translation: [f32; 3],
+        rotation: [f32; 4],
+        scale: [f32; 3],
+    },
+    /// Authored column-major 4x4 matrix.
+    Matrix([f32; 16]),
+}
+
+impl NodeTransform {
+    /// Creates a validated authored TRS transform.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for non-finite components or a non-unit quaternion.
+    pub fn trs(translation: [f32; 3], rotation: [f32; 4], scale: [f32; 3]) -> Result<Self, Error> {
+        let value = Self::Trs {
+            translation,
+            rotation,
+            scale,
+        };
+        validate_transform(value, Error::InvalidInput)?;
+        Ok(value)
+    }
+
+    /// Creates a validated authored matrix transform.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any matrix component is non-finite.
+    pub fn matrix(value: [f32; 16]) -> Result<Self, Error> {
+        let value = Self::Matrix(value);
+        validate_transform(value, Error::InvalidInput)?;
+        Ok(value)
+    }
+}
+
+/// One node in parent-before-child depth-first order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelNode {
+    name: Option<String>,
+    parent: Option<u32>,
+    transform: NodeTransform,
+}
+
+impl ModelNode {
+    /// Creates one model node.
+    ///
+    /// Parent ordering is validated when the complete model is encoded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transform is invalid.
+    pub fn new(
+        name: Option<String>,
+        parent: Option<u32>,
+        transform: NodeTransform,
+    ) -> Result<Self, Error> {
+        validate_transform(transform, Error::InvalidInput)?;
+        Ok(Self {
+            name,
+            parent,
+            transform,
+        })
+    }
+
+    /// Optional authored glTF node name.
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Parent node index, or `None` for a scene root.
+    #[must_use]
+    pub const fn parent(&self) -> Option<u32> {
+        self.parent
+    }
+
+    /// Authored local transform.
+    #[must_use]
+    pub const fn transform(&self) -> NodeTransform {
+        self.transform
+    }
+}
+
+/// Runtime attachment representation inferred from the referenced asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VertexAttributes(u32);
+pub enum ModelAttachmentKind {
+    /// Static geometry decoded through [`crate::MeshAsset`].
+    Mesh,
+    /// NanoVDB volume decoded through `blackflower-rendering-volumes`.
+    Volume,
+}
 
-impl VertexAttributes {
-    /// The required object-space position channel.
-    pub const POSITION: Self = Self(1 << 0);
-    /// The object-space normal channel.
-    pub const NORMAL: Self = Self(1 << 1);
-    /// The tangent and handedness channel.
-    pub const TANGENT: Self = Self(1 << 2);
-    /// The first texture-coordinate channel.
-    pub const TEXCOORD_0: Self = Self(1 << 3);
+/// One asset attached to a model node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelAttachment {
+    node: u32,
+    asset: AssetId,
+    kind: ModelAttachmentKind,
+}
 
-    const KNOWN: u32 = Self::POSITION.0 | Self::NORMAL.0 | Self::TANGENT.0 | Self::TEXCOORD_0.0;
-
-    /// Constructs a channel mask containing only positions.
+impl ModelAttachment {
+    /// Creates an attachment. Node bounds are checked by [`encode_model`].
     #[must_use]
-    pub const fn positions() -> Self {
-        Self::POSITION
+    pub const fn new(node: u32, asset: AssetId, kind: ModelAttachmentKind) -> Self {
+        Self { node, asset, kind }
     }
 
-    /// Adds a channel to this mask.
+    /// Canonical node index resolved by the cooker.
     #[must_use]
-    pub const fn with(self, channel: Self) -> Self {
-        Self(self.0 | channel.0)
+    pub const fn node(&self) -> u32 {
+        self.node
     }
 
-    /// Returns whether this mask contains a channel.
+    /// Logical asset resolved through the package catalog.
     #[must_use]
-    pub const fn contains(self, channel: Self) -> bool {
-        self.0 & channel.0 == channel.0
+    pub const fn asset(&self) -> &AssetId {
+        &self.asset
     }
 
-    const fn bits(self) -> u32 {
-        self.0
-    }
-
-    fn from_bits(bits: u32) -> Result<Self, Error> {
-        if bits & !Self::KNOWN != 0 || bits & Self::POSITION.0 == 0 {
-            return Err(Error::InvalidAsset(format!(
-                "unsupported vertex attribute mask 0x{bits:08x}"
-            )));
-        }
-        Ok(Self(bits))
+    /// Runtime representation expected for the referenced asset.
+    #[must_use]
+    pub const fn kind(&self) -> ModelAttachmentKind {
+        self.kind
     }
 }
 
-/// Fixed runtime vertex used by the first model format revision.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MeshVertex {
-    /// Object-space position.
-    pub position: [f32; 3],
-    /// Object-space normal, or zero when the channel is absent.
-    pub normal: [f32; 3],
-    /// Tangent and handedness, or zero when the channel is absent.
-    pub tangent: [f32; 4],
-    /// First texture coordinate, or zero when the channel is absent.
-    pub texcoord_0: [f32; 2],
-}
-
-/// Axis-aligned object-space bounds.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Bounds {
-    /// Minimum coordinate on each axis.
-    pub min: [f32; 3],
-    /// Maximum coordinate on each axis.
-    pub max: [f32; 3],
-}
-
-/// One independently drawable level of detail.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MeshLod {
-    geometric_error: f32,
-    bounds: Bounds,
-    vertices: Vec<MeshVertex>,
-    indices: Vec<u32>,
-}
-
-impl MeshLod {
-    /// Builds and validates one triangle-list LOD.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for non-finite data, invalid indices, or an empty
-    /// triangle list.
-    pub fn new(
-        geometric_error: f32,
-        vertices: Vec<MeshVertex>,
-        indices: Vec<u32>,
-    ) -> Result<Self, Error> {
-        validate_lod(geometric_error, &vertices, &indices, Error::InvalidInput)?;
-        let bounds = calculate_bounds(&vertices);
-        Ok(Self {
-            geometric_error,
-            bounds,
-            vertices,
-            indices,
-        })
-    }
-
-    /// Meshoptimizer geometric error accumulated from the base mesh.
-    #[must_use]
-    pub const fn geometric_error(&self) -> f32 {
-        self.geometric_error
-    }
-
-    /// Object-space bounds for this LOD.
-    #[must_use]
-    pub const fn bounds(&self) -> Bounds {
-        self.bounds
-    }
-
-    /// Vertices in GPU upload order.
-    #[must_use]
-    pub fn vertices(&self) -> &[MeshVertex] {
-        &self.vertices
-    }
-
-    /// Triangle-list indices.
-    #[must_use]
-    pub fn indices(&self) -> &[u32] {
-        &self.indices
-    }
-}
-
-/// One glTF primitive and its generated LOD chain.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MeshPrimitive {
-    material_index: Option<u32>,
-    attributes: VertexAttributes,
-    lods: Vec<MeshLod>,
-}
-
-impl MeshPrimitive {
-    /// Builds one primitive with a base LOD followed by coarser LODs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the LOD chain is empty, too long, or not strictly
-    /// decreasing in triangle count.
-    pub fn new(
-        material_index: Option<u32>,
-        attributes: VertexAttributes,
-        lods: Vec<MeshLod>,
-    ) -> Result<Self, Error> {
-        validate_primitive(attributes, &lods, Error::InvalidInput)?;
-        Ok(Self {
-            material_index,
-            attributes,
-            lods,
-        })
-    }
-
-    /// Source glTF material index retained as a stable material slot.
-    #[must_use]
-    pub const fn material_index(&self) -> Option<u32> {
-        self.material_index
-    }
-
-    /// Vertex channels present in the authored primitive.
-    #[must_use]
-    pub const fn attributes(&self) -> VertexAttributes {
-        self.attributes
-    }
-
-    /// Base mesh followed by successively coarser LODs.
-    #[must_use]
-    pub fn lods(&self) -> &[MeshLod] {
-        &self.lods
-    }
-}
-
-/// Fully decoded runtime model.
+/// Fully decoded runtime model hierarchy and its asset attachments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelAsset {
     bytes: Bytes,
-    primitives: Vec<MeshPrimitive>,
+    nodes: Vec<ModelNode>,
+    attachments: Vec<ModelAttachment>,
 }
 
 impl ModelAsset {
-    /// Decodes and validates authenticated cooked model bytes.
+    /// Decodes and validates authenticated `.bfmodel` bytes.
     ///
     /// # Errors
     ///
-    /// Returns an error when the binary structure or mesh data violates the
-    /// current model format contract.
+    /// Returns an error for an incompatible header, invalid hierarchy,
+    /// malformed transform, invalid asset ID, or non-canonical attachments.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, Error> {
-        let primitives = decode(&bytes)?;
-        Ok(Self { bytes, primitives })
+        let (nodes, attachments) = decode(&bytes)?;
+        Ok(Self {
+            bytes,
+            nodes,
+            attachments,
+        })
     }
 
-    /// Independently drawable primitives in source order.
+    /// Nodes in parent-before-child depth-first order.
     #[must_use]
-    pub fn primitives(&self) -> &[MeshPrimitive] {
-        &self.primitives
+    pub fn nodes(&self) -> &[ModelNode] {
+        &self.nodes
+    }
+
+    /// Attachments ordered by node index and then logical asset ID.
+    #[must_use]
+    pub fn attachments(&self) -> &[ModelAttachment] {
+        &self.attachments
     }
 
     /// Original validated model bytes.
@@ -214,232 +184,248 @@ impl ModelAsset {
     }
 }
 
-/// Encodes validated primitives into the deterministic runtime model format.
+/// Encodes a validated hierarchy and canonical attachment list into `.bfmodel`.
 ///
 /// # Errors
 ///
-/// Returns an error when the model is empty, exceeds format limits, or
-/// contains invalid mesh data.
-pub fn encode(primitives: &[MeshPrimitive]) -> Result<Bytes, Error> {
-    if primitives.is_empty() || primitives.len() > MAX_PRIMITIVES {
-        return Err(Error::InvalidInput(format!(
-            "model must contain from 1 through {MAX_PRIMITIVES} primitives"
-        )));
-    }
+/// Returns an error when counts exceed the format, parents do not precede
+/// children, transforms are invalid, or attachments are invalid or unsorted.
+pub fn encode_model(nodes: &[ModelNode], attachments: &[ModelAttachment]) -> Result<Bytes, Error> {
+    validate_model(nodes, attachments, Error::InvalidInput)?;
     let mut output = BytesMut::new();
     output.extend_from_slice(MAGIC);
     output.put_u32_le(FORMAT_VERSION);
-    put_len(&mut output, primitives.len(), "primitive")?;
-    for primitive in primitives {
-        validate_primitive(primitive.attributes, &primitive.lods, Error::InvalidInput)?;
-        output.put_u32_le(primitive.material_index.unwrap_or(u32::MAX));
-        output.put_u32_le(primitive.attributes.bits());
-        put_len(&mut output, primitive.lods.len(), "LOD")?;
-        for lod in &primitive.lods {
-            encode_lod(&mut output, lod)?;
-        }
+    put_len(&mut output, nodes.len(), "node")?;
+    put_len(&mut output, attachments.len(), "attachment")?;
+    for node in nodes {
+        output.put_u32_le(node.parent.unwrap_or(NO_PARENT));
+        put_optional_text(&mut output, node.name.as_deref())?;
+        put_transform(&mut output, node.transform);
+    }
+    for attachment in attachments {
+        output.put_u32_le(attachment.node);
+        output.put_u8(match attachment.kind {
+            ModelAttachmentKind::Mesh => 0,
+            ModelAttachmentKind::Volume => 1,
+        });
+        put_text(&mut output, attachment.asset.as_str())?;
     }
     Ok(output.freeze())
 }
 
-fn encode_lod(output: &mut BytesMut, lod: &MeshLod) -> Result<(), Error> {
-    validate_lod(
-        lod.geometric_error,
-        &lod.vertices,
-        &lod.indices,
-        Error::InvalidInput,
-    )?;
-    output.put_u32_le(lod.geometric_error.to_bits());
-    put_floats(output, &lod.bounds.min);
-    put_floats(output, &lod.bounds.max);
-    put_len(output, lod.vertices.len(), "vertex")?;
-    put_len(output, lod.indices.len(), "index")?;
-    for vertex in &lod.vertices {
-        put_floats(output, &vertex.position);
-        put_floats(output, &vertex.normal);
-        put_floats(output, &vertex.tangent);
-        put_floats(output, &vertex.texcoord_0);
-    }
-    for &index in &lod.indices {
-        output.put_u32_le(index);
-    }
-    Ok(())
-}
-
-fn decode(bytes: &[u8]) -> Result<Vec<MeshPrimitive>, Error> {
+fn decode(bytes: &[u8]) -> Result<(Vec<ModelNode>, Vec<ModelAttachment>), Error> {
     let mut reader = Reader::new(bytes);
-    if reader.take(MAGIC.len())? != MAGIC {
-        return Err(Error::InvalidAsset("invalid format identifier".to_owned()));
+    if reader.bytes(MAGIC.len())? != MAGIC {
+        return Err(Error::InvalidAsset("invalid BFMODEL identifier".to_owned()));
     }
-    let version = reader.u32()?;
-    if version != FORMAT_VERSION {
-        return Err(Error::InvalidAsset(format!(
-            "unsupported format version {version}"
-        )));
-    }
-    let primitive_count = reader.count("primitive", MAX_PRIMITIVES)?;
-    if primitive_count == 0 {
+    if reader.u32()? != FORMAT_VERSION {
         return Err(Error::InvalidAsset(
-            "model contains no primitives".to_owned(),
+            "unsupported BFMODEL version".to_owned(),
         ));
     }
-    let mut primitives = Vec::with_capacity(primitive_count);
-    for _ in 0..primitive_count {
-        primitives.push(decode_primitive(&mut reader)?);
-    }
-    if reader.remaining() != 0 {
-        return Err(Error::InvalidAsset(
-            "trailing bytes after model data".to_owned(),
-        ));
-    }
-    Ok(primitives)
-}
-
-fn decode_primitive(reader: &mut Reader<'_>) -> Result<MeshPrimitive, Error> {
-    let material = reader.u32()?;
-    let attributes = VertexAttributes::from_bits(reader.u32()?)?;
-    let lod_count = reader.count("LOD", MAX_LODS)?;
-    let mut lods = Vec::with_capacity(lod_count);
-    for _ in 0..lod_count {
-        lods.push(decode_lod(reader)?);
-    }
-    validate_primitive(attributes, &lods, Error::InvalidAsset)?;
-    Ok(MeshPrimitive {
-        material_index: (material != u32::MAX).then_some(material),
-        attributes,
-        lods,
-    })
-}
-
-fn decode_lod(reader: &mut Reader<'_>) -> Result<MeshLod, Error> {
-    let geometric_error = f32::from_bits(reader.u32()?);
-    let bounds = Bounds {
-        min: reader.f32_array()?,
-        max: reader.f32_array()?,
-    };
-    let vertex_count = reader.count_for_bytes("vertex", VERTEX_BYTES)?;
-    let index_count = reader.count_for_bytes("index", size_of::<u32>())?;
-    let mut vertices = Vec::with_capacity(vertex_count);
-    for _ in 0..vertex_count {
-        vertices.push(MeshVertex {
-            position: reader.f32_array()?,
-            normal: reader.f32_array()?,
-            tangent: reader.f32_array()?,
-            texcoord_0: reader.f32_array()?,
+    let node_count = reader.len("node")?;
+    let attachment_count = reader.len("attachment")?;
+    let mut nodes = Vec::with_capacity(node_count);
+    for _ in 0..node_count {
+        let parent = match reader.u32()? {
+            NO_PARENT => None,
+            value => Some(value),
+        };
+        let name = reader.optional_text()?;
+        let transform = reader.transform()?;
+        nodes.push(ModelNode {
+            name,
+            parent,
+            transform,
         });
     }
-    let mut indices = Vec::with_capacity(index_count);
-    for _ in 0..index_count {
-        indices.push(reader.u32()?);
+    let mut attachments = Vec::with_capacity(attachment_count);
+    for _ in 0..attachment_count {
+        let node = reader.u32()?;
+        let kind = match reader.u8()? {
+            0 => ModelAttachmentKind::Mesh,
+            1 => ModelAttachmentKind::Volume,
+            value => {
+                return Err(Error::InvalidAsset(format!(
+                    "unsupported model attachment kind {value}"
+                )));
+            }
+        };
+        let asset_text = reader.text()?;
+        let asset = AssetId::from_str(&asset_text)
+            .map_err(|error| Error::InvalidAsset(error.to_string()))?;
+        attachments.push(ModelAttachment { node, asset, kind });
     }
-    validate_lod(geometric_error, &vertices, &indices, Error::InvalidAsset)?;
-    if bounds != calculate_bounds(&vertices) {
+    if !reader.is_empty() {
         return Err(Error::InvalidAsset(
-            "serialized bounds do not match vertex positions".to_owned(),
+            "trailing bytes after BFMODEL payload".to_owned(),
         ));
     }
-    Ok(MeshLod {
-        geometric_error,
-        bounds,
-        vertices,
-        indices,
-    })
+    validate_model(&nodes, &attachments, Error::InvalidAsset)?;
+    Ok((nodes, attachments))
 }
 
-fn validate_primitive(
-    attributes: VertexAttributes,
-    lods: &[MeshLod],
+fn validate_model(
+    nodes: &[ModelNode],
+    attachments: &[ModelAttachment],
     error: fn(String) -> Error,
 ) -> Result<(), Error> {
-    if !attributes.contains(VertexAttributes::POSITION) {
-        return Err(error("primitive is missing positions".to_owned()));
-    }
-    if lods.is_empty() || lods.len() > MAX_LODS {
-        return Err(error(format!(
-            "primitive must contain from 1 through {MAX_LODS} LODs"
-        )));
-    }
-    let mut previous_indices = usize::MAX;
-    let mut previous_error = 0.0_f32;
-    for lod in lods {
-        validate_lod(lod.geometric_error, &lod.vertices, &lod.indices, error)?;
-        if lod.indices.len() >= previous_indices {
-            return Err(error(
-                "LOD index counts must be strictly decreasing".to_owned(),
-            ));
+    let _node_count = u32::try_from(nodes.len())
+        .map_err(|_error| error("node count exceeds the format limit".to_owned()))?;
+    let _attachment_count = u32::try_from(attachments.len())
+        .map_err(|_error| error("attachment count exceeds the format limit".to_owned()))?;
+    validate_nodes(nodes, error)?;
+    validate_attachments(nodes.len(), attachments, error)
+}
+
+fn validate_nodes(nodes: &[ModelNode], error: fn(String) -> Error) -> Result<(), Error> {
+    let mut open_path = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        validate_transform(node.transform, error)?;
+        if node
+            .parent
+            .is_some_and(|parent| usize::try_from(parent).map_or(true, |parent| parent >= index))
+        {
+            return Err(error(format!("node {index} parent must precede the child")));
         }
-        if lod.geometric_error < previous_error {
-            return Err(error(
-                "LOD geometric errors must be non-decreasing".to_owned(),
-            ));
+        match node.parent {
+            None => open_path.clear(),
+            Some(parent) => {
+                let Some(parent_position) =
+                    open_path.iter().position(|candidate| *candidate == parent)
+                else {
+                    return Err(error(
+                        "nodes must form a depth-first ordered forest".to_owned(),
+                    ));
+                };
+                open_path.truncate(parent_position + 1);
+            }
         }
-        previous_indices = lod.indices.len();
-        previous_error = lod.geometric_error;
+        open_path.push(
+            u32::try_from(index)
+                .map_err(|_error| error("node index exceeds the format limit".to_owned()))?,
+        );
     }
     Ok(())
 }
 
-fn validate_lod(
-    geometric_error: f32,
-    vertices: &[MeshVertex],
-    indices: &[u32],
+fn validate_attachments(
+    node_count: usize,
+    attachments: &[ModelAttachment],
     error: fn(String) -> Error,
 ) -> Result<(), Error> {
-    if !geometric_error.is_finite() || geometric_error < 0.0 {
-        return Err(error(
-            "LOD geometric error must be finite and non-negative".to_owned(),
-        ));
+    let mut mesh_nodes = vec![false; node_count];
+    for (index, attachment) in attachments.iter().enumerate() {
+        let node = usize::try_from(attachment.node)
+            .map_err(|_error| error("attachment node does not fit usize".to_owned()))?;
+        if node >= node_count {
+            return Err(error(format!(
+                "attachment {index} references missing node {}",
+                attachment.node
+            )));
+        }
+        if attachment.kind == ModelAttachmentKind::Mesh {
+            if mesh_nodes[node] {
+                return Err(error(format!(
+                    "node {} has more than one mesh attachment",
+                    attachment.node
+                )));
+            }
+            mesh_nodes[node] = true;
+        }
     }
-    if vertices.is_empty() || indices.is_empty() || !indices.len().is_multiple_of(3) {
-        return Err(error(
-            "LOD must contain vertices and triangle-list indices".to_owned(),
-        ));
-    }
-    if vertices.iter().any(|vertex| !vertex_is_finite(vertex)) {
-        return Err(error("LOD contains a non-finite vertex".to_owned()));
-    }
-    if indices
-        .iter()
-        .any(|&index| usize::try_from(index).map_or(true, |value| value >= vertices.len()))
-    {
-        return Err(error("LOD index is outside its vertex buffer".to_owned()));
+    for pair in attachments.windows(2) {
+        let left = (&pair[0].node, pair[0].asset.as_str());
+        let right = (&pair[1].node, pair[1].asset.as_str());
+        if left >= right {
+            return Err(error(
+                "attachments must be uniquely ordered by node and asset ID".to_owned(),
+            ));
+        }
     }
     Ok(())
 }
 
-fn vertex_is_finite(vertex: &MeshVertex) -> bool {
-    vertex
-        .position
-        .iter()
-        .chain(&vertex.normal)
-        .chain(&vertex.tangent)
-        .chain(&vertex.texcoord_0)
-        .all(|value| value.is_finite())
-}
-
-fn calculate_bounds(vertices: &[MeshVertex]) -> Bounds {
-    let mut min = vertices[0].position;
-    let mut max = min;
-    for vertex in &vertices[1..] {
-        for axis in 0..3 {
-            min[axis] = min[axis].min(vertex.position[axis]);
-            max[axis] = max[axis].max(vertex.position[axis]);
+fn validate_transform(transform: NodeTransform, error: fn(String) -> Error) -> Result<(), Error> {
+    match transform {
+        NodeTransform::Trs {
+            translation,
+            rotation,
+            scale,
+        } => {
+            if !translation
+                .into_iter()
+                .chain(rotation)
+                .chain(scale)
+                .all(f32::is_finite)
+            {
+                return Err(error("model transform contains non-finite data".to_owned()));
+            }
+            let length_squared = rotation.into_iter().map(|value| value * value).sum::<f32>();
+            if (length_squared - 1.0).abs() > 0.000_1 {
+                return Err(error(
+                    "model rotation quaternion must be normalized".to_owned(),
+                ));
+            }
+        }
+        NodeTransform::Matrix(matrix) => {
+            if !matrix.into_iter().all(f32::is_finite) {
+                return Err(error("model matrix contains non-finite data".to_owned()));
+            }
         }
     }
-    Bounds { min, max }
+    Ok(())
+}
+
+fn put_transform(output: &mut BytesMut, transform: NodeTransform) {
+    match transform {
+        NodeTransform::Trs {
+            translation,
+            rotation,
+            scale,
+        } => {
+            output.put_u8(0);
+            put_floats(output, &translation);
+            put_floats(output, &rotation);
+            put_floats(output, &scale);
+        }
+        NodeTransform::Matrix(matrix) => {
+            output.put_u8(1);
+            put_floats(output, &matrix);
+        }
+    }
+}
+
+fn put_floats(output: &mut BytesMut, values: &[f32]) {
+    for value in values {
+        output.put_u32_le(value.to_bits());
+    }
+}
+
+fn put_optional_text(output: &mut BytesMut, value: Option<&str>) -> Result<(), Error> {
+    match value {
+        Some(value) => {
+            output.put_u8(1);
+            put_text(output, value)
+        }
+        None => {
+            output.put_u8(0);
+            Ok(())
+        }
+    }
+}
+
+fn put_text(output: &mut BytesMut, value: &str) -> Result<(), Error> {
+    put_len(output, value.len(), "string byte")?;
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
 }
 
 fn put_len(output: &mut BytesMut, value: usize, label: &str) -> Result<(), Error> {
     let value = u32::try_from(value)
-        .map_err(|_error| Error::InvalidInput(format!("{label} count does not fit u32")))?;
+        .map_err(|_error| Error::InvalidInput(format!("{label} count exceeds u32")))?;
     output.put_u32_le(value);
     Ok(())
-}
-
-fn put_floats<const N: usize>(output: &mut BytesMut, values: &[f32; N]) {
-    for value in values {
-        output.put_u32_le(value.to_bits());
-    }
 }
 
 struct Reader<'a> {
@@ -452,52 +438,76 @@ impl<'a> Reader<'a> {
         Self { bytes, offset: 0 }
     }
 
-    fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
+    const fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
     }
 
-    fn take(&mut self, count: usize) -> Result<&'a [u8], Error> {
+    fn bytes(&mut self, amount: usize) -> Result<&'a [u8], Error> {
         let end = self
             .offset
-            .checked_add(count)
-            .filter(|&end| end <= self.bytes.len())
-            .ok_or_else(|| Error::InvalidAsset("unexpected end of model data".to_owned()))?;
-        let value = &self.bytes[self.offset..end];
+            .checked_add(amount)
+            .ok_or_else(|| Error::InvalidAsset("model byte range overflow".to_owned()))?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| Error::InvalidAsset("truncated model asset".to_owned()))?;
         self.offset = end;
         Ok(value)
     }
 
+    fn u8(&mut self) -> Result<u8, Error> {
+        self.bytes(1)?
+            .first()
+            .copied()
+            .ok_or_else(|| Error::InvalidAsset("truncated model asset".to_owned()))
+    }
+
     fn u32(&mut self) -> Result<u32, Error> {
-        let bytes: [u8; 4] = self
-            .take(size_of::<u32>())?
+        let raw: [u8; 4] = self
+            .bytes(4)?
             .try_into()
-            .map_err(|_error| Error::InvalidAsset("invalid u32 field".to_owned()))?;
-        Ok(u32::from_le_bytes(bytes))
+            .map_err(|_error| Error::InvalidAsset("truncated model asset".to_owned()))?;
+        Ok(u32::from_le_bytes(raw))
     }
 
-    fn count(&mut self, label: &str, maximum: usize) -> Result<usize, Error> {
-        let value = usize::try_from(self.u32()?)
-            .map_err(|_error| Error::InvalidAsset(format!("{label} count does not fit usize")))?;
-        if value > maximum {
-            return Err(Error::InvalidAsset(format!(
-                "{label} count exceeds {maximum}"
-            )));
-        }
-        Ok(value)
+    fn len(&mut self, label: &str) -> Result<usize, Error> {
+        usize::try_from(self.u32()?)
+            .map_err(|_error| Error::InvalidAsset(format!("{label} count does not fit usize")))
     }
 
-    fn count_for_bytes(&mut self, label: &str, stride: usize) -> Result<usize, Error> {
-        let value = usize::try_from(self.u32()?)
-            .map_err(|_error| Error::InvalidAsset(format!("{label} count does not fit usize")))?;
-        let bytes = value
-            .checked_mul(stride)
-            .ok_or_else(|| Error::InvalidAsset(format!("{label} byte length overflow")))?;
-        if bytes > self.remaining() {
-            return Err(Error::InvalidAsset(format!(
-                "{label} data exceeds the remaining model bytes"
-            )));
+    fn text(&mut self) -> Result<String, Error> {
+        let length = self.len("string byte")?;
+        let value = std::str::from_utf8(self.bytes(length)?)
+            .map_err(|_error| Error::InvalidAsset("model string is not UTF-8".to_owned()))?;
+        Ok(value.to_owned())
+    }
+
+    fn optional_text(&mut self) -> Result<Option<String>, Error> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => self.text().map(Some),
+            value => Err(Error::InvalidAsset(format!(
+                "invalid optional model string tag {value}"
+            ))),
         }
-        Ok(value)
+    }
+
+    fn transform(&mut self) -> Result<NodeTransform, Error> {
+        let transform = match self.u8()? {
+            0 => NodeTransform::Trs {
+                translation: self.f32_array()?,
+                rotation: self.f32_array()?,
+                scale: self.f32_array()?,
+            },
+            1 => NodeTransform::Matrix(self.f32_array()?),
+            value => {
+                return Err(Error::InvalidAsset(format!(
+                    "unsupported model transform kind {value}"
+                )));
+            }
+        };
+        validate_transform(transform, Error::InvalidAsset)?;
+        Ok(transform)
     }
 
     fn f32_array<const N: usize>(&mut self) -> Result<[f32; N], Error> {
@@ -506,66 +516,5 @@ impl<'a> Reader<'a> {
             *value = f32::from_bits(self.u32()?);
         }
         Ok(values)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bytes::Bytes;
-
-    use super::{MeshLod, MeshPrimitive, MeshVertex, ModelAsset, VertexAttributes, encode};
-
-    fn vertex(x: f32, y: f32) -> MeshVertex {
-        MeshVertex {
-            position: [x, y, 0.0],
-            normal: [0.0, 0.0, 1.0],
-            tangent: [1.0, 0.0, 0.0, 1.0],
-            texcoord_0: [x, y],
-        }
-    }
-
-    #[test]
-    fn round_trips_a_lod_chain() -> Result<(), crate::Error> {
-        let base = MeshLod::new(
-            0.0,
-            vec![
-                vertex(0.0, 0.0),
-                vertex(1.0, 0.0),
-                vertex(1.0, 1.0),
-                vertex(0.0, 1.0),
-            ],
-            vec![0, 1, 2, 0, 2, 3],
-        )?;
-        let coarse = MeshLod::new(
-            0.25,
-            vec![vertex(0.0, 0.0), vertex(1.0, 0.0), vertex(0.0, 1.0)],
-            vec![0, 1, 2],
-        )?;
-        let primitive = MeshPrimitive::new(
-            Some(3),
-            VertexAttributes::positions()
-                .with(VertexAttributes::NORMAL)
-                .with(VertexAttributes::TEXCOORD_0),
-            vec![base, coarse],
-        )?;
-        let encoded = encode(std::slice::from_ref(&primitive))?;
-        let decoded = ModelAsset::from_bytes(encoded.clone())?;
-        assert_eq!(decoded.bytes(), &encoded);
-        assert_eq!(decoded.primitives(), &[primitive]);
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_trailing_bytes() -> Result<(), crate::Error> {
-        let lod = MeshLod::new(
-            0.0,
-            vec![vertex(0.0, 0.0), vertex(1.0, 0.0), vertex(0.0, 1.0)],
-            vec![0, 1, 2],
-        )?;
-        let primitive = MeshPrimitive::new(None, VertexAttributes::positions(), vec![lod])?;
-        let mut bytes = encode(&[primitive])?.to_vec();
-        bytes.push(0);
-        assert!(ModelAsset::from_bytes(Bytes::from(bytes)).is_err());
-        Ok(())
     }
 }
