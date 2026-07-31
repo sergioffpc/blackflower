@@ -388,6 +388,8 @@ fn recipe_hash(
             hasher.text("mesh");
             hasher.text(&manifest.mesh);
             hasher.serializable(&profile.meshes)?;
+            hasher.text(mesh_cooker::COOKER_RECIPE);
+            hasher.text(crate::coordinate_system::COOKER_RECIPE);
             hasher.text(mesh_cooker::MESHOPT_VERSION);
             let source_hash =
                 derived_source_hash.context("cooked mesh is missing its buffer source hash")?;
@@ -401,6 +403,7 @@ fn recipe_hash(
                 hasher.text(attachment.asset.as_str());
             }
             hasher.text(model_cooker::COOKER_RECIPE);
+            hasher.text(crate::coordinate_system::COOKER_RECIPE);
         }
         AssetSource::Volume(manifest) => {
             hasher.text("volume");

@@ -124,14 +124,21 @@ asset = "volumes/exhaust"
 
 The attachment kind is inferred from the referenced asset. The cooker
 preserves the complete selected hierarchy, including unnamed nodes, in
-depth-first source order. It preserves authored TRS or matrix representation
-without decomposing or normalizing it. Only node names used by attachments
-must be unique.
+depth-first source order. Every cooked node stores one column-major local
+matrix. Authored matrices are never decomposed; authored TRS quaternions are
+normalized and sign-canonicalized before TRS is composed into that matrix.
+Only node names used by attachments must be unique.
+
+The cooker converts glTF into Blackflower's
+[canonical engine coordinate system](../../docs/coordinate-system.md) by
+rotating the basis 180 degrees around Y. Translation remains in metres. The
+same conversion is applied to mesh positions, normals, and tangent directions;
+tangent handedness and triangle winding are preserved.
 
 A node may have at most one Mesh attachment and any number of distinct Volume
 attachments. Every glTF mesh referenced by the selected scene requires one
 explicit Mesh attachment to the matching source and mesh selection. Cameras,
-lights, skins, cycles, shared nodes, non-finite transforms, and non-normalized
+lights, skins, cycles, shared nodes, non-finite transforms, and zero-length
 quaternions fail the cook. Volume grid transforms remain local to the model
 node.
 

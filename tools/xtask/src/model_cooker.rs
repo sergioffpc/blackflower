@@ -7,6 +7,7 @@ use blackflower_rendering_models::{
 };
 use gltf::scene::Transform;
 
+use crate::coordinate_system;
 use crate::manifest::{
     AssetSource, LoadedAsset, ModelAttachmentManifest, ModelManifest, Repository,
 };
@@ -133,32 +134,56 @@ struct SourceNode {
 }
 
 fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
-    match source {
+    let matrix = match source {
         Transform::Decomposed {
             translation,
             rotation,
             scale,
-        } => NodeTransform::trs(translation, rotation, scale).map_err(anyhow::Error::from),
-        Transform::Matrix { matrix } => NodeTransform::matrix([
-            matrix[0][0],
-            matrix[0][1],
-            matrix[0][2],
-            matrix[0][3],
-            matrix[1][0],
-            matrix[1][1],
-            matrix[1][2],
-            matrix[1][3],
-            matrix[2][0],
-            matrix[2][1],
-            matrix[2][2],
-            matrix[2][3],
-            matrix[3][0],
-            matrix[3][1],
-            matrix[3][2],
-            matrix[3][3],
-        ])
-        .map_err(anyhow::Error::from),
+        } => {
+            let rotation = normalize_quaternion(rotation)?;
+            Transform::Decomposed {
+                translation,
+                rotation,
+                scale,
+            }
+            .matrix()
+        }
+        Transform::Matrix { matrix } => matrix,
+    };
+    NodeTransform::matrix(coordinate_system::matrix_from_gltf(matrix)).map_err(anyhow::Error::from)
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "normalized components are bounded to [-1, 1] and cooked matrices store f32"
+)]
+fn normalize_quaternion(rotation: [f32; 4]) -> anyhow::Result<[f32; 4]> {
+    if !rotation.into_iter().all(f32::is_finite) {
+        bail!("model rotation quaternion contains non-finite data");
     }
+    let length_squared = rotation
+        .into_iter()
+        .map(|value| {
+            let value = f64::from(value);
+            value * value
+        })
+        .sum::<f64>();
+    if length_squared == 0.0 {
+        bail!("model rotation quaternion has zero length");
+    }
+    let inverse_length = length_squared.sqrt().recip();
+    let mut normalized = rotation.map(|value| (f64::from(value) * inverse_length) as f32);
+    if quaternion_needs_flip(normalized) {
+        normalized = normalized.map(|value| -value);
+    }
+    Ok(normalized.map(|value| if value == 0.0 { 0.0 } else { value }))
+}
+
+fn quaternion_needs_flip(rotation: [f32; 4]) -> bool {
+    [rotation[3], rotation[0], rotation[1], rotation[2]]
+        .into_iter()
+        .find(|value| *value != 0.0)
+        .is_some_and(f32::is_sign_negative)
 }
 
 #[allow(
@@ -331,3 +356,7 @@ fn display_model_node(nodes: &[ModelNode], index: usize) -> String {
         .and_then(ModelNode::name)
         .map_or_else(|| format!("#{index}"), |name| format!("`{name}`"))
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/model_cooker.rs"]
+mod tests;

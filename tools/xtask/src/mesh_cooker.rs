@@ -9,8 +9,10 @@ use meshopt::{DecodePosition, SimplifyOptions};
 
 use crate::manifest::{LoadedAsset, MeshManifest};
 use crate::profile::MeshProfile;
+use crate::{coordinate_system, coordinate_system::vector_from_gltf};
 
 pub(crate) const MESHOPT_VERSION: &str = "0.6.2";
+pub(crate) const COOKER_RECIPE: &str = "blackflower-mesh-cooker-v1";
 
 #[derive(Debug, Clone, Copy, Default)]
 struct CookVertex {
@@ -217,13 +219,19 @@ fn assemble_vertices(
         .iter()
         .enumerate()
         .map(|(index, &position)| CookVertex {
-            position,
-            normal: normals.map_or([0.0; 3], |values| values[index]),
-            tangent: tangents.map_or([0.0; 4], |values| values[index]),
+            position: vector_from_gltf(position),
+            normal: normals.map_or([0.0; 3], |values| vector_from_gltf(values[index])),
+            tangent: tangents.map_or([0.0; 4], |values| {
+                coordinate_system::tangent_from_gltf(values[index])
+            }),
             texcoord_0: texcoords.map_or([0.0; 2], |values| values[index]),
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/mesh_cooker.rs"]
+mod tests;
 
 fn validate_indices(indices: &[u32], vertex_count: usize) -> anyhow::Result<()> {
     if indices.is_empty() || !indices.len().is_multiple_of(3) {

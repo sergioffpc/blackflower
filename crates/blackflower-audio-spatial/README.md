@@ -178,6 +178,8 @@ effect.process_mono(
 # }
 ```
 
-Steam Audio uses a right-handed coordinate system: positive x points right,
-positive y points up and negative z points ahead. `BinauralParams` expects a
-listener-relative direction and normalizes it before crossing the FFI boundary.
+Steam Audio uses the same basis as Blackflower's
+[engine coordinate system](../../docs/coordinate-system.md): positive x points
+right, positive y points up and negative z points ahead. `BinauralParams`
+expects a listener-relative direction and normalizes it before crossing the
+FFI boundary.

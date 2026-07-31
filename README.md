@@ -5,6 +5,13 @@ simulation. The project is organized around an authoritative server, a
 deterministic fixed-step simulation, and a client that owns prediction and
 presentation.
 
+## Engine conventions
+
+Blackflower engine space is right-handed: `+X` points right, `+Y` points up,
+and `-Z` points forward. Linear distances use metres and angles use radians.
+The normative basis, rotation, unit, matrix-layout, and foreign-format boundary
+rules are recorded in the [coordinate-system contract](docs/coordinate-system.md).
+
 ## Workspace
 
 | Path | Responsibility |
