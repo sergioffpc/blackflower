@@ -3,9 +3,12 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use blackflower_acoustics::{
+    AcousticStructureVersion, AudibleSoundDelivery, BandEnergy, PropagationDescriptor,
+};
 use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_world_presentation::{
-    BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
+    AudioCommand, BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
     EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, PrepareFrameSystem,
     PresentationError, PresentationPhase, PresentationPipeline, PresentationWorld,
     ResolveSceneGraphSystem, SampleRenderTimelineSystem, SubmitBackendCommandsSystem,
@@ -326,5 +329,32 @@ fn failed_submission_does_not_commit_frame_history() -> TestResult {
         }
     );
     assert!(!history_committed.load(Ordering::Acquire));
+    Ok(())
+}
+
+#[test]
+fn audible_delivery_flows_through_the_three_audio_systems() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let delivery = AudibleSoundDelivery {
+        receiver_id: 20,
+        client_event_id: 77,
+        play_sample: 4_800,
+        propagation: PropagationDescriptor {
+            structure_version: AcousticStructureVersion(3),
+            arrival_sample: 4_800,
+            path_length_mm: 34_300,
+            gain_db_q8: -12 * 256,
+            band_gain: BandEnergy([60_000, 40_000, 20_000]),
+            direction_q15: [100, 200, 300],
+            uncertainty_q16: 512,
+            direct: false,
+        },
+    };
+    presentation.queue_audible_sound(delivery)?;
+    assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    assert_eq!(
+        presentation.drain_submitted_audio_commands()?,
+        vec![AudioCommand::PlayAudibleSound(delivery)]
+    );
     Ok(())
 }

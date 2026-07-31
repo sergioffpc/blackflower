@@ -16,7 +16,7 @@ use glam::Vec3A;
 use crate::types::{AudioSettings, BinauralParams, Interpolation, TailState};
 use crate::{
     AcousticMaterial, AcousticProbe, BakedDataIdentifier, BakedDataType, BakedDataVariation,
-    PathBakeSettings, ProbeVolumeTransform, ReflectionsBakeSettings,
+    PathBakeSettings, ProbeVolumeTransform, RayTracerBackend, ReflectionsBakeSettings,
 };
 
 #[allow(
@@ -61,10 +61,16 @@ pub(crate) struct HrtfPtr(NonNull<raw::_IPLHRTF_t>);
 pub(crate) struct BinauralEffectPtr(NonNull<raw::_IPLBinauralEffect_t>);
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct EmbreeDevicePtr(NonNull<raw::_IPLEmbreeDevice_t>);
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct ScenePtr(NonNull<raw::_IPLScene_t>);
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StaticMeshPtr(NonNull<raw::_IPLStaticMesh_t>);
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InstancedMeshPtr(NonNull<raw::_IPLInstancedMesh_t>);
 
 #[derive(Debug, Clone, Copy)]
 struct SerializedObjectPtr(NonNull<raw::_IPLSerializedObject_t>);
@@ -90,6 +96,8 @@ unsafe impl Sync for ContextPtr {}
 unsafe impl Send for HrtfPtr {}
 unsafe impl Sync for HrtfPtr {}
 unsafe impl Send for BinauralEffectPtr {}
+unsafe impl Send for EmbreeDevicePtr {}
+unsafe impl Sync for EmbreeDevicePtr {}
 unsafe impl Send for ProbeBatchPtr {}
 unsafe impl Sync for ProbeBatchPtr {}
 
@@ -115,8 +123,27 @@ pub(crate) fn destroy_context(context: ContextPtr) {
     unsafe { raw::iplContextRelease(&raw mut pointer) };
 }
 
-pub(crate) fn create_scene(context: ContextPtr) -> Result<ScenePtr, Status> {
-    let mut settings = default_scene_settings();
+pub(crate) fn create_embree_device(context: ContextPtr) -> Result<EmbreeDevicePtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::iplEmbreeDeviceCreate(context.0.as_ptr(), std::ptr::null_mut(), &raw mut pointer)
+    };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(EmbreeDevicePtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn destroy_embree_device(device: EmbreeDevicePtr) {
+    let mut pointer = device.0.as_ptr();
+    unsafe { raw::iplEmbreeDeviceRelease(&raw mut pointer) };
+}
+
+pub(crate) fn create_scene(
+    context: ContextPtr,
+    embree: Option<EmbreeDevicePtr>,
+) -> Result<ScenePtr, Status> {
+    let mut settings = scene_settings(embree);
     let mut pointer = std::ptr::null_mut();
     let status =
         unsafe { raw::iplSceneCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer) };
@@ -126,9 +153,13 @@ pub(crate) fn create_scene(context: ContextPtr) -> Result<ScenePtr, Status> {
         .ok_or(Status::ContractViolation)
 }
 
-pub(crate) fn load_scene(context: ContextPtr, bytes: &[u8]) -> Result<ScenePtr, Status> {
+pub(crate) fn load_scene(
+    context: ContextPtr,
+    embree: Option<EmbreeDevicePtr>,
+    bytes: &[u8],
+) -> Result<ScenePtr, Status> {
     let serialized = create_serialized_object(context, Some(bytes))?;
-    let mut settings = default_scene_settings();
+    let mut settings = scene_settings(embree);
     let mut pointer = std::ptr::null_mut();
     let status = unsafe {
         raw::iplSceneLoad(
@@ -214,6 +245,56 @@ pub(crate) fn remove_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
     unsafe { raw::iplStaticMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
+pub(crate) fn create_instanced_mesh(
+    scene: ScenePtr,
+    sub_scene: ScenePtr,
+    transform: [[f32; 4]; 4],
+) -> Result<InstancedMeshPtr, Status> {
+    let mut settings = raw::IPLInstancedMeshSettings {
+        subScene: sub_scene.0.as_ptr(),
+        transform: raw::IPLMatrix4x4 {
+            elements: transform,
+        },
+    };
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::iplInstancedMeshCreate(scene.0.as_ptr(), &raw mut settings, &raw mut pointer)
+    };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(InstancedMeshPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn destroy_instanced_mesh(mesh: InstancedMeshPtr) {
+    let mut pointer = mesh.0.as_ptr();
+    unsafe { raw::iplInstancedMeshRelease(&raw mut pointer) };
+}
+
+pub(crate) fn add_instanced_mesh(scene: ScenePtr, mesh: InstancedMeshPtr) {
+    unsafe { raw::iplInstancedMeshAdd(mesh.0.as_ptr(), scene.0.as_ptr()) };
+}
+
+pub(crate) fn remove_instanced_mesh(scene: ScenePtr, mesh: InstancedMeshPtr) {
+    unsafe { raw::iplInstancedMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
+}
+
+pub(crate) fn update_instanced_mesh_transform(
+    scene: ScenePtr,
+    mesh: InstancedMeshPtr,
+    transform: [[f32; 4]; 4],
+) {
+    unsafe {
+        raw::iplInstancedMeshUpdateTransform(
+            mesh.0.as_ptr(),
+            scene.0.as_ptr(),
+            raw::IPLMatrix4x4 {
+                elements: transform,
+            },
+        )
+    };
+}
+
 pub(crate) fn generate_uniform_floor_probes(
     context: ContextPtr,
     scene: ScenePtr,
@@ -262,6 +343,7 @@ pub(crate) fn generate_uniform_floor_probes(
 pub(crate) fn bake_reflections(
     context: ContextPtr,
     scene: ScenePtr,
+    backend: RayTracerBackend,
     batch: ProbeBatchPtr,
     identifier: BakedDataIdentifier,
     settings: ReflectionsBakeSettings,
@@ -269,7 +351,10 @@ pub(crate) fn bake_reflections(
     let mut params = raw::IPLReflectionsBakeParams {
         scene: scene.0.as_ptr(),
         probeBatch: batch.0.as_ptr(),
-        sceneType: raw::IPL_SCENETYPE_DEFAULT,
+        sceneType: match backend {
+            RayTracerBackend::BuiltIn => raw::IPL_SCENETYPE_DEFAULT,
+            RayTracerBackend::Embree => raw::IPL_SCENETYPE_EMBREE,
+        },
         identifier: raw_identifier(identifier),
         bakeFlags: raw::IPL_REFLECTIONSBAKEFLAGS_BAKECONVOLUTION
             | raw::IPL_REFLECTIONSBAKEFLAGS_BAKEPARAMETRIC,
@@ -521,15 +606,19 @@ fn raw_material(material: AcousticMaterial) -> raw::IPLMaterial {
     }
 }
 
-fn default_scene_settings() -> raw::IPLSceneSettings {
+fn scene_settings(embree: Option<EmbreeDevicePtr>) -> raw::IPLSceneSettings {
     raw::IPLSceneSettings {
-        type_: raw::IPL_SCENETYPE_DEFAULT,
+        type_: if embree.is_some() {
+            raw::IPL_SCENETYPE_EMBREE
+        } else {
+            raw::IPL_SCENETYPE_DEFAULT
+        },
         closestHitCallback: None,
         anyHitCallback: None,
         batchedClosestHitCallback: None,
         batchedAnyHitCallback: None,
         userData: std::ptr::null_mut(),
-        embreeDevice: std::ptr::null_mut(),
+        embreeDevice: embree.map_or(std::ptr::null_mut(), |device| device.0.as_ptr()),
         radeonRaysDevice: std::ptr::null_mut(),
     }
 }

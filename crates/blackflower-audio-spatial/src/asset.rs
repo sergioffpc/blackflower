@@ -6,6 +6,8 @@ use crate::{Error, STEAM_AUDIO_VERSION};
 
 /// Schema shared by `.bfacscn`, `.bfacprb`, and `.bfac`.
 pub const ACOUSTIC_ASSET_SCHEMA: u32 = 1;
+/// Current `.bfac` environment schema. Version 1 is rejected and must be recooked.
+pub const ACOUSTIC_ENVIRONMENT_SCHEMA: u32 = 2;
 
 const SCENE_MAGIC: &[u8; 8] = b"BFACSCN\0";
 const PROBES_MAGIC: &[u8; 8] = b"BFACPRB\0";
@@ -399,12 +401,15 @@ impl AcousticZone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcousticEnvironment {
     bytes: Vec<u8>,
+    topology: String,
     zones: Vec<AcousticZone>,
 }
 
 impl AcousticEnvironment {
     /// Build a canonical descriptor ordered by zone ID.
-    pub fn new(mut zones: Vec<AcousticZone>) -> Result<Self, Error> {
+    pub fn new(topology: impl Into<String>, mut zones: Vec<AcousticZone>) -> Result<Self, Error> {
+        let topology = topology.into();
+        validate_text(&topology, "acoustic environment")?;
         if zones.is_empty() {
             return Err(invalid("acoustic environment", "zone list is empty"));
         }
@@ -414,21 +419,32 @@ impl AcousticEnvironment {
         }
         let mut bytes = Vec::new();
         bytes.extend_from_slice(ENVIRONMENT_MAGIC);
-        push_u32(&mut bytes, ACOUSTIC_ASSET_SCHEMA);
+        push_u32(&mut bytes, ACOUSTIC_ENVIRONMENT_SCHEMA);
+        push_text(&mut bytes, &topology)?;
         push_len(&mut bytes, zones.len())?;
         for zone in &zones {
             push_text(&mut bytes, &zone.id)?;
             push_text(&mut bytes, &zone.scene)?;
             push_text(&mut bytes, &zone.probes)?;
         }
-        Ok(Self { bytes, zones })
+        Ok(Self {
+            bytes,
+            topology,
+            zones,
+        })
     }
 
     /// Decode and validate one `.bfac` descriptor.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(bytes, "acoustic environment");
         reader.magic(ENVIRONMENT_MAGIC)?;
-        reader.schema()?;
+        if reader.u32()? != ACOUSTIC_ENVIRONMENT_SCHEMA {
+            return Err(invalid(
+                "acoustic environment",
+                "schema is unsupported; recook .bfac v2",
+            ));
+        }
+        let topology = reader.text()?.to_owned();
         let count = reader.count()?;
         let mut zones = Vec::new();
         for _ in 0..count {
@@ -439,7 +455,7 @@ impl AcousticEnvironment {
             )?);
         }
         reader.finish()?;
-        let value = Self::new(zones)?;
+        let value = Self::new(topology, zones)?;
         if value.bytes != bytes {
             return Err(invalid(
                 "acoustic environment",
@@ -453,6 +469,12 @@ impl AcousticEnvironment {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Referenced shared `.bfactpl` asset ID.
+    #[must_use]
+    pub fn topology(&self) -> &str {
+        &self.topology
     }
 
     /// Canonically ordered zones.
@@ -730,15 +752,28 @@ mod tests {
 
     #[test]
     fn environment_is_sorted_and_strict() -> Result<(), crate::Error> {
-        let environment = AcousticEnvironment::new(vec![
-            AcousticZone::new("upper", "levels/scene", "levels/upper")?,
-            AcousticZone::new("ground", "levels/scene", "levels/ground")?,
-        ])?;
+        let environment = AcousticEnvironment::new(
+            "levels/topology",
+            vec![
+                AcousticZone::new("upper", "levels/scene", "levels/upper")?,
+                AcousticZone::new("ground", "levels/scene", "levels/ground")?,
+            ],
+        )?;
         assert_eq!(environment.zones()[0].id(), "ground");
+        assert_eq!(environment.topology(), "levels/topology");
         assert_eq!(
             AcousticEnvironment::from_bytes(environment.bytes())?.zones(),
             environment.zones()
         );
+        let mut version_one = environment.bytes().to_vec();
+        version_one[8..12].copy_from_slice(&1_u32.to_le_bytes());
+        let Err(error) = AcousticEnvironment::from_bytes(&version_one) else {
+            return Err(crate::Error::InvalidAcousticAsset {
+                format: "environment",
+                reason: "v1 environment was accepted",
+            });
+        };
+        assert!(error.to_string().contains("recook .bfac v2"));
         Ok(())
     }
 }

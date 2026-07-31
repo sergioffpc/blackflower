@@ -16,6 +16,7 @@ use kira::{AudioManager, AudioManagerSettings, Frame, Tween};
 use crate::decoder::KiraStreamDecoder;
 use crate::hrtf::{DirectionHandle, HrtfBuilder};
 use crate::{Error, INTERNAL_BUFFER_SIZE};
+use blackflower_acoustics::PropagationDescriptor;
 
 /// Opaque runtime voice identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,6 +44,8 @@ pub struct PlaybackParams {
     pub direction: [f32; 3],
     /// Optional current source distance in metres.
     pub distance_meters: Option<f32>,
+    /// Optional server-authoritative direct/path parameters.
+    pub propagation: Option<PropagationDescriptor>,
 }
 
 impl Default for PlaybackParams {
@@ -51,6 +54,26 @@ impl Default for PlaybackParams {
             gain_db: 0.0,
             direction: [0.0, 0.0, -1.0],
             distance_meters: None,
+            propagation: None,
+        }
+    }
+}
+
+impl PlaybackParams {
+    /// Derive client-safe HRTF/gain parameters from an authoritative delivery.
+    #[must_use]
+    pub fn from_propagation(propagation: PropagationDescriptor) -> Self {
+        let mut direction = propagation
+            .direction_q15
+            .map(|value| f32::from(value) / f32::from(i16::MAX));
+        if direction.iter().map(|value| value * value).sum::<f32>() <= f32::EPSILON {
+            direction = [0.0, 0.0, -1.0];
+        }
+        Self {
+            gain_db: 0.0,
+            direction,
+            distance_meters: None,
+            propagation: Some(propagation),
         }
     }
 }
@@ -133,7 +156,8 @@ impl AudioEngine {
                 let mut builder = TrackBuilder::new()
                     .sound_capacity(1)
                     .persist_until_sounds_finish(true);
-                let direction = builder.add_effect(HrtfBuilder::new(params.direction));
+                let direction =
+                    builder.add_effect(HrtfBuilder::new(params.direction, params.propagation));
                 let mut track = self
                     .manager
                     .add_sub_track(builder)
@@ -184,6 +208,25 @@ impl AudioEngine {
             .as_ref()
             .ok_or(Error::InvalidField("voice is not HRTF"))?;
         handle.set(direction);
+        Ok(())
+    }
+
+    /// Publish new authoritative direct/path parameters without locking the callback.
+    pub fn set_propagation(
+        &mut self,
+        id: VoiceId,
+        propagation: PropagationDescriptor,
+    ) -> Result<(), Error> {
+        let voice = self
+            .voices
+            .iter_mut()
+            .find(|voice| voice.id == id)
+            .ok_or(Error::UnknownVoice)?;
+        let handle = voice
+            .direction
+            .as_ref()
+            .ok_or(Error::InvalidField("voice is not HRTF"))?;
+        handle.set_propagation(propagation);
         Ok(())
     }
 
@@ -395,6 +438,7 @@ fn effective_gain(event: &SoundEvent, params: PlaybackParams) -> Result<f32, Err
 #[cfg(test)]
 mod tests {
     use super::*;
+    use blackflower_acoustics::{AcousticStructureVersion, BandEnergy};
     use blackflower_audio_media::{Concurrency, Spatialization};
     use kira::backend::mock::{MockBackend, MockBackendSettings};
     use std::str::FromStr;
@@ -451,6 +495,46 @@ mod tests {
         };
         let handle = manager.play(data).map_err(|_error| Error::ResourceLimit)?;
         assert_ne!(handle.state(), PlaybackState::Stopped);
+        Ok(())
+    }
+
+    #[test]
+    fn kira_mock_processes_authoritative_effects_without_callback_setup() -> Result<(), Error> {
+        let mut manager = AudioManager::<MockBackend>::new(AudioManagerSettings {
+            internal_buffer_size: INTERNAL_BUFFER_SIZE,
+            backend_settings: MockBackendSettings {
+                sample_rate: AUDIO_SAMPLE_RATE,
+            },
+            ..AudioManagerSettings::default()
+        })
+        .map_err(|()| Error::Device("mock backend failed".to_owned()))?;
+        let propagation = PropagationDescriptor {
+            structure_version: AcousticStructureVersion(1),
+            arrival_sample: 960,
+            path_length_mm: 3_430,
+            gain_db_q8: -3 * 256,
+            band_gain: BandEnergy([u16::MAX, 40_000, 20_000]),
+            direction_q15: [i16::MAX, 0, 0],
+            uncertainty_q16: 0,
+            direct: true,
+        };
+        let mut builder = TrackBuilder::new().sound_capacity(1);
+        let parameters = builder.add_effect(HrtfBuilder::new([1.0, 0.0, 0.0], Some(propagation)));
+        let mut track = manager
+            .add_sub_track(builder)
+            .map_err(|_error| Error::ResourceLimit)?;
+        let data = StaticSoundData {
+            sample_rate: AUDIO_SAMPLE_RATE,
+            frames: Arc::from([Frame::from_mono(0.25); INTERNAL_BUFFER_SIZE * 2]),
+            settings: StaticSoundSettings::default(),
+            slice: None,
+        };
+        let _handle = track.play(data).map_err(|_error| Error::ResourceLimit)?;
+        manager.backend_mut().on_start_processing();
+        manager.backend_mut().process();
+        parameters.set_propagation(propagation);
+        manager.backend_mut().on_start_processing();
+        manager.backend_mut().process();
         Ok(())
     }
 }

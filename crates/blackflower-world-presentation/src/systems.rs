@@ -806,8 +806,8 @@ fn open_frame(execution_context: &FrameExecutionContext) -> SystemResult {
     Ok(())
 }
 
-fn reset_frame_transient_storage(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Reset scratch storage and command staging from the previous frame attempt.
+fn reset_frame_transient_storage(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.reset_audio_transient()?;
     Ok(())
 }
 
@@ -966,8 +966,8 @@ fn advance_visual_effects(_execution_context: &FrameExecutionContext) -> SystemR
     Ok(())
 }
 
-fn update_spatial_audio_emitters(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Update spatial-audio cues, emitters, parameters, and final transforms.
+fn update_spatial_audio_emitters(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.update_audio_emitters()?;
     Ok(())
 }
 
@@ -991,8 +991,8 @@ fn build_rendering_commands(_execution_context: &FrameExecutionContext) -> Syste
     Ok(())
 }
 
-fn build_audio_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Build immutable listener, emitter, playback, parameter, and stop commands.
+fn build_audio_commands(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.build_audio_commands()?;
     Ok(())
 }
 
@@ -1021,8 +1021,8 @@ fn submit_user_interface_commands(_execution_context: &FrameExecutionContext) ->
     Ok(())
 }
 
-fn submit_audio_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Submit sealed listener, emitter, playback, parameter, and stop commands.
+fn submit_audio_commands(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.submit_audio_commands()?;
     Ok(())
 }
 

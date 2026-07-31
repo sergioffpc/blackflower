@@ -1094,28 +1094,28 @@ fn capture_phenomenon_facts(_execution_context: &SimulationExecutionContext) -> 
     Ok(())
 }
 
-fn capture_sound_emissions(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Capture and canonicalize sound emissions produced during the active tick.
+fn capture_sound_emissions(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.capture_acoustic_tick()?;
     Ok(())
 }
 
-fn resolve_acoustic_paths(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Resolve direct, occluded, transmitted, diffracted, and reflected paths.
+fn resolve_acoustic_paths(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.resolve_acoustic_paths()?;
     Ok(())
 }
 
-fn advance_acoustic_propagation(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Advance acoustic energy, attenuation, and time of arrival along resolved paths.
+fn advance_acoustic_propagation(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.advance_acoustic_propagation()?;
     Ok(())
 }
 
-fn build_acoustic_observations(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Build audibility observations for actors, bots, and acoustic sensors.
+fn build_acoustic_observations(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.build_acoustic_observations()?;
     Ok(())
 }
 
-fn capture_acoustic_facts(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Capture the canonical acoustic facts consumed by later phases.
+fn capture_acoustic_facts(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.capture_acoustic_facts()?;
     Ok(())
 }
 
@@ -1210,8 +1210,8 @@ fn update_navigation_structure(_execution_context: &SimulationExecutionContext) 
     Ok(())
 }
 
-fn update_acoustic_structure(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Update acoustic geometry, materials, and propagation connectivity.
+fn update_acoustic_structure(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.update_acoustic_structure()?;
     Ok(())
 }
 

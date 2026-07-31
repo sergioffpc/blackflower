@@ -32,5 +32,12 @@ The cadence policy defines 60 Hz control frames every 4 ticks, 30 Hz snapshots
 every 8 ticks, 5 Hz bot perception and tactical updates every 48 ticks, and a
 one-second input timeout after 240 ticks.
 
+When installed, `AcousticWorld` backs the five `SolveAcoustics` systems and
+`UpdateAcousticStructure`. It resolves bounded zone/portal candidates, direct
+and transmitted geometry, path arrivals on a 48 kHz timeline, masking, private
+bot observations, and gated player deliveries. Committed door, destructible,
+and portal changes become visible on the next tick. Transient observations are
+retained for the complete 48-tick bot-perception interval.
+
 The pipeline performs no network I/O, serialization, socket access, file
 handling, or wall-clock pacing.

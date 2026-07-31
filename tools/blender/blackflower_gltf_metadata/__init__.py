@@ -110,6 +110,12 @@ class BlackflowerNodeMetadata(PropertyGroup):
             ("geometry", "Geometry", "Classify mesh geometry for acoustics"),
             ("zone", "Zone", "Identify an acoustic zone"),
             (
+                "zone_volume",
+                "Zone Volume",
+                "Bound a Stage 9 acoustic zone for authoritative broad phase",
+            ),
+            ("portal", "Portal", "Connect two Stage 9 acoustic zones"),
+            (
                 "probe_volume",
                 "Probe Volume",
                 "Bound automatic probe generation for one zone",
@@ -138,6 +144,18 @@ class BlackflowerNodeMetadata(PropertyGroup):
     acoustic_zone: StringProperty(
         name="Zone",
         description="Stable acoustic zone ID containing this probe volume",
+        default="",
+        maxlen=128,
+    )
+    acoustic_zone_a: StringProperty(
+        name="Zone A",
+        description="First adjacent acoustic zone-volume ID",
+        default="",
+        maxlen=128,
+    )
+    acoustic_zone_b: StringProperty(
+        name="Zone B",
+        description="Second adjacent acoustic zone-volume ID",
         default="",
         maxlen=128,
     )
@@ -305,6 +323,9 @@ class BLACKFLOWER_PT_node_metadata(Panel):
             acoustics.prop(properties, "acoustic_geometry_class")
         if acoustics_kind == "probe_volume":
             acoustics.prop(properties, "acoustic_zone")
+        if acoustics_kind == "portal":
+            acoustics.prop(properties, "acoustic_zone_a")
+            acoustics.prop(properties, "acoustic_zone_b")
         if acoustics_kind != "none" and not properties.identifier:
             acoustics.label(text="Stable ID is required for acoustics", icon="ERROR")
         if acoustics_kind != "none":
@@ -438,6 +459,8 @@ class glTF2ExportUserExtension:
                 "static",
             ),
             acoustic_zone=getattr(properties, "acoustic_zone", ""),
+            acoustic_zone_a=getattr(properties, "acoustic_zone_a", ""),
+            acoustic_zone_b=getattr(properties, "acoustic_zone_b", ""),
         )
         gltf2_node.extras = merge_extras(gltf2_node.extras, metadata)
 

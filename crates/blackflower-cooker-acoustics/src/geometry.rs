@@ -20,6 +20,23 @@ pub(crate) struct ImportedProbeVolume {
     pub(crate) transform: ProbeVolumeTransform,
 }
 
+pub(crate) struct ImportedTopology {
+    pub(crate) zones: Vec<ImportedZone>,
+    pub(crate) portals: Vec<ImportedPortal>,
+}
+
+pub(crate) struct ImportedZone {
+    pub(crate) name: String,
+    pub(crate) bounds: blackflower_acoustics::AabbMm,
+}
+
+pub(crate) struct ImportedPortal {
+    pub(crate) name: String,
+    pub(crate) zone_a: String,
+    pub(crate) zone_b: String,
+    pub(crate) center: blackflower_acoustics::PositionMm,
+}
+
 pub(crate) fn import_scene(
     path: &Path,
     definitions: &[AcousticMaterialDefinition],
@@ -77,6 +94,267 @@ pub(crate) fn import_probe_volume(
 
 pub(crate) fn import_zone_ids(path: &Path) -> Result<BTreeSet<String>, Error> {
     import_layout(path, None).map(|(zones, _volume)| zones)
+}
+
+pub(crate) fn import_selected_geometry(
+    path: &Path,
+    definitions: &[AcousticMaterialDefinition],
+    selected_id: &str,
+) -> Result<ImportedScene, Error> {
+    let source = Source::open(path)?;
+    let material_table = material_table(definitions)?;
+    let mut output = ImportedScene {
+        vertices: Vec::new(),
+        triangles: Vec::new(),
+        material_indices: Vec::new(),
+        materials: definitions
+            .iter()
+            .map(AcousticMaterialDefinition::material)
+            .collect(),
+    };
+    let mut states = vec![NodeState::Unvisited; source.gltf.document.nodes().len()];
+    let mut identifiers = BTreeSet::new();
+    let mut found = false;
+    for node in selected_scene(&source.gltf.document)?.nodes() {
+        visit_selected_geometry(
+            node,
+            Mat4::IDENTITY,
+            &source,
+            &material_table,
+            selected_id,
+            &mut states,
+            &mut identifiers,
+            &mut found,
+            &mut output,
+        )?;
+    }
+    if !found || output.triangles.is_empty() {
+        return Err(Error::InvalidSource(format!(
+            "dynamic acoustic node `{selected_id}` is missing or empty"
+        )));
+    }
+    Ok(output)
+}
+
+pub(crate) fn import_topology(path: &Path) -> Result<ImportedTopology, Error> {
+    let source = Source::open(path)?;
+    let mut states = vec![NodeState::Unvisited; source.gltf.document.nodes().len()];
+    let mut identifiers = BTreeSet::new();
+    let mut output = ImportedTopology {
+        zones: Vec::new(),
+        portals: Vec::new(),
+    };
+    for node in selected_scene(&source.gltf.document)?.nodes() {
+        visit_topology_node(
+            node,
+            Mat4::IDENTITY,
+            &source,
+            &mut states,
+            &mut identifiers,
+            &mut output,
+        )?;
+    }
+    output
+        .zones
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    output
+        .portals
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    if output.zones.is_empty() {
+        return Err(Error::InvalidSource(
+            "acoustic topology contains no zone_volume nodes".to_owned(),
+        ));
+    }
+    let zones = output
+        .zones
+        .iter()
+        .map(|zone| zone.name.as_str())
+        .collect::<BTreeSet<_>>();
+    for portal in &output.portals {
+        if !zones.contains(portal.zone_a.as_str()) || !zones.contains(portal.zone_b.as_str()) {
+            return Err(Error::InvalidSource(format!(
+                "acoustic portal `{}` references a missing zone",
+                portal.name
+            )));
+        }
+    }
+    Ok(output)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "stable hierarchy traversal carries validation and selected geometry state explicitly"
+)]
+fn visit_selected_geometry(
+    node: gltf::Node<'_>,
+    parent: Mat4,
+    source: &Source,
+    material_table: &BTreeMap<&str, u32>,
+    selected_id: &str,
+    states: &mut [NodeState],
+    identifiers: &mut BTreeSet<String>,
+    found: &mut bool,
+    output: &mut ImportedScene,
+) -> Result<(), Error> {
+    enter_node(node.index(), states)?;
+    let world = world_transform(&node, parent)?;
+    if let Some(metadata) = source.metadata.acoustic_node_metadata_at(node.index())? {
+        if !identifiers.insert(metadata.identifier().to_owned()) {
+            return Err(Error::InvalidSource(format!(
+                "duplicate acoustic node ID `{}`",
+                metadata.identifier()
+            )));
+        }
+        if metadata.identifier() == selected_id {
+            if !matches!(
+                metadata.kind(),
+                AcousticNodeKind::Geometry {
+                    class: AcousticGeometryClass::DynamicRigid
+                        | AcousticGeometryClass::DynamicState
+                }
+            ) {
+                return Err(Error::InvalidSource(format!(
+                    "selected acoustic node `{selected_id}` is not dynamic geometry"
+                )));
+            }
+            append_static_geometry(
+                node.clone(),
+                world,
+                source,
+                material_table,
+                metadata.identifier(),
+                output,
+            )?;
+            *found = true;
+        }
+    }
+    for child in node.children() {
+        visit_selected_geometry(
+            child,
+            world,
+            source,
+            material_table,
+            selected_id,
+            states,
+            identifiers,
+            found,
+            output,
+        )?;
+    }
+    states[node.index()] = NodeState::Visited;
+    Ok(())
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "stable hierarchy traversal carries topology validation state explicitly"
+)]
+fn visit_topology_node(
+    node: gltf::Node<'_>,
+    parent: Mat4,
+    source: &Source,
+    states: &mut [NodeState],
+    identifiers: &mut BTreeSet<String>,
+    output: &mut ImportedTopology,
+) -> Result<(), Error> {
+    enter_node(node.index(), states)?;
+    let world = world_transform(&node, parent)?;
+    if let Some(metadata) = source.metadata.acoustic_node_metadata_at(node.index())? {
+        if !identifiers.insert(metadata.identifier().to_owned()) {
+            return Err(Error::InvalidSource(format!(
+                "duplicate acoustic node ID `{}`",
+                metadata.identifier()
+            )));
+        }
+        match metadata.kind() {
+            AcousticNodeKind::ZoneVolume => output.zones.push(ImportedZone {
+                name: metadata.identifier().to_owned(),
+                bounds: quantized_mesh_bounds(node.clone(), world, source)?,
+            }),
+            AcousticNodeKind::Portal { zone_a, zone_b } => output.portals.push(ImportedPortal {
+                name: metadata.identifier().to_owned(),
+                zone_a: zone_a.clone(),
+                zone_b: zone_b.clone(),
+                center: quantize_position(world.transform_point3(Vec3::ZERO))?,
+            }),
+            AcousticNodeKind::Geometry { .. }
+            | AcousticNodeKind::Zone
+            | AcousticNodeKind::ProbeVolume { .. } => {}
+        }
+    }
+    for child in node.children() {
+        visit_topology_node(child, world, source, states, identifiers, output)?;
+    }
+    states[node.index()] = NodeState::Visited;
+    Ok(())
+}
+
+fn quantized_mesh_bounds(
+    node: gltf::Node<'_>,
+    transform: Mat4,
+    source: &Source,
+) -> Result<blackflower_acoustics::AabbMm, Error> {
+    let mesh = node.mesh().ok_or_else(|| {
+        Error::InvalidSource("acoustic zone_volume must contain mesh geometry".to_owned())
+    })?;
+    let mut minimum = blackflower_acoustics::PositionMm::new(i32::MAX, i32::MAX, i32::MAX);
+    let mut maximum = blackflower_acoustics::PositionMm::new(i32::MIN, i32::MIN, i32::MIN);
+    let mut count = 0_usize;
+    for primitive in mesh.primitives() {
+        let reader = primitive.reader(|buffer| {
+            source
+                .buffers
+                .get(buffer.index())
+                .map(|data| data.0.as_slice())
+        });
+        let positions = reader.read_positions().ok_or_else(|| {
+            Error::InvalidSource("acoustic zone_volume is missing POSITION".to_owned())
+        })?;
+        for position in positions {
+            let point = quantize_position(transform.transform_point3(Vec3::from(position)))?;
+            minimum = blackflower_acoustics::PositionMm::new(
+                minimum.x.min(point.x),
+                minimum.y.min(point.y),
+                minimum.z.min(point.z),
+            );
+            maximum = blackflower_acoustics::PositionMm::new(
+                maximum.x.max(point.x),
+                maximum.y.max(point.y),
+                maximum.z.max(point.z),
+            );
+            count = count.saturating_add(1);
+        }
+    }
+    if count == 0 {
+        return Err(Error::InvalidSource(
+            "acoustic zone_volume is empty".to_owned(),
+        ));
+    }
+    blackflower_acoustics::AabbMm::new(minimum, maximum).map_err(Error::from)
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "finite glTF metres are range-checked then intentionally quantized to millimetres"
+)]
+pub(crate) fn quantize_position(value: Vec3) -> Result<blackflower_acoustics::PositionMm, Error> {
+    let convert = |component: f32| {
+        let millimetres = f64::from(component) * 1_000.0;
+        if !millimetres.is_finite()
+            || millimetres < f64::from(i32::MIN)
+            || millimetres > f64::from(i32::MAX)
+        {
+            return Err(Error::InvalidSource(
+                "acoustic geometry exceeds millimetre coordinate range".to_owned(),
+            ));
+        }
+        Ok(millimetres.round() as i32)
+    };
+    Ok(blackflower_acoustics::PositionMm::new(
+        convert(value.x)?,
+        convert(value.y)?,
+        convert(value.z)?,
+    ))
 }
 
 fn import_layout(
@@ -264,7 +542,10 @@ fn visit_volume_node(
                     transform: probe_volume_transform(node.clone(), world, source)?,
                 });
             }
-            AcousticNodeKind::Geometry { .. } | AcousticNodeKind::ProbeVolume { .. } => {}
+            AcousticNodeKind::Geometry { .. }
+            | AcousticNodeKind::ProbeVolume { .. }
+            | AcousticNodeKind::ZoneVolume
+            | AcousticNodeKind::Portal { .. } => {}
         }
     }
     for child in node.children() {

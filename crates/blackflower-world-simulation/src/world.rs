@@ -1,6 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
+use blackflower_acoustics::{
+    AcousticDynamicState, AcousticFrame, AcousticObservation, AcousticReceiver,
+    AcousticReplayFacts, AcousticWorld, SoundEmission,
+};
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
 use crate::telemetry::TickObservation;
@@ -18,6 +23,21 @@ const _: () = assert!(SIMULATION_TICK_RATE_HZ == 240);
 #[derive(Debug)]
 struct ExecutionState {
     tick: AtomicU64,
+    acoustics: Mutex<Option<AcousticWorld>>,
+}
+
+/// Failure while configuring or exchanging data with the authoritative acoustic runtime.
+#[derive(Debug, thiserror::Error)]
+pub enum AcousticRuntimeError {
+    /// No [`AcousticWorld`] has been installed for this simulation.
+    #[error("authoritative acoustic world is not installed")]
+    NotInstalled,
+    /// A previous acoustic system panicked while owning its state.
+    #[error("authoritative acoustic world lock is poisoned")]
+    Poisoned,
+    /// The pure-Rust solver rejected an asset, input, or capacity request.
+    #[error(transparent)]
+    Acoustic(#[from] blackflower_acoustics::Error),
 }
 
 /// Snapshot of the authoritative simulation execution visible to systems.
@@ -42,6 +62,7 @@ impl SimulationExecutionContext {
         Self {
             state: Arc::new(ExecutionState {
                 tick: AtomicU64::new(SimulationTick::ZERO.get()),
+                acoustics: Mutex::new(None),
             }),
         }
     }
@@ -69,6 +90,56 @@ impl SimulationExecutionContext {
         self.state
             .tick
             .store(execution.tick.get(), Ordering::Release);
+    }
+
+    fn acoustic_lock(&self) -> Result<MutexGuard<'_, Option<AcousticWorld>>, AcousticRuntimeError> {
+        self.state
+            .acoustics
+            .lock()
+            .map_err(|_error| AcousticRuntimeError::Poisoned)
+    }
+
+    pub(crate) fn capture_acoustic_tick(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.capture_tick(self.current().tick.get());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resolve_acoustic_paths(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.resolve_acoustic_paths();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn advance_acoustic_propagation(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.advance_acoustic_propagation();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn build_acoustic_observations(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.build_acoustic_observations()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn capture_acoustic_facts(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.capture_acoustic_facts(self.current().tick.get());
+            telemetry::acoustic_frame(world.frame());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn update_acoustic_structure(&self) -> Result<(), AcousticRuntimeError> {
+        if let Some(world) = self.acoustic_lock()?.as_mut() {
+            world.update_acoustic_structure()?;
+        }
+        Ok(())
     }
 }
 
@@ -150,6 +221,85 @@ impl SimulationWorld {
     #[must_use]
     pub fn execution_context(&self) -> SimulationExecutionContext {
         self.execution_context.clone()
+    }
+
+    /// Install or replace the pure-Rust authoritative acoustic world.
+    pub fn install_acoustic_world(
+        &mut self,
+        world: AcousticWorld,
+    ) -> Result<(), AcousticRuntimeError> {
+        *self.execution_context.acoustic_lock()? = Some(world);
+        Ok(())
+    }
+
+    /// Replace the bounded receiver set used by the next acoustic tick.
+    pub fn set_acoustic_receivers(
+        &mut self,
+        receivers: &[AcousticReceiver],
+    ) -> Result<(), AcousticRuntimeError> {
+        self.execution_context
+            .acoustic_lock()?
+            .as_mut()
+            .ok_or(AcousticRuntimeError::NotInstalled)?
+            .set_receivers(receivers)?;
+        Ok(())
+    }
+
+    /// Queue an action, phenomenon, or analyzed voice frame for `CaptureSoundEmissions`.
+    pub fn capture_sound_emission(
+        &mut self,
+        emission: SoundEmission,
+    ) -> Result<(), AcousticRuntimeError> {
+        self.execution_context
+            .acoustic_lock()?
+            .as_mut()
+            .ok_or(AcousticRuntimeError::NotInstalled)?
+            .capture_emission(emission)?;
+        Ok(())
+    }
+
+    /// Stage a committed door/destructible/portal state for next-tick activation.
+    pub fn stage_acoustic_state(
+        &mut self,
+        state: AcousticDynamicState,
+    ) -> Result<(), AcousticRuntimeError> {
+        self.execution_context
+            .acoustic_lock()?
+            .as_mut()
+            .ok_or(AcousticRuntimeError::NotInstalled)?
+            .stage_dynamic_state(state)?;
+        Ok(())
+    }
+
+    /// Clone the latest sealed acoustic facts and gated deliveries.
+    pub fn acoustic_frame(&self) -> Result<Option<AcousticFrame>, AcousticRuntimeError> {
+        Ok(self
+            .execution_context
+            .acoustic_lock()?
+            .as_ref()
+            .map(|world| world.frame().clone()))
+    }
+
+    /// Clone transient observations retained across the 48-tick AI interval.
+    pub fn recent_acoustic_observations(
+        &self,
+    ) -> Result<Vec<AcousticObservation>, AcousticRuntimeError> {
+        Ok(self
+            .execution_context
+            .acoustic_lock()?
+            .as_ref()
+            .map_or_else(Vec::new, |world| world.recent_observations().to_vec()))
+    }
+
+    /// Clone replay-safe acoustic envelopes and facts without PCM or Opus conversation data.
+    pub fn acoustic_replay_facts(
+        &self,
+    ) -> Result<Option<AcousticReplayFacts>, AcousticRuntimeError> {
+        Ok(self
+            .execution_context
+            .acoustic_lock()?
+            .as_ref()
+            .map(|world| world.replay_facts().clone()))
     }
 
     /// Advance the authoritative pipeline by exactly one 240 Hz tick.

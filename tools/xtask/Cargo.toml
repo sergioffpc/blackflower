@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+blackflower-acoustics.workspace = true
 blackflower-animation-format.workspace = true
 blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
 blackflower-audio-media.workspace = true

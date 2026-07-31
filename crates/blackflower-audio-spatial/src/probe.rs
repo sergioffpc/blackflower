@@ -234,6 +234,7 @@ impl Context {
         ffi::bake_reflections(
             self.inner.pointer,
             scene.inner().pointer,
+            scene.ray_tracer_backend(),
             native.pointer,
             reverb,
             reflections,

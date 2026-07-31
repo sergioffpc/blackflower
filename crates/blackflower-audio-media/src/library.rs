@@ -10,7 +10,7 @@ use crate::{AudioClip, AudioStream, Error, SoundEvent};
 pub enum AudioAsset {
     /// Memory-resident PCM clip.
     Clip(AudioClip),
-    /// Ogg/Opus streaming media.
+    /// Lossless FLAC streaming media.
     Stream(AudioStream),
     /// Playback event policy.
     Event(SoundEvent),
@@ -47,6 +47,11 @@ impl AudioLibrary {
             | AssetKind::Skeleton
             | AssetKind::AnimationClip
             | AssetKind::NavigationMesh
+            | AssetKind::AcousticMaterialLibrary
+            | AssetKind::AcousticTopology
+            | AssetKind::AcousticPrefab
+            | AssetKind::AcousticSimulationScene
+            | AssetKind::AcousticEmissionProfile
             | _ => return Err(Error::UnsupportedSource("asset kind is not audio")),
         };
         let _previous = self.assets.insert(id, asset);

@@ -429,6 +429,10 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "asset dependency cardinality is one catalog trust boundary with format-specific rules"
+)]
 fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error> {
     if record.kind == crate::AssetKind::AnimationClip && record.dependencies.len() != 1 {
         return invalid_catalog(
@@ -439,10 +443,13 @@ fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error>
             ),
         );
     }
-    if record.kind == crate::AssetKind::AcousticScene && !record.dependencies.is_empty() {
+    if record.kind == crate::AssetKind::AcousticScene && record.dependencies.len() != 1 {
         return Err(Error::InvalidCatalog {
             path: path.to_path_buf(),
-            reason: format!("acoustic scene `{}` cannot have dependencies", record.id),
+            reason: format!(
+                "acoustic scene `{}` must depend on one material library",
+                record.id
+            ),
         });
     }
     if record.kind == crate::AssetKind::AcousticProbeBatch && record.dependencies.len() != 1 {
@@ -462,6 +469,34 @@ fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error>
                 record.id
             ),
         });
+    }
+    if matches!(
+        record.kind,
+        crate::AssetKind::AcousticMaterialLibrary | crate::AssetKind::AcousticEmissionProfile
+    ) && !record.dependencies.is_empty()
+    {
+        return invalid_catalog(
+            path,
+            format!("asset `{}` cannot have runtime dependencies", record.id),
+        );
+    }
+    if record.kind == crate::AssetKind::AcousticPrefab && record.dependencies.len() != 1 {
+        return invalid_catalog(
+            path,
+            format!(
+                "acoustic prefab `{}` must declare exactly one material library",
+                record.id
+            ),
+        );
+    }
+    if record.kind == crate::AssetKind::AcousticSimulationScene && record.dependencies.len() != 2 {
+        return invalid_catalog(
+            path,
+            format!(
+                "acoustic simulation scene `{}` must declare material and topology dependencies",
+                record.id
+            ),
+        );
     }
     let mut previous: Option<&AssetId> = None;
     for dependency in &record.dependencies {

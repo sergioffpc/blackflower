@@ -277,6 +277,33 @@ class NodeMetadataTests(unittest.TestCase):
         self.assertNotIn("generation", probes["acoustics"])
         self.assertNotIn("spacing_meters", probes["acoustics"])
 
+    def test_zone_volume_and_portal_are_typed(self):
+        volume = metadata.build_node_metadata(
+            "acoustic_zone_volume",
+            "room_a",
+            acoustics_kind="zone_volume",
+        )
+        portal = metadata.build_node_metadata(
+            "acoustic_portal",
+            "doorway",
+            acoustics_kind="portal",
+            acoustic_zone_a="room_a",
+            acoustic_zone_b="room_b",
+        )
+        self.assertEqual(volume["acoustics"], {"kind": "zone_volume"})
+        self.assertEqual(
+            portal["acoustics"],
+            {"kind": "portal", "zone_a": "room_a", "zone_b": "room_b"},
+        )
+        with self.assertRaisesRegex(metadata.MetadataError, "must differ"):
+            metadata.build_node_metadata(
+                "acoustic_portal",
+                "invalid",
+                acoustics_kind="portal",
+                acoustic_zone_a="room_a",
+                acoustic_zone_b="room_a",
+            )
+
     def test_acoustic_nodes_require_stable_ids_and_matching_kinds(self):
         with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
             metadata.build_node_metadata(

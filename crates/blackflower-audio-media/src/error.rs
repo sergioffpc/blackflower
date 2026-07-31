@@ -19,10 +19,6 @@ pub enum Error {
     Flac(#[from] claxon::Error),
     #[error("resampler failed: {0}")]
     Resample(String),
-    #[error("Ogg transport failed: {0}")]
-    Ogg(String),
-    #[error("Opus codec failed: {0}")]
-    Opus(#[from] blackflower_audio_voice::Error),
     #[error("asset ID is invalid: {0}")]
     AssetId(#[from] blackflower_assets::InvalidAssetId),
 }

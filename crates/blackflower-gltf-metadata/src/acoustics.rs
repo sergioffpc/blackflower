@@ -31,6 +31,15 @@ pub enum AcousticNodeKind {
     },
     /// Named acoustic zone.
     Zone,
+    /// Closed volume used by Stage 9 zone/portal broad phase.
+    ZoneVolume,
+    /// Connection between two named Stage 9 zone volumes.
+    Portal {
+        /// First adjacent zone identifier.
+        zone_a: String,
+        /// Second adjacent zone identifier.
+        zone_b: String,
+    },
     /// Volume in which the cooker may generate probes.
     ProbeVolume {
         /// Stable acoustic-zone identifier containing this volume.
@@ -109,6 +118,8 @@ struct NodeFile {
 enum NodeAcousticsFile {
     Geometry { class: AcousticGeometryClass },
     Zone,
+    ZoneVolume,
+    Portal { zone_a: String, zone_b: String },
     ProbeVolume { zone: String },
 }
 
@@ -210,6 +221,19 @@ fn parse_node(source: &Value, name: &str) -> Result<Option<AcousticNodeMetadata>
         NodeAcousticsFile::Zone => {
             require_kind(name, &file.node.kind, "acoustic_zone")?;
             AcousticNodeKind::Zone
+        }
+        NodeAcousticsFile::ZoneVolume => {
+            require_kind(name, &file.node.kind, "acoustic_zone_volume")?;
+            AcousticNodeKind::ZoneVolume
+        }
+        NodeAcousticsFile::Portal { zone_a, zone_b } => {
+            require_kind(name, &file.node.kind, "acoustic_portal")?;
+            validate_identifier(name, &zone_a)?;
+            validate_identifier(name, &zone_b)?;
+            if zone_a == zone_b {
+                return Err(invalid(name, "portal zones must differ"));
+            }
+            AcousticNodeKind::Portal { zone_a, zone_b }
         }
         NodeAcousticsFile::ProbeVolume { zone } => {
             require_kind(name, &file.node.kind, "acoustic_probe_volume")?;
@@ -414,6 +438,53 @@ mod tests {
                 .material(),
             "acoustics/materials/concrete"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn zone_volumes_and_portals_are_typed_and_linked() -> Result<(), Error> {
+        let document = Document::from_bytes(
+            br#"{
+                "asset": {"version": "2.0"},
+                "nodes": [
+                    {
+                        "name": "Room A",
+                        "extras": {"blackflower": {
+                            "schema": 1,
+                            "node": {"kind": "acoustic_zone_volume", "id": "room_a"},
+                            "acoustics": {"kind": "zone_volume"}
+                        }}
+                    },
+                    {
+                        "name": "Doorway",
+                        "extras": {"blackflower": {
+                            "schema": 1,
+                            "node": {"kind": "acoustic_portal", "id": "doorway"},
+                            "acoustics": {
+                                "kind": "portal",
+                                "zone_a": "room_a",
+                                "zone_b": "room_b"
+                            }
+                        }}
+                    }
+                ]
+            }"#,
+        )?;
+        assert!(matches!(
+            document
+                .acoustic_node_metadata("Room A")?
+                .ok_or_else(|| Error::NodeNotFound("Room A metadata".to_owned()))?
+                .kind(),
+            AcousticNodeKind::ZoneVolume
+        ));
+        assert!(matches!(
+            document
+                .acoustic_node_metadata("Doorway")?
+                .ok_or_else(|| Error::NodeNotFound("Doorway metadata".to_owned()))?
+                .kind(),
+            AcousticNodeKind::Portal { zone_a, zone_b }
+                if zone_a == "room_a" && zone_b == "room_b"
+        ));
         Ok(())
     }
 

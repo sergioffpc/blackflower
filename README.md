@@ -14,14 +14,16 @@ presentation.
 | `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
+| `crates/blackflower-acoustics` | Pure-Rust authoritative acoustic formats, BVH, propagation, and observations |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Public facade for the client audio stack |
-| `crates/blackflower-audio-media` | 48 kHz clip, Ogg/Opus stream, sound-event formats, and offline cooking |
+| `crates/blackflower-audio-capture` | Lock-free CPAL microphone capture, voice worker, and server analysis |
+| `crates/blackflower-audio-media` | 48 kHz PCM clips, lossless FLAC streams, sound-event formats, and offline cooking |
 | `crates/blackflower-audio-playback` | Kira/CPAL mixing, HRTF tracks, and voice policy |
 | `crates/blackflower-audio-spatial` | Statically linked Steam Audio spatial processing |
 | `crates/blackflower-audio-voice` | Statically linked Opus voice encoding and decoding |
 | `crates/blackflower-cooker-animation` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
-| `crates/blackflower-cooker-acoustics` | Host-only glTF-to-Steam-Audio scene, probe, reverb, reflection, and path cooking |
+| `crates/blackflower-cooker-acoustics` | Host-only Steam Audio presentation and pure-Rust authoritative acoustic cooking |
 | `crates/blackflower-cooker-navigation` | Host-only Recast navmesh cooking |
 | `crates/blackflower-cooker-volume` | Host-only OpenVDB-to-NanoVDB cooking |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
@@ -83,9 +85,10 @@ type-information settings, the portable SPIR-V compiler settings, and the KTX2
 mipmap, and Zstandard policy. It also owns meshoptimizer LOD targets, error
 limits, border locking, and overdraw optimization, plus Ozz sampling, iframe,
 optimization, and root-motion tolerances. Luau coverage instrumentation is
-always disabled. It fixes audio at 48 kHz and owns Opus VBR bitrate,
-complexity, and frame duration. Static-acoustics quality (rays, bounces,
-durations, pathing, and bake threads) is centralized there too; per-asset
+always disabled. It fixes cooked audio at 48 kHz; recorded streams remain
+lossless FLAC, while Opus is reserved for live voice. Acoustics runtime budgets and static Steam
+Audio quality (rays, bounces, durations, pathing, and bake threads) are
+centralized there too; per-asset
 manifests own only authored probe placement. Model hierarchy and lossless
 volume conversion have no profile settings. Each package embeds the profile
 name and canonical
@@ -116,8 +119,9 @@ Artists can build the repository's Blender extension with
 Action-local loop, additive, root-motion, Pose Marker, and typed model or level
 node metadata directly to `extras.blackflower`; see the
 [Blender metadata workflow](tools/blender/blackflower_gltf_metadata/README.md).
-The same schema-1 exporter classifies acoustic geometry, identifies zones and
-probe volumes, and maps Blender materials to explicit acoustic material IDs.
+The same schema-1 exporter classifies acoustic geometry, identifies zone
+volumes, portals, and probe volumes, and maps Blender materials to explicit
+acoustic material IDs.
 
 ## Engineering principles
 
@@ -159,6 +163,8 @@ statically from pinned submodules. See the
 [rendering textures setup](crates/blackflower-rendering-textures/README.md),
 [shader compiler setup](crates/blackflower-shader-compiler/README.md), and
 [scripting setup](crates/blackflower-scripting/README.md) for details.
+Steam Audio builds on supported x86-64 targets additionally require
+the pinned ISPC compiler documented by the spatial audio setup.
 
 Enable the versioned Git hooks after cloning:
 

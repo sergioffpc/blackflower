@@ -13,4 +13,8 @@ pub enum Error {
     /// Steam Audio rejected the static scene or bake.
     #[error("Steam Audio rejected acoustic cooking")]
     SteamAudio(#[from] blackflower_audio_spatial::Error),
+    #[error("authoritative acoustic asset failed: {0}")]
+    Authoritative(#[from] blackflower_acoustics::Error),
+    #[error("cooked audio analysis failed: {0}")]
+    Audio(#[from] blackflower_audio_media::Error),
 }

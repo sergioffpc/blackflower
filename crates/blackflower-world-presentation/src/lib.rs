@@ -8,12 +8,14 @@
 //! backends remain outside this crate. Presentation systems may mutate their
 //! own client-only state, but must treat captured simulation state as immutable.
 
+mod audio;
 mod pipeline;
 mod systems;
 mod telemetry;
 mod types;
 mod world;
 
+pub use audio::{AudioCommand, PresentationAudioError};
 pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
 pub use systems::{
     BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,

@@ -162,12 +162,30 @@
           }
         }
       }
+    },
+    {
+      "name": "Ground Floor Volume",
+      "mesh": 1,
+      "translation": [0.0, 1.0, 0.0],
+      "scale": [4.0, 2.0, 4.0],
+      "extras": {
+        "blackflower": {
+          "schema": 1,
+          "node": {
+            "kind": "acoustic_zone_volume",
+            "id": "ground_floor_volume"
+          },
+          "acoustics": {
+            "kind": "zone_volume"
+          }
+        }
+      }
     }
   ],
   "scenes": [
     {
       "name": "Room",
-      "nodes": [0, 1, 2, 3]
+      "nodes": [0, 1, 2, 3, 4]
     }
   ],
   "scene": 0

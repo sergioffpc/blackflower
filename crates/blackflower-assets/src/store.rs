@@ -289,13 +289,57 @@ fn validate_dependency_kind(
                 dependency_record.kind,
             ))
         }
+        AssetKind::AcousticScene
+            if dependency_record.kind != AssetKind::AcousticMaterialLibrary =>
+        {
+            Err(dependency_kind_mismatch(
+                record,
+                dependency,
+                AssetKind::AcousticMaterialLibrary,
+                dependency_record.kind,
+            ))
+        }
         AssetKind::AcousticEnvironment
             if !matches!(
                 dependency_record.kind,
-                AssetKind::AcousticScene | AssetKind::AcousticProbeBatch
+                AssetKind::AcousticScene
+                    | AssetKind::AcousticProbeBatch
+                    | AssetKind::AcousticTopology
             ) =>
         {
             Err(invalid_acoustic_environment_dependency(record, dependency))
+        }
+        AssetKind::AcousticTopology if dependency_record.kind != AssetKind::AcousticPrefab => {
+            Err(dependency_kind_mismatch(
+                record,
+                dependency,
+                AssetKind::AcousticPrefab,
+                dependency_record.kind,
+            ))
+        }
+        AssetKind::AcousticPrefab
+            if dependency_record.kind != AssetKind::AcousticMaterialLibrary =>
+        {
+            Err(dependency_kind_mismatch(
+                record,
+                dependency,
+                AssetKind::AcousticMaterialLibrary,
+                dependency_record.kind,
+            ))
+        }
+        AssetKind::AcousticSimulationScene
+            if !matches!(
+                dependency_record.kind,
+                AssetKind::AcousticMaterialLibrary | AssetKind::AcousticTopology
+            ) =>
+        {
+            Err(Error::InvalidCatalog {
+                path: PathBuf::from("<resolved asset store>"),
+                reason: format!(
+                    "acoustic simulation scene `{}` has invalid dependency `{dependency}`",
+                    record.id
+                ),
+            })
         }
         AssetKind::Blob
         | AssetKind::LuauBytecode
@@ -312,7 +356,12 @@ fn validate_dependency_kind(
         | AssetKind::SoundEvent
         | AssetKind::AcousticScene
         | AssetKind::AcousticProbeBatch
-        | AssetKind::AcousticEnvironment => Ok(()),
+        | AssetKind::AcousticEnvironment
+        | AssetKind::AcousticMaterialLibrary
+        | AssetKind::AcousticTopology
+        | AssetKind::AcousticPrefab
+        | AssetKind::AcousticSimulationScene
+        | AssetKind::AcousticEmissionProfile => Ok(()),
     }
 }
 
@@ -320,7 +369,7 @@ fn invalid_acoustic_environment_dependency(record: &AssetRecord, dependency: &As
     Error::InvalidCatalog {
         path: PathBuf::from("<resolved asset store>"),
         reason: format!(
-            "acoustic environment `{}` dependency `{dependency}` is not a scene or probe batch",
+            "acoustic environment `{}` dependency `{dependency}` is not a scene, probe batch, or topology",
             record.id
         ),
     }

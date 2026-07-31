@@ -1,6 +1,7 @@
 use blackflower_ecs::{RunError, TickDelta};
 
 use crate::{SimulationPhase, SimulationTick};
+use blackflower_acoustics::AcousticFrame;
 
 pub(crate) struct TickObservation {
     #[cfg(feature = "metrics")]
@@ -68,6 +69,45 @@ pub(crate) fn system_executed(phase: SimulationPhase, system: &'static str, tick
     let _ = (phase, system, tick);
 }
 
+pub(crate) fn acoustic_frame(frame: &AcousticFrame) {
+    #[cfg(feature = "metrics")]
+    {
+        let candidate_pairs = u32::try_from(frame.candidate_pairs).unwrap_or(u32::MAX);
+        let direct_pairs = u32::try_from(frame.direct_pairs).unwrap_or(u32::MAX);
+        metrics::histogram!("blackflower_acoustic_candidate_pairs")
+            .record(f64::from(candidate_pairs));
+        metrics::histogram!("blackflower_acoustic_direct_pairs").record(f64::from(direct_pairs));
+        metrics::counter!("blackflower_acoustic_observations_total")
+            .increment(u64::try_from(frame.observations.len()).unwrap_or(u64::MAX));
+        metrics::counter!("blackflower_acoustic_sound_deliveries_total")
+            .increment(u64::try_from(frame.sounds.len()).unwrap_or(u64::MAX));
+        metrics::counter!("blackflower_acoustic_voice_deliveries_total")
+            .increment(u64::try_from(frame.voices.len()).unwrap_or(u64::MAX));
+        metrics::counter!("blackflower_acoustic_deferred_indirect_pairs_total")
+            .increment(u64::try_from(frame.deferred_indirect_pairs).unwrap_or(u64::MAX));
+    }
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!(
+        target: "blackflower_world_simulation",
+        structure_version = frame.structure_version.0,
+        direct_pairs = frame.direct_pairs,
+        candidate_pairs = frame.candidate_pairs,
+        observations = frame.observations.len(),
+        sound_deliveries = frame.sounds.len(),
+        voice_deliveries = frame.voices.len(),
+        deferred_indirect_pairs = frame.deferred_indirect_pairs,
+        "authoritative acoustic frame sealed",
+    );
+
+    #[cfg(not(any(feature = "metrics", feature = "tracing")))]
+    let _ = frame;
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "metric declarations stay adjacent so names, units, and descriptions remain auditable"
+)]
 pub(crate) fn describe_metrics() {
     #[cfg(feature = "metrics")]
     {
@@ -92,6 +132,36 @@ pub(crate) fn describe_metrics() {
             "blackflower_world_simulation_tick_duration_seconds",
             Unit::Seconds,
             "Wall-clock duration of an authoritative simulation tick",
+        );
+        metrics::describe_histogram!(
+            "blackflower_acoustic_candidate_pairs",
+            Unit::Count,
+            "Source and receiver pairs resolved by one authoritative acoustic tick",
+        );
+        metrics::describe_histogram!(
+            "blackflower_acoustic_direct_pairs",
+            Unit::Count,
+            "Direct and transmission pairs preserved by one authoritative acoustic tick",
+        );
+        metrics::describe_counter!(
+            "blackflower_acoustic_observations_total",
+            Unit::Count,
+            "Privacy-preserving bot acoustic observations",
+        );
+        metrics::describe_counter!(
+            "blackflower_acoustic_sound_deliveries_total",
+            Unit::Count,
+            "Server-gated physical sound deliveries",
+        );
+        metrics::describe_counter!(
+            "blackflower_acoustic_voice_deliveries_total",
+            Unit::Count,
+            "Server-gated physical voice deliveries",
+        );
+        metrics::describe_counter!(
+            "blackflower_acoustic_deferred_indirect_pairs_total",
+            Unit::Count,
+            "Indirect acoustic refinements deferred by deterministic budgets",
         );
     }
 }

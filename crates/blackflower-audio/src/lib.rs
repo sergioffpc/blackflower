@@ -1,5 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+/// Lock-free microphone capture and off-callback voice analysis.
+pub use blackflower_audio_capture as capture;
+
 /// Cooked clip, stream, event, and library formats.
 pub use blackflower_audio_media as media;
 

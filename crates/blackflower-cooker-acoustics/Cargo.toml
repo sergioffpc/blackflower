@@ -7,12 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+blackflower-acoustics.workspace = true
+blackflower-audio-media.workspace = true
 blackflower-audio-spatial.workspace = true
 blackflower-gltf-metadata.workspace = true
 
 blake3.workspace = true
 glam.workspace = true
 gltf.workspace = true
+bytes.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

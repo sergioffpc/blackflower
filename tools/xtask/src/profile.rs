@@ -304,6 +304,14 @@ pub(crate) struct AnimationProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AcousticsProfile {
+    pub(crate) sound_speed_meters_per_second: u32,
+    pub(crate) max_receivers: u32,
+    pub(crate) max_active_emissions: u32,
+    pub(crate) max_candidate_pairs_per_tick: u32,
+    pub(crate) max_paths_per_pair: u32,
+    pub(crate) max_transmission_surfaces: u32,
+    pub(crate) max_client_voices: u32,
+    pub(crate) reflections_crossfade_ms: u32,
     pub(crate) reflection_rays: u32,
     pub(crate) diffuse_samples: u32,
     pub(crate) bounces: u32,
@@ -323,6 +331,17 @@ pub(crate) struct AcousticsProfile {
 
 impl AcousticsProfile {
     fn validate(self) -> anyhow::Result<()> {
+        if self.sound_speed_meters_per_second != 343
+            || self.max_receivers == 0
+            || self.max_active_emissions == 0
+            || self.max_candidate_pairs_per_tick == 0
+            || self.max_paths_per_pair == 0
+            || self.max_transmission_surfaces == 0
+            || self.max_client_voices == 0
+            || self.reflections_crossfade_ms == 0
+        {
+            bail!("invalid authoritative acoustic runtime settings");
+        }
         let _profile = self.bake_profile()?;
         Ok(())
     }

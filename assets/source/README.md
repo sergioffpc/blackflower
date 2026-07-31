@@ -229,15 +229,14 @@ kind = "audio_clip"
 audience = "presentation"
 
 [audio_clip]
-source = "rifle_shot.wav"
+source = "rifle_shot.flac"
 
 [audio_clip.loop_region]
 start_frame = 2400
 end_frame = 12000
 ```
 
-Long-form media uses the same authored source contract and cooks to standard
-Ogg/Opus:
+Long-form media is authored and retained as lossless FLAC:
 
 ```toml
 schema = 1
@@ -249,9 +248,9 @@ audience = "presentation"
 source = "briefing.flac"
 ```
 
-Both formats are resampled to 48 kHz. Clips become little-endian PCM16
-`.bfaudio`; streams use the selected profile's fixed Opus VBR policy. No asset
-may override sample rate, bitrate, complexity, or frame duration.
+Clips are decoded and resampled to 48 kHz little-endian PCM16 `.bfaudio`.
+Streams must already be mono/stereo 48 kHz FLAC; cooking validates the complete
+source and preserves its bytes. No asset may override the sample rate or codec.
 
 Sound events have no source file. They reference exactly one clip or stream
 and carry presentation policy:
@@ -282,9 +281,24 @@ max_voices = 8
 Selecting a sound event closes the package over its media dependency, and the
 media content hash participates in the event recipe hash.
 
-Static acoustics are presentation-only and use three typed assets. A scene
-imports only glTF nodes classified as `static` and resolves each glTF material
-through its schema-1 acoustic material reference:
+Acoustic material coefficients have one shared source of truth consumed by the
+Steam Audio and authoritative cookers:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/materials"
+kind = "acoustic_material_library"
+audience = "shared"
+
+[[acoustic_materials.materials]]
+id = "acoustics/materials/concrete"
+absorption = [0.10, 0.20, 0.30]
+scattering = 0.05
+transmission = [0.01, 0.02, 0.03]
+```
+
+A presentation scene imports only glTF nodes classified as `static` and
+resolves each glTF material through its schema-1 acoustic material reference:
 
 ```toml
 schema = 1
@@ -294,12 +308,7 @@ audience = "presentation"
 
 [acoustic_scene]
 source = "warehouse.glb"
-
-[[acoustic_scene.materials]]
-id = "acoustics/materials/concrete"
-absorption = [0.10, 0.20, 0.30]
-scattering = 0.05
-transmission = [0.01, 0.02, 0.03]
+materials = "levels/warehouse/acoustics/materials"
 ```
 
 A probe batch selects the stable ID of one Blender-authored probe volume.
@@ -331,6 +340,7 @@ audience = "presentation"
 
 [acoustic]
 source = "warehouse.glb"
+topology = "levels/warehouse/acoustics/topology"
 
 [[acoustic.zones]]
 id = "warehouse_ground_floor"
@@ -338,11 +348,84 @@ scene = "levels/warehouse/acoustics/scene"
 probes = "levels/warehouse/acoustics/ground-floor-probes"
 ```
 
-The outputs are `.bfacscn`, `.bfacprb`, and `.bfac`. The probe batch depends on
-its scene; the environment depends on all referenced scenes and batches.
-Uniform-floor probe generation, base reflections, parametric reverb, and
-dynamic pathing are cooked with Steam Audio. `dynamic_rigid`,
-`dynamic_state`, doors, portals, and runtime simulation remain outside Stage 8.
+The presentation outputs are `.bfacscn`, `.bfacprb`, and schema-2 `.bfac`.
+The probe batch depends on its scene; the environment depends on topology plus
+all referenced scenes and batches. Uniform-floor probe generation, base
+reflections, parametric reverb, and pathing are cooked with Steam Audio.
+
+Stage 9 adds shared topology and finite rigid prefab variants. Zone volumes and
+portals come from typed glTF metadata; instances and state selection remain
+explicit in manifests:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/topology"
+kind = "acoustic_topology"
+audience = "shared"
+
+[acoustic_topology]
+source = "warehouse.glb"
+
+[[acoustic_topology.instances]]
+id = 10
+prefab = "levels/warehouse/acoustics/door"
+default_state = 0
+zones = ["warehouse_left", "warehouse_right"]
+```
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/door"
+kind = "acoustic_prefab"
+audience = "shared"
+
+[acoustic_prefab]
+source = "warehouse.glb"
+name = "warehouse_door"
+materials = "levels/warehouse/acoustics/materials"
+
+[[acoustic_prefab.states]]
+id = 0
+name = "open"
+
+[[acoustic_prefab.states]]
+id = 1
+name = "closed"
+node = "DoorClosed"
+```
+
+The server packages the quantized static scene and emission profiles:
+
+```toml
+schema = 1
+id = "levels/warehouse/acoustics/simulation"
+kind = "acoustic_simulation_scene"
+audience = "simulation"
+
+[acoustic_simulation]
+source = "warehouse.glb"
+materials = "levels/warehouse/acoustics/materials"
+topology = "levels/warehouse/acoustics/topology"
+```
+
+```toml
+schema = 1
+id = "acoustics/emissions/rifle-shot"
+kind = "acoustic_emission_profile"
+audience = "simulation"
+
+[acoustic_emission]
+media = "audio/weapons/rifle-shot"
+client_event_id = 42
+reference_spl_db = 155.0
+directivity = 0.25
+class = "gunshot"
+```
+
+These produce `.bfacmat`, `.bfactpl`, `.bfacpfb`, `.bfacsim`, and `.bfacprf`.
+The media referenced by `.bfacprf` participates in cooking and invalidation but
+is not a runtime dependency, so the server package need not carry the source
+WAV/FLAC, cooked `.bfaudio`, lossless FLAC stream, or `.bfsound` event.
 
 Skeleton and animation assets are presentation-only. A skeleton selects one
 exact named skin and cooks it to `.bfskel`:
