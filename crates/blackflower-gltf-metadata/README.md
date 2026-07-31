@@ -73,9 +73,9 @@ schemas, invalid names, negative or non-finite times, duplicate markers, and
 ambiguous animation names are rejected. Axis lists cannot contain duplicates.
 Unrelated third-party fields elsewhere in `extras` are ignored.
 
-Future model, level, physics, navigation, and acoustic metadata should reuse
-`extras.blackflower` on the relevant glTF object and define a separate typed
-schema rather than placing untyped application data in a generic property bag.
+Model, level, navigation, and static-acoustic metadata reuse
+`extras.blackflower` on the relevant glTF object instead of placing untyped
+application data in a generic property bag.
 
 The first node schema establishes typed identity for model and level objects:
 
@@ -100,5 +100,12 @@ The first node schema establishes typed identity for model and level objects:
 
 `kind` is a required lower-snake-case domain type of at most 64 ASCII bytes.
 `id` is an optional, non-empty stable identifier of at most 128 UTF-8 bytes.
-Node names used for lookup must be unique. Domain-specific map fields are not
-part of schema 1; they will be added only alongside typed cooker support.
+Node names used for lookup must be unique. Schema 1 also accepts the strict
+typed `navigation` and `acoustics` members implemented by their cookers.
+
+Acoustic nodes use `acoustic_geometry`, `acoustic_zone`, or
+`acoustic_probe_volume` identity kinds. Geometry is classified as `static`,
+`dynamic_rigid`, `dynamic_state`, or `ignored`; Stage 8 imports only `static`.
+A probe volume names its zone but never contains placement or bake quality.
+Material objects use the same schema number and reference a portable acoustic
+material ID through `acoustics.material`.

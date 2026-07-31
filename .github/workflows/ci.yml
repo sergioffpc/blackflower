@@ -144,7 +144,9 @@ jobs:
                Cargo.toml \
                assets \
                crates/blackflower-animation \
+               crates/blackflower-audio-spatial \
                crates/blackflower-cooker-animation \
+               crates/blackflower-cooker-acoustics \
                crates/blackflower-cooker-navigation \
                crates/blackflower-cooker-volume \
                crates/blackflower-animation-format \
@@ -157,6 +159,7 @@ jobs:
                crates/blackflower-scripting \
                crates/blackflower-shader-compiler \
                rust-toolchain.toml \
+               tools/blender \
                tools/xtask
           then
             required=false
@@ -242,6 +245,12 @@ jobs:
         run: >-
           cargo test --package xtask --lib --all-features --locked
           cook::tests::cooks_texture_for_runtime_capability_selection
+          -- --exact
+
+      - name: Run static acoustics cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_static_acoustic_scene_probes_and_environment
           -- --exact
 
       - name: Run model cooking smoke test

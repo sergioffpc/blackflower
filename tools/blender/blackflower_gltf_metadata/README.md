@@ -16,7 +16,7 @@ In Blender 4.2 or newer, open **Edit > Preferences > Add-ons**, choose
 **Install from Disk**, and select:
 
 ```text
-target/blender/blackflower_gltf_metadata-0.3.0.zip
+target/blender/blackflower_gltf_metadata-0.1.0.zip
 ```
 
 The extension uses the user-extension hooks provided by Blender's bundled glTF
@@ -153,6 +153,65 @@ strict node schema 1:
 Area costs, traversal permissions, physical agent dimensions, and Recast build
 settings are not duplicated in Blender or Lua. They live exclusively in the
 navigation `asset.toml`.
+
+## Static acoustics
+
+The extension version is kept equal to the workspace project version. In
+**Object Properties > Blackflower Metadata**, choose an **Acoustic Role**:
+
+- **Geometry**, then classify it as `static`, `dynamic_rigid`,
+  `dynamic_state`, or `ignored`. Stage 8 consumes only `static`.
+- **Zone** for a stable acoustic zone ID.
+- **Probe Volume** for a bounded mesh object and its containing zone. Author a
+  cube or other mesh whose local bounds define the volume; the cooker uses the
+  full world transform.
+
+One mesh may be both a navigation surface/obstacle and acoustic geometry; the
+extension emits both schema-1 policies on that node.
+
+Every acoustic object requires a stable **ID**. A probe volume exports only its
+identity and zone:
+
+```json
+{
+  "extras": {
+    "blackflower": {
+      "schema": 1,
+      "node": {
+        "kind": "acoustic_probe_volume",
+        "id": "ground_floor_probes"
+      },
+      "acoustics": {
+        "kind": "probe_volume",
+        "zone": "ground_floor"
+      }
+    }
+  }
+}
+```
+
+Individual probes are not authored in Blender. `generation`,
+`spacing_meters`, and `height_meters` live in the probe batch's `asset.toml`;
+the cooker generates probes inside the selected volume.
+
+In **Material Properties > Blackflower Acoustics**, map each material used by
+static geometry to a portable acoustic material ID:
+
+```json
+{
+  "extras": {
+    "blackflower": {
+      "schema": 1,
+      "acoustics": {
+        "material": "acoustics/materials/concrete"
+      }
+    }
+  }
+}
+```
+
+Absorption, scattering, and transmission coefficients are declared once in
+the acoustic-scene manifest, not duplicated in Blender.
 
 ## License
 

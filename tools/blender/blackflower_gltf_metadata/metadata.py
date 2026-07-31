@@ -145,8 +145,11 @@ def build_node_metadata(
     area_key: str = "",
     direction: str = "bidirectional",
     radius: float = 0.0,
+    acoustics_kind: str = "none",
+    geometry_class: str = "static",
+    acoustic_zone: str = "",
 ) -> dict[str, object]:
-    """Build schema-1 typed node metadata, including navigation policy."""
+    """Build schema-1 typed node metadata for level cooking."""
 
     if not isinstance(kind, str):
         raise MetadataError("node kind must be text")
@@ -164,31 +167,71 @@ def build_node_metadata(
     if identifier:
         _validate_text(identifier, "node id", MAX_NODE_ID_BYTES)
         node["id"] = identifier
-    if navigation_role == "none":
-        return {"schema": NODE_SCHEMA, "node": node}
-    if not identifier:
-        raise MetadataError("navigation node id is required")
-    if navigation_role not in {"surface", "obstacle", "off_mesh_link"}:
-        raise MetadataError("navigation role is not supported")
+    result: dict[str, object] = {"schema": NODE_SCHEMA, "node": node}
+    if navigation_role != "none":
+        if not identifier:
+            raise MetadataError("navigation node id is required")
+        if navigation_role not in {"surface", "obstacle", "off_mesh_link"}:
+            raise MetadataError("navigation role is not supported")
 
-    navigation: dict[str, object] = {"role": navigation_role}
-    if navigation_role in {"surface", "off_mesh_link"}:
-        _validate_portable_key(area_key, "navigation area key")
-        navigation["area_key"] = area_key
-    elif area_key:
-        raise MetadataError("navigation obstacle cannot declare an area key")
-    if navigation_role == "off_mesh_link":
-        if direction not in {"one_way", "bidirectional"}:
-            raise MetadataError("off-mesh link direction is not supported")
-        link_radius = _finite_number(radius, "off-mesh link radius")
-        if link_radius <= 0.0:
-            raise MetadataError("off-mesh link radius must be greater than zero")
-        navigation["direction"] = direction
-        navigation["radius"] = _float32(link_radius)
+        navigation: dict[str, object] = {"role": navigation_role}
+        if navigation_role in {"surface", "off_mesh_link"}:
+            _validate_portable_key(area_key, "navigation area key")
+            navigation["area_key"] = area_key
+        elif area_key:
+            raise MetadataError("navigation obstacle cannot declare an area key")
+        if navigation_role == "off_mesh_link":
+            if direction not in {"one_way", "bidirectional"}:
+                raise MetadataError("off-mesh link direction is not supported")
+            link_radius = _finite_number(radius, "off-mesh link radius")
+            if link_radius <= 0.0:
+                raise MetadataError("off-mesh link radius must be greater than zero")
+            navigation["direction"] = direction
+            navigation["radius"] = _float32(link_radius)
+        result["navigation"] = navigation
+
+    if acoustics_kind != "none":
+        if not identifier:
+            raise MetadataError("acoustic node id is required")
+        expected_kinds = {
+            "geometry": "acoustic_geometry",
+            "zone": "acoustic_zone",
+            "probe_volume": "acoustic_probe_volume",
+        }
+        expected_kind = expected_kinds.get(acoustics_kind)
+        if expected_kind is None:
+            raise MetadataError("acoustic node kind is not supported")
+        if kind != expected_kind:
+            raise MetadataError(
+                f"{acoustics_kind} acoustics requires node kind {expected_kind}"
+            )
+        acoustics: dict[str, object] = {"kind": acoustics_kind}
+        if acoustics_kind == "geometry":
+            if geometry_class not in {
+                "static",
+                "dynamic_rigid",
+                "dynamic_state",
+                "ignored",
+            }:
+                raise MetadataError("acoustic geometry class is not supported")
+            acoustics["class"] = geometry_class
+        elif acoustics_kind == "probe_volume":
+            _validate_text(acoustic_zone, "acoustic zone id", MAX_NODE_ID_BYTES)
+            acoustics["zone"] = acoustic_zone
+        result["acoustics"] = acoustics
+
+    return result
+
+
+def build_material_metadata(material: str) -> dict[str, object] | None:
+    """Build schema-1 acoustic metadata for one glTF material."""
+
+    if not material:
+        return None
+    _validate_asset_id(material, "acoustic material")
     return {
         "schema": NODE_SCHEMA,
-        "node": node,
-        "navigation": navigation,
+        "acoustics": {"material": material},
     }
 
 
@@ -249,6 +292,31 @@ def _validate_portable_key(value: str, field: str) -> None:
     ):
         raise MetadataError(
             f"{field} must be lower_snake_case and at most 64 UTF-8 bytes"
+        )
+
+
+def _validate_asset_id(value: str, field: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value.encode("utf-8")) > 255
+        or not value.isascii()
+        or any(
+            not segment
+            or segment in {".", ".."}
+            or any(
+                not (
+                    character.islower()
+                    or character.isdigit()
+                    or character in "._-"
+                )
+                for character in segment
+            )
+            for segment in value.split("/")
+        )
+    ):
+        raise MetadataError(
+            f"{field} must be a portable lowercase asset ID of at most 255 bytes"
         )
 
 

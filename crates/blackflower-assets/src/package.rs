@@ -404,6 +404,10 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
         || catalog.toolchain.one_tbb.is_empty()
         || catalog.toolchain.blosc.is_empty()
         || catalog.toolchain.zlib.is_empty()
+        || catalog.toolchain.recast_navigation.is_empty()
+        || catalog.toolchain.navigation_cooker_platform.is_empty()
+        || catalog.toolchain.steam_audio_acoustics.is_empty()
+        || catalog.toolchain.acoustics_cooker_platform.is_empty()
     {
         return invalid_catalog(path, "toolchain fields cannot be empty");
     }
@@ -434,6 +438,30 @@ fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error>
                 record.id
             ),
         );
+    }
+    if record.kind == crate::AssetKind::AcousticScene && !record.dependencies.is_empty() {
+        return Err(Error::InvalidCatalog {
+            path: path.to_path_buf(),
+            reason: format!("acoustic scene `{}` cannot have dependencies", record.id),
+        });
+    }
+    if record.kind == crate::AssetKind::AcousticProbeBatch && record.dependencies.len() != 1 {
+        return Err(Error::InvalidCatalog {
+            path: path.to_path_buf(),
+            reason: format!(
+                "acoustic probe batch `{}` must have exactly one scene dependency",
+                record.id
+            ),
+        });
+    }
+    if record.kind == crate::AssetKind::AcousticEnvironment && record.dependencies.len() < 2 {
+        return Err(Error::InvalidCatalog {
+            path: path.to_path_buf(),
+            reason: format!(
+                "acoustic environment `{}` must depend on at least one scene and probe batch",
+                record.id
+            ),
+        });
     }
     let mut previous: Option<&AssetId> = None;
     for dependency in &record.dependencies {

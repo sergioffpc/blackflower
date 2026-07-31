@@ -15,15 +15,18 @@ from bpy.types import Panel, PropertyGroup
 from .metadata import (
     MetadataError,
     build_animation_metadata,
+    build_material_metadata,
     build_node_metadata,
     merge_extras,
 )
 
 
+ADDON_VERSION = (0, 1, 0)
+
 bl_info = {
     "name": "Blackflower glTF Metadata",
     "category": "Import-Export",
-    "version": (0, 3, 0),
+    "version": ADDON_VERSION,
     "blender": (4, 2, 0),
     "location": "File > Export > glTF 2.0 and Object Properties",
     "description": "Export typed Blackflower metadata in glTF extras",
@@ -98,6 +101,56 @@ class BlackflowerNodeMetadata(PropertyGroup):
         description="Off-mesh endpoint matching radius in world units",
         default=0.5,
         min=0.0001,
+    )
+    acoustics_kind: EnumProperty(
+        name="Acoustic Role",
+        description="How this object participates in acoustic cooking",
+        items=(
+            ("none", "None", "Do not export acoustic metadata"),
+            ("geometry", "Geometry", "Classify mesh geometry for acoustics"),
+            ("zone", "Zone", "Identify an acoustic zone"),
+            (
+                "probe_volume",
+                "Probe Volume",
+                "Bound automatic probe generation for one zone",
+            ),
+        ),
+        default="none",
+    )
+    acoustic_geometry_class: EnumProperty(
+        name="Geometry Class",
+        items=(
+            ("static", "Static", "Include in the Stage 8 static scene"),
+            (
+                "dynamic_rigid",
+                "Dynamic Rigid",
+                "Reserve rigid movable geometry for Stage 9",
+            ),
+            (
+                "dynamic_state",
+                "Dynamic State",
+                "Reserve state-dependent geometry for Stage 9",
+            ),
+            ("ignored", "Ignored", "Exclude geometry from acoustic cooking"),
+        ),
+        default="static",
+    )
+    acoustic_zone: StringProperty(
+        name="Zone",
+        description="Stable acoustic zone ID containing this probe volume",
+        default="",
+        maxlen=128,
+    )
+
+
+class BlackflowerMaterialMetadata(PropertyGroup):
+    """Acoustic material asset attached to a Blender material."""
+
+    acoustic_material: StringProperty(
+        name="Acoustic Material",
+        description="Portable asset ID with absorption, scattering, and transmission",
+        default="",
+        maxlen=255,
     )
 
 
@@ -222,8 +275,13 @@ class BLACKFLOWER_PT_node_metadata(Panel):
         layout.prop(properties, "enabled")
 
         navigation_role = properties.navigation_role
+        acoustics_kind = getattr(properties, "acoustics_kind", "none")
         fields = layout.column()
-        fields.enabled = properties.enabled or navigation_role != "none"
+        fields.enabled = (
+            properties.enabled
+            or navigation_role != "none"
+            or acoustics_kind != "none"
+        )
         fields.prop(properties, "kind")
         fields.prop(properties, "identifier")
         if properties.enabled and not properties.kind:
@@ -239,6 +297,42 @@ class BLACKFLOWER_PT_node_metadata(Panel):
             navigation.prop(properties, "navigation_radius")
         if navigation_role != "none" and not properties.identifier:
             navigation.label(text="Stable ID is required for navigation", icon="ERROR")
+        layout.separator()
+        layout.prop(properties, "acoustics_kind")
+        acoustics = layout.column()
+        acoustics.enabled = acoustics_kind != "none"
+        if acoustics_kind == "geometry":
+            acoustics.prop(properties, "acoustic_geometry_class")
+        if acoustics_kind == "probe_volume":
+            acoustics.prop(properties, "acoustic_zone")
+        if acoustics_kind != "none" and not properties.identifier:
+            acoustics.label(text="Stable ID is required for acoustics", icon="ERROR")
+        if acoustics_kind != "none":
+            expected_kind = f"acoustic_{acoustics_kind}"
+            if properties.kind and properties.kind != expected_kind:
+                acoustics.label(text=f"Kind must be {expected_kind}", icon="ERROR")
+
+
+class BLACKFLOWER_PT_material_metadata(Panel):
+    """Material Properties panel for acoustic material mapping."""
+
+    bl_label = "Blackflower Acoustics"
+    bl_idname = "BLACKFLOWER_PT_material_metadata"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "material"
+
+    @classmethod
+    def poll(cls, context):
+        return context.material is not None
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop(
+            context.material.blackflower_material_metadata,
+            "acoustic_material",
+        )
 
 
 def draw_export(context, layout):
@@ -254,6 +348,7 @@ def draw_export(context, layout):
     if body is not None and properties.enabled:
         body.label(text="Action policy and Pose Markers become animation metadata.")
         body.label(text="Object metadata becomes typed node extras.")
+        body.label(text="Material mappings and probe volumes become acoustic extras.")
 
 
 # The glTF exporter discovers this exact class name.
@@ -313,9 +408,16 @@ class glTF2ExportUserExtension:
 
         properties = blender_object.blackflower_node_metadata
         navigation_role = getattr(properties, "navigation_role", "none")
-        if not properties.enabled and navigation_role == "none":
+        acoustics_kind = getattr(properties, "acoustics_kind", "none")
+        if (
+            not properties.enabled
+            and navigation_role == "none"
+            and acoustics_kind == "none"
+        ):
             return
         kind = properties.kind
+        if not kind and acoustics_kind != "none":
+            kind = f"acoustic_{acoustics_kind}"
         if not kind and navigation_role != "none":
             kind = f"navigation_{navigation_role}"
         metadata = build_node_metadata(
@@ -329,8 +431,36 @@ class glTF2ExportUserExtension:
                 "bidirectional",
             ),
             radius=getattr(properties, "navigation_radius", 0.0),
+            acoustics_kind=acoustics_kind,
+            geometry_class=getattr(
+                properties,
+                "acoustic_geometry_class",
+                "static",
+            ),
+            acoustic_zone=getattr(properties, "acoustic_zone", ""),
         )
         gltf2_node.extras = merge_extras(gltf2_node.extras, metadata)
+
+    def gather_material_hook(
+        self,
+        gltf2_material,
+        blender_material,
+        export_settings,
+    ):
+        """Attach a portable acoustic-material asset ID."""
+
+        del export_settings
+        if not self.properties.enabled:
+            return
+        properties = getattr(
+            blender_material,
+            "blackflower_material_metadata",
+            None,
+        )
+        if properties is None:
+            return
+        metadata = build_material_metadata(properties.acoustic_material)
+        gltf2_material.extras = merge_extras(gltf2_material.extras, metadata)
 
     def merge_animation_extensions_hook(
         self,
@@ -514,8 +644,10 @@ _CLASSES = (
     BlackflowerExportSettings,
     BlackflowerAnimationMetadata,
     BlackflowerNodeMetadata,
+    BlackflowerMaterialMetadata,
     BLACKFLOWER_PT_animation_metadata,
     BLACKFLOWER_PT_node_metadata,
+    BLACKFLOWER_PT_material_metadata,
 )
 
 
@@ -531,6 +663,9 @@ def register():
     bpy.types.Object.blackflower_node_metadata = PointerProperty(
         type=BlackflowerNodeMetadata
     )
+    bpy.types.Material.blackflower_material_metadata = PointerProperty(
+        type=BlackflowerMaterialMetadata
+    )
 
     from io_scene_gltf2 import exporter_extension_layout_draw
 
@@ -541,6 +676,7 @@ def unregister():
     from io_scene_gltf2 import exporter_extension_layout_draw
 
     exporter_extension_layout_draw.pop(_EXPORT_PANEL_KEY, None)
+    del bpy.types.Material.blackflower_material_metadata
     del bpy.types.Object.blackflower_node_metadata
     del bpy.types.Action.blackflower_animation_metadata
     del bpy.types.Scene.blackflower_gltf_export

@@ -205,7 +205,10 @@ fn resolve_attachments(
             | AssetSource::Navigation(_)
             | AssetSource::AudioClip(_)
             | AssetSource::AudioStream(_)
-            | AssetSource::SoundEvent(_) => {
+            | AssetSource::SoundEvent(_)
+            | AssetSource::AcousticScene(_)
+            | AssetSource::AcousticProbes(_)
+            | AssetSource::Acoustic(_) => {
                 bail!(
                     "model attachment `{}` has unsupported kind {:?}",
                     attachment.asset,
@@ -215,6 +218,17 @@ fn resolve_attachments(
         };
         attachments.push(ModelAttachment::new(node, attachment.asset.clone(), kind));
     }
+    validate_explicit_mesh_attachments(nodes, source_nodes, &mesh_attachment_by_node)?;
+    attachments
+        .sort_by(|left, right| (left.node(), left.asset()).cmp(&(right.node(), right.asset())));
+    Ok(attachments)
+}
+
+fn validate_explicit_mesh_attachments(
+    nodes: &[ModelNode],
+    source_nodes: &[SourceNode],
+    mesh_attachment_by_node: &[bool],
+) -> anyhow::Result<()> {
     for (node, source_node) in source_nodes.iter().enumerate() {
         if source_node.mesh.is_some() && !mesh_attachment_by_node[node] {
             bail!(
@@ -223,9 +237,7 @@ fn resolve_attachments(
             );
         }
     }
-    attachments
-        .sort_by(|left, right| (left.node(), left.asset()).cmp(&(right.node(), right.asset())));
-    Ok(attachments)
+    Ok(())
 }
 
 fn resolve_node(

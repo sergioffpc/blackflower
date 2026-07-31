@@ -1,3 +1,4 @@
+mod acoustic_cooker;
 mod asset_cooker;
 mod cook;
 mod gltf_source;

@@ -182,4 +182,21 @@ pub enum Error {
     /// A node ID is empty, padded, too long, or contains control text.
     #[error("node `{0}` has an invalid Blackflower ID")]
     InvalidNodeId(String),
+    /// The glTF materials property is not an array or contains a non-object.
+    #[error("glTF materials must be an array of objects")]
+    InvalidMaterials,
+    /// No material has the requested stable name.
+    #[error("glTF material `{0}` does not exist")]
+    MaterialNotFound(String),
+    /// More than one material has the requested name.
+    #[error("glTF material name `{0}` is ambiguous")]
+    DuplicateMaterial(String),
+    /// Acoustic metadata is structurally or semantically invalid.
+    #[error("{owner} has invalid Blackflower acoustic metadata: {reason}")]
+    InvalidAcousticMetadata {
+        /// Node or material containing the invalid metadata.
+        owner: String,
+        /// Concise validation failure.
+        reason: String,
+    },
 }

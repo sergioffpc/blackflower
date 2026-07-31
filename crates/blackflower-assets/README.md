@@ -49,7 +49,9 @@ closes over both relationships before cooking. It also supports tiled
 `.bfnav`, 48 kHz PCM16 `.bfaudio`, standard Ogg/Opus streams, and source-less
 `.bfsound` event policy. Sound-event records carry their media `AssetId` as a
 typed dependency, so package selection and recipe identity close over audio
-references without changing the package overlay contract.
+references. Static acoustics adds `.bfacscn` scenes, `.bfacprb` probe batches,
+and `.bfac` zone descriptors: probes depend on their scene, and the descriptor
+depends on both. These domain kinds do not change the package overlay contract.
 
 ## Optional hot reload
 

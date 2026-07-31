@@ -13,8 +13,11 @@ use std::ptr::NonNull;
 
 use glam::Vec3A;
 
-use crate::AcousticMaterial;
 use crate::types::{AudioSettings, BinauralParams, Interpolation, TailState};
+use crate::{
+    AcousticMaterial, AcousticProbe, BakedDataIdentifier, BakedDataType, BakedDataVariation,
+    PathBakeSettings, ProbeVolumeTransform, ReflectionsBakeSettings,
+};
 
 #[allow(
     dead_code,
@@ -63,6 +66,23 @@ pub(crate) struct ScenePtr(NonNull<raw::_IPLScene_t>);
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StaticMeshPtr(NonNull<raw::_IPLStaticMesh_t>);
 
+#[derive(Debug, Clone, Copy)]
+struct SerializedObjectPtr(NonNull<raw::_IPLSerializedObject_t>);
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeArrayPtr(NonNull<raw::_IPLProbeArray_t>);
+
+struct ProbeArrayGuard(ProbeArrayPtr);
+
+impl Drop for ProbeArrayGuard {
+    fn drop(&mut self) {
+        destroy_probe_array(self.0);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProbeBatchPtr(NonNull<raw::_IPLProbeBatch_t>);
+
 // Steam Audio documents its API objects as reference-counted and usable from
 // multiple threads. Safe methods still require `&mut` for stateful effects.
 unsafe impl Send for ContextPtr {}
@@ -70,6 +90,8 @@ unsafe impl Sync for ContextPtr {}
 unsafe impl Send for HrtfPtr {}
 unsafe impl Sync for HrtfPtr {}
 unsafe impl Send for BinauralEffectPtr {}
+unsafe impl Send for ProbeBatchPtr {}
+unsafe impl Sync for ProbeBatchPtr {}
 
 pub(crate) fn create_context() -> Result<ContextPtr, Status> {
     let mut settings = raw::IPLContextSettings {
@@ -94,16 +116,7 @@ pub(crate) fn destroy_context(context: ContextPtr) {
 }
 
 pub(crate) fn create_scene(context: ContextPtr) -> Result<ScenePtr, Status> {
-    let mut settings = raw::IPLSceneSettings {
-        type_: raw::IPL_SCENETYPE_DEFAULT,
-        closestHitCallback: None,
-        anyHitCallback: None,
-        batchedClosestHitCallback: None,
-        batchedAnyHitCallback: None,
-        userData: std::ptr::null_mut(),
-        embreeDevice: std::ptr::null_mut(),
-        radeonRaysDevice: std::ptr::null_mut(),
-    };
+    let mut settings = default_scene_settings();
     let mut pointer = std::ptr::null_mut();
     let status =
         unsafe { raw::iplSceneCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer) };
@@ -111,6 +124,35 @@ pub(crate) fn create_scene(context: ContextPtr) -> Result<ScenePtr, Status> {
     NonNull::new(pointer)
         .map(ScenePtr)
         .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn load_scene(context: ContextPtr, bytes: &[u8]) -> Result<ScenePtr, Status> {
+    let serialized = create_serialized_object(context, Some(bytes))?;
+    let mut settings = default_scene_settings();
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::iplSceneLoad(
+            context.0.as_ptr(),
+            &raw mut settings,
+            serialized.0.as_ptr(),
+            None,
+            std::ptr::null_mut(),
+            &raw mut pointer,
+        )
+    };
+    destroy_serialized_object(serialized);
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ScenePtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn save_scene(context: ContextPtr, scene: ScenePtr) -> Result<Vec<u8>, Status> {
+    let serialized = create_serialized_object(context, None)?;
+    unsafe { raw::iplSceneSave(scene.0.as_ptr(), serialized.0.as_ptr()) };
+    let bytes = serialized_object_bytes(serialized);
+    destroy_serialized_object(serialized);
+    bytes
 }
 
 pub(crate) fn destroy_scene(scene: ScenePtr) {
@@ -170,6 +212,161 @@ pub(crate) fn add_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
 
 pub(crate) fn remove_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
     unsafe { raw::iplStaticMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
+}
+
+pub(crate) fn generate_uniform_floor_probes(
+    context: ContextPtr,
+    scene: ScenePtr,
+    transform: ProbeVolumeTransform,
+    spacing: f32,
+    height: f32,
+) -> Result<(ProbeBatchPtr, Vec<AcousticProbe>), Status> {
+    let probe_array = ProbeArrayGuard(create_probe_array(context)?);
+    let mut params = raw::IPLProbeGenerationParams {
+        type_: raw::IPL_PROBEGENERATIONTYPE_UNIFORMFLOOR,
+        spacing,
+        height,
+        transform: raw::IPLMatrix4x4 {
+            elements: transform.rows(),
+        },
+    };
+    unsafe {
+        raw::iplProbeArrayGenerateProbes(
+            probe_array.0.0.as_ptr(),
+            scene.0.as_ptr(),
+            &raw mut params,
+        );
+    }
+    let count = unsafe { raw::iplProbeArrayGetNumProbes(probe_array.0.0.as_ptr()) };
+    let count = usize::try_from(count).map_err(|_error| Status::ContractViolation)?;
+    let mut probes = Vec::with_capacity(count);
+    for index in 0..count {
+        let index = i32::try_from(index).map_err(|_error| Status::ContractViolation)?;
+        let sphere = unsafe { raw::iplProbeArrayGetProbe(probe_array.0.0.as_ptr(), index) };
+        probes.push(
+            AcousticProbe::new(
+                Vec3A::new(sphere.center.x, sphere.center.y, sphere.center.z),
+                sphere.radius,
+            )
+            .map_err(|_error| Status::ContractViolation)?,
+        );
+    }
+    let batch = create_probe_batch(context)?;
+    unsafe {
+        raw::iplProbeBatchAddProbeArray(batch.0.as_ptr(), probe_array.0.0.as_ptr());
+        raw::iplProbeBatchCommit(batch.0.as_ptr());
+    }
+    Ok((batch, probes))
+}
+
+pub(crate) fn bake_reflections(
+    context: ContextPtr,
+    scene: ScenePtr,
+    batch: ProbeBatchPtr,
+    identifier: BakedDataIdentifier,
+    settings: ReflectionsBakeSettings,
+) {
+    let mut params = raw::IPLReflectionsBakeParams {
+        scene: scene.0.as_ptr(),
+        probeBatch: batch.0.as_ptr(),
+        sceneType: raw::IPL_SCENETYPE_DEFAULT,
+        identifier: raw_identifier(identifier),
+        bakeFlags: raw::IPL_REFLECTIONSBAKEFLAGS_BAKECONVOLUTION
+            | raw::IPL_REFLECTIONSBAKEFLAGS_BAKEPARAMETRIC,
+        numRays: native_u32(settings.num_rays),
+        numDiffuseSamples: native_u32(settings.num_diffuse_samples),
+        numBounces: native_u32(settings.num_bounces),
+        simulatedDuration: settings.simulated_duration,
+        savedDuration: settings.saved_duration,
+        order: native_u32(settings.order),
+        numThreads: native_u32(settings.num_threads),
+        rayBatchSize: native_u32(settings.ray_batch_size),
+        irradianceMinDistance: settings.irradiance_min_distance,
+        bakeBatchSize: native_u32(settings.bake_batch_size),
+        openCLDevice: std::ptr::null_mut(),
+        radeonRaysDevice: std::ptr::null_mut(),
+    };
+    unsafe {
+        raw::iplReflectionsBakerBake(
+            context.0.as_ptr(),
+            &raw mut params,
+            None,
+            std::ptr::null_mut(),
+        );
+    }
+}
+
+pub(crate) fn bake_pathing(
+    context: ContextPtr,
+    scene: ScenePtr,
+    batch: ProbeBatchPtr,
+    identifier: BakedDataIdentifier,
+    settings: PathBakeSettings,
+) {
+    let mut params = raw::IPLPathBakeParams {
+        scene: scene.0.as_ptr(),
+        probeBatch: batch.0.as_ptr(),
+        identifier: raw_identifier(identifier),
+        numSamples: native_u32(settings.num_samples),
+        radius: settings.radius,
+        threshold: settings.threshold,
+        visRange: settings.visibility_range,
+        pathRange: settings.path_range,
+        numThreads: native_u32(settings.num_threads),
+    };
+    unsafe {
+        // Steam Audio 4.8.1 documents this callback as optional, but its
+        // path-baker worker invokes it unconditionally.
+        raw::iplPathBakerBake(
+            context.0.as_ptr(),
+            &raw mut params,
+            Some(ignore_bake_progress),
+            std::ptr::null_mut(),
+        );
+    }
+}
+
+unsafe extern "C" fn ignore_bake_progress(_progress: f32, _user_data: *mut std::ffi::c_void) {}
+
+pub(crate) fn probe_batch_data_size(
+    batch: ProbeBatchPtr,
+    identifier: BakedDataIdentifier,
+) -> usize {
+    let mut identifier = raw_identifier(identifier);
+    unsafe { raw::iplProbeBatchGetDataSize(batch.0.as_ptr(), &raw mut identifier) }
+}
+
+pub(crate) fn save_probe_batch(
+    context: ContextPtr,
+    batch: ProbeBatchPtr,
+) -> Result<Vec<u8>, Status> {
+    let serialized = create_serialized_object(context, None)?;
+    unsafe { raw::iplProbeBatchSave(batch.0.as_ptr(), serialized.0.as_ptr()) };
+    let bytes = serialized_object_bytes(serialized);
+    destroy_serialized_object(serialized);
+    bytes
+}
+
+pub(crate) fn load_probe_batch(context: ContextPtr, bytes: &[u8]) -> Result<ProbeBatchPtr, Status> {
+    let serialized = create_serialized_object(context, Some(bytes))?;
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::iplProbeBatchLoad(context.0.as_ptr(), serialized.0.as_ptr(), &raw mut pointer)
+    };
+    destroy_serialized_object(serialized);
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ProbeBatchPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+pub(crate) fn probe_batch_count(batch: ProbeBatchPtr) -> Result<usize, ()> {
+    usize::try_from(unsafe { raw::iplProbeBatchGetNumProbes(batch.0.as_ptr()) }).map_err(drop)
+}
+
+pub(crate) fn destroy_probe_batch(batch: ProbeBatchPtr) {
+    let mut pointer = batch.0.as_ptr();
+    unsafe { raw::iplProbeBatchRelease(&raw mut pointer) };
 }
 
 pub(crate) fn create_default_hrtf(
@@ -324,9 +521,103 @@ fn raw_material(material: AcousticMaterial) -> raw::IPLMaterial {
     }
 }
 
+fn default_scene_settings() -> raw::IPLSceneSettings {
+    raw::IPLSceneSettings {
+        type_: raw::IPL_SCENETYPE_DEFAULT,
+        closestHitCallback: None,
+        anyHitCallback: None,
+        batchedClosestHitCallback: None,
+        batchedAnyHitCallback: None,
+        userData: std::ptr::null_mut(),
+        embreeDevice: std::ptr::null_mut(),
+        radeonRaysDevice: std::ptr::null_mut(),
+    }
+}
+
+fn create_serialized_object(
+    context: ContextPtr,
+    bytes: Option<&[u8]>,
+) -> Result<SerializedObjectPtr, Status> {
+    let (data, size) = bytes.map_or((std::ptr::null_mut(), 0), |bytes| {
+        (bytes.as_ptr().cast_mut(), bytes.len())
+    });
+    let mut settings = raw::IPLSerializedObjectSettings { data, size };
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::iplSerializedObjectCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer)
+    };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(SerializedObjectPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+fn serialized_object_bytes(serialized: SerializedObjectPtr) -> Result<Vec<u8>, Status> {
+    let size = unsafe { raw::iplSerializedObjectGetSize(serialized.0.as_ptr()) };
+    let data = unsafe { raw::iplSerializedObjectGetData(serialized.0.as_ptr()) };
+    if size == 0 || data.is_null() {
+        return Err(Status::ContractViolation);
+    }
+    Ok(unsafe { std::slice::from_raw_parts(data, size) }.to_vec())
+}
+
+fn destroy_serialized_object(serialized: SerializedObjectPtr) {
+    let mut pointer = serialized.0.as_ptr();
+    unsafe { raw::iplSerializedObjectRelease(&raw mut pointer) };
+}
+
+fn create_probe_array(context: ContextPtr) -> Result<ProbeArrayPtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe { raw::iplProbeArrayCreate(context.0.as_ptr(), &raw mut pointer) };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ProbeArrayPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+fn destroy_probe_array(array: ProbeArrayPtr) {
+    let mut pointer = array.0.as_ptr();
+    unsafe { raw::iplProbeArrayRelease(&raw mut pointer) };
+}
+
+fn create_probe_batch(context: ContextPtr) -> Result<ProbeBatchPtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe { raw::iplProbeBatchCreate(context.0.as_ptr(), &raw mut pointer) };
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ProbeBatchPtr)
+        .ok_or(Status::ContractViolation)
+}
+
+fn raw_identifier(identifier: BakedDataIdentifier) -> raw::IPLBakedDataIdentifier {
+    let endpoint = identifier.endpoint();
+    raw::IPLBakedDataIdentifier {
+        type_: match identifier.data_type() {
+            BakedDataType::Reflections => raw::IPL_BAKEDDATATYPE_REFLECTIONS,
+            BakedDataType::Pathing => raw::IPL_BAKEDDATATYPE_PATHING,
+        },
+        variation: match identifier.variation() {
+            BakedDataVariation::Reverb => raw::IPL_BAKEDDATAVARIATION_REVERB,
+            BakedDataVariation::StaticSource => raw::IPL_BAKEDDATAVARIATION_STATICSOURCE,
+            BakedDataVariation::StaticListener => raw::IPL_BAKEDDATAVARIATION_STATICLISTENER,
+            BakedDataVariation::Dynamic => raw::IPL_BAKEDDATAVARIATION_DYNAMIC,
+        },
+        endpointInfluence: raw::IPLSphere {
+            center: raw_vec(endpoint.position()),
+            radius: endpoint.radius(),
+        },
+    }
+}
+
 fn native_len(len: usize) -> i32 {
     i32::try_from(len)
         .unwrap_or_else(|_error| unreachable!("scene geometry validates native lengths"))
+}
+
+fn native_u32(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or_else(|_error| {
+        unreachable!("validated acoustic bake settings must fit the native range")
+    })
 }
 
 const fn raw_interpolation(interpolation: Interpolation) -> raw::IPLHRTFInterpolation {

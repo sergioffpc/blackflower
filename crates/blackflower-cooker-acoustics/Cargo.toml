@@ -1,20 +1,22 @@
 [package]
-name = "blackflower-audio-spatial"
+name = "blackflower-cooker-acoustics"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-links = "phonon"
 
 [dependencies]
+blackflower-audio-spatial.workspace = true
+blackflower-gltf-metadata.workspace = true
+
 blake3.workspace = true
 glam.workspace = true
+gltf.workspace = true
 thiserror.workspace = true
 
-[build-dependencies]
-bindgen.workspace = true
-cmake.workspace = true
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

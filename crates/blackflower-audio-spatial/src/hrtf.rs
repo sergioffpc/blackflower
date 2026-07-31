@@ -63,6 +63,15 @@ impl Context {
     pub fn create_scene(&mut self) -> Result<crate::Scene, Error> {
         crate::Scene::new(Arc::clone(&self.inner))
     }
+
+    /// Load a committed Steam Audio scene from `.bfacscn` bytes parsed off the
+    /// real-time thread.
+    pub fn load_acoustic_scene(
+        &mut self,
+        asset: &crate::AcousticScene,
+    ) -> Result<crate::Scene, Error> {
+        crate::Scene::from_serialized(Arc::clone(&self.inner), asset.serialized())
+    }
 }
 
 /// Reference-counted Steam Audio HRTF tied to one [`AudioSettings`] value.

@@ -91,6 +91,7 @@ pub(crate) struct CookingProfile {
     pub(crate) meshes: MeshProfile,
     pub(crate) animations: AnimationProfile,
     pub(crate) audio: AudioCookSettings,
+    pub(crate) acoustics: AcousticsProfile,
 }
 
 impl CookingProfile {
@@ -120,6 +121,9 @@ impl CookingProfile {
         file.audio
             .validate()
             .with_context(|| format!("invalid audio settings in profile `{}`", path.display()))?;
+        file.acoustics.validate().with_context(|| {
+            format!("invalid acoustic settings in profile `{}`", path.display())
+        })?;
         let hash = hash_profile(&file)?;
         Ok(Self {
             identity: CookingProfileIdentity { name, hash },
@@ -129,6 +133,7 @@ impl CookingProfile {
             meshes: file.meshes,
             animations: file.animations,
             audio: file.audio,
+            acoustics: file.acoustics,
         })
     }
 }
@@ -143,6 +148,7 @@ struct CookingProfileFile {
     meshes: MeshProfile,
     animations: AnimationProfile,
     audio: AudioCookSettings,
+    acoustics: AcousticsProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +299,60 @@ pub(crate) struct AnimationProfile {
     pub(crate) optimization_tolerance: f32,
     pub(crate) optimization_distance: f32,
     pub(crate) root_motion_tolerance: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcousticsProfile {
+    pub(crate) reflection_rays: u32,
+    pub(crate) diffuse_samples: u32,
+    pub(crate) bounces: u32,
+    pub(crate) simulated_duration_seconds: f32,
+    pub(crate) saved_duration_seconds: f32,
+    pub(crate) ambisonic_order: u32,
+    pub(crate) bake_threads: u32,
+    pub(crate) ray_batch_size: u32,
+    pub(crate) irradiance_min_distance_meters: f32,
+    pub(crate) bake_batch_size: u32,
+    pub(crate) path_samples: u32,
+    pub(crate) path_radius_meters: f32,
+    pub(crate) path_visibility_threshold: f32,
+    pub(crate) path_visibility_range_meters: f32,
+    pub(crate) path_range_meters: f32,
+}
+
+impl AcousticsProfile {
+    fn validate(self) -> anyhow::Result<()> {
+        let _profile = self.bake_profile()?;
+        Ok(())
+    }
+
+    pub(crate) fn bake_profile(
+        self,
+    ) -> anyhow::Result<blackflower_cooker_acoustics::AcousticBakeProfile> {
+        Ok(blackflower_cooker_acoustics::AcousticBakeProfile {
+            reflections: blackflower_audio_spatial::ReflectionsBakeSettings::new(
+                self.reflection_rays,
+                self.diffuse_samples,
+                self.bounces,
+                self.simulated_duration_seconds,
+                self.saved_duration_seconds,
+                self.ambisonic_order,
+                self.bake_threads,
+                self.ray_batch_size,
+                self.irradiance_min_distance_meters,
+                self.bake_batch_size,
+            )?,
+            pathing: blackflower_audio_spatial::PathBakeSettings::new(
+                self.path_samples,
+                self.path_radius_meters,
+                self.path_visibility_threshold,
+                self.path_visibility_range_meters,
+                self.path_range_meters,
+                self.bake_threads,
+            )?,
+        })
+    }
 }
 
 impl AnimationProfile {

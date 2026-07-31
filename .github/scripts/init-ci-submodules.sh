@@ -80,6 +80,12 @@ case "$mode" in
             crates/blackflower-navigation/vendor/recastnavigation \
             crates/blackflower-scripting/vendor/luau \
             crates/blackflower-rendering-textures/vendor/KTX-Software
+        git submodule update --init --recursive --depth 1 \
+            crates/blackflower-audio-spatial/vendor/flatbuffers \
+            crates/blackflower-audio-spatial/vendor/libmysofa \
+            crates/blackflower-audio-spatial/vendor/pffft \
+            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
+            crates/blackflower-audio-spatial/vendor/zlib
         initialize_slang
         initialize_volume_cooker
         ;;

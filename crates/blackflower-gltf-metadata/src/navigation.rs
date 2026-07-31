@@ -76,6 +76,8 @@ struct MetadataFile {
     schema: u32,
     node: NodeFile,
     navigation: NavigationFile,
+    #[serde(default, rename = "acoustics")]
+    _acoustics: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -22,6 +22,15 @@ ARCHIVE_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 def main() -> None:
     manifest = tomllib.loads((SOURCE / "blender_manifest.toml").read_text())
+    workspace = tomllib.loads(
+        (Path(__file__).parents[2] / "Cargo.toml").read_text()
+    )
+    project_version = workspace["workspace"]["package"]["version"]
+    if manifest["version"] != project_version:
+        raise ValueError(
+            "Blender extension version "
+            f"{manifest['version']} does not match project version {project_version}"
+        )
     default_output = (
         Path(__file__).parents[2]
         / "target"
