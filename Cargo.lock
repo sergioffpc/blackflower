@@ -1917,6 +1917,7 @@ dependencies = [
  "blackflower-build",
  "clap",
  "cmake",
+ "tempfile",
 ]
 
 [[package]]

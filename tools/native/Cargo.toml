@@ -17,5 +17,8 @@ blackflower-build.workspace = true
 clap.workspace = true
 cmake.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true

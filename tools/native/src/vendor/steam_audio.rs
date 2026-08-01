@@ -54,7 +54,12 @@ pub(super) fn build(
     configure_steam_audio_features(&mut config, configuration, architecture);
     configure_steam_audio_dependencies(&mut config, &dependencies);
     let built = config.build();
-    install_steam_audio_artifacts(&built, &destination, dependencies.windows, architecture)?;
+    install_steam_audio_artifacts(
+        &built.join("build"),
+        &destination,
+        dependencies.windows,
+        architecture,
+    )?;
     write_vendor_manifest(
         &destination,
         configuration,
@@ -238,7 +243,17 @@ fn copy_static_artifact(source: &Path, destination: &Path) -> anyhow::Result<()>
     let file_name = source
         .file_name()
         .context("static library artifact has no file name")?;
-    fs::copy(source, destination.join(file_name))?;
+    let installed = destination.join(file_name);
+    if source == installed {
+        bail!(
+            "refusing to copy static library {} onto itself",
+            source.display()
+        );
+    }
+    fs::copy(source, &installed)?;
+    if fs::metadata(&installed)?.len() == 0 {
+        bail!("installed static library {} is empty", installed.display());
+    }
     Ok(())
 }
 
@@ -710,4 +725,26 @@ endif()"#,
 #endif"#,
         "Steam Audio Embree reflection simulator factory contract changed",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_artifact_self_copy_is_rejected_without_truncating() -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let library = temporary.path().join("libispckernels.a");
+        let archive_header = b"!<arch>\n";
+        fs::write(&library, archive_header)?;
+
+        let error = match copy_static_artifact(&library, temporary.path()) {
+            Ok(()) => bail!("self-copy unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("onto itself"));
+        assert_eq!(fs::read(library)?, archive_header);
+        Ok(())
+    }
 }
