@@ -34,9 +34,9 @@ To deliberately refresh the vendored source, fetch in the submodule, check out
 the reviewed commit, then commit the new submodule pointer in this repository:
 
 ```sh
-git -C crates/blackflower-ecs/vendor/flecs fetch --tags origin
-git -C crates/blackflower-ecs/vendor/flecs checkout fb55f3c25660425cfe1bc4cf5e6bff8b3f18a9b8
-git add crates/blackflower-ecs/vendor/flecs
+git -C vendor/flecs fetch --tags origin
+git -C vendor/flecs checkout fb55f3c25660425cfe1bc4cf5e6bff8b3f18a9b8
+git add vendor/flecs
 ```
 
 ## Safe API

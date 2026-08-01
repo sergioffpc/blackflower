@@ -8,8 +8,8 @@ package=${2:-}
 initialize_slang()
 {
     git submodule update --init --depth 1 \
-        crates/blackflower-shader-compiler/vendor/slang
-    git -C crates/blackflower-shader-compiler/vendor/slang \
+        vendor/slang
+    git -C vendor/slang \
         submodule update --init --depth 1 \
         external/cmark \
         external/fast_float \
@@ -24,11 +24,11 @@ initialize_slang()
 initialize_volume_cooker()
 {
     git submodule update --init --depth 1 \
-        crates/blackflower-cooker-volume/vendor/boost \
-        crates/blackflower-cooker-volume/vendor/c-blosc \
-        crates/blackflower-cooker-volume/vendor/oneTBB \
-        crates/blackflower-rendering-volumes/vendor/openvdb
-    git -C crates/blackflower-cooker-volume/vendor/boost \
+        vendor/boost \
+        vendor/c-blosc \
+        vendor/oneTBB \
+        vendor/openvdb
+    git -C vendor/boost \
         submodule update --init --depth 1 \
         libs/assert \
         libs/config \
@@ -57,38 +57,43 @@ initialize_volume_cooker()
         libs/winapi
 }
 
+initialize_spatial_audio()
+{
+    git submodule update --init --recursive --depth 1 \
+        vendor/flatbuffers \
+        vendor/libmysofa \
+        vendor/pffft \
+        vendor/steam-audio-sdk \
+        vendor/embree \
+        vendor/zlib
+}
+
+initialize_all()
+{
+    git submodule update --init --recursive --depth 1 \
+        vendor/JoltPhysics \
+        vendor/KTX-Software \
+        vendor/embree \
+        vendor/flatbuffers \
+        vendor/flecs \
+        vendor/libmysofa \
+        vendor/luau \
+        vendor/opus \
+        vendor/ozz-animation \
+        vendor/pffft \
+        vendor/recastnavigation \
+        vendor/steam-audio-sdk \
+        vendor/zlib
+    initialize_slang
+    initialize_volume_cooker
+}
+
 case "$mode" in
     runtime)
-        git submodule update --init --recursive --depth 1 \
-            crates/blackflower-animation/vendor/ozz-animation \
-            crates/blackflower-audio-spatial/vendor/flatbuffers \
-            crates/blackflower-audio-spatial/vendor/libmysofa \
-            crates/blackflower-audio-spatial/vendor/pffft \
-            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-            crates/blackflower-audio-voice/vendor/opus \
-            crates/blackflower-ecs/vendor/flecs \
-            crates/blackflower-navigation/vendor/recastnavigation \
-            crates/blackflower-physics/vendor/JoltPhysics \
-            crates/blackflower-rendering-volumes/vendor/openvdb \
-            vendor/embree \
-            vendor/zlib
+        initialize_all
         ;;
     assets)
-        git submodule update --init --depth 1 \
-            crates/blackflower-animation/vendor/ozz-animation \
-            crates/blackflower-audio-voice/vendor/opus \
-            crates/blackflower-navigation/vendor/recastnavigation \
-            crates/blackflower-scripting/vendor/luau \
-            crates/blackflower-rendering-textures/vendor/KTX-Software \
-            vendor/zlib
-        git submodule update --init --recursive --depth 1 \
-            crates/blackflower-audio-spatial/vendor/flatbuffers \
-            crates/blackflower-audio-spatial/vendor/libmysofa \
-            crates/blackflower-audio-spatial/vendor/pffft \
-            crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-            vendor/embree
-        initialize_slang
-        initialize_volume_cooker
+        initialize_all
         ;;
     native)
         case "$package" in
@@ -97,54 +102,43 @@ case "$mode" in
                 ;;
             blackflower-animation|blackflower-cooker-animation)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-animation/vendor/ozz-animation
+                    vendor/ozz-animation
                 ;;
             blackflower-audio-spatial)
-                git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-audio-spatial/vendor/flatbuffers \
-                    crates/blackflower-audio-spatial/vendor/libmysofa \
-                    crates/blackflower-audio-spatial/vendor/pffft \
-                    crates/blackflower-audio-spatial/vendor/steam-audio-sdk \
-                    vendor/embree \
-                    vendor/zlib
+                initialize_spatial_audio
                 ;;
             blackflower-audio-capture|blackflower-networking)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-audio-voice/vendor/opus \
-                    vendor/embree \
-                    vendor/zlib
+                    vendor/opus
+                initialize_spatial_audio
                 ;;
             blackflower-audio-voice)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-audio-voice/vendor/opus
+                    vendor/opus
                 ;;
-            blackflower-cooker-volume)
+            blackflower-cooker-volume|blackflower-rendering-volumes)
                 git submodule update --init --depth 1 vendor/zlib
                 initialize_volume_cooker
                 ;;
             blackflower-ecs)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-ecs/vendor/flecs
+                    vendor/flecs
                 ;;
-            blackflower-navigation)
+            blackflower-navigation|blackflower-cooker-navigation)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-navigation/vendor/recastnavigation
+                    vendor/recastnavigation
                 ;;
             blackflower-physics)
                 git submodule update --init --recursive --depth 1 \
-                    crates/blackflower-physics/vendor/JoltPhysics
+                    vendor/JoltPhysics
                 ;;
             blackflower-rendering-textures)
                 git submodule update --init --depth 1 \
-                    crates/blackflower-rendering-textures/vendor/KTX-Software
-                ;;
-            blackflower-rendering-volumes)
-                git submodule update --init --depth 1 \
-                    crates/blackflower-rendering-volumes/vendor/openvdb
+                    vendor/KTX-Software
                 ;;
             blackflower-scripting)
                 git submodule update --init --depth 1 \
-                    crates/blackflower-scripting/vendor/luau
+                    vendor/luau
                 ;;
             blackflower-shader-compiler)
                 initialize_slang

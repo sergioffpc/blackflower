@@ -8,13 +8,14 @@ use blackflower_animation_format::{
 };
 use glam::Vec3;
 
-const SKELETON_OZZ: &[u8] = include_bytes!("../vendor/ozz-animation/media/bin/baked_skeleton.ozz");
+const SKELETON_OZZ: &[u8] =
+    include_bytes!("../../../vendor/ozz-animation/media/bin/baked_skeleton.ozz");
 const ANIMATION_OZZ: &[u8] =
-    include_bytes!("../vendor/ozz-animation/media/bin/baked_animation.ozz");
+    include_bytes!("../../../vendor/ozz-animation/media/bin/baked_animation.ozz");
 const OTHER_SKELETON_OZZ: &[u8] =
-    include_bytes!("../vendor/ozz-animation/media/bin/robot_skeleton.ozz");
+    include_bytes!("../../../vendor/ozz-animation/media/bin/robot_skeleton.ozz");
 const ROOT_MOTION_OZZ: &[u8] =
-    include_bytes!("../vendor/ozz-animation/media/bin/pab_walk_motion_track.ozz");
+    include_bytes!("../../../vendor/ozz-animation/media/bin/pab_walk_motion_track.ozz");
 const VERSION: OzzVersion = OzzVersion::new(0, 16, 0);
 const SKELETON_IDENTITY: SkeletonIdentity = SkeletonIdentity::from_bytes([
     0x17, 0xb4, 0x9c, 0x4b, 0xf2, 0x33, 0x22, 0x2e, 0x60, 0x03, 0x58, 0x40, 0x5b, 0xce, 0xe1, 0xd5,

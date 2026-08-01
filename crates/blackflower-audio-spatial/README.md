@@ -44,9 +44,10 @@ They are not permitted in an audio callback.
 
 ## Static native build
 
-Run `cargo native build` once before `cargo build`. The first command compiles
-the repository-global Embree and zlib vendors; the audio crate then compiles
-the remaining pinned native audio stack and links everything statically:
+Run `cargo native build --profile debug` once before `cargo build`. The first
+command compiles the complete pinned native stack in the repository-global
+`vendor/` directory. The audio crate then generates its private declarations
+and links the prebuilt artifacts statically:
 
 - Steam Audio 4.8.1 as `libphonon.a` or `phonon.lib`;
 - Embree 4.4.1 on supported x86-64 and ARM64 targets. Steam Audio's ISPC
@@ -63,19 +64,17 @@ No precompiled Steam Audio SDK, `BLACKFLOWER_STEAM_AUDIO_LIBRARY`, shared
 `phonon` library or runtime SDK installation is required. `Context::new`
 calls the statically linked API directly.
 
-The shared global archives and the crate-private generated files are both kept
-below Cargo's target directory:
+The shared global artifacts and the crate-private generated declarations are
+both kept below Cargo's target directory:
 
 ```text
 target/native/<target>/<configuration>/<crt>/
 ├── embree/lib/libembree.a
+├── flatbuffers/bin/flatc
+├── mysofa/lib/libmysofa.a
+├── pffft/lib/libpffft.a
+├── steam-audio/lib/libphonon.a
 └── zlib/lib/libz.a
-
-target/<profile>/build/blackflower-audio-spatial-*/out/native/
-├── flatbuffers/build/flatc
-├── libmysofa/build/.../libmysofa.a
-├── pffft/build/libpffft.a
-└── steam-audio/build/.../libphonon.a
 ```
 
 Windows produces the corresponding `.lib` files. These paths are Cargo build

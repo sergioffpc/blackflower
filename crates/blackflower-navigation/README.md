@@ -33,9 +33,9 @@ To deliberately update RecastNavigation, fetch and check out a reviewed release
 in the submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-navigation/vendor/recastnavigation fetch --tags origin
-git -C crates/blackflower-navigation/vendor/recastnavigation checkout v1.6.0
-git add crates/blackflower-navigation/vendor/recastnavigation
+git -C vendor/recastnavigation fetch --tags origin
+git -C vendor/recastnavigation checkout v1.6.0
+git add vendor/recastnavigation
 ```
 
 ## Runtime API

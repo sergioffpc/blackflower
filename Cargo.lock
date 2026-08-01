@@ -284,7 +284,6 @@ dependencies = [
  "bindgen",
  "blackflower-acoustics",
  "blake3",
- "cmake",
  "glam",
  "thiserror 2.0.19",
 ]
@@ -294,7 +293,6 @@ name = "blackflower-audio-voice"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "cmake",
  "thiserror 2.0.19",
 ]
 
@@ -321,7 +319,6 @@ dependencies = [
  "blackflower-animation",
  "blackflower-animation-format",
  "blackflower-gltf-metadata",
- "cmake",
  "gltf",
  "serde_json",
  "tempfile",
@@ -363,7 +360,6 @@ dependencies = [
  "bindgen",
  "blackflower-ecs-derive",
  "bytemuck",
- "cc",
  "metrics",
  "profiling",
  "strum",
@@ -401,15 +397,6 @@ dependencies = [
  "blackflower-world-prediction",
  "metrics",
  "tracing",
-]
-
-[[package]]
-name = "blackflower-native-build"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "cmake",
 ]
 
 [[package]]
@@ -1902,6 +1889,15 @@ dependencies = [
  "indexmap",
  "rustc-hash 1.1.0",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "native"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmake",
 ]
 
 [[package]]

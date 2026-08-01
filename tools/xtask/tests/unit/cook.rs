@@ -2713,9 +2713,8 @@ fn pcm16_wav(sample_rate: u32, channels: u16, frames: u32, seed: i16) -> Vec<u8>
 }
 
 fn rigged_animation_gltf() -> anyhow::Result<Vec<u8>> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../crates/blackflower-animation/vendor/ozz-animation/media/gltf/khronos/rigged_simple.gltf",
-    );
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../vendor/ozz-animation/media/gltf/khronos/rigged_simple.gltf");
     let mut document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
     document["animations"][0]["name"] = serde_json::json!("Walk");
     document["animations"][0]["extras"]["blackflower"] = serde_json::json!({

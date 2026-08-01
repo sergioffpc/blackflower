@@ -2,24 +2,55 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(BlackflowerScriptingBindings LANGUAGES CXX)
 
-set(LUAU_BUILD_CLI OFF CACHE BOOL "" FORCE)
-set(LUAU_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LUAU_BUILD_WEB OFF CACHE BOOL "" FORCE)
-set(LUAU_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(LUAU_EXTERN_C ON CACHE BOOL "" FORCE)
-set(LUAU_STATIC_CRT OFF CACHE BOOL "" FORCE)
+foreach(input ROOT COMPILER_LIBRARY AST_LIBRARY BYTECODE_LIBRARY CODEGEN_LIBRARY VM_LIBRARY COMMON_LIBRARY)
+    if(NOT DEFINED BLACKFLOWER_LUAU_${input})
+        message(FATAL_ERROR "Missing BLACKFLOWER_LUAU_${input}")
+    endif()
+endforeach()
 
-add_subdirectory(
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau"
-    "${CMAKE_CURRENT_BINARY_DIR}/luau"
+foreach(pair
+    "Compiler;COMPILER"
+    "Ast;AST"
+    "Bytecode;BYTECODE"
+    "CodeGen;CODEGEN"
+    "VM;VM"
+    "Common;COMMON"
 )
-
-set_target_properties(Luau.Common PROPERTIES OUTPUT_NAME blackflower_luau_common)
-set_target_properties(Luau.Ast PROPERTIES OUTPUT_NAME blackflower_luau_ast)
-set_target_properties(Luau.Bytecode PROPERTIES OUTPUT_NAME blackflower_luau_bytecode)
-set_target_properties(Luau.Compiler PROPERTIES OUTPUT_NAME blackflower_luau_compiler)
-set_target_properties(Luau.CodeGen PROPERTIES OUTPUT_NAME blackflower_luau_codegen)
-set_target_properties(Luau.VM PROPERTIES OUTPUT_NAME blackflower_luau_vm)
+    list(GET pair 0 target_name)
+    list(GET pair 1 variable_name)
+    add_library(Luau.${target_name} STATIC IMPORTED GLOBAL)
+    set_target_properties(
+        Luau.${target_name}
+        PROPERTIES
+        IMPORTED_LOCATION "${BLACKFLOWER_LUAU_${variable_name}_LIBRARY}"
+    )
+endforeach()
+target_compile_definitions(
+    Luau.VM
+    INTERFACE
+    LUA_USE_LONGJMP=1
+    "LUA_API=extern \"C\""
+)
+target_compile_definitions(
+    Luau.Compiler
+    INTERFACE
+    "LUACODE_API=extern \"C\""
+)
+target_compile_definitions(
+    Luau.CodeGen
+    INTERFACE
+    "LUACODEGEN_API=extern \"C\""
+)
+target_include_directories(
+    Luau.CodeGen
+    INTERFACE
+    "${BLACKFLOWER_LUAU_ROOT}/Common/include"
+    "${BLACKFLOWER_LUAU_ROOT}/Ast/include"
+    "${BLACKFLOWER_LUAU_ROOT}/Bytecode/include"
+    "${BLACKFLOWER_LUAU_ROOT}/CodeGen/include"
+    "${BLACKFLOWER_LUAU_ROOT}/Compiler/include"
+    "${BLACKFLOWER_LUAU_ROOT}/VM/include"
+)
 
 add_library(blackflower_scripting_wrapper STATIC wrapper.cpp)
 target_compile_features(blackflower_scripting_wrapper PRIVATE cxx_std_17)
@@ -33,9 +64,9 @@ target_compile_definitions(
 target_include_directories(
     blackflower_scripting_wrapper
     PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/CodeGen/include"
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/Compiler/include"
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/luau/VM/include"
+    "${BLACKFLOWER_LUAU_ROOT}/CodeGen/include"
+    "${BLACKFLOWER_LUAU_ROOT}/Compiler/include"
+    "${BLACKFLOWER_LUAU_ROOT}/VM/include"
 )
 target_link_libraries(
     blackflower_scripting_wrapper
@@ -47,13 +78,6 @@ target_link_libraries(
 
 include(GNUInstallDirs)
 install(
-    TARGETS
-        Luau.Common
-        Luau.Ast
-        Luau.Bytecode
-        Luau.Compiler
-        Luau.CodeGen
-        Luau.VM
-        blackflower_scripting_wrapper
+    TARGETS blackflower_scripting_wrapper
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

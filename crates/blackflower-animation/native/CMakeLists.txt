@@ -2,23 +2,25 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 project(BlackflowerAnimationBindings LANGUAGES CXX)
 
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(ozz_build_data OFF CACHE BOOL "" FORCE)
-set(ozz_build_fbx OFF CACHE BOOL "" FORCE)
-set(ozz_build_gltf OFF CACHE BOOL "" FORCE)
-set(ozz_build_howtos OFF CACHE BOOL "" FORCE)
-set(ozz_build_msvc_rt_dll ON CACHE BOOL "" FORCE)
-set(ozz_build_postfix OFF CACHE BOOL "" FORCE)
-set(ozz_build_samples OFF CACHE BOOL "" FORCE)
-set(ozz_build_tests OFF CACHE BOOL "" FORCE)
-set(ozz_build_tools OFF CACHE BOOL "" FORCE)
+foreach(input OZZ_ROOT OZZ_ANIMATION_LIBRARY OZZ_BASE_LIBRARY)
+    if(NOT DEFINED BLACKFLOWER_${input})
+        message(FATAL_ERROR "Missing BLACKFLOWER_${input}")
+    endif()
+endforeach()
 
-add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/EHsc>)
-
-add_subdirectory(
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/ozz-animation"
-    "${CMAKE_CURRENT_BINARY_DIR}/ozz"
-    EXCLUDE_FROM_ALL
+add_library(ozz_animation STATIC IMPORTED GLOBAL)
+set_target_properties(
+    ozz_animation
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_OZZ_ANIMATION_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_OZZ_ROOT}/include"
+)
+add_library(ozz_base STATIC IMPORTED GLOBAL)
+set_target_properties(
+    ozz_base
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_OZZ_BASE_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_OZZ_ROOT}/include"
 )
 
 foreach(version_component MAJOR MINOR PATCH)
@@ -45,6 +47,6 @@ target_link_libraries(
 
 include(GNUInstallDirs)
 install(
-    TARGETS blackflower_animation_wrapper ozz_animation ozz_base
+    TARGETS blackflower_animation_wrapper
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

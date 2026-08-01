@@ -40,9 +40,9 @@ To deliberately update Jolt, fetch and check out a reviewed release in the
 submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-physics/vendor/JoltPhysics fetch --tags origin
-git -C crates/blackflower-physics/vendor/JoltPhysics checkout v5.6.0
-git add crates/blackflower-physics/vendor/JoltPhysics
+git -C vendor/JoltPhysics fetch --tags origin
+git -C vendor/JoltPhysics checkout v5.6.0
+git add vendor/JoltPhysics
 ```
 
 ## Safe API

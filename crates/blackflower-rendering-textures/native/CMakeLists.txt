@@ -2,33 +2,18 @@ cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 
 project(BlackflowerTextureBindings LANGUAGES C CXX)
 
-if(NOT DEFINED BLACKFLOWER_KTX_VERSION)
-    message(FATAL_ERROR "BLACKFLOWER_KTX_VERSION is required")
-endif()
+foreach(input KTX_VERSION KTX_ROOT KTX_LIBRARY)
+    if(NOT DEFINED BLACKFLOWER_${input})
+        message(FATAL_ERROR "BLACKFLOWER_${input} is required")
+    endif()
+endforeach()
 
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_DOC OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_ETC_UNPACK OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_GL_UPLOAD OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_JNI OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_KTX1 OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_KTX2 ON CACHE BOOL "" FORCE)
-set(KTX_FEATURE_PY OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_TESTS OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_TOOLS OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_TOOLS_CTS OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_VK_UPLOAD OFF CACHE BOOL "" FORCE)
-set(ASTCENC_ISA_NONE ON CACHE BOOL "" FORCE)
-set(ASTCENC_ISA_AVX2 OFF CACHE BOOL "" FORCE)
-set(ASTCENC_ISA_SSE41 OFF CACHE BOOL "" FORCE)
-set(ASTCENC_ISA_SSE2 OFF CACHE BOOL "" FORCE)
-set(BASISU_SUPPORT_OPENCL OFF CACHE BOOL "" FORCE)
-set(BASISU_SUPPORT_SSE OFF CACHE BOOL "" FORCE)
-
-add_subdirectory(
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/KTX-Software"
-    "${CMAKE_CURRENT_BINARY_DIR}/ktx"
+add_library(ktx STATIC IMPORTED GLOBAL)
+set_target_properties(
+    ktx
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_KTX_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_KTX_ROOT}/include;${BLACKFLOWER_KTX_ROOT}/lib"
 )
 
 add_library(blackflower_texture_wrapper STATIC wrapper.cpp)
@@ -43,32 +28,13 @@ target_compile_definitions(
 target_include_directories(
     blackflower_texture_wrapper
     PRIVATE
-        "${CMAKE_CURRENT_LIST_DIR}/../vendor/KTX-Software/include"
-        "${CMAKE_CURRENT_LIST_DIR}/../vendor/KTX-Software/lib"
+        "${BLACKFLOWER_KTX_ROOT}/include"
+        "${BLACKFLOWER_KTX_ROOT}/lib"
 )
 target_link_libraries(blackflower_texture_wrapper PRIVATE ktx)
 
-set(BLACKFLOWER_INSTALL_LIB "${CMAKE_INSTALL_PREFIX}/blackflower-ktx-lib")
-add_custom_target(
-    blackflower_texture_install
-    COMMAND
-        "${CMAKE_COMMAND}" -E make_directory
-        "${BLACKFLOWER_INSTALL_LIB}"
-    COMMAND
-        "${CMAKE_COMMAND}" -E copy_if_different
-        "$<TARGET_FILE:blackflower_texture_wrapper>"
-        "${BLACKFLOWER_INSTALL_LIB}"
-    COMMAND
-        "${CMAKE_COMMAND}" -E copy_if_different
-        "$<TARGET_FILE:ktx>"
-        "${BLACKFLOWER_INSTALL_LIB}"
-    COMMAND
-        "${CMAKE_COMMAND}" -E copy_if_different
-        "$<TARGET_FILE:astcenc-none-static>"
-        "${BLACKFLOWER_INSTALL_LIB}"
-    DEPENDS
-        blackflower_texture_wrapper
-        ktx
-        astcenc-none-static
-    VERBATIM
+include(GNUInstallDirs)
+install(
+    TARGETS blackflower_texture_wrapper
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

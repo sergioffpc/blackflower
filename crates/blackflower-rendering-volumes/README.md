@@ -37,9 +37,9 @@ To deliberately update OpenVDB, fetch and check out a reviewed release in the
 submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-rendering-volumes/vendor/openvdb fetch --tags origin
-git -C crates/blackflower-rendering-volumes/vendor/openvdb checkout v13.0.0
-git add crates/blackflower-rendering-volumes/vendor/openvdb
+git -C vendor/openvdb fetch --tags origin
+git -C vendor/openvdb checkout v13.0.0
+git add vendor/openvdb
 ```
 
 ## Runtime API

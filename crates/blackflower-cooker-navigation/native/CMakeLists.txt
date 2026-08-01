@@ -2,40 +2,34 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 project(BlackflowerNavigationCooker LANGUAGES CXX)
 
-if(NOT DEFINED BLACKFLOWER_RECAST_ROOT)
-    message(FATAL_ERROR "Missing BLACKFLOWER_RECAST_ROOT")
-endif()
+foreach(input RECAST_INSTALL RECAST_LIBRARY DETOUR_LIBRARY)
+    if(NOT DEFINED BLACKFLOWER_${input})
+        message(FATAL_ERROR "Missing BLACKFLOWER_${input}")
+    endif()
+endforeach()
 
-set(RECAST_ROOT "${BLACKFLOWER_RECAST_ROOT}/Recast")
-set(DETOUR_ROOT "${BLACKFLOWER_RECAST_ROOT}/Detour")
+add_library(Recast STATIC IMPORTED GLOBAL)
+set_target_properties(
+    Recast
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_RECAST_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_RECAST_INSTALL}/include/recastnavigation"
+)
+add_library(Detour STATIC IMPORTED GLOBAL)
+set_target_properties(
+    Detour
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_DETOUR_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_RECAST_INSTALL}/include/recastnavigation"
+)
 
 add_library(
     blackflower_navigation_cooker
     STATIC
-    cooker.cpp
-    "${RECAST_ROOT}/Source/Recast.cpp"
-    "${RECAST_ROOT}/Source/RecastAlloc.cpp"
-    "${RECAST_ROOT}/Source/RecastArea.cpp"
-    "${RECAST_ROOT}/Source/RecastAssert.cpp"
-    "${RECAST_ROOT}/Source/RecastContour.cpp"
-    "${RECAST_ROOT}/Source/RecastFilter.cpp"
-    "${RECAST_ROOT}/Source/RecastLayers.cpp"
-    "${RECAST_ROOT}/Source/RecastMesh.cpp"
-    "${RECAST_ROOT}/Source/RecastMeshDetail.cpp"
-    "${RECAST_ROOT}/Source/RecastRasterization.cpp"
-    "${RECAST_ROOT}/Source/RecastRegion.cpp"
-    "${DETOUR_ROOT}/Source/DetourAlloc.cpp"
-    "${DETOUR_ROOT}/Source/DetourAssert.cpp"
-    "${DETOUR_ROOT}/Source/DetourCommon.cpp"
-    "${DETOUR_ROOT}/Source/DetourNavMeshBuilder.cpp"
-)
-target_include_directories(
-    blackflower_navigation_cooker
-    PRIVATE
-    "${RECAST_ROOT}/Include"
-    "${DETOUR_ROOT}/Include"
+    wrapper.cpp
 )
 target_compile_features(blackflower_navigation_cooker PRIVATE cxx_std_17)
+target_link_libraries(blackflower_navigation_cooker PRIVATE Recast Detour)
 if(MSVC)
     target_compile_options(blackflower_navigation_cooker PRIVATE /GR-)
 else()

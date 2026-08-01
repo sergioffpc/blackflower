@@ -36,7 +36,7 @@ members = [
     "crates/blackflower-world-presentation",
     "crates/blackflower-world-simulation",
     "crates/blackflower-spatial-query",
-    "tools/native-build",
+    "tools/native",
     "tools/xtask",
 ]
 

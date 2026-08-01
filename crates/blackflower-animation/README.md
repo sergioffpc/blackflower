@@ -56,9 +56,9 @@ To deliberately update ozz-animation, fetch and check out a reviewed release
 in the submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-animation/vendor/ozz-animation fetch --tags origin
-git -C crates/blackflower-animation/vendor/ozz-animation checkout 0.16.0
-git add crates/blackflower-animation/vendor/ozz-animation
+git -C vendor/ozz-animation fetch --tags origin
+git -C vendor/ozz-animation checkout 0.16.0
+git add vendor/ozz-animation
 ```
 
 ## Safe API
