@@ -8,7 +8,7 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={WRAPPER_HEADER}");
-    blackflower_build::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);

@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("cargo:rerun-if-changed={path}");
         require_path(Path::new(path))?;
     }
-    blackflower_build::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     require_supported_target()?;
 
     let configuration = blackflower_build::Configuration::from_cargo_build_script()

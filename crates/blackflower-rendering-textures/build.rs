@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("cargo:rerun-if-changed={path}");
         require_file(Path::new(path))?;
     }
-    blackflower_build::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let (configuration, workspace_root, ktx) =
         blackflower_build::locate_from_cargo_build_script(&manifest_dir, "ktx", KTX_VERSION)
             .map_err(blackflower_build_error)?;

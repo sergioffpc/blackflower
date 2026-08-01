@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 const OZZ_VERSION: &str = "0.16.0";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    blackflower_build::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (_configuration, _workspace_root, ozz) =

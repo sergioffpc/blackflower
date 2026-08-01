@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    blackflower_build::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, jolt) =
