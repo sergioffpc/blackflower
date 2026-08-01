@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -15,29 +8,28 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const CONFIG_HEADER: &str = "native/flecs_config.h";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [WRAPPER_HEADER, CONFIG_HEADER] {
         println!("cargo:rerun-if-changed={path}");
         require_file(Path::new(path))?;
     }
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_METRICS");
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_rerun_environment();
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, flecs) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "flecs", FLECS_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "flecs", FLECS_VERSION)
+            .map_err(blackflower_build_error)?;
     let flecs_include = workspace_root.join("vendor/flecs/distr");
     let flecs_library =
-        native_vendors::find_static_library(&flecs, &configuration, "flecs", "flecs")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&flecs, &configuration, "flecs", "flecs")
+            .map_err(blackflower_build_error)?;
 
     generate_bindings(
         &flecs_include,
         env::var_os("CARGO_FEATURE_METRICS").is_some(),
     )?;
-    native_vendors::emit_static_library(&flecs_library).map_err(native_contract_error)?;
+    blackflower_build::emit_static_library(&flecs_library).map_err(blackflower_build_error)?;
     link_platform_libraries()?;
     Ok(())
 }
@@ -89,6 +81,6 @@ fn link_platform_libraries() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

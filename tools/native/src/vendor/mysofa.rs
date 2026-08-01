@@ -9,16 +9,16 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let vendor_source = workspace_root.join("vendor/libmysofa");
     require_file(&vendor_source.join("CMakeLists.txt"), "libmysofa")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "mysofa");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "mysofa");
     let revision = source_revision(&vendor_source)?;
     let source = stage_source(
         &vendor_source,
         &destination.join("source"),
-        &destination.join(native_vendors::MANIFEST_FILE),
+        &destination.join(blackflower_build::MANIFEST_FILE),
         &revision,
     )?;
     patch_mysofa_zlib_discovery(&source)?;
-    let zlib = native_vendors::vendor_directory(native_root, configuration, "zlib");
+    let zlib = blackflower_build::vendor_directory(native_root, configuration, "zlib");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &source,
@@ -35,7 +35,7 @@ pub(super) fn build(
         .define("ZLIB_ROOT", &zlib)
         .define("ZLIB_USE_STATIC_LIBS", "ON");
     let installed = config.build();
-    native_vendors::write_manifest(
+    blackflower_build::write_manifest(
         &installed,
         configuration,
         Vendor::Mysofa.name(),

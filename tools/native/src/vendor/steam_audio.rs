@@ -37,7 +37,8 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let vendor_source = workspace_root.join("vendor/steam-audio-sdk/core");
     require_file(&vendor_source.join("CMakeLists.txt"), "Steam Audio")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "steam-audio");
+    let destination =
+        blackflower_build::vendor_directory(native_root, configuration, "steam-audio");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let source =
         stage_steam_audio_source(&vendor_source, &destination, architecture, operating_system)?;
@@ -87,7 +88,8 @@ fn load_steam_audio_dependencies(
     architecture: &str,
     operating_system: &str,
 ) -> anyhow::Result<SteamAudioDependencies> {
-    let directory = |vendor| native_vendors::vendor_directory(native_root, configuration, vendor);
+    let directory =
+        |vendor| blackflower_build::vendor_directory(native_root, configuration, vendor);
     let embree_root = directory("embree");
     let flatbuffers = directory("flatbuffers");
     let pffft = directory("pffft");

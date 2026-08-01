@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,17 +9,16 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_rerun_environment();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, luau) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "luau", LUAU_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "luau", LUAU_VERSION)
+            .map_err(blackflower_build_error)?;
     let luau_source = workspace_root.join("vendor/luau");
     let libraries = load_luau_libraries(&luau, &configuration)?;
 
@@ -47,11 +39,11 @@ struct LuauLibraries {
 
 fn load_luau_libraries(
     root: &Path,
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
 ) -> Result<LuauLibraries, Box<dyn Error>> {
     let find = |name: &str| {
-        native_vendors::find_static_library(root, configuration, name, name)
-            .map_err(native_contract_error)
+        blackflower_build::find_static_library(root, configuration, name, name)
+            .map_err(blackflower_build_error)
     };
     Ok(LuauLibraries {
         compiler: find("blackflower_luau_compiler")?,
@@ -76,7 +68,7 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_wrapper(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     luau_source: &Path,
     libraries: &LuauLibraries,
 ) -> PathBuf {
@@ -138,7 +130,7 @@ fn link_native(install_dir: &Path, libraries: &LuauLibraries) -> Result<(), Box<
         &libraries.vm,
         &libraries.common,
     ] {
-        native_vendors::emit_static_library(library).map_err(native_contract_error)?;
+        blackflower_build::emit_static_library(library).map_err(blackflower_build_error)?;
     }
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
@@ -152,6 +144,6 @@ fn link_native(install_dir: &Path, libraries: &LuauLibraries) -> Result<(), Box<
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

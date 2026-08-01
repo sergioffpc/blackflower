@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+blackflower-build.workspace = true
 clap.workspace = true
 cmake.workspace = true
 

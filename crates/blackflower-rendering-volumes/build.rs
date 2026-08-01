@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,17 +9,20 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_rerun_environment();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, _openvdb) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "openvdb", OPENVDB_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(
+            &manifest_dir,
+            "openvdb",
+            OPENVDB_VERSION,
+        )
+        .map_err(blackflower_build_error)?;
     let openvdb_source = workspace_root.join("vendor/openvdb");
 
     let install_dir = compile_wrapper(&configuration, &openvdb_source);
@@ -48,7 +44,7 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_wrapper(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     openvdb_source: &Path,
 ) -> PathBuf {
     let mut config = cmake::Config::new("native");
@@ -108,6 +104,6 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

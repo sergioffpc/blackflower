@@ -11,12 +11,12 @@ pub(super) fn build(
     require_file(&vendor_source.join("CMakeLists.txt"), "zlib")?;
     verify_zlib_version(&vendor_source)?;
     let (architecture, operating_system) = target_platform(&configuration.target)?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "zlib");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "zlib");
     let revision = source_revision(&vendor_source)?;
     let source = stage_source(
         &vendor_source,
         &destination.join("source"),
-        &destination.join(native_vendors::MANIFEST_FILE),
+        &destination.join(blackflower_build::MANIFEST_FILE),
         &revision,
     )?;
     let mut config = base_config(
@@ -49,7 +49,7 @@ pub(super) fn build(
         .file_name()
         .context("zlib static library has no file name")?;
     fs::copy(&library, libraries.join(library_name))?;
-    native_vendors::write_manifest(&built, configuration, "zlib", VERSION, &revision)
+    blackflower_build::write_manifest(&built, configuration, "zlib", VERSION, &revision)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     Ok(())
 }

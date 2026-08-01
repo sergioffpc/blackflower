@@ -10,7 +10,7 @@ pub(super) fn build(
     let source = workspace_root.join("vendor/luau");
     require_file(&source.join("CMakeLists.txt"), "Luau")?;
     let project = workspace_root.join("tools/native/cmake/luau");
-    let destination = native_vendors::vendor_directory(native_root, configuration, "luau");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "luau");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &project,

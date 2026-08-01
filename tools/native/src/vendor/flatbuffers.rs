@@ -9,7 +9,8 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let source = workspace_root.join("vendor/flatbuffers");
     require_file(&source.join("CMakeLists.txt"), "FlatBuffers")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "flatbuffers");
+    let destination =
+        blackflower_build::vendor_directory(native_root, configuration, "flatbuffers");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &source,

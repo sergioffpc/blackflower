@@ -28,7 +28,7 @@ pub(super) fn build(
     let ispc = (architecture == "x86_64")
         .then(|| find_ispc(operating_system))
         .transpose()?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "embree");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "embree");
     let mut config = base_config(
         &source,
         &destination,
@@ -85,7 +85,7 @@ pub(super) fn build(
         &installed.join("include/embree4/rtcore.h"),
         "Embree install",
     )?;
-    native_vendors::write_manifest(
+    blackflower_build::write_manifest(
         &installed,
         configuration,
         "embree",

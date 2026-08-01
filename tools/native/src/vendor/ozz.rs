@@ -9,7 +9,7 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let source = workspace_root.join("vendor/ozz-animation");
     require_file(&source.join("CMakeLists.txt"), "ozz-animation")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "ozz");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "ozz");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &source,

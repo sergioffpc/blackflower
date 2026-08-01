@@ -27,8 +27,8 @@ shared root. If it is unset, the tool honors `CARGO_TARGET_DIR`.
 ## Layout
 
 - `src/main.rs` owns the command-line interface.
-- `src/vendors/mod.rs` owns vendor selection, dependencies, and dispatch.
-- `src/vendors/<vendor>.rs` owns the build recipe for one vendor.
-- `src/vendors/common.rs` contains helpers shared by the build recipes.
-- `support/native_vendors.rs` defines the manifest and linking contract shared
-  with the FFI crates' build scripts.
+- `src/vendor.rs` owns vendor selection, dependencies, and dispatch.
+- `src/vendor/<vendor>.rs` owns the build recipe for one vendor.
+- `src/vendor/common.rs` contains helpers shared by the build recipes.
+- `../../crates/blackflower-build` defines the artifact manifest, lookup, and
+  linking contract shared with the FFI crates' build scripts.

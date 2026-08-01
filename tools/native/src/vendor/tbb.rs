@@ -9,7 +9,7 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let source = workspace_root.join("vendor/oneTBB");
     require_file(&source.join("CMakeLists.txt"), "oneTBB")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "tbb");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "tbb");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &source,

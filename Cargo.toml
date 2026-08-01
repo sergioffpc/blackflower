@@ -6,6 +6,7 @@ members = [
     "apps/blackflower-server",
     "crates/blackflower-animation",
     "crates/blackflower-animation-format",
+    "crates/blackflower-build",
     "crates/blackflower-acoustics",
     "crates/blackflower-assets",
     "crates/blackflower-audio",
@@ -52,6 +53,7 @@ blackflower-acoustics = { path = "crates/blackflower-acoustics" }
 blackflower-animation = { path = "crates/blackflower-animation" }
 blackflower-animation-format = { path = "crates/blackflower-animation-format" }
 blackflower-assets = { path = "crates/blackflower-assets" }
+blackflower-build = { path = "crates/blackflower-build" }
 blackflower-audio = { path = "crates/blackflower-audio" }
 blackflower-audio-capture = { path = "crates/blackflower-audio-capture" }
 blackflower-audio-media = { path = "crates/blackflower-audio-media" }

@@ -16,7 +16,7 @@ pub(super) fn build(
         &source.join("libs/iostreams/include/boost/iostreams/copy.hpp"),
         "Boost.Iostreams header",
     )?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "boost");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "boost");
     fs::create_dir_all(&destination)?;
     write_vendor_manifest(&destination, configuration, Vendor::Boost, &source)
 }

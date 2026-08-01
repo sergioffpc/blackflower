@@ -19,6 +19,7 @@ thiserror.workspace = true
 [build-dependencies]
 bindgen.workspace = true
 cmake.workspace = true
+blackflower-build.workspace = true
 
 [lints]
 workspace = true
