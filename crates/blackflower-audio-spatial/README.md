@@ -44,8 +44,9 @@ They are not permitted in an audio callback.
 
 ## Static native build
 
-`cargo build` compiles the complete native audio stack from pinned source and
-links it statically:
+Run `cargo native build` once before `cargo build`. The first command compiles
+the repository-global Embree and zlib vendors; the audio crate then compiles
+the remaining pinned native audio stack and links everything statically:
 
 - Steam Audio 4.8.1 as `libphonon.a` or `phonon.lib`;
 - Embree 4.4.1 on supported x86-64 and ARM64 targets. Steam Audio's ISPC
@@ -53,7 +54,8 @@ links it statically:
   portable C++ reflection simulator over the Embree scene;
 - PFFFT as the fallback FFT implementation;
 - libmysofa for SOFA HRTF data;
-- the repository-global zlib source as libmysofa's compression dependency;
+- the shared repository-global zlib static library as libmysofa's compression
+  dependency;
 - FlatBuffers' `flatc` as a host-only schema compiler. FlatBuffers is
   header-only at runtime.
 
@@ -61,17 +63,19 @@ No precompiled Steam Audio SDK, `BLACKFLOWER_STEAM_AUDIO_LIBRARY`, shared
 `phonon` library or runtime SDK installation is required. `Context::new`
 calls the statically linked API directly.
 
-The generated files and native archives are kept below Cargo's target
-directory:
+The shared global archives and the crate-private generated files are both kept
+below Cargo's target directory:
 
 ```text
+target/native/<target>/<configuration>/<crt>/
+├── embree/lib/libembree.a
+└── zlib/lib/libz.a
+
 target/<profile>/build/blackflower-audio-spatial-*/out/native/
 ├── flatbuffers/build/flatc
-├── embree/build/.../libembree.a
 ├── libmysofa/build/.../libmysofa.a
 ├── pffft/build/libpffft.a
-├── steam-audio/build/.../libphonon.a
-└── zlib/build/libz.a
+└── steam-audio/build/.../libphonon.a
 ```
 
 Windows produces the corresponding `.lib` files. These paths are Cargo build
@@ -103,6 +107,7 @@ Initialize them after cloning:
 
 ```sh
 git submodule update --init --recursive
+cargo native build --profile debug
 ```
 
 The authoritative license texts remain in each submodule. Binary
@@ -132,6 +137,9 @@ Linux and Windows x86-64. Equivalent local builds can select an existing
 oneAPI installation explicitly:
 
 ```sh
+CC=icx CXX=icpx \
+BLACKFLOWER_ISPC=/path/to/ispc \
+cargo native build --profile release
 CC=icx CXX=icpx \
 BLACKFLOWER_ISPC=/path/to/ispc \
 cargo build --release --package blackflower-audio-spatial

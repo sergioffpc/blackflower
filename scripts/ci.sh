@@ -8,6 +8,11 @@ mode=${1:-all}
 
 cd "$repository_root"
 
+build_native_vendors() {
+    printf 'Building shared native vendors...\n'
+    cargo native build --profile debug
+}
+
 check_format() {
     printf 'Checking Rust formatting...\n'
     cargo fmt --all -- --check
@@ -34,6 +39,7 @@ run_tests() {
 
 case "$mode" in
     all)
+        build_native_vendors
         check_test_layout
         check_format
         run_clippy

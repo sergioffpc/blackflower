@@ -67,7 +67,6 @@ fn every_acoustic_container_round_trips_canonically() -> Result<(), Error> {
             id: 0,
             name: "removed".to_owned(),
             triangles: Vec::new(),
-            bvh: AcousticBvh::build(&[])?,
         }],
     )?;
     let prefab_bytes = prefab.to_bytes()?;
@@ -78,7 +77,6 @@ fn every_acoustic_container_round_trips_canonically() -> Result<(), Error> {
         materials: "materials".to_owned(),
         topology: "topology".to_owned(),
         triangles: Vec::new(),
-        bvh: AcousticBvh::build(&[])?,
         paths: Vec::new(),
         zones: vec![ZoneResponse {
             zone: 1,

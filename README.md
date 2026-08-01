@@ -21,7 +21,8 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
-| `crates/blackflower-acoustics` | Pure-Rust authoritative acoustic formats, BVH, propagation, and observations |
+| `crates/blackflower-acoustics` | Authoritative acoustic formats, Embree-backed propagation, and observations |
+| `crates/blackflower-spatial-query` | Provider-neutral triangle scenes and bounded spatial queries backed by Embree |
 | `crates/blackflower-assets` | Deterministic SquashFS asset packages and layered runtime VFS |
 | `crates/blackflower-audio` | Public facade for the client audio stack |
 | `crates/blackflower-audio-capture` | Lock-free CPAL microphone capture, voice worker, and server analysis |
@@ -158,9 +159,23 @@ If the repository is already cloned, initialize them with:
 git submodule update --init --recursive
 ```
 
+Compile the repository-global native vendors once for the active target and
+Cargo profile before building crates that consume them:
+
+```sh
+cargo native build --profile debug
+```
+
+This produces the pinned Embree and zlib static libraries below
+`target/native/<target>/<configuration>/<crt>/`. Crate `build.rs` scripts only
+locate and link those shared artifacts; they do not rebuild the global vendors.
+Use `--profile release` before a release Cargo build. `BLACKFLOWER_NATIVE_DIR`
+can override the shared native root, while `CARGO_TARGET_DIR` is honored
+automatically.
+
 Native crates require a C/C++ compiler and libclang. The spatial and voice
-audio crates also require CMake and compile their native dependencies
-statically from pinned submodules. See the
+audio crates also require CMake and link their native dependencies statically.
+See the
 [audio facade](crates/blackflower-audio/README.md),
 [spatial audio setup](crates/blackflower-audio-spatial/README.md),
 [voice audio setup](crates/blackflower-audio-voice/README.md),

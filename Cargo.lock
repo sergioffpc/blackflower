@@ -190,6 +190,7 @@ dependencies = [
 name = "blackflower-acoustics"
 version = "0.1.0"
 dependencies = [
+ "blackflower-spatial-query",
  "blake3",
  "serde",
  "thiserror 2.0.19",
@@ -403,6 +404,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-native-build"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmake",
+]
+
+[[package]]
 name = "blackflower-navigation"
 version = "0.1.0"
 dependencies = [
@@ -513,6 +523,16 @@ dependencies = [
  "bytes",
  "cmake",
  "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "blackflower-spatial-query"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cc",
+ "glam",
  "thiserror 2.0.19",
 ]
 

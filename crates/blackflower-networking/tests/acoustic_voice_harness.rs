@@ -1,7 +1,7 @@
 use blackflower_acoustics::{
-    AabbMm, AcousticBvh, AcousticMaterial, AcousticMaterialLibrary, AcousticReceiver,
-    AcousticSimulationScene, AcousticTopology, AcousticWorld, AcousticWorldSettings,
-    AcousticZoneVolume, BandEnergy, PositionMm, SoundClass, SoundEmission,
+    AabbMm, AcousticMaterial, AcousticMaterialLibrary, AcousticReceiver, AcousticSimulationScene,
+    AcousticTopology, AcousticWorld, AcousticWorldSettings, AcousticZoneVolume, BandEnergy,
+    PositionMm, SoundClass, SoundEmission,
 };
 use blackflower_audio_capture::{
     CaptureSettings, CaptureStream, VoiceActivation, VoiceAnalyzerBank,
@@ -35,7 +35,6 @@ fn acoustic_world() -> Result<AcousticWorld, Box<dyn std::error::Error>> {
         materials: "materials".to_owned(),
         topology: "topology".to_owned(),
         triangles: Vec::new(),
-        bvh: AcousticBvh::build(&[])?,
         paths: Vec::new(),
         zones: Vec::new(),
     })?;

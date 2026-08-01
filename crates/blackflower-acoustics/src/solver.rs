@@ -1,13 +1,17 @@
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
-use crate::bvh::SurfaceHit;
+use blackflower_spatial_query::{
+    Device as SpatialQueryDevice, GeometryId, Scene as SpatialQueryScene,
+    SurfaceHit as SpatialQueryHit, Triangle as SpatialQueryTriangle, Vec3A,
+};
+
 use crate::{
-    ACOUSTIC_SAMPLE_RATE, AcousticBvh, AcousticDynamicState, AcousticEmissionProfile,
-    AcousticMaterialLibrary, AcousticObservation, AcousticPrefab, AcousticReceiver,
-    AcousticSimulationScene, AcousticStructureVersion, AcousticTopology, AudibleSoundDelivery,
-    AudibleVoiceDelivery, BandEnergy, Error, PositionMm, PropagationDescriptor, QuantizedTriangle,
-    SAMPLES_PER_TICK, SOUND_SPEED_MM_PER_SECOND, SoundEmission,
+    ACOUSTIC_SAMPLE_RATE, AcousticDynamicState, AcousticEmissionProfile, AcousticMaterialLibrary,
+    AcousticObservation, AcousticPrefab, AcousticReceiver, AcousticSimulationScene,
+    AcousticStructureVersion, AcousticTopology, AudibleSoundDelivery, AudibleVoiceDelivery,
+    BandEnergy, Error, PositionMm, PropagationDescriptor, QuantizedTriangle, SAMPLES_PER_TICK,
+    SOUND_SPEED_MM_PER_SECOND, SoundEmission,
 };
 
 /// Fixed-capacity release profile for one authoritative acoustic world.
@@ -151,10 +155,11 @@ impl AcousticFrame {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ActiveGeometry {
-    triangles: Vec<QuantizedTriangle>,
-    bvh: AcousticBvh,
+    scene: SpatialQueryScene,
+    geometry_id: Option<GeometryId>,
+    material_indices: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -187,7 +192,7 @@ struct ReceiverGroup {
     end: usize,
 }
 
-/// Pure-Rust authoritative solver and fixed-capacity arrival/observation state.
+/// Authoritative solver with shared spatial queries and fixed-capacity arrival/observation state.
 #[derive(Debug)]
 pub struct AcousticWorld {
     settings: AcousticWorldSettings,
@@ -198,7 +203,8 @@ pub struct AcousticWorld {
     version: AcousticStructureVersion,
     active_states: BTreeMap<u32, AcousticDynamicState>,
     staged_states: BTreeMap<u32, AcousticDynamicState>,
-    dynamic_geometry: ActiveGeometry,
+    spatial_device: SpatialQueryDevice,
+    active_geometry: ActiveGeometry,
     portal_routes: BTreeMap<(u32, u32), Vec<CachedPortalRoute>>,
     receivers: Vec<AcousticReceiver>,
     receiver_groups: Vec<ReceiverGroup>,
@@ -209,8 +215,7 @@ pub struct AcousticWorld {
     resolved_pairs: Vec<ResolvedPair>,
     propagated_pairs: Vec<PropagatedPair>,
     recent_observations: Vec<AcousticObservation>,
-    surface_hits: Vec<SurfaceHit>,
-    dynamic_hits: Vec<SurfaceHit>,
+    surface_hits: Vec<SpatialQueryHit>,
 }
 
 impl AcousticWorld {
@@ -262,7 +267,14 @@ impl AcousticWorld {
                 },
             );
         }
-        let dynamic_geometry = build_dynamic_geometry(&topology, &prefab_map, &active_states)?;
+        let spatial_device = SpatialQueryDevice::new()?;
+        let active_geometry = build_active_geometry(
+            &spatial_device,
+            &scene,
+            &topology,
+            &prefab_map,
+            &active_states,
+        )?;
         let portal_routes = build_portal_routes(&topology, &scene, settings.max_paths_per_pair);
         let receiver_group_capacity = topology.zones().len().saturating_add(1);
         Ok(Self {
@@ -274,7 +286,8 @@ impl AcousticWorld {
             version: AcousticStructureVersion(1),
             active_states,
             staged_states: BTreeMap::new(),
-            dynamic_geometry,
+            spatial_device,
+            active_geometry,
             portal_routes,
             receivers: Vec::with_capacity(settings.max_receivers),
             receiver_groups: Vec::with_capacity(receiver_group_capacity),
@@ -286,7 +299,6 @@ impl AcousticWorld {
             propagated_pairs: Vec::with_capacity(max_direct_pairs),
             recent_observations: Vec::with_capacity(settings.max_recent_observations),
             surface_hits: Vec::with_capacity(settings.max_transmission_surfaces),
-            dynamic_hits: Vec::with_capacity(settings.max_transmission_surfaces),
         })
     }
 
@@ -407,7 +419,7 @@ impl AcousticWorld {
     /// Resolve the active tick and publish staged structural changes for the next tick.
     pub fn step(&mut self, tick: u64) -> Result<&AcousticFrame, Error> {
         self.capture_tick(tick);
-        self.resolve_acoustic_paths();
+        self.resolve_acoustic_paths()?;
         self.advance_acoustic_propagation();
         self.build_acoustic_observations()?;
         self.capture_acoustic_facts(tick);
@@ -434,7 +446,7 @@ impl AcousticWorld {
     }
 
     /// Resolve direct/transmission and stable alternate paths for bounded candidates.
-    pub fn resolve_acoustic_paths(&mut self) {
+    pub fn resolve_acoustic_paths(&mut self) -> Result<(), Error> {
         for emission_index in 0..self.emissions.len() {
             let emission = self.emissions[emission_index].clone();
             let source_zone = self.resolve_zone(emission.zone, emission.position);
@@ -457,7 +469,7 @@ impl AcousticWorld {
                         self.frame.deferred_indirect_pairs =
                             self.frame.deferred_indirect_pairs.saturating_add(1);
                     }
-                    let path = self.resolve_path(&emission, receiver, allow_indirect);
+                    let path = self.resolve_path(&emission, receiver, allow_indirect)?;
                     if self.resolved_pairs.len() < self.resolved_pairs.capacity() {
                         self.resolved_pairs.push(ResolvedPair {
                             emission_index,
@@ -468,6 +480,7 @@ impl AcousticWorld {
                 }
             }
         }
+        Ok(())
     }
 
     /// Apply source strength, distance, materials, directivity, and speed-of-sound delay.
@@ -650,32 +663,24 @@ impl AcousticWorld {
         emission: &SoundEmission,
         receiver: AcousticReceiver,
         allow_indirect: bool,
-    ) -> ResolvedPath {
-        self.scene.bvh.intersect_segment(
-            &self.scene.triangles,
-            emission.position,
-            receiver.position,
+    ) -> Result<ResolvedPath, Error> {
+        self.active_geometry.scene.intersect_segment(
+            spatial_position(emission.position),
+            spatial_position(receiver.position),
             self.settings.max_transmission_surfaces,
             &mut self.surface_hits,
-        );
-        let remaining = self
-            .settings
-            .max_transmission_surfaces
-            .saturating_sub(self.surface_hits.len());
-        self.dynamic_geometry.bvh.intersect_segment(
-            &self.dynamic_geometry.triangles,
-            emission.position,
-            receiver.position,
-            remaining,
-            &mut self.dynamic_hits,
-        );
+        )?;
         let mut gain = BandEnergy::UNITY;
-        for hit in self.surface_hits.iter().chain(&self.dynamic_hits) {
-            if let Some(material) = self
-                .materials
-                .materials()
-                .get(usize::from(hit.material_index))
-            {
+        for hit in &self.surface_hits {
+            if Some(hit.geometry_id()) != self.active_geometry.geometry_id {
+                return Err(Error::InvalidField("spatial-query geometry ID"));
+            }
+            let material_index = usize::try_from(hit.primitive_id().0)
+                .ok()
+                .and_then(|index| self.active_geometry.material_indices.get(index))
+                .copied()
+                .ok_or(Error::InvalidField("spatial-query primitive ID"))?;
+            if let Some(material) = self.materials.materials().get(usize::from(material_index)) {
                 gain = gain.multiplied(material.transmission);
             }
         }
@@ -684,7 +689,7 @@ impl AcousticWorld {
             gain,
             direction_target: emission.position,
             direct: true,
-            uncertainty_q16: if self.surface_hits.is_empty() && self.dynamic_hits.is_empty() {
+            uncertainty_q16: if self.surface_hits.is_empty() {
                 512
             } else {
                 8_192
@@ -693,9 +698,9 @@ impl AcousticWorld {
         let alternate = allow_indirect
             .then(|| self.portal_path(emission, receiver))
             .flatten();
-        alternate
+        Ok(alternate
             .filter(|path| path_score(*path) > path_score(direct))
-            .unwrap_or(direct)
+            .unwrap_or(direct))
     }
 
     fn portal_path(
@@ -784,8 +789,13 @@ impl AcousticWorld {
         for (id, state) in core::mem::take(&mut self.staged_states) {
             self.active_states.insert(id, state);
         }
-        self.dynamic_geometry =
-            build_dynamic_geometry(&self.topology, &self.prefabs, &self.active_states)?;
+        self.active_geometry = build_active_geometry(
+            &self.spatial_device,
+            &self.scene,
+            &self.topology,
+            &self.prefabs,
+            &self.active_states,
+        )?;
         self.version = AcousticStructureVersion(self.version.0.saturating_add(1));
         Ok(())
     }
@@ -856,12 +866,14 @@ fn validate_material_indices(
     }
 }
 
-fn build_dynamic_geometry(
+fn build_active_geometry(
+    device: &SpatialQueryDevice,
+    scene: &AcousticSimulationScene,
     topology: &AcousticTopology,
     prefabs: &BTreeMap<String, AcousticPrefab>,
     states: &BTreeMap<u32, AcousticDynamicState>,
 ) -> Result<ActiveGeometry, Error> {
-    let mut triangles = Vec::new();
+    let mut triangles = scene.triangles.clone();
     for instance in topology.instances() {
         let Some(dynamic) = states.get(&instance.id) else {
             continue;
@@ -883,8 +895,36 @@ fn build_dynamic_geometry(
                 .map(|triangle| triangle.transformed(dynamic.transform)),
         );
     }
-    let bvh = AcousticBvh::build(&triangles)?;
-    Ok(ActiveGeometry { triangles, bvh })
+    let material_indices = triangles
+        .iter()
+        .map(|triangle| triangle.material_index)
+        .collect::<Vec<_>>();
+    let mut builder = device.create_scene()?;
+    let geometry_id = if triangles.is_empty() {
+        None
+    } else {
+        let spatial_triangles = triangles
+            .iter()
+            .map(|triangle| {
+                SpatialQueryTriangle::new(triangle.vertices.map(spatial_position))
+                    .map_err(Error::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Some(builder.add_triangles(&spatial_triangles)?)
+    };
+    Ok(ActiveGeometry {
+        scene: builder.commit()?,
+        geometry_id,
+        material_indices,
+    })
+}
+
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "authoritative millimetre coordinates are converted at the Embree f32 boundary"
+)]
+fn spatial_position(position: PositionMm) -> Vec3A {
+    Vec3A::new(position.x as f32, position.y as f32, position.z as f32)
 }
 
 #[allow(
