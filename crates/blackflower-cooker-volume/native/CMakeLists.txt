@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 project(BlackflowerVolumeCooker LANGUAGES CXX)
 
-foreach(input OPENVDB_INSTALL OPENVDB_ROOT BOOST_ROOT OPENVDB_LIBRARY BLOSC_LIBRARY TBB_LIBRARY ZLIB_LIBRARY)
+foreach(input OPENVDB_INSTALL OPENVDB_ROOT BOOST_ROOT OPENVDB_LIBRARY BLOSC_LIBRARY TBB_INSTALL TBB_LIBRARY ZLIB_LIBRARY)
     if(NOT DEFINED BLACKFLOWER_${input})
         message(FATAL_ERROR "Missing BLACKFLOWER_${input}")
     endif()
@@ -19,7 +19,12 @@ set_target_properties(
 add_library(blosc_static STATIC IMPORTED GLOBAL)
 set_target_properties(blosc_static PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_BLOSC_LIBRARY}")
 add_library(tbb STATIC IMPORTED GLOBAL)
-set_target_properties(tbb PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_TBB_LIBRARY}")
+set_target_properties(
+    tbb
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_TBB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_TBB_INSTALL}/include"
+)
 add_library(zlibstatic STATIC IMPORTED GLOBAL)
 set_target_properties(zlibstatic PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_ZLIB_LIBRARY}")
 target_link_libraries(openvdb_static INTERFACE blosc_static tbb zlibstatic)

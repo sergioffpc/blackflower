@@ -16,6 +16,15 @@ const ZLIB_VERSION: &str = "1.3.1";
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
 const NATIVE_SOURCE: &str = "native/wrapper.cpp";
 
+struct CookerDependencies<'a> {
+    openvdb: &'a Path,
+    openvdb_library: &'a Path,
+    blosc_library: &'a Path,
+    tbb: &'a Path,
+    tbb_library: &'a Path,
+    zlib_library: &'a Path,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, NATIVE_SOURCE] {
@@ -52,11 +61,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let executable = compile_cooker(
         &configuration,
         &workspace_root,
-        &openvdb,
-        &openvdb_library,
-        &blosc_library,
-        &tbb_library,
-        &zlib_library,
+        &CookerDependencies {
+            openvdb: &openvdb,
+            openvdb_library: &openvdb_library,
+            blosc_library: &blosc_library,
+            tbb: &tbb,
+            tbb_library: &tbb_library,
+            zlib_library: &zlib_library,
+        },
     );
     export_tool(&executable)
 }
@@ -79,17 +91,13 @@ fn export_tool(executable: &Path) -> Result<(), Box<dyn Error>> {
 fn compile_cooker(
     configuration: &native_vendors::Configuration,
     workspace_root: &Path,
-    openvdb: &Path,
-    openvdb_library: &Path,
-    blosc_library: &Path,
-    tbb_library: &Path,
-    zlib_library: &Path,
+    dependencies: &CookerDependencies<'_>,
 ) -> PathBuf {
     let mut config = cmake::Config::new("native");
     config
         .profile(configuration.cmake_profile)
         .static_crt(configuration.crt_static)
-        .define("BLACKFLOWER_OPENVDB_INSTALL", openvdb)
+        .define("BLACKFLOWER_OPENVDB_INSTALL", dependencies.openvdb)
         .define(
             "BLACKFLOWER_OPENVDB_ROOT",
             workspace_root.join("vendor/openvdb"),
@@ -98,10 +106,11 @@ fn compile_cooker(
             "BLACKFLOWER_BOOST_ROOT",
             workspace_root.join("vendor/boost"),
         )
-        .define("BLACKFLOWER_OPENVDB_LIBRARY", openvdb_library)
-        .define("BLACKFLOWER_BLOSC_LIBRARY", blosc_library)
-        .define("BLACKFLOWER_TBB_LIBRARY", tbb_library)
-        .define("BLACKFLOWER_ZLIB_LIBRARY", zlib_library);
+        .define("BLACKFLOWER_OPENVDB_LIBRARY", dependencies.openvdb_library)
+        .define("BLACKFLOWER_BLOSC_LIBRARY", dependencies.blosc_library)
+        .define("BLACKFLOWER_TBB_INSTALL", dependencies.tbb)
+        .define("BLACKFLOWER_TBB_LIBRARY", dependencies.tbb_library)
+        .define("BLACKFLOWER_ZLIB_LIBRARY", dependencies.zlib_library);
     let install = config.build();
     tool_path(&install)
 }

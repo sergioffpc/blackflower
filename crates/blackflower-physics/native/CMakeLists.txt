@@ -24,6 +24,16 @@ target_compile_definitions(
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
     target_compile_definitions(Jolt INTERFACE JPH_USE_AVX2)
+    target_compile_options(
+        Jolt
+        INTERFACE
+        -mavx2
+        -mbmi
+        -mpopcnt
+        -mlzcnt
+        -mf16c
+        -mfpmath=sse
+    )
 endif()
 
 add_library(blackflower_physics_wrapper STATIC wrapper.cpp)
