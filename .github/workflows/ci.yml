@@ -168,12 +168,11 @@ jobs:
                crates/blackflower-shader-compiler \
                crates/blackflower-spatial-query \
                rust-toolchain.toml \
-               build-support \
+               tools/native/support \
                tools/blender \
-               tools/native-build \
+               tools/native \
                tools/xtask \
-               vendor/embree \
-               vendor/zlib
+               vendor
           then
             required=false
           fi

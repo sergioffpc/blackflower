@@ -1,42 +1,56 @@
+#[allow(
+    dead_code,
+    reason = "the shared module exposes both producer and consumer halves of the native contract"
+)]
+#[path = "../../tools/native/support/native_vendors.rs"]
+mod native_vendors;
+
 use std::env;
 use std::error::Error;
-use std::ffi::OsStr;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-const RECAST_ROOT: &str = "../blackflower-navigation/vendor/recastnavigation";
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
-const WRAPPER_HEADER: &str = "native/cooker.h";
-const WRAPPER_SOURCE: &str = "native/cooker.cpp";
+const RECAST_VERSION: &str = "1.6.0";
+const WRAPPER_HEADER: &str = "native/wrapper.h";
+const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    for path in [
-        NATIVE_BUILD,
-        WRAPPER_HEADER,
-        WRAPPER_SOURCE,
-        &format!("{RECAST_ROOT}/Recast/Include/Recast.h"),
-        &format!("{RECAST_ROOT}/Detour/Include/DetourNavMeshBuilder.h"),
-    ] {
+    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
+    for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         require_file(path)?;
         println!("cargo:rerun-if-changed={path}");
     }
-    println!("cargo:rerun-if-changed={RECAST_ROOT}/Recast/Include");
-    println!("cargo:rerun-if-changed={RECAST_ROOT}/Recast/Source");
-    println!("cargo:rerun-if-changed={RECAST_ROOT}/Detour/Include");
-    println!("cargo:rerun-if-changed={RECAST_ROOT}/Detour/Source/DetourNavMeshBuilder.cpp");
+    native_vendors::emit_rerun_environment();
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let (configuration, _workspace_root, recast) =
+        native_vendors::locate_from_cargo_build_script(&manifest_dir, "recast", RECAST_VERSION)
+            .map_err(native_contract_error)?;
+    let postfix = if configuration.cmake_profile == "Debug" {
+        "-d"
+    } else {
+        ""
+    };
+    let recast_name = format!("Recast{postfix}");
+    let detour_name = format!("Detour{postfix}");
+    let recast_library =
+        native_vendors::find_static_library(&recast, &configuration, &recast_name, &recast_name)
+            .map_err(native_contract_error)?;
+    let detour_library =
+        native_vendors::find_static_library(&recast, &configuration, &detour_name, &detour_name)
+            .map_err(native_contract_error)?;
 
     let mut config = cmake::Config::new("native");
     config
-        .profile("Release")
-        .define("BLACKFLOWER_RECAST_ROOT", absolute(RECAST_ROOT));
-    if env::var_os("CARGO_CFG_TARGET_ENV").as_deref() == Some(OsStr::new("msvc")) {
-        config
-            .cxxflag("/EHsc")
-            .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime());
-    }
+        .profile(configuration.cmake_profile)
+        .static_crt(configuration.crt_static)
+        .define("BLACKFLOWER_RECAST_INSTALL", &recast)
+        .define("BLACKFLOWER_RECAST_LIBRARY", &recast_library)
+        .define("BLACKFLOWER_DETOUR_LIBRARY", &detour_library);
     let install = config.build();
     generate_bindings()?;
-    link_native(&install)?;
+    link_native(&install, &recast_library, &detour_library)?;
     Ok(())
 }
 
@@ -49,19 +63,6 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
              `git submodule update --init --recursive`"
         )
         .into())
-    }
-}
-
-fn absolute(path: &str) -> PathBuf {
-    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default()).join(path)
-}
-
-fn msvc_runtime() -> &'static str {
-    let features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
-    if features.split(',').any(|feature| feature == "crt-static") {
-        "MultiThreaded"
-    } else {
-        "MultiThreadedDLL"
     }
 }
 
@@ -84,7 +85,7 @@ fn generate_bindings() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn link_native(install: &Path) -> Result<(), Box<dyn Error>> {
+fn link_native(install: &Path, recast: &Path, detour: &Path) -> Result<(), Box<dyn Error>> {
     for directory in ["lib", "lib64"] {
         let path = install.join(directory);
         if path.is_dir() {
@@ -92,6 +93,8 @@ fn link_native(install: &Path) -> Result<(), Box<dyn Error>> {
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_navigation_cooker");
+    native_vendors::emit_static_library(recast).map_err(native_contract_error)?;
+    native_vendors::emit_static_library(detour).map_err(native_contract_error)?;
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
     match target_os.as_str() {
@@ -101,4 +104,8 @@ fn link_native(install: &Path) -> Result<(), Box<dyn Error>> {
         _ => {}
     }
     Ok(())
+}
+
+fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }

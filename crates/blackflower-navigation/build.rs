@@ -1,33 +1,44 @@
+#[allow(
+    dead_code,
+    reason = "the shared module exposes both producer and consumer halves of the native contract"
+)]
+#[path = "../../tools/native/support/native_vendors.rs"]
+mod native_vendors;
+
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-const DETOUR_HEADER: &str = "vendor/recastnavigation/Detour/Include/DetourNavMesh.h";
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
-const RECAST_BUILD: &str = "vendor/recastnavigation/CMakeLists.txt";
+const RECAST_VERSION: &str = "1.6.0";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    for path in [
-        DETOUR_HEADER,
-        NATIVE_BUILD,
-        RECAST_BUILD,
-        WRAPPER_HEADER,
-        WRAPPER_SOURCE,
-    ] {
+    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
+    for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    println!("cargo:rerun-if-changed=vendor/recastnavigation/Detour/Include");
-    println!("cargo:rerun-if-changed=vendor/recastnavigation/Detour/Source");
+    native_vendors::emit_rerun_environment();
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let (configuration, _workspace_root, recast) =
+        native_vendors::locate_from_cargo_build_script(&manifest_dir, "recast", RECAST_VERSION)
+            .map_err(native_contract_error)?;
+    let detour_name = if configuration.cmake_profile == "Debug" {
+        "Detour-d"
+    } else {
+        "Detour"
+    };
+    let detour =
+        native_vendors::find_static_library(&recast, &configuration, detour_name, detour_name)
+            .map_err(native_contract_error)?;
 
-    let version = read_recast_version()?;
-    let install_dir = compile_native(version)?;
+    let install_dir = compile_wrapper(&configuration, &recast, &detour);
     generate_bindings()?;
-    link_native(&install_dir)?;
+    link_native(&install_dir, &detour)?;
     Ok(())
 }
 
@@ -43,36 +54,21 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
     .into())
 }
 
-fn read_recast_version() -> Result<[u32; 3], Box<dyn Error>> {
-    let source = fs::read_to_string(RECAST_BUILD)?;
-    let version = source
-        .lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("set(LIB_VERSION ")
-                .and_then(|value| value.strip_suffix(')'))
-        })
-        .ok_or("RecastNavigation does not declare LIB_VERSION")?;
-    let mut components = version.split('.');
-    let parsed = [
-        components.next().ok_or("missing major version")?.parse()?,
-        components.next().ok_or("missing minor version")?.parse()?,
-        components.next().ok_or("missing patch version")?.parse()?,
-    ];
-    if components.next().is_some() {
-        return Err("RecastNavigation LIB_VERSION has too many components".into());
-    }
-    Ok(parsed)
-}
-
-fn compile_native(version: [u32; 3]) -> Result<PathBuf, Box<dyn Error>> {
+fn compile_wrapper(
+    configuration: &native_vendors::Configuration,
+    recast: &Path,
+    detour: &Path,
+) -> PathBuf {
     let mut config = cmake::Config::new("native");
     config
-        .profile("Release")
-        .define("BLACKFLOWER_RECAST_VERSION_MAJOR", version[0].to_string())
-        .define("BLACKFLOWER_RECAST_VERSION_MINOR", version[1].to_string())
-        .define("BLACKFLOWER_RECAST_VERSION_PATCH", version[2].to_string());
-    Ok(config.build())
+        .profile(configuration.cmake_profile)
+        .static_crt(configuration.crt_static)
+        .define("BLACKFLOWER_RECAST_INSTALL", recast)
+        .define("BLACKFLOWER_DETOUR_LIBRARY", detour)
+        .define("BLACKFLOWER_RECAST_VERSION_MAJOR", "1")
+        .define("BLACKFLOWER_RECAST_VERSION_MINOR", "6")
+        .define("BLACKFLOWER_RECAST_VERSION_PATCH", "0");
+    config.build()
 }
 
 fn generate_bindings() -> Result<(), Box<dyn Error>> {
@@ -101,7 +97,7 @@ fn generate_bindings() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn link_native(install_dir: &Path, detour: &Path) -> Result<(), Box<dyn Error>> {
     for directory in ["lib", "lib64"] {
         let path = install_dir.join(directory);
         if path.is_dir() {
@@ -109,7 +105,7 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_navigation_wrapper");
-    println!("cargo:rustc-link-lib=static=Detour");
+    native_vendors::emit_static_library(detour).map_err(native_contract_error)?;
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
@@ -120,4 +116,8 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         _ => {}
     }
     Ok(())
+}
+
+fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }

@@ -17,8 +17,5 @@ serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 
-[build-dependencies]
-cmake.workspace = true
-
 [lints]
 workspace = true

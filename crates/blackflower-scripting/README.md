@@ -34,9 +34,9 @@ submodule, update the version constants in `native/CMakeLists.txt`, and commit
 the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-scripting/vendor/luau fetch --tags origin
-git -C crates/blackflower-scripting/vendor/luau checkout 0.731
-git add crates/blackflower-scripting/vendor/luau
+git -C vendor/luau fetch --tags origin
+git -C vendor/luau checkout 0.731
+git add vendor/luau
 ```
 
 ## Runtime API

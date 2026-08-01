@@ -2,7 +2,7 @@
     dead_code,
     reason = "the shared module exposes both producer and consumer halves of the native contract"
 )]
-#[path = "../../build-support/native_vendors.rs"]
+#[path = "../../tools/native/support/native_vendors.rs"]
 mod native_vendors;
 
 use std::env;
@@ -30,7 +30,7 @@ struct EmbreeLibraries {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../build-support/native_vendors.rs");
+    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_path(Path::new(path))?;

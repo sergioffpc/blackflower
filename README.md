@@ -166,12 +166,14 @@ Cargo profile before building crates that consume them:
 cargo native build --profile debug
 ```
 
-This produces the pinned Embree and zlib static libraries below
+This produces every pinned native library below
 `target/native/<target>/<configuration>/<crt>/`. Crate `build.rs` scripts only
-locate and link those shared artifacts; they do not rebuild the global vendors.
-Use `--profile release` before a release Cargo build. `BLACKFLOWER_NATIVE_DIR`
-can override the shared native root, while `CARGO_TARGET_DIR` is honored
-automatically.
+compile their thin FFI wrappers and link the shared artifacts; they do not
+rebuild vendor sources. Pass one or more vendor names after the options for a
+focused build, for example `cargo native build --profile debug jolt opus`.
+Use `--profile release` before a release Cargo build.
+`BLACKFLOWER_NATIVE_DIR` can override the shared native root, while
+`CARGO_TARGET_DIR` is honored automatically.
 
 Native crates require a C/C++ compiler and libclang. The spatial and voice
 audio crates also require CMake and link their native dependencies statically.

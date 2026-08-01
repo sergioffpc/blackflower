@@ -1,33 +1,42 @@
+#[allow(
+    dead_code,
+    reason = "the shared module exposes both producer and consumer halves of the native contract"
+)]
+#[path = "../../tools/native/support/native_vendors.rs"]
+mod native_vendors;
+
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
-const OZZ_BUILD: &str = "vendor/ozz-animation/CMakeLists.txt";
-const OZZ_HEADER: &str = "vendor/ozz-animation/include/ozz/animation/runtime/animation.h";
+const OZZ_VERSION: &str = "0.16.0";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    for path in [
-        NATIVE_BUILD,
-        OZZ_BUILD,
-        OZZ_HEADER,
-        WRAPPER_HEADER,
-        WRAPPER_SOURCE,
-    ] {
+    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
+    for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    println!("cargo:rerun-if-changed=vendor/ozz-animation/include");
-    println!("cargo:rerun-if-changed=vendor/ozz-animation/src");
+    native_vendors::emit_rerun_environment();
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let (configuration, workspace_root, ozz) =
+        native_vendors::locate_from_cargo_build_script(&manifest_dir, "ozz", OZZ_VERSION)
+            .map_err(native_contract_error)?;
+    let ozz_source = workspace_root.join("vendor/ozz-animation");
+    let animation =
+        native_vendors::find_static_library(&ozz, &configuration, "ozz_animation", "ozz_animation")
+            .map_err(native_contract_error)?;
+    let base = native_vendors::find_static_library(&ozz, &configuration, "ozz_base", "ozz_base")
+        .map_err(native_contract_error)?;
 
-    let version = read_ozz_version()?;
-    let install_dir = compile_native(version)?;
+    let install_dir = compile_wrapper(&configuration, &ozz_source, &animation, &base);
     generate_bindings()?;
-    link_native(&install_dir)?;
+    link_native(&install_dir, &animation, &base)?;
     Ok(())
 }
 
@@ -43,33 +52,23 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
     .into())
 }
 
-fn read_ozz_version() -> Result<[u32; 3], Box<dyn Error>> {
-    let source = fs::read_to_string(OZZ_BUILD)?;
-    Ok([
-        version_component(&source, "MAJOR")?,
-        version_component(&source, "MINOR")?,
-        version_component(&source, "PATCH")?,
-    ])
-}
-
-fn version_component(source: &str, component: &str) -> Result<u32, Box<dyn Error>> {
-    let prefix = format!("set(OZZ_VERSION_{component} ");
-    let value = source
-        .lines()
-        .find_map(|line| line.trim().strip_prefix(&prefix))
-        .and_then(|value| value.strip_suffix(')'))
-        .ok_or_else(|| format!("ozz-animation does not declare OZZ_VERSION_{component}"))?;
-    Ok(value.parse()?)
-}
-
-fn compile_native(version: [u32; 3]) -> Result<PathBuf, Box<dyn Error>> {
+fn compile_wrapper(
+    configuration: &native_vendors::Configuration,
+    ozz_source: &Path,
+    animation: &Path,
+    base: &Path,
+) -> PathBuf {
     let mut config = cmake::Config::new("native");
     config
-        .profile("Release")
-        .define("BLACKFLOWER_OZZ_VERSION_MAJOR", version[0].to_string())
-        .define("BLACKFLOWER_OZZ_VERSION_MINOR", version[1].to_string())
-        .define("BLACKFLOWER_OZZ_VERSION_PATCH", version[2].to_string());
-    Ok(config.build())
+        .profile(configuration.cmake_profile)
+        .static_crt(configuration.crt_static)
+        .define("BLACKFLOWER_OZZ_ROOT", ozz_source)
+        .define("BLACKFLOWER_OZZ_ANIMATION_LIBRARY", animation)
+        .define("BLACKFLOWER_OZZ_BASE_LIBRARY", base)
+        .define("BLACKFLOWER_OZZ_VERSION_MAJOR", "0")
+        .define("BLACKFLOWER_OZZ_VERSION_MINOR", "16")
+        .define("BLACKFLOWER_OZZ_VERSION_PATCH", "0");
+    config.build()
 }
 
 fn generate_bindings() -> Result<(), Box<dyn Error>> {
@@ -98,7 +97,7 @@ fn generate_bindings() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn link_native(install_dir: &Path, animation: &Path, base: &Path) -> Result<(), Box<dyn Error>> {
     for directory in ["lib", "lib64"] {
         let path = install_dir.join(directory);
         if path.is_dir() {
@@ -106,8 +105,8 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_animation_wrapper");
-    println!("cargo:rustc-link-lib=static=ozz_animation");
-    println!("cargo:rustc-link-lib=static=ozz_base");
+    native_vendors::emit_static_library(animation).map_err(native_contract_error)?;
+    native_vendors::emit_static_library(base).map_err(native_contract_error)?;
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
@@ -118,4 +117,8 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         _ => {}
     }
     Ok(())
+}
+
+fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }

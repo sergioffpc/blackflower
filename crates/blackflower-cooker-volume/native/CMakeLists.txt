@@ -2,52 +2,29 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
 project(BlackflowerVolumeCooker LANGUAGES CXX)
 
-foreach(root OPENVDB BOOST TBB BLOSC ZLIB)
-    if(NOT DEFINED BLACKFLOWER_${root}_ROOT)
-        message(FATAL_ERROR "Missing BLACKFLOWER_${root}_ROOT")
+foreach(input OPENVDB_INSTALL OPENVDB_ROOT BOOST_ROOT OPENVDB_LIBRARY BLOSC_LIBRARY TBB_LIBRARY ZLIB_LIBRARY)
+    if(NOT DEFINED BLACKFLOWER_${input})
+        message(FATAL_ERROR "Missing BLACKFLOWER_${input}")
     endif()
 endforeach()
 
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(CONCURRENT_MALLOC None CACHE STRING "" FORCE)
-set(DISABLE_CMAKE_SEARCH_PATHS ON CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_AX OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_BINARIES OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_CORE ON CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_HOUDINI_PLUGIN OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_MAYA_PLUGIN OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_NANOVDB OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_PYTHON_MODULE OFF CACHE BOOL "" FORCE)
-set(OPENVDB_BUILD_UNITTESTS OFF CACHE BOOL "" FORCE)
-set(OPENVDB_CORE_SHARED OFF CACHE BOOL "" FORCE)
-set(OPENVDB_CORE_STATIC ON CACHE BOOL "" FORCE)
-set(OPENVDB_ENABLE_RPATH OFF CACHE BOOL "" FORCE)
-set(OPENVDB_FUTURE_DEPRECATION OFF CACHE BOOL "" FORCE)
-set(OPENVDB_INSTALL_CMAKE_MODULES OFF CACHE BOOL "" FORCE)
-set(OPENVDB_USE_DELAYED_LOADING OFF CACHE BOOL "" FORCE)
-set(USE_BLOSC ON CACHE BOOL "" FORCE)
-set(USE_CCACHE OFF CACHE BOOL "" FORCE)
-set(USE_EXPLICIT_INSTANTIATION OFF CACHE BOOL "" FORCE)
-set(USE_EXR OFF CACHE BOOL "" FORCE)
-set(USE_IMATH_HALF OFF CACHE BOOL "" FORCE)
-set(USE_LOG4CPLUS OFF CACHE BOOL "" FORCE)
-set(USE_NANOVDB OFF CACHE BOOL "" FORCE)
-set(USE_PKGCONFIG OFF CACHE BOOL "" FORCE)
-set(USE_STATIC_DEPENDENCIES ON CACHE BOOL "" FORCE)
-set(USE_ZLIB ON CACHE BOOL "" FORCE)
-
-set(TBB_ROOT "${BLACKFLOWER_TBB_ROOT}" CACHE PATH "" FORCE)
-set(TBB_DIR "${BLACKFLOWER_TBB_ROOT}/lib/cmake/TBB" CACHE PATH "" FORCE)
-set(Blosc_ROOT "${BLACKFLOWER_BLOSC_ROOT}" CACHE PATH "" FORCE)
-set(BLOSC_ROOT "${BLACKFLOWER_BLOSC_ROOT}" CACHE PATH "" FORCE)
-set(ZLIB_ROOT "${BLACKFLOWER_ZLIB_ROOT}" CACHE PATH "" FORCE)
-set(ZLIB_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
-
-add_subdirectory(
-    "${BLACKFLOWER_OPENVDB_ROOT}"
-    "${CMAKE_CURRENT_BINARY_DIR}/openvdb"
+add_library(openvdb_static STATIC IMPORTED GLOBAL)
+set_target_properties(
+    openvdb_static
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_OPENVDB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_OPENVDB_INSTALL}/include"
+    INTERFACE_COMPILE_DEFINITIONS OPENVDB_STATICLIB
 )
+add_library(blosc_static STATIC IMPORTED GLOBAL)
+set_target_properties(blosc_static PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_BLOSC_LIBRARY}")
+add_library(tbb STATIC IMPORTED GLOBAL)
+set_target_properties(tbb PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_TBB_LIBRARY}")
+add_library(zlibstatic STATIC IMPORTED GLOBAL)
+set_target_properties(zlibstatic PROPERTIES IMPORTED_LOCATION "${BLACKFLOWER_ZLIB_LIBRARY}")
+target_link_libraries(openvdb_static INTERFACE blosc_static tbb zlibstatic)
+find_package(Threads REQUIRED)
+target_link_libraries(tbb INTERFACE Threads::Threads ${CMAKE_DL_LIBS})
 
 file(GLOB BLACKFLOWER_BOOST_INCLUDE_DIRS
     LIST_DIRECTORIES true
@@ -57,9 +34,9 @@ file(GLOB BLACKFLOWER_BOOST_INCLUDE_DIRS
 if(NOT EXISTS "${BLACKFLOWER_BOOST_ROOT}/libs/interprocess/include/boost/interprocess/file_mapping.hpp")
     message(FATAL_ERROR "Boost.Interprocess headers are not initialized")
 endif()
-target_include_directories(openvdb_static PUBLIC ${BLACKFLOWER_BOOST_INCLUDE_DIRS})
+target_include_directories(openvdb_static INTERFACE ${BLACKFLOWER_BOOST_INCLUDE_DIRS})
 
-add_executable(blackflower-vdb-cooker volume_cooker.cpp)
+add_executable(blackflower-vdb-cooker wrapper.cpp)
 target_compile_features(blackflower-vdb-cooker PRIVATE cxx_std_17)
 target_compile_definitions(blackflower-vdb-cooker PRIVATE NANOVDB_USE_OPENVDB)
 target_include_directories(
@@ -70,7 +47,6 @@ target_include_directories(
 target_link_libraries(blackflower-vdb-cooker PRIVATE openvdb_static)
 
 if(MSVC)
-    target_compile_options(openvdb_static PRIVATE /EHsc)
     target_compile_options(blackflower-vdb-cooker PRIVATE /EHsc /bigobj)
 endif()
 

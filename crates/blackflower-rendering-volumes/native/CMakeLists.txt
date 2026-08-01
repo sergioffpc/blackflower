@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(BlackflowerRenderingVolumesNanoVdbBindings LANGUAGES CXX)
 
+if(NOT DEFINED BLACKFLOWER_OPENVDB_ROOT)
+    message(FATAL_ERROR "Missing BLACKFLOWER_OPENVDB_ROOT")
+endif()
+
 foreach(version_component MAJOR MINOR PATCH)
     if(NOT DEFINED BLACKFLOWER_OPENVDB_VERSION_${version_component})
         message(FATAL_ERROR "Missing BLACKFLOWER_OPENVDB_VERSION_${version_component}")
@@ -20,7 +24,7 @@ target_compile_definitions(
 target_include_directories(
     blackflower_rendering_volumes_nanovdb_wrapper
     PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../vendor/openvdb/nanovdb"
+    "${BLACKFLOWER_OPENVDB_ROOT}/nanovdb"
 )
 
 if(MSVC)

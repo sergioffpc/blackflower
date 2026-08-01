@@ -12,7 +12,6 @@ thiserror.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true
-cmake.workspace = true
 
 [lints]
 workspace = true

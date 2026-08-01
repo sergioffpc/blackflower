@@ -14,18 +14,48 @@ fi
 
 case "$mode" in
     runtime|assets)
-        set -- "$@" embree zlib
+        :
         ;;
     native)
         case "$package" in
             blackflower-acoustics|blackflower-spatial-query)
                 set -- "$@" embree
                 ;;
-            blackflower-audio-capture|blackflower-audio-spatial|blackflower-networking)
-                set -- "$@" embree zlib
+            blackflower-animation|blackflower-cooker-animation)
+                set -- "$@" ozz
+                ;;
+            blackflower-audio-capture|blackflower-networking)
+                set -- "$@" steam-audio opus
+                ;;
+            blackflower-audio-voice)
+                set -- "$@" opus
+                ;;
+            blackflower-audio-spatial)
+                set -- "$@" steam-audio
                 ;;
             blackflower-cooker-volume)
-                set -- "$@" zlib
+                set -- "$@" openvdb
+                ;;
+            blackflower-ecs)
+                set -- "$@" flecs
+                ;;
+            blackflower-navigation|blackflower-cooker-navigation)
+                set -- "$@" recast
+                ;;
+            blackflower-physics)
+                set -- "$@" jolt
+                ;;
+            blackflower-rendering-textures)
+                set -- "$@" ktx
+                ;;
+            blackflower-rendering-volumes)
+                set -- "$@" openvdb
+                ;;
+            blackflower-scripting)
+                set -- "$@" luau
+                ;;
+            blackflower-shader-compiler)
+                set -- "$@" slang
                 ;;
             *)
                 exit 0
@@ -38,4 +68,4 @@ case "$mode" in
         ;;
 esac
 
-cargo run --locked --package blackflower-native-build -- "$@"
+cargo run --locked --package native -- "$@"

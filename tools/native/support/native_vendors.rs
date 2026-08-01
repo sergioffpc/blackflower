@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -144,6 +145,51 @@ pub fn locate_vendor(
     Ok(directory)
 }
 
+pub fn locate_from_cargo_build_script(
+    manifest_dir: &Path,
+    vendor: &str,
+    version: &str,
+) -> Result<(Configuration, PathBuf, PathBuf), Box<dyn Error + Send + Sync>> {
+    let configuration = Configuration::from_cargo_build_script()?;
+    let workspace_root = find_workspace_root(manifest_dir)?;
+    let directory = locate_vendor(&workspace_root, &configuration, vendor, version)?;
+    Ok((configuration, workspace_root, directory))
+}
+
+pub fn find_static_library(
+    root: &Path,
+    configuration: &Configuration,
+    unix_name: &str,
+    windows_name: &str,
+) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    let file_name = if configuration.target.contains("windows") {
+        format!("{windows_name}.lib")
+    } else {
+        format!("lib{unix_name}.a")
+    };
+    for directory in ["lib", "lib64"] {
+        let candidate = root.join(directory).join(&file_name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    find_file(root, &file_name)
+}
+
+pub fn emit_static_library(library: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let directory = library
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", library.display()))?;
+    let stem = library
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| format!("invalid static library name {}", library.display()))?;
+    let name = stem.strip_prefix("lib").unwrap_or(stem);
+    println!("cargo:rustc-link-search=native={}", directory.display());
+    println!("cargo:rustc-link-lib=static={name}");
+    Ok(())
+}
+
 pub fn write_manifest(
     directory: &Path,
     configuration: &Configuration,
@@ -200,4 +246,26 @@ fn absolute_from(root: &Path, path: PathBuf) -> PathBuf {
     } else {
         root.join(path)
     }
+}
+
+fn find_file(root: &Path, file_name: &str) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    if !root.is_dir() {
+        return Err(format!("native build directory {} does not exist", root.display()).into());
+    }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            if let Ok(found) = find_file(&path, file_name) {
+                return Ok(found);
+            }
+        } else if entry.file_name() == OsStr::new(file_name) {
+            return Ok(path);
+        }
+    }
+    Err(format!(
+        "native build did not produce {file_name} below {}",
+        root.display()
+    )
+    .into())
 }

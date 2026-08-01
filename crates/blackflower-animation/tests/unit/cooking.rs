@@ -1,10 +1,12 @@
 use super::{inspect_animation_ozz, inspect_skeleton_ozz};
 use crate::Error;
 
-const SKELETON: &[u8] = include_bytes!("../../vendor/ozz-animation/media/bin/baked_skeleton.ozz");
-const ANIMATION: &[u8] = include_bytes!("../../vendor/ozz-animation/media/bin/baked_animation.ozz");
+const SKELETON: &[u8] =
+    include_bytes!("../../../../vendor/ozz-animation/media/bin/baked_skeleton.ozz");
+const ANIMATION: &[u8] =
+    include_bytes!("../../../../vendor/ozz-animation/media/bin/baked_animation.ozz");
 const OTHER_SKELETON: &[u8] =
-    include_bytes!("../../vendor/ozz-animation/media/bin/robot_skeleton.ozz");
+    include_bytes!("../../../../vendor/ozz-animation/media/bin/robot_skeleton.ozz");
 
 #[test]
 fn vendored_payloads_can_be_inspected_for_cooking() -> Result<(), Error> {

@@ -22,7 +22,7 @@ Initialize Slang and its pinned nested dependencies:
 
 ```sh
 git submodule update --init --recursive \
-    crates/blackflower-shader-compiler/vendor/slang
+    vendor/slang
 ```
 
 Building requires CMake, a C++17 compiler, and libclang for build-time bindgen.

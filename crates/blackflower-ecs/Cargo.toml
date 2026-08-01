@@ -26,7 +26,6 @@ tracing = { workspace = true, optional = true }
 
 [build-dependencies]
 bindgen.workspace = true
-cc.workspace = true
 
 [lints]
 workspace = true

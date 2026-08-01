@@ -49,9 +49,8 @@ fn gltf_cooks_deterministic_typed_assets_with_root_motion() -> Result<(), Box<dy
     let skeleton_source = directory.path().join("skeleton.glb");
     let animation_source = directory.path().join("animations.glb");
     let incompatible_source = directory.path().join("incompatible.glb");
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../blackflower-animation/vendor/ozz-animation/media/gltf/khronos/rigged_simple.gltf",
-    );
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../vendor/ozz-animation/media/gltf/khronos/rigged_simple.gltf");
     let mut root: Value = serde_json::from_slice(&fs::read(fixture)?)?;
     root["animations"][0]["name"] = json!("Walk");
     root["animations"][0]["extras"]["blackflower"] = json!({
