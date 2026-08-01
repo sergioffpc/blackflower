@@ -16,6 +16,15 @@ fn clip_cook_is_deterministic_and_resamples_to_48khz() -> Result<(), Error> {
 }
 
 #[test]
+fn clip_cook_resamples_fractional_stereo_rate_to_exact_frame_count() -> Result<(), Error> {
+    let source = pcm16_wav(44_100, 2, 442);
+    let clip = AudioClip::from_bytes(Bytes::from(cook_clip("wav", &source, None)?))?;
+    assert_eq!(clip.frame_count(), 481);
+    assert_eq!(clip.channels(), 2);
+    Ok(())
+}
+
+#[test]
 fn stream_cook_round_trips_frame_count_and_seek() -> Result<(), Error> {
     let source = flac_48k_stereo_1_920()?;
     let settings = AudioCookSettings {

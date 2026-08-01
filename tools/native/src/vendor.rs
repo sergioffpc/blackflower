@@ -21,7 +21,7 @@ mod zlib;
 use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -167,6 +167,7 @@ pub(crate) fn build(
     }
     let configuration = Configuration::new(target, profile, crt_static);
     let native_root = blackflower_build::native_root(workspace_root);
+    let _build_lock = acquire_build_lock(&native_root, &configuration)?;
     let mut ordered = Vec::new();
     let mut visited = BTreeSet::new();
     for vendor in vendors {
@@ -207,6 +208,50 @@ pub(crate) fn build(
     Ok(())
 }
 
+fn acquire_build_lock(native_root: &Path, configuration: &Configuration) -> anyhow::Result<File> {
+    let configuration_root = native_root.join(configuration.relative_directory());
+    fs::create_dir_all(&configuration_root).with_context(|| {
+        format!(
+            "failed to create native build directory {}",
+            configuration_root.display()
+        )
+    })?;
+    let lock_path = configuration_root.join(".blackflower-native-build.lock");
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .with_context(|| format!("failed to open native build lock {}", lock_path.display()))?;
+
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            eprintln!(
+                "waiting for another native build using {}",
+                configuration_root.display()
+            );
+            lock.lock().with_context(|| {
+                format!(
+                    "failed to acquire native build lock {}",
+                    lock_path.display()
+                )
+            })?;
+        }
+        Err(TryLockError::Error(error)) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to acquire native build lock {}",
+                    lock_path.display()
+                )
+            });
+        }
+    }
+
+    Ok(lock)
+}
+
 fn add_with_dependencies(
     vendor: Vendor,
     visited: &mut BTreeSet<Vendor>,
@@ -237,3 +282,7 @@ fn rustc_host() -> anyhow::Result<String> {
         .map(str::to_owned)
         .context("rustc -vV did not report a host triple")
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/vendor.rs"]
+mod tests;
