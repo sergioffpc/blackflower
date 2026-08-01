@@ -9,7 +9,7 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let source = workspace_root.join("vendor/pffft");
     require_file(&source.join("CMakeLists.txt"), "PFFFT")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "pffft");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "pffft");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &source,

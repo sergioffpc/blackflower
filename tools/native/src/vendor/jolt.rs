@@ -10,7 +10,7 @@ pub(super) fn build(
     let source = workspace_root.join("vendor/JoltPhysics");
     require_file(&source.join("Jolt/Jolt.h"), "Jolt Physics")?;
     let project = workspace_root.join("tools/native/cmake/jolt");
-    let destination = native_vendors::vendor_directory(native_root, configuration, "jolt");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "jolt");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &project,

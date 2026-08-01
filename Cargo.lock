@@ -203,6 +203,7 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "blackflower-animation-format",
+ "blackflower-build",
  "cmake",
  "glam",
  "thiserror 2.0.19",
@@ -283,6 +284,7 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "blackflower-acoustics",
+ "blackflower-build",
  "blake3",
  "glam",
  "thiserror 2.0.19",
@@ -293,8 +295,13 @@ name = "blackflower-audio-voice"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "thiserror 2.0.19",
 ]
+
+[[package]]
+name = "blackflower-build"
+version = "0.1.0"
 
 [[package]]
 name = "blackflower-cooker-acoustics"
@@ -318,6 +325,7 @@ version = "0.1.0"
 dependencies = [
  "blackflower-animation",
  "blackflower-animation-format",
+ "blackflower-build",
  "blackflower-gltf-metadata",
  "gltf",
  "serde_json",
@@ -330,6 +338,7 @@ name = "blackflower-cooker-navigation"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "blackflower-gltf-metadata",
  "blackflower-navigation",
  "blake3",
@@ -346,6 +355,7 @@ dependencies = [
 name = "blackflower-cooker-volume"
 version = "0.1.0"
 dependencies = [
+ "blackflower-build",
  "blackflower-rendering-volumes",
  "bytes",
  "cmake",
@@ -358,6 +368,7 @@ name = "blackflower-ecs"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "blackflower-ecs-derive",
  "bytemuck",
  "metrics",
@@ -404,6 +415,7 @@ name = "blackflower-navigation"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "blake3",
  "bytes",
  "cmake",
@@ -447,6 +459,7 @@ name = "blackflower-physics"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "cmake",
  "glam",
  "thiserror 2.0.19",
@@ -470,6 +483,7 @@ name = "blackflower-rendering-textures"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "bytes",
  "cmake",
  "thiserror 2.0.19",
@@ -480,6 +494,7 @@ name = "blackflower-rendering-volumes"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "cmake",
  "glam",
  "thiserror 2.0.19",
@@ -490,6 +505,7 @@ name = "blackflower-scripting"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "cmake",
  "thiserror 2.0.19",
 ]
@@ -507,6 +523,7 @@ name = "blackflower-shader-compiler"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "bytes",
  "cmake",
  "tempfile",
@@ -518,6 +535,7 @@ name = "blackflower-spatial-query"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-build",
  "cc",
  "glam",
  "thiserror 2.0.19",
@@ -1896,8 +1914,10 @@ name = "native"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackflower-build",
  "clap",
  "cmake",
+ "tempfile",
 ]
 
 [[package]]

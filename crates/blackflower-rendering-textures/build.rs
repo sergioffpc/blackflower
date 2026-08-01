@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,29 +9,28 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(Path::new(path))?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let (configuration, workspace_root, ktx) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "ktx", KTX_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "ktx", KTX_VERSION)
+            .map_err(blackflower_build_error)?;
     let ktx_source = workspace_root.join("vendor/KTX-Software");
-    let ktx_library = native_vendors::find_static_library(&ktx, &configuration, "ktx", "ktx")
-        .map_err(native_contract_error)?;
+    let ktx_library = blackflower_build::find_static_library(&ktx, &configuration, "ktx", "ktx")
+        .map_err(blackflower_build_error)?;
     let astc_library = (!configuration.target.contains("apple-darwin"))
         .then(|| {
-            native_vendors::find_static_library(
+            blackflower_build::find_static_library(
                 &ktx,
                 &configuration,
                 "astcenc-none-static",
                 "astcenc-none-static",
             )
-            .map_err(native_contract_error)
+            .map_err(blackflower_build_error)
         })
         .transpose()?;
     println!("cargo:rustc-env=BLACKFLOWER_KTX_VERSION={KTX_VERSION}");
@@ -62,7 +54,7 @@ fn require_file(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_wrapper(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     ktx_source: &Path,
     ktx_library: &Path,
 ) -> PathBuf {
@@ -109,10 +101,10 @@ fn link_native(install_dir: &Path, ktx: &Path, astc: Option<&Path>) -> Result<()
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_texture_wrapper");
-    native_vendors::emit_static_library(ktx).map_err(native_contract_error)?;
+    blackflower_build::emit_static_library(ktx).map_err(blackflower_build_error)?;
 
     if let Some(astc) = astc {
-        native_vendors::emit_static_library(astc).map_err(native_contract_error)?;
+        blackflower_build::emit_static_library(astc).map_err(blackflower_build_error)?;
     }
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
@@ -129,6 +121,6 @@ fn link_native(install_dir: &Path, ktx: &Path, astc: Option<&Path>) -> Result<()
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

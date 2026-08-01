@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -26,38 +19,41 @@ struct CookerDependencies<'a> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, NATIVE_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(Path::new(path))?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, openvdb) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "openvdb", OPENVDB_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(
+            &manifest_dir,
+            "openvdb",
+            OPENVDB_VERSION,
+        )
+        .map_err(blackflower_build_error)?;
     let blosc = locate(&manifest_dir, "blosc", BLOSC_VERSION)?;
     let tbb = locate(&manifest_dir, "tbb", TBB_VERSION)?;
     let zlib = locate(&manifest_dir, "zlib", ZLIB_VERSION)?;
     let openvdb_library =
-        native_vendors::find_static_library(&openvdb, &configuration, "openvdb", "openvdb")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&openvdb, &configuration, "openvdb", "openvdb")
+            .map_err(blackflower_build_error)?;
     let blosc_library =
-        native_vendors::find_static_library(&blosc, &configuration, "blosc", "blosc")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&blosc, &configuration, "blosc", "blosc")
+            .map_err(blackflower_build_error)?;
     let (tbb_unix, tbb_windows) = if configuration.cmake_profile == "Debug" {
         ("tbb_debug", "tbb12_debug")
     } else {
         ("tbb", "tbb12")
     };
     let tbb_library =
-        native_vendors::find_static_library(&tbb, &configuration, tbb_unix, tbb_windows)
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&tbb, &configuration, tbb_unix, tbb_windows)
+            .map_err(blackflower_build_error)?;
     let zlib_library =
-        native_vendors::find_static_library(&zlib, &configuration, "z", "zlibstatic")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&zlib, &configuration, "z", "zlibstatic")
+            .map_err(blackflower_build_error)?;
     let executable = compile_cooker(
         &configuration,
         &workspace_root,
@@ -89,7 +85,7 @@ fn export_tool(executable: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_cooker(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     workspace_root: &Path,
     dependencies: &CookerDependencies<'_>,
 ) -> PathBuf {
@@ -116,9 +112,9 @@ fn compile_cooker(
 }
 
 fn locate(manifest_dir: &Path, name: &str, version: &str) -> Result<PathBuf, Box<dyn Error>> {
-    native_vendors::locate_from_cargo_build_script(manifest_dir, name, version)
+    blackflower_build::locate_from_cargo_build_script(manifest_dir, name, version)
         .map(|(_configuration, _workspace_root, directory)| directory)
-        .map_err(|error| native_contract_error(error).into())
+        .map_err(|error| blackflower_build_error(error).into())
 }
 
 fn require_file(path: &Path) -> Result<(), Box<dyn Error>> {
@@ -138,6 +134,6 @@ fn tool_path(install: &Path) -> PathBuf {
     install.join("bin").join(executable)
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

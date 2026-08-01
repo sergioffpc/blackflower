@@ -28,7 +28,7 @@ use std::process::Command;
 use anyhow::{Context, bail};
 use clap::ValueEnum;
 
-use crate::native_vendors::{self, CargoProfile, Configuration};
+use blackflower_build::{self, CargoProfile, Configuration};
 use common::*;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum)]
@@ -166,7 +166,7 @@ pub(crate) fn build(
         );
     }
     let configuration = Configuration::new(target, profile, crt_static);
-    let native_root = native_vendors::native_root(workspace_root);
+    let native_root = blackflower_build::native_root(workspace_root);
     let mut ordered = Vec::new();
     let mut visited = BTreeSet::new();
     for vendor in vendors {
@@ -200,7 +200,7 @@ pub(crate) fn build(
         println!(
             "prepared {} at {}",
             vendor.name(),
-            native_vendors::vendor_directory(&native_root, &configuration, vendor.name(),)
+            blackflower_build::vendor_directory(&native_root, &configuration, vendor.name(),)
                 .display()
         );
     }

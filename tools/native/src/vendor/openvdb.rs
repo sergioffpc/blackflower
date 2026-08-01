@@ -10,11 +10,11 @@ pub(super) fn build(
     let source = workspace_root.join("vendor/openvdb");
     require_file(&source.join("CMakeLists.txt"), "OpenVDB")?;
     let project = workspace_root.join("tools/native/cmake/openvdb");
-    let destination = native_vendors::vendor_directory(native_root, configuration, "openvdb");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "openvdb");
     let boost = workspace_root.join("vendor/boost");
-    let blosc = native_vendors::vendor_directory(native_root, configuration, "blosc");
-    let tbb = native_vendors::vendor_directory(native_root, configuration, "tbb");
-    let zlib = native_vendors::vendor_directory(native_root, configuration, "zlib");
+    let blosc = blackflower_build::vendor_directory(native_root, configuration, "blosc");
+    let tbb = blackflower_build::vendor_directory(native_root, configuration, "tbb");
+    let zlib = blackflower_build::vendor_directory(native_root, configuration, "zlib");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &project,

@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,25 +9,24 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, _workspace_root, recast) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "recast", RECAST_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "recast", RECAST_VERSION)
+            .map_err(blackflower_build_error)?;
     let detour_name = if configuration.cmake_profile == "Debug" {
         "Detour-d"
     } else {
         "Detour"
     };
     let detour =
-        native_vendors::find_static_library(&recast, &configuration, detour_name, detour_name)
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&recast, &configuration, detour_name, detour_name)
+            .map_err(blackflower_build_error)?;
 
     let install_dir = compile_wrapper(&configuration, &recast, &detour);
     generate_bindings()?;
@@ -55,7 +47,7 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_wrapper(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     recast: &Path,
     detour: &Path,
 ) -> PathBuf {
@@ -105,7 +97,7 @@ fn link_native(install_dir: &Path, detour: &Path) -> Result<(), Box<dyn Error>> 
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_navigation_wrapper");
-    native_vendors::emit_static_library(detour).map_err(native_contract_error)?;
+    blackflower_build::emit_static_library(detour).map_err(blackflower_build_error)?;
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
@@ -118,6 +110,6 @@ fn link_native(install_dir: &Path, detour: &Path) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

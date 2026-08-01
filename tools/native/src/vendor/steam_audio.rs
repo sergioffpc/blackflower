@@ -37,7 +37,8 @@ pub(super) fn build(
 ) -> anyhow::Result<()> {
     let vendor_source = workspace_root.join("vendor/steam-audio-sdk/core");
     require_file(&vendor_source.join("CMakeLists.txt"), "Steam Audio")?;
-    let destination = native_vendors::vendor_directory(native_root, configuration, "steam-audio");
+    let destination =
+        blackflower_build::vendor_directory(native_root, configuration, "steam-audio");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let source =
         stage_steam_audio_source(&vendor_source, &destination, architecture, operating_system)?;
@@ -53,7 +54,12 @@ pub(super) fn build(
     configure_steam_audio_features(&mut config, configuration, architecture);
     configure_steam_audio_dependencies(&mut config, &dependencies);
     let built = config.build();
-    install_steam_audio_artifacts(&built, &destination, dependencies.windows, architecture)?;
+    install_steam_audio_artifacts(
+        &built.join("build"),
+        &destination,
+        dependencies.windows,
+        architecture,
+    )?;
     write_vendor_manifest(
         &destination,
         configuration,
@@ -87,7 +93,8 @@ fn load_steam_audio_dependencies(
     architecture: &str,
     operating_system: &str,
 ) -> anyhow::Result<SteamAudioDependencies> {
-    let directory = |vendor| native_vendors::vendor_directory(native_root, configuration, vendor);
+    let directory =
+        |vendor| blackflower_build::vendor_directory(native_root, configuration, vendor);
     let embree_root = directory("embree");
     let flatbuffers = directory("flatbuffers");
     let pffft = directory("pffft");
@@ -236,7 +243,17 @@ fn copy_static_artifact(source: &Path, destination: &Path) -> anyhow::Result<()>
     let file_name = source
         .file_name()
         .context("static library artifact has no file name")?;
-    fs::copy(source, destination.join(file_name))?;
+    let installed = destination.join(file_name);
+    if source == installed {
+        bail!(
+            "refusing to copy static library {} onto itself",
+            source.display()
+        );
+    }
+    fs::copy(source, &installed)?;
+    if fs::metadata(&installed)?.len() == 0 {
+        bail!("installed static library {} is empty", installed.display());
+    }
     Ok(())
 }
 
@@ -708,4 +725,26 @@ endif()"#,
 #endif"#,
         "Steam Audio Embree reflection simulator factory contract changed",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_artifact_self_copy_is_rejected_without_truncating() -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let library = temporary.path().join("libispckernels.a");
+        let archive_header = b"!<arch>\n";
+        fs::write(&library, archive_header)?;
+
+        let error = match copy_static_artifact(&library, temporary.path()) {
+            Ok(()) => bail!("self-copy unexpectedly succeeded"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("onto itself"));
+        assert_eq!(fs::read(library)?, archive_header);
+        Ok(())
+    }
 }

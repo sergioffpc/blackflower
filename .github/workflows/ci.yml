@@ -168,7 +168,7 @@ jobs:
                crates/blackflower-shader-compiler \
                crates/blackflower-spatial-query \
                rust-toolchain.toml \
-               tools/native/support \
+               crates/blackflower-build \
                tools/blender \
                tools/native \
                tools/xtask \

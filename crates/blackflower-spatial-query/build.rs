@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -30,23 +23,22 @@ struct EmbreeLibraries {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_path(Path::new(path))?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     require_supported_target()?;
 
-    let configuration =
-        native_vendors::Configuration::from_cargo_build_script().map_err(native_contract_error)?;
+    let configuration = blackflower_build::Configuration::from_cargo_build_script()
+        .map_err(blackflower_build_error)?;
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let workspace_root =
-        native_vendors::find_workspace_root(&manifest_dir).map_err(native_contract_error)?;
+        blackflower_build::find_workspace_root(&manifest_dir).map_err(blackflower_build_error)?;
     let embree =
-        native_vendors::locate_vendor(&workspace_root, &configuration, "embree", EMBREE_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_vendor(&workspace_root, &configuration, "embree", EMBREE_VERSION)
+            .map_err(blackflower_build_error)?;
     let libraries = load_embree(&embree)?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is not set")?);
     compile_wrapper(&libraries)?;
@@ -55,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }
 

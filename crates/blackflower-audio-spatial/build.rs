@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -33,19 +26,18 @@ struct EmbreeLibraries {
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-check-cfg=cfg(blackflower_steam_audio_embree)");
     println!("cargo:rustc-cfg=blackflower_steam_audio_embree");
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     println!("cargo:rerun-if-changed={WRAPPER_HEADER}");
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, steam_audio) =
-        native_vendors::locate_from_cargo_build_script(
+        blackflower_build::locate_from_cargo_build_script(
             &manifest_dir,
             "steam-audio",
             STEAM_AUDIO_VERSION,
         )
-        .map_err(native_contract_error)?;
+        .map_err(blackflower_build_error)?;
     let steam_audio_source = workspace_root.join("vendor/steam-audio-sdk/core");
     let version_template = steam_audio_source.join("src/core/phonon_version.h.in");
     let include = steam_audio_source.join("src/core");
@@ -61,33 +53,34 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn link_vendor_libraries(
     manifest_dir: &Path,
     steam_audio: &Path,
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
 ) -> Result<(), Box<dyn Error>> {
     let phonon =
-        native_vendors::find_static_library(steam_audio, configuration, "phonon", "phonon")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(steam_audio, configuration, "phonon", "phonon")
+            .map_err(blackflower_build_error)?;
     let ispc_kernels = (env::var("CARGO_CFG_TARGET_ARCH")? == "x86_64")
         .then(|| {
-            native_vendors::find_static_library(
+            blackflower_build::find_static_library(
                 steam_audio,
                 configuration,
                 "ispckernels",
                 "ispckernels",
             )
-            .map_err(native_contract_error)
+            .map_err(blackflower_build_error)
         })
         .transpose()?;
     let pffft = locate(manifest_dir, "pffft", PFFFT_VERSION)?;
     let pffft_library =
-        native_vendors::find_static_library(&pffft, configuration, "pffft", "pffft")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&pffft, configuration, "pffft", "pffft")
+            .map_err(blackflower_build_error)?;
     let mysofa = locate(manifest_dir, "mysofa", MYSOFA_VERSION)?;
     let mysofa_library =
-        native_vendors::find_static_library(&mysofa, configuration, "mysofa", "mysofa")
-            .map_err(native_contract_error)?;
+        blackflower_build::find_static_library(&mysofa, configuration, "mysofa", "mysofa")
+            .map_err(blackflower_build_error)?;
     let zlib = locate(manifest_dir, "zlib", ZLIB_VERSION)?;
-    let zlib_library = native_vendors::find_static_library(&zlib, configuration, "z", "zlibstatic")
-        .map_err(native_contract_error)?;
+    let zlib_library =
+        blackflower_build::find_static_library(&zlib, configuration, "z", "zlibstatic")
+            .map_err(blackflower_build_error)?;
     let embree = locate(manifest_dir, "embree", EMBREE_VERSION)?;
     let embree_libraries = load_embree(&embree, configuration)?;
 
@@ -113,28 +106,28 @@ fn link_vendor_libraries(
 
 fn emit_libraries<const N: usize>(libraries: [Option<&Path>; N]) -> Result<(), Box<dyn Error>> {
     for library in libraries.into_iter().flatten() {
-        native_vendors::emit_static_library(library).map_err(native_contract_error)?;
+        blackflower_build::emit_static_library(library).map_err(blackflower_build_error)?;
     }
     Ok(())
 }
 
 fn locate(manifest_dir: &Path, name: &str, version: &str) -> Result<PathBuf, Box<dyn Error>> {
-    native_vendors::locate_from_cargo_build_script(manifest_dir, name, version)
+    blackflower_build::locate_from_cargo_build_script(manifest_dir, name, version)
         .map(|(_configuration, _workspace_root, directory)| directory)
-        .map_err(|error| native_contract_error(error).into())
+        .map_err(|error| blackflower_build_error(error).into())
 }
 
 fn load_embree(
     root: &Path,
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
 ) -> Result<EmbreeLibraries, Box<dyn Error>> {
     let architecture = env::var("CARGO_CFG_TARGET_ARCH")?;
     let operating_system = env::var("CARGO_CFG_TARGET_OS")?;
     let has_x86_variants = architecture == "x86_64" && operating_system != "macos";
     let has_avx2 = has_x86_variants || (architecture == "aarch64" && operating_system == "macos");
     let find = |unix: &str, windows: &str| {
-        native_vendors::find_static_library(root, configuration, unix, windows)
-            .map_err(native_contract_error)
+        blackflower_build::find_static_library(root, configuration, unix, windows)
+            .map_err(blackflower_build_error)
     };
     Ok(EmbreeLibraries {
         sse2: find("embree", "embree")?,
@@ -212,6 +205,6 @@ fn link_platform_libraries() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

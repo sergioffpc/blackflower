@@ -88,9 +88,14 @@ impl Configuration {
     }
 }
 
-pub fn emit_rerun_environment() {
+/// Emits Cargo inputs and the native contract schema used by FFI consumers.
+pub fn emit_cargo_directives() {
     println!("cargo:rerun-if-env-changed=BLACKFLOWER_NATIVE_DIR");
     println!("cargo:rerun-if-env-changed=CARGO_TARGET_DIR");
+    println!(
+        "cargo:rustc-check-cfg=cfg(blackflower_native_contract_schema, values(\"{CONTRACT_SCHEMA}\"))"
+    );
+    println!("cargo:rustc-cfg=blackflower_native_contract_schema=\"{CONTRACT_SCHEMA}\"");
 }
 
 pub fn find_workspace_root(start: &Path) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {

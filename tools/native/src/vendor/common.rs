@@ -27,7 +27,7 @@ pub(super) fn write_vendor_manifest(
     vendor: Vendor,
     source: &Path,
 ) -> anyhow::Result<()> {
-    native_vendors::write_manifest(
+    blackflower_build::write_manifest(
         installed,
         configuration,
         vendor.name(),

@@ -12,6 +12,7 @@ thiserror.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true
+blackflower-build.workspace = true
 
 [lints]
 workspace = true

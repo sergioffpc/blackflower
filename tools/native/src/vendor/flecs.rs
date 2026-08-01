@@ -11,7 +11,7 @@ pub(super) fn build(
     require_file(&source.join("distr/flecs.c"), "Flecs amalgamation")?;
     let project = workspace_root.join("tools/native/cmake/flecs");
     let config_dir = workspace_root.join("crates/blackflower-ecs/native");
-    let destination = native_vendors::vendor_directory(native_root, configuration, "flecs");
+    let destination = blackflower_build::vendor_directory(native_root, configuration, "flecs");
     let (architecture, operating_system) = target_platform(&configuration.target)?;
     let mut config = base_config(
         &project,

@@ -1,10 +1,4 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../support/native_vendors.rs"]
-mod native_vendors;
-mod vendors;
+mod vendor;
 
 use std::fs;
 use std::path::PathBuf;
@@ -12,8 +6,8 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 
-use native_vendors::CargoProfile;
-use vendors::Vendor;
+use blackflower_build::CargoProfile;
+use vendor::Vendor;
 
 fn main() -> anyhow::Result<()> {
     let arguments = Arguments::parse();
@@ -34,7 +28,7 @@ fn main() -> anyhow::Result<()> {
             if vendors.is_empty() {
                 vendors = Vendor::ALL.to_vec();
             }
-            vendors::build(
+            vendor::build(
                 &workspace_root,
                 profile.into(),
                 target,

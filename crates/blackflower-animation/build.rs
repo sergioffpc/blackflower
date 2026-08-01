@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,23 +9,26 @@ const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, ozz) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "ozz", OZZ_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "ozz", OZZ_VERSION)
+            .map_err(blackflower_build_error)?;
     let ozz_source = workspace_root.join("vendor/ozz-animation");
-    let animation =
-        native_vendors::find_static_library(&ozz, &configuration, "ozz_animation", "ozz_animation")
-            .map_err(native_contract_error)?;
-    let base = native_vendors::find_static_library(&ozz, &configuration, "ozz_base", "ozz_base")
-        .map_err(native_contract_error)?;
+    let animation = blackflower_build::find_static_library(
+        &ozz,
+        &configuration,
+        "ozz_animation",
+        "ozz_animation",
+    )
+    .map_err(blackflower_build_error)?;
+    let base = blackflower_build::find_static_library(&ozz, &configuration, "ozz_base", "ozz_base")
+        .map_err(blackflower_build_error)?;
 
     let install_dir = compile_wrapper(&configuration, &ozz_source, &animation, &base);
     generate_bindings()?;
@@ -53,7 +49,7 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn compile_wrapper(
-    configuration: &native_vendors::Configuration,
+    configuration: &blackflower_build::Configuration,
     ozz_source: &Path,
     animation: &Path,
     base: &Path,
@@ -105,8 +101,8 @@ fn link_native(install_dir: &Path, animation: &Path, base: &Path) -> Result<(), 
         }
     }
     println!("cargo:rustc-link-lib=static=blackflower_animation_wrapper");
-    native_vendors::emit_static_library(animation).map_err(native_contract_error)?;
-    native_vendors::emit_static_library(base).map_err(native_contract_error)?;
+    blackflower_build::emit_static_library(animation).map_err(blackflower_build_error)?;
+    blackflower_build::emit_static_library(base).map_err(blackflower_build_error)?;
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_env = env::var("CARGO_CFG_TARGET_ENV")?;
@@ -119,6 +115,6 @@ fn link_native(install_dir: &Path, animation: &Path, base: &Path) -> Result<(), 
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }

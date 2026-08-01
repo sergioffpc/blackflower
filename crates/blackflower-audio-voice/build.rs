@@ -1,10 +1,3 @@
-#[allow(
-    dead_code,
-    reason = "the shared module exposes both producer and consumer halves of the native contract"
-)]
-#[path = "../../tools/native/support/native_vendors.rs"]
-mod native_vendors;
-
 use std::env;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -14,22 +7,22 @@ const OPUS_VERSION: &str = "1.5.2";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=../../tools/native/support/native_vendors.rs");
     println!("cargo:rerun-if-changed={WRAPPER_HEADER}");
-    native_vendors::emit_rerun_environment();
+    blackflower_build::emit_cargo_directives();
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
     let (configuration, workspace_root, opus) =
-        native_vendors::locate_from_cargo_build_script(&manifest_dir, "opus", OPUS_VERSION)
-            .map_err(native_contract_error)?;
+        blackflower_build::locate_from_cargo_build_script(&manifest_dir, "opus", OPUS_VERSION)
+            .map_err(blackflower_build_error)?;
     let opus_include = workspace_root.join("vendor/opus/include");
     require_path(&opus_include.join("opus.h"))?;
-    let opus_library = native_vendors::find_static_library(&opus, &configuration, "opus", "opus")
-        .map_err(native_contract_error)?;
+    let opus_library =
+        blackflower_build::find_static_library(&opus, &configuration, "opus", "opus")
+            .map_err(blackflower_build_error)?;
 
     generate_bindings(&opus_include)?;
-    native_vendors::emit_static_library(&opus_library).map_err(native_contract_error)?;
+    blackflower_build::emit_static_library(&opus_library).map_err(blackflower_build_error)?;
     if env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some("linux".as_ref()) {
         println!("cargo:rustc-link-lib=dylib=m");
     }
@@ -76,6 +69,6 @@ fn generate_bindings(opus_include: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn native_contract_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }
