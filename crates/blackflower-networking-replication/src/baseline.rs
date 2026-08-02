@@ -1,53 +1,59 @@
 use std::collections::BTreeMap;
-use std::num::NonZeroUsize;
 
-use crate::{DeltaError, Snapshot, SnapshotDelta, SnapshotTick};
+use blackflower_networking::{ProjectionDigest, ProtocolRevision, SnapshotAppliedAck};
 
-/// Bounded per-client history of sent snapshots and the latest acknowledged baseline.
+use crate::{DeltaError, Snapshot, SnapshotDelta, SnapshotError, SnapshotTick};
+
+/// Maximum sent snapshot generations retained for an applied ACK.
+pub const MAX_SENT_SNAPSHOTS: usize = 32;
+
+/// Bounded per-client history and latest exactly acknowledged baseline.
 #[derive(Debug, Clone)]
-pub struct BaselineTracker<S> {
-    maximum_pending: NonZeroUsize,
-    acknowledged: Option<Snapshot<S>>,
-    pending: BTreeMap<SnapshotTick, Snapshot<S>>,
+pub struct BaselineTracker {
+    revision: ProtocolRevision,
+    acknowledged: Option<SentSnapshot>,
+    pending: BTreeMap<SnapshotTick, SentSnapshot>,
 }
 
-impl<S> BaselineTracker<S> {
-    /// Construct a tracker with an explicit bound on unacknowledged snapshots.
+impl BaselineTracker {
+    /// Construct the fixed 32-snapshot tracker for one protocol revision.
     #[must_use]
-    pub const fn new(maximum_pending: NonZeroUsize) -> Self {
+    pub const fn new(revision: ProtocolRevision) -> Self {
         Self {
-            maximum_pending,
+            revision,
             acknowledged: None,
             pending: BTreeMap::new(),
         }
     }
 
-    /// Return the latest acknowledged snapshot used as the next delta baseline.
+    /// Return the exact applied snapshot used as the next delta baseline.
     #[must_use]
-    pub const fn baseline(&self) -> Option<&Snapshot<S>> {
-        self.acknowledged.as_ref()
+    pub fn baseline(&self) -> Option<&Snapshot> {
+        self.acknowledged.as_ref().map(|sent| &sent.snapshot)
     }
 
     /// Return the latest acknowledged tick.
     #[must_use]
     pub fn acknowledged_tick(&self) -> Option<SnapshotTick> {
-        self.acknowledged.as_ref().map(Snapshot::tick)
+        self.acknowledged.as_ref().map(|sent| sent.snapshot.tick())
     }
 
-    /// Return the number of sent snapshots awaiting acknowledgement.
+    /// Return the exact digest promoted with the current baseline.
+    #[must_use]
+    pub fn acknowledged_digest(&self) -> Option<ProjectionDigest> {
+        self.acknowledged.as_ref().map(|sent| sent.digest)
+    }
+
+    /// Return the number of sent snapshots awaiting an applied ACK.
     #[must_use]
     pub fn pending_len(&self) -> usize {
         self.pending.len()
     }
 
-    /// Retain a sent snapshot for a future acknowledgement.
-    ///
-    /// The oldest pending snapshot is evicted when the configured bound is
-    /// exceeded. A later acknowledgement for an evicted tick is rejected so the
-    /// caller can request or send a full snapshot.
+    /// Retain a sent snapshot and its locally computed canonical digest.
     pub fn record_sent(
         &mut self,
-        snapshot: Snapshot<S>,
+        snapshot: Snapshot,
     ) -> Result<Option<SnapshotTick>, BaselineError> {
         let tick = snapshot.tick();
         if let Some(latest) = self.latest_tick()
@@ -55,31 +61,49 @@ impl<S> BaselineTracker<S> {
         {
             return Err(BaselineError::NonIncreasingSnapshot { tick, latest });
         }
-        self.pending.insert(tick, snapshot);
+        let digest = snapshot.digest(self.revision)?;
+        self.pending.insert(tick, SentSnapshot { snapshot, digest });
         Ok(self.evict_oldest_pending())
     }
 
-    /// Promote one sent snapshot to the acknowledged delta baseline.
-    ///
-    /// Acknowledgements are cumulative: pending snapshots at or before `tick`
-    /// are discarded after the exact acknowledged snapshot is promoted.
-    pub fn acknowledge(&mut self, tick: SnapshotTick) -> Result<(), BaselineError> {
-        if let Some(acknowledged) = self.acknowledged_tick() {
-            if tick == acknowledged {
-                return Ok(());
+    /// Promote only an exact tick-and-digest application ACK.
+    pub fn acknowledge(&mut self, ack: SnapshotAppliedAck) -> Result<(), BaselineError> {
+        let tick = SnapshotTick::new(ack.snapshot_tick.get());
+        if let Some(current) = &self.acknowledged {
+            if tick == current.snapshot.tick() {
+                return if ack.projection_digest == current.digest {
+                    Ok(())
+                } else {
+                    Err(BaselineError::DigestMismatch { tick })
+                };
             }
-            if tick < acknowledged {
-                return Err(BaselineError::AcknowledgementRegressed { tick, acknowledged });
+            if tick < current.snapshot.tick() {
+                return Err(BaselineError::AcknowledgementRegressed {
+                    tick,
+                    acknowledged: current.snapshot.tick(),
+                });
             }
         }
-        let snapshot = self
+        let sent = self
+            .pending
+            .get(&tick)
+            .ok_or(BaselineError::UnknownAcknowledgement { tick })?;
+        if sent.digest != ack.projection_digest {
+            return Err(BaselineError::DigestMismatch { tick });
+        }
+        let promoted = self
             .pending
             .remove(&tick)
             .ok_or(BaselineError::UnknownAcknowledgement { tick })?;
         self.pending
             .retain(|pending_tick, _snapshot| *pending_tick > tick);
-        self.acknowledged = Some(snapshot);
+        self.acknowledged = Some(promoted);
         Ok(())
+    }
+
+    /// Build component operations against only the exact applied baseline.
+    pub fn build_delta(&self, current: &Snapshot) -> Result<SnapshotDelta, BaselineError> {
+        SnapshotDelta::between(current, self.baseline()).map_err(BaselineError::Delta)
     }
 
     fn latest_tick(&self) -> Option<SnapshotTick> {
@@ -90,27 +114,26 @@ impl<S> BaselineTracker<S> {
     }
 
     fn evict_oldest_pending(&mut self) -> Option<SnapshotTick> {
-        if self.pending.len() <= self.maximum_pending.get() {
+        if self.pending.len() <= MAX_SENT_SNAPSHOTS {
             return None;
         }
         let oldest = self
             .pending
             .first_key_value()
             .map(|(&tick, _snapshot)| tick)?;
-        self.pending.remove(&oldest);
+        let _removed = self.pending.remove(&oldest);
         Some(oldest)
     }
 }
 
-impl<S: Clone + Eq> BaselineTracker<S> {
-    /// Build a delta against the latest acknowledged snapshot.
-    pub fn build_delta(&self, current: &Snapshot<S>) -> Result<SnapshotDelta<S>, BaselineError> {
-        SnapshotDelta::between(current, self.baseline()).map_err(BaselineError::Delta)
-    }
+#[derive(Debug, Clone)]
+struct SentSnapshot {
+    snapshot: Snapshot,
+    digest: ProjectionDigest,
 }
 
-/// Invalid sent-snapshot or acknowledgement progression.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+/// Invalid sent-snapshot or applied-ack progression.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BaselineError {
     /// Sent snapshots were not recorded in increasing tick order.
     #[error("sent snapshot tick {tick} must be newer than {latest}")]
@@ -134,6 +157,15 @@ pub enum BaselineError {
         /// Unknown acknowledgement tick.
         tick: SnapshotTick,
     },
+    /// Tick matched but the client's reconstructed projection digest did not.
+    #[error("snapshot acknowledgement digest does not match tick {tick}")]
+    DigestMismatch {
+        /// Snapshot tick with conflicting digest.
+        tick: SnapshotTick,
+    },
+    /// Canonical snapshot digest construction failed.
+    #[error(transparent)]
+    Snapshot(#[from] SnapshotError),
     /// Delta construction rejected the selected baseline.
     #[error(transparent)]
     Delta(#[from] DeltaError),

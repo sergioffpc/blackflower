@@ -3,6 +3,9 @@ use std::num::NonZeroUsize;
 
 use crate::{InputSequence, PredictionTick};
 
+/// Network v1 prediction and input history length.
+pub const NETWORK_HISTORY_TICKS: usize = 512;
+
 /// A sealed predicted state recorded at one tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PredictionFrame<S> {
@@ -94,6 +97,12 @@ pub struct PredictionHistory<S> {
 }
 
 impl<S> PredictionHistory<S> {
+    /// Create the normative 512-tick network history.
+    #[must_use]
+    pub fn network_v1() -> Self {
+        Self::new(NonZeroUsize::new(NETWORK_HISTORY_TICKS).unwrap_or(NonZeroUsize::MIN))
+    }
+
     /// Create an empty history retaining at most `capacity` states.
     #[must_use]
     pub const fn new(capacity: NonZeroUsize) -> Self {
@@ -189,6 +198,12 @@ pub struct InputHistory<I> {
 }
 
 impl<I> InputHistory<I> {
+    /// Create the normative 512-tick network input history.
+    #[must_use]
+    pub fn network_v1() -> Self {
+        Self::new(NonZeroUsize::new(NETWORK_HISTORY_TICKS).unwrap_or(NonZeroUsize::MIN))
+    }
+
     /// Create an empty history retaining at most `capacity` tick inputs.
     #[must_use]
     pub const fn new(capacity: NonZeroUsize) -> Self {

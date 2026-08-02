@@ -1,16 +1,14 @@
 use blackflower_acoustics::{
     AabbMm, AcousticMaterial, AcousticMaterialLibrary, AcousticReceiver, AcousticSimulationScene,
     AcousticTopology, AcousticWorld, AcousticWorldSettings, AcousticZoneVolume, BandEnergy,
-    PositionMm, SoundClass, SoundEmission,
+    PositionMm, SoundClass, SoundEmission, VoiceCapturePacket, decode_audible_voice,
+    decode_voice_capture, encode_audible_voice, encode_voice_capture,
 };
 use blackflower_audio_capture::{
     CaptureSettings, CaptureStream, VoiceActivation, VoiceAnalyzerBank,
 };
 use blackflower_audio_voice::{Channels, Decoder, SampleRate};
-use blackflower_networking::{
-    HarnessEndpoint, InMemoryDatagramHarness, VoiceCapturePacket, decode_audible_voice,
-    decode_voice_capture, encode_audible_voice, encode_voice_capture,
-};
+use blackflower_networking::{HarnessEndpoint, InMemoryDatagramHarness};
 
 fn acoustic_world() -> Result<AcousticWorld, Box<dyn std::error::Error>> {
     let materials = AcousticMaterialLibrary::new(vec![AcousticMaterial {

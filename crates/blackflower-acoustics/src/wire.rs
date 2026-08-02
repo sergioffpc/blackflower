@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use blackflower_acoustics::{
+use crate::{
     AcousticStructureVersion, AudibleSoundDelivery, AudibleVoiceDelivery, BandEnergy, EncodedVoice,
     MAX_OPUS_PACKET_BYTES, PropagationDescriptor, VoiceStreamId,
 };
@@ -388,5 +388,5 @@ impl<'a> Reader<'a> {
 const _: () = assert!(PROPAGATION_BYTES == 46);
 
 #[cfg(test)]
-#[path = "../tests/unit/acoustics.rs"]
+#[path = "../tests/unit/wire.rs"]
 mod tests;

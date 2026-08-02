@@ -22,8 +22,11 @@ pub const SNAPSHOT_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / SNAPSHOT_RATE
 /// Simulation ticks between bot perception and tactical updates.
 pub const AI_UPDATE_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / AI_UPDATE_RATE_HZ;
 
-/// Simulation ticks after which missing human input becomes neutral.
-pub const INPUT_TIMEOUT_TICKS: u64 = SIMULATION_TICK_RATE_HZ;
+/// Simulation ticks for which the latest canonical input may be held.
+pub const INPUT_GRACE_TICKS: u64 = 12;
+
+/// Simulation ticks after which missing authenticated input is a failsafe.
+pub const INPUT_FAILSAFE_TICKS: u64 = SIMULATION_TICK_RATE_HZ;
 
 const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(CONTROL_FRAME_RATE_HZ));
 const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(SNAPSHOT_RATE_HZ));

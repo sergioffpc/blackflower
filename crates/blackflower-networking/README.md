@@ -1,13 +1,12 @@
 # Blackflower networking contracts
 
-This crate defines strict version-1 codecs for `VoiceCapturePacket`,
-`AudibleSoundDelivery`, and `AudibleVoiceDelivery`, plus a bounded in-memory
-client/server harness. Unknown versions, reserved bits, truncation, trailing
-bytes, oversized payloads, duplicates, and packets outside the 60 ms reorder
-window are rejected deterministically.
+This crate defines the transport-independent Blackflower v1 protocol: explicit
+wire codecs, session and clock machines, admission authority boundary, input
+deduplication and command timing, bounded scheduling, voice routing, and
+network observability. Its voice support owns only session routing, queueing,
+and opaque stream identifiers; acoustic application payloads are not decoded.
 
-The voice capture payload never carries sender identity; the host session owns
-that binding. Audible voice preserves the exact original bounded Opus packet
-and is encoded only after authoritative audibility succeeds. No production
-sockets, authentication, congestion control, or clock synchronization are
-implemented in this crate.
+The crate performs no socket I/O and does not reimplement QUIC cryptography,
+transport ACKs, loss recovery, congestion control, pacing, or path validation.
+Production transport lives in `blackflower-networking-quic`. The consolidated
+requirements are in `docs/networking-v1.md`.

@@ -8,6 +8,7 @@ mod manifest;
 mod mesh_cooker;
 mod model_cooker;
 mod navigation_cooker;
+mod network_gate;
 mod profile;
 mod texture_cooker;
 
@@ -22,6 +23,7 @@ use blackflower_assets::{
 use clap::{Parser, Subcommand};
 
 use crate::cook::{CookRequest, Pipeline};
+use crate::network_gate::{NetworkGateArgs, run_network_gate};
 
 /// Runs the repository's developer task command.
 ///
@@ -32,6 +34,7 @@ pub fn run() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
         Command::Assets(command) => run_assets(&args.workspace_root, command.command),
+        Command::NetworkGate(command) => run_network_gate(&args.workspace_root, command),
     }
 }
 
@@ -47,6 +50,8 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Assets(AssetsArgs),
+    /// Run a deterministic reduced or soak network impairment gate.
+    NetworkGate(NetworkGateArgs),
 }
 
 #[derive(Debug, clap::Args)]

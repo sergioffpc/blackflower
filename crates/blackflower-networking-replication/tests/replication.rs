@@ -1,255 +1,358 @@
 use std::collections::BTreeSet;
 use std::error::Error as StdError;
-use std::num::NonZeroUsize;
+use std::time::Duration;
 
+use blackflower_networking::{ProtocolRevision, SimulationTick, SnapshotAppliedAck};
 use blackflower_networking_replication::{
-    AoiError, BaselineError, BaselineTracker, DeltaError, Position, PositionQuantizer,
-    QuantizationError, QuantizedScalar, ReplicatedEntityId, ReplicationSource, ScalarQuantizer,
-    Snapshot, SnapshotError, SnapshotTick, SourceEntity, SphericalAoi,
+    AoiTracker, BaselineError, BaselineTracker, ComponentDescriptor, ComponentId,
+    ComponentRegistry, ComponentSampleTick, ComponentState, DeltaOperation, EntityIdAllocator,
+    EntityState, Position, ProjectionBundle, ProjectionKind, ProjectionView, QuantizedAngle,
+    QuantizedPosition, QuantizedQuaternion, QuantizedVelocity, ReplicatedEntityId,
+    ReplicationPriority, ReplicationSource, Snapshot, SnapshotBuilder, SnapshotDelta,
+    SnapshotReassembler, SnapshotTick, SourceEntity, build_snapshot_chunks,
 };
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
-fn entity(value: u64) -> ReplicatedEntityId {
-    ReplicatedEntityId::new(value)
+fn entity(value: u64) -> Result<ReplicatedEntityId, Box<dyn StdError>> {
+    Ok(ReplicatedEntityId::try_from_u64(value)?)
 }
 
-fn tick(value: u64) -> SnapshotTick {
-    SnapshotTick::new(value)
+fn component(value: u16) -> Result<ComponentId, Box<dyn StdError>> {
+    Ok(ComponentId::try_from_u16(value)?)
+}
+
+fn state(
+    tick: u64,
+    priority: ReplicationPriority,
+    bytes: &[u8],
+) -> Result<ComponentState, Box<dyn StdError>> {
+    Ok(ComponentState::new(
+        ComponentSampleTick::new(tick),
+        priority,
+        bytes.to_vec(),
+    )?)
+}
+
+fn entity_state(
+    components: impl IntoIterator<Item = (ComponentId, ComponentState)>,
+) -> Result<EntityState, Box<dyn StdError>> {
+    Ok(EntityState::new(components)?)
+}
+
+fn assert_priorities_sorted(delta: &SnapshotDelta) {
+    assert!(
+        delta
+            .operations()
+            .windows(2)
+            .all(|pair| pair[0].priority() <= pair[1].priority())
+    );
 }
 
 #[test]
-fn area_of_interest_projects_stable_client_state() -> TestResult {
-    let source = ReplicationSource::new(
-        tick(8),
+fn identities_are_non_zero_monotonic_and_non_reusing() -> TestResult {
+    assert!(ReplicatedEntityId::try_from_u64(0).is_err());
+    assert!(ComponentId::try_from_u16(0).is_err());
+    let mut allocator = EntityIdAllocator::new();
+    assert_eq!(allocator.allocate()?.get(), 1);
+    assert_eq!(allocator.allocate()?.get(), 2);
+    assert_eq!(allocator.allocate()?.get(), 3);
+    Ok(())
+}
+
+#[test]
+fn visibility_projection_precedes_serialization() -> TestResult {
+    let public = component(1)?;
+    let owner = component(2)?;
+    let registry = ComponentRegistry::new(
+        ProtocolRevision::V1,
         [
-            SourceEntity::new(entity(3), Position::new(50.0, 0.0, 0.0)?, 30_u32),
-            SourceEntity::new(entity(1), Position::new(3.0, 4.0, 0.0)?, 10_u32),
-            SourceEntity::new(entity(2), Position::new(11.0, 0.0, 0.0)?, 20_u32),
+            ComponentDescriptor {
+                id: public,
+                projection: ProjectionKind::Public,
+                maximum_bytes: 8,
+            },
+            ComponentDescriptor {
+                id: owner,
+                projection: ProjectionKind::Owner,
+                maximum_bytes: 8,
+            },
         ],
     )?;
-    let area = SphericalAoi::new(Position::new(0.0, 0.0, 0.0)?, 10.0)?;
-    let always_relevant = BTreeSet::from([entity(3)]);
+    let mut bundle = ProjectionBundle::default();
+    bundle.insert(
+        ProjectionKind::Public,
+        entity_state([(public, state(8, ReplicationPriority::ActiveActor, &[1])?)])?,
+    )?;
+    bundle.insert(
+        ProjectionKind::Owner,
+        entity_state([(owner, state(8, ReplicationPriority::OwnerCorrection, &[2])?)])?,
+    )?;
 
-    let snapshot = area.project(&source, &always_relevant);
-    assert_eq!(snapshot.tick(), tick(8));
-    assert_eq!(
-        snapshot
-            .entities()
-            .map(|(entity, _state)| entity)
-            .collect::<Vec<_>>(),
-        [entity(1), entity(3)]
-    );
-    assert_eq!(snapshot.get(entity(1)), Some(&10));
-    assert_eq!(snapshot.get(entity(2)), None);
+    let observer = bundle.project(
+        ProjectionView {
+            protocol_revision: ProtocolRevision::V1,
+            owner: false,
+            same_team: false,
+            include_global: false,
+        },
+        &registry,
+    )?;
+    assert!(observer.get(public).is_some());
+    assert!(observer.get(owner).is_none());
+
+    let controlling_player = bundle.project(
+        ProjectionView {
+            protocol_revision: ProtocolRevision::V1,
+            owner: true,
+            same_team: false,
+            include_global: false,
+        },
+        &registry,
+    )?;
+    assert!(controlling_player.get(public).is_some());
+    assert!(controlling_player.get(owner).is_some());
     Ok(())
 }
 
 #[test]
-fn area_of_interest_rejects_invalid_geometry_and_duplicate_ids() -> TestResult {
-    assert_eq!(
-        Position::new(f64::NAN, 0.0, 0.0),
-        Err(AoiError::NonFinitePosition)
-    );
+#[allow(
+    clippy::too_many_lines,
+    reason = "the test follows one AOI entity through entry, hysteresis, exit, and re-entry"
+)]
+fn stateful_aoi_uses_fixed_entry_hysteresis_and_same_id_reentry() -> TestResult {
+    let id = entity(7)?;
+    let component = component(1)?;
+    let projected = entity_state([(component, state(1, ReplicationPriority::ActiveActor, &[7])?)])?;
     let center = Position::new(0.0, 0.0, 0.0)?;
+    let mut aoi = AoiTracker::new(center, 0.0)?;
+
+    let entered = ReplicationSource::new(
+        SnapshotTick::new(1),
+        [SourceEntity::new(
+            id,
+            Position::new(500.0, 0.0, 0.0)?,
+            projected.clone(),
+        )],
+    )?;
+    let first = aoi.project(&entered, &BTreeSet::new());
+    assert!(first.get(id).is_some());
+
+    let hysteresis = ReplicationSource::new(
+        SnapshotTick::new(2),
+        [SourceEntity::new(
+            id,
+            Position::new(520.0, 0.0, 0.0)?,
+            projected.clone(),
+        )],
+    )?;
+    assert!(aoi.project(&hysteresis, &BTreeSet::new()).get(id).is_some());
+
+    let left = ReplicationSource::new(
+        SnapshotTick::new(3),
+        [SourceEntity::new(
+            id,
+            Position::new(529.0, 0.0, 0.0)?,
+            projected.clone(),
+        )],
+    )?;
+    let forgotten = aoi.project(&left, &BTreeSet::new());
+    assert!(forgotten.get(id).is_none());
     assert!(matches!(
-        SphericalAoi::new(center, -1.0),
-        Err(AoiError::InvalidRadius { .. })
+        SnapshotDelta::between(&forgotten, Some(&first))?.operations(),
+        [DeltaOperation::Forget { entity }] if *entity == id
     ));
-    let duplicate = ReplicationSource::new(
-        tick(1),
-        [
-            SourceEntity::new(entity(7), center, 1_u8),
-            SourceEntity::new(entity(7), center, 2_u8),
-        ],
-    );
-    assert_eq!(
-        duplicate,
-        Err(AoiError::DuplicateEntity { entity: entity(7) })
-    );
+
+    let reentered = ReplicationSource::new(
+        SnapshotTick::new(4),
+        [SourceEntity::new(
+            id,
+            Position::new(500.0, 0.0, 0.0)?,
+            projected,
+        )],
+    )?;
+    let reentry = aoi.project(&reentered, &BTreeSet::new());
+    assert!(matches!(
+        SnapshotDelta::between(&reentry, Some(&forgotten))?.operations(),
+        [DeltaOperation::Spawn { entity, .. }] if *entity == id
+    ));
     Ok(())
 }
 
 #[test]
-fn scalar_and_position_quantization_are_explicit() -> TestResult {
-    let scalar = ScalarQuantizer::new(-1.0, 1.0, 8)?;
-    assert_eq!(scalar.bits(), 8);
-    assert_eq!(scalar.quantize(-1.0)?, QuantizedScalar::new(0));
-    assert_eq!(scalar.quantize(1.0)?, QuantizedScalar::new(255));
-    assert_eq!(scalar.quantize_clamped(2.0)?, QuantizedScalar::new(255));
-    assert!(matches!(
-        scalar.quantize(2.0),
-        Err(QuantizationError::ValueOutOfRange { .. })
-    ));
+fn normative_quantizers_round_trip_with_bounded_error() -> TestResult {
+    let position = QuantizedPosition::quantize([12.345, -6.789, 0.001])?;
+    assert_eq!(position.codes(), [1_235, -679, 0]);
+    let position_round_trip = position.dequantize();
+    assert!((position_round_trip[0] - 12.35).abs() < 0.000_001);
 
-    let position = PositionQuantizer::new([
-        ScalarQuantizer::new(-100.0, 100.0, 16)?,
-        ScalarQuantizer::new(-10.0, 10.0, 12)?,
-        ScalarQuantizer::new(0.0, 50.0, 10)?,
-    ]);
-    let quantized = position.quantize([12.5, -2.0, 25.0])?;
-    let reconstructed = position.dequantize(quantized)?;
-    let ranges = [200.0 / 65_535.0, 20.0 / 4_095.0, 50.0 / 1_023.0];
-    for (actual, (expected, resolution)) in reconstructed
+    let velocity = QuantizedVelocity::quantize([3.25, -2.5, 0.0])?;
+    assert_eq!(velocity.codes(), [325, -250, 0]);
+    for (actual, expected) in velocity.dequantize().into_iter().zip([3.25, -2.5, 0.0]) {
+        assert!((actual - expected).abs() < 0.000_001);
+    }
+
+    let angle = QuantizedAngle::quantize(std::f64::consts::PI)?;
+    assert_eq!(angle.code(), 32_768);
+    assert!((angle.dequantize() - std::f64::consts::PI).abs() < 0.000_001);
+
+    let quaternion = QuantizedQuaternion::quantize([0.0, 0.0, 0.0, 1.0])?;
+    assert_eq!(quaternion.largest_index(), 3);
+    assert_eq!(quaternion.components(), [0, 0, 0]);
+    for (actual, expected) in quaternion
+        .dequantize()?
         .into_iter()
-        .zip([12.5, -2.0, 25.0].into_iter().zip(ranges))
+        .zip([0.0, 0.0, 0.0, 1.0])
     {
-        assert!((actual - expected).abs() <= resolution / 2.0);
+        assert!((actual - expected).abs() < 0.000_001);
     }
     Ok(())
 }
 
 #[test]
-fn projected_snapshots_transform_into_quantized_protocol_state() -> TestResult {
-    let source = ReplicationSource::new(
-        tick(8),
-        [
-            SourceEntity::new(entity(1), Position::new(5.0, 0.0, 0.0)?, [5.0, 0.0, 0.0]),
-            SourceEntity::new(entity(2), Position::new(50.0, 0.0, 0.0)?, [50.0, 0.0, 0.0]),
-        ],
-    )?;
-    let area = SphericalAoi::new(Position::new(0.0, 0.0, 0.0)?, 10.0)?;
-    let projected = area.project(&source, &BTreeSet::new());
-    let axis = ScalarQuantizer::new(-100.0, 100.0, 16)?;
-    let quantizer = PositionQuantizer::new([axis; 3]);
-    let quantized = projected.try_map(|_entity, position| quantizer.quantize(*position))?;
-
-    assert_eq!(quantized.tick(), tick(8));
-    assert_eq!(quantized.len(), 1);
-    assert!(quantized.get(entity(1)).is_some());
-    assert_eq!(quantized.get(entity(2)), None);
-    Ok(())
-}
-
-#[test]
-fn quantization_rejects_invalid_policies_values_and_codes() -> TestResult {
-    assert!(matches!(
-        ScalarQuantizer::new(1.0, 1.0, 8),
-        Err(QuantizationError::InvalidRange { .. })
-    ));
-    assert_eq!(
-        ScalarQuantizer::new(0.0, 1.0, 0),
-        Err(QuantizationError::InvalidBitCount { bits: 0 })
-    );
-    let scalar = ScalarQuantizer::new(0.0, 1.0, 4)?;
-    assert!(matches!(
-        scalar.quantize(f64::INFINITY),
-        Err(QuantizationError::NonFiniteValue { .. })
-    ));
-    assert_eq!(
-        scalar.dequantize(QuantizedScalar::new(16)),
-        Err(QuantizationError::CodeOutOfRange {
-            code: 16,
-            maximum: 15,
-        })
-    );
-    Ok(())
-}
-
-#[test]
-fn delta_tracks_aoi_entries_changes_and_departures() -> TestResult {
+fn component_delta_is_atomic_and_reconstructs_projection() -> TestResult {
+    let first = component(1)?;
+    let second = component(2)?;
+    let first_entity = entity(1)?;
+    let second_entity = entity(2)?;
+    let third_entity = entity(3)?;
     let baseline = Snapshot::new(
-        tick(8),
+        SnapshotTick::new(8),
         [
-            (entity(1), QuantizedScalar::new(10)),
-            (entity(2), QuantizedScalar::new(20)),
+            (
+                first_entity,
+                entity_state([
+                    (first, state(8, ReplicationPriority::ActiveActor, &[10])?),
+                    (second, state(8, ReplicationPriority::Remaining, &[20])?),
+                ])?,
+            ),
+            (
+                third_entity,
+                entity_state([(first, state(8, ReplicationPriority::Remaining, &[30])?)])?,
+            ),
         ],
     )?;
     let current = Snapshot::new(
-        tick(16),
+        SnapshotTick::new(16),
         [
-            (entity(2), QuantizedScalar::new(21)),
-            (entity(3), QuantizedScalar::new(30)),
+            (
+                first_entity,
+                entity_state([(first, state(16, ReplicationPriority::ActiveActor, &[11])?)])?,
+            ),
+            (
+                second_entity,
+                entity_state([(first, state(16, ReplicationPriority::Lifecycle, &[40])?)])?,
+            ),
         ],
     )?;
 
-    let delta =
-        blackflower_networking_replication::SnapshotDelta::between(&current, Some(&baseline))?;
-    assert_eq!(delta.baseline(), Some(tick(8)));
-    assert_eq!(delta.removed(), [entity(1)]);
-    assert_eq!(
-        delta
-            .updates()
-            .iter()
-            .map(|update| (update.entity(), update.state().code()))
-            .collect::<Vec<_>>(),
-        [(entity(2), 21), (entity(3), 30)]
-    );
+    let delta = SnapshotDelta::between(&current, Some(&baseline))?;
+    assert_eq!(delta.baseline(), Some(SnapshotTick::new(8)));
+    assert_eq!(delta.operations().len(), 4);
+    assert_priorities_sorted(&delta);
+    assert!(delta.operations().iter().any(|operation| matches!(
+        operation,
+        DeltaOperation::Update { entity: id, component, .. }
+            if *id == first_entity && *component == first
+    )));
+    assert!(delta
+        .operations()
+        .iter()
+        .any(|operation| matches!(operation, DeltaOperation::RemoveComponent { component, .. } if *component == second)));
     assert_eq!(delta.apply(Some(&baseline))?, current);
     Ok(())
 }
 
 #[test]
-fn full_delta_requires_no_baseline() -> TestResult {
-    let current = Snapshot::new(tick(8), [(entity(1), 10_u8)])?;
-    let delta = blackflower_networking_replication::SnapshotDelta::between(&current, None)?;
-    assert_eq!(delta.baseline(), None);
-    assert_eq!(delta.apply(None)?, current);
+fn builder_preserves_sample_tick_for_unchanged_components() -> TestResult {
+    let id = entity(1)?;
+    let unchanged = component(1)?;
+    let changed = component(2)?;
+    let previous = Snapshot::new(
+        SnapshotTick::new(8),
+        [(
+            id,
+            entity_state([
+                (unchanged, state(4, ReplicationPriority::Remaining, &[1])?),
+                (changed, state(8, ReplicationPriority::ActiveActor, &[2])?),
+            ])?,
+        )],
+    )?;
+    let mut builder = SnapshotBuilder::from_previous(SnapshotTick::new(16), &previous);
+    builder.update_component(
+        id,
+        changed,
+        state(16, ReplicationPriority::ActiveActor, &[3])?,
+    )?;
+    let current = builder.build()?;
+    let entity = current.get(id).ok_or("missing entity")?;
     assert_eq!(
-        delta.apply(Some(&current)),
-        Err(DeltaError::UnexpectedBaseline { actual: tick(8) })
+        entity
+            .get(unchanged)
+            .ok_or("missing component")?
+            .sample_tick(),
+        ComponentSampleTick::new(4)
+    );
+    assert_eq!(
+        entity
+            .get(changed)
+            .ok_or("missing component")?
+            .sample_tick(),
+        ComponentSampleTick::new(16)
     );
     Ok(())
 }
 
 #[test]
-fn baseline_tracker_uses_only_acknowledged_snapshots() -> TestResult {
-    let mut tracker = BaselineTracker::new(NonZeroUsize::new(3).ok_or("invalid test bound")?);
-    let first = Snapshot::new(tick(8), [(entity(1), 10_u8)])?;
-    let second = Snapshot::new(tick(16), [(entity(1), 20_u8)])?;
-    let third = Snapshot::new(tick(24), [(entity(1), 30_u8)])?;
-
-    assert_eq!(tracker.build_delta(&first)?.baseline(), None);
-    assert_eq!(tracker.record_sent(first.clone())?, None);
-    tracker.acknowledge(tick(8))?;
-    assert_eq!(tracker.acknowledged_tick(), Some(tick(8)));
-
-    assert_eq!(tracker.record_sent(second)?, None);
-    assert_eq!(tracker.build_delta(&third)?.baseline(), Some(tick(8)));
-    assert_eq!(tracker.record_sent(third.clone())?, None);
-    tracker.acknowledge(tick(24))?;
-    assert_eq!(tracker.baseline(), Some(&third));
-    assert_eq!(tracker.pending_len(), 0);
-    Ok(())
-}
-
-#[test]
-fn bounded_pending_history_reports_eviction_and_unknown_acknowledgement() -> TestResult {
-    let mut tracker = BaselineTracker::new(NonZeroUsize::MIN);
-    let first = Snapshot::new(tick(8), [(entity(1), 10_u8)])?;
-    let second = Snapshot::new(tick(16), [(entity(1), 20_u8)])?;
-
-    assert_eq!(tracker.record_sent(first)?, None);
-    assert_eq!(tracker.record_sent(second)?, Some(tick(8)));
+fn canonical_codec_chunks_and_exact_applied_ack_share_digest() -> TestResult {
+    let id = entity(1)?;
+    let component = component(1)?;
+    let snapshot = Snapshot::new(
+        SnapshotTick::new(8),
+        [(
+            id,
+            entity_state([(
+                component,
+                state(7, ReplicationPriority::ActiveActor, &[0xaa, 0xbb])?,
+            )])?,
+        )],
+    )?;
+    let canonical = snapshot.encode()?;
+    assert_eq!(Snapshot::decode(&canonical)?, snapshot);
     assert_eq!(
-        tracker.acknowledge(tick(8)),
-        Err(BaselineError::UnknownAcknowledgement { tick: tick(8) })
+        canonical,
+        vec![
+            8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 7, 0, 0, 0, 0,
+            0, 0, 0, 3, 0, 2, 0, 0xaa, 0xbb,
+        ]
     );
-    tracker.acknowledge(tick(16))?;
-    assert_eq!(
-        tracker.record_sent(Snapshot::new(tick(16), [(entity(1), 20_u8)])?),
-        Err(BaselineError::NonIncreasingSnapshot {
-            tick: tick(16),
-            latest: tick(16),
-        })
-    );
-    Ok(())
-}
 
-#[test]
-fn snapshots_reject_duplicate_entities_and_regressing_baselines() -> TestResult {
-    assert_eq!(
-        Snapshot::new(tick(8), [(entity(1), 10_u8), (entity(1), 11_u8)]),
-        Err(SnapshotError::DuplicateEntity { entity: entity(1) })
-    );
-    let current = Snapshot::new(tick(8), [(entity(1), 10_u8)])?;
-    let baseline = Snapshot::new(tick(8), [(entity(1), 9_u8)])?;
-    assert_eq!(
-        blackflower_networking_replication::SnapshotDelta::between(&current, Some(&baseline)),
-        Err(DeltaError::BaselineNotOlder {
-            baseline: tick(8),
-            current: tick(8),
-        })
-    );
+    let delta = SnapshotDelta::between(&snapshot, None)?;
+    assert_eq!(SnapshotDelta::decode(&delta.encode()?)?, delta);
+    let chunks = build_snapshot_chunks(&delta, &snapshot, ProtocolRevision::V1, 20)?;
+    assert_eq!(chunks.len(), 3);
+    let mut reassembler = SnapshotReassembler::new(chunks[0].clone(), Duration::ZERO)?;
+    let mut reconstructed = None;
+    for chunk in &chunks[1..] {
+        reconstructed = reassembler.push(chunk.clone(), Duration::from_millis(10))?;
+    }
+    let reconstructed = reconstructed.ok_or("snapshot did not complete")?;
+    assert_eq!(reconstructed, delta.encode()?);
+
+    let mut baselines = BaselineTracker::new(ProtocolRevision::V1);
+    baselines.record_sent(snapshot.clone())?;
+    let digest = snapshot.digest(ProtocolRevision::V1)?;
+    assert!(matches!(
+        baselines.acknowledge(SnapshotAppliedAck {
+            snapshot_tick: SimulationTick::new(8),
+            projection_digest: blackflower_networking::ProjectionDigest::from_bytes([0; 32]),
+        }),
+        Err(BaselineError::DigestMismatch { .. })
+    ));
+    baselines.acknowledge(SnapshotAppliedAck {
+        snapshot_tick: SimulationTick::new(8),
+        projection_digest: digest,
+    })?;
+    assert_eq!(baselines.baseline(), Some(&snapshot));
     Ok(())
 }

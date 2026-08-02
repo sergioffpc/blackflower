@@ -30,7 +30,8 @@ phases:
 
 The cadence policy defines 60 Hz control frames every 4 ticks, 30 Hz snapshots
 every 8 ticks, 5 Hz bot perception and tactical updates every 48 ticks, and a
-one-second input timeout after 240 ticks.
+12-tick input grace followed by neutral control, with a separate one-second
+failsafe after 240 ticks.
 
 When installed, `AcousticWorld` backs the five `SolveAcoustics` systems and
 `UpdateAcousticStructure`. It resolves bounded zone/portal candidates, direct
