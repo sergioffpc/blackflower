@@ -31,6 +31,12 @@ impl SnapshotInbox {
             .map(|stored| &stored.snapshot)
     }
 
+    pub(crate) fn window(&self) -> SnapshotWindow<'_> {
+        SnapshotWindow {
+            history: &self.history,
+        }
+    }
+
     pub(crate) fn bootstrap(
         &mut self,
         header: StateBootstrapHeader,
@@ -147,6 +153,50 @@ impl SnapshotInbox {
     }
 }
 
+/// Immutable chronological window of fully reconstructed authoritative projections.
+///
+/// The harness retains this bounded history for replication baselines and
+/// interpolation. Consumers cannot mutate or extend it.
+#[derive(Debug, Clone, Copy)]
+pub struct SnapshotWindow<'a> {
+    history: &'a BTreeMap<SnapshotTick, StoredSnapshot>,
+}
+
+impl<'a> SnapshotWindow<'a> {
+    /// Return the number of retained authoritative projections.
+    #[must_use]
+    pub fn len(self) -> usize {
+        self.history.len()
+    }
+
+    /// Test whether the interpolation window is empty.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.history.is_empty()
+    }
+
+    /// Return the oldest retained projection.
+    #[must_use]
+    pub fn oldest(self) -> Option<&'a Snapshot> {
+        self.history
+            .first_key_value()
+            .map(|(_tick, stored)| &stored.snapshot)
+    }
+
+    /// Return the newest retained projection.
+    #[must_use]
+    pub fn newest(self) -> Option<&'a Snapshot> {
+        self.history
+            .last_key_value()
+            .map(|(_tick, stored)| &stored.snapshot)
+    }
+
+    /// Iterate over retained projections in authoritative tick order.
+    pub fn iter(self) -> impl DoubleEndedIterator<Item = &'a Snapshot> + ExactSizeIterator + 'a {
+        self.history.values().map(|stored| &stored.snapshot)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedSnapshot {
     pub(crate) snapshot: Snapshot,
@@ -157,6 +207,7 @@ struct PendingSnapshot {
     reassembler: SnapshotReassembler,
 }
 
+#[derive(Debug)]
 struct StoredSnapshot {
     snapshot: Snapshot,
     digest: ProjectionDigest,

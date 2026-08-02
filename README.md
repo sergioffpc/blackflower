@@ -41,6 +41,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-networking-quic` | Low-level Quinn transport endpoints and bounded host queues |
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
+| `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |

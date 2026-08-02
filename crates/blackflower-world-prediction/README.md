@@ -6,17 +6,18 @@
 Every predicted tick uses the same `PredictionPipeline` in either
 `PredictionPass::Forward` or `PredictionPass::Resimulation`. Its phases are:
 
-1. `PrepareTick` prepares the fixed-tick context and activates scheduled state;
-2. `CaptureTickInputs` captures current input or selects recorded input for
-   re-simulation;
+1. `PrepareTick` prepares the fixed-tick context, resets transient storage, and
+   activates scheduled state;
+2. `CaptureTickInputs` captures the exact `InputFrame` already selected by the
+   shared prediction coordinator;
 3. `DeriveActorActions` derives deterministic actor actions;
 4. `SolveRigidBodyDynamics` solves the locally predicted subset of rigid-body
    dynamics;
 5. `DeriveStateTransitions` derives speculative state transitions;
 6. `CommitStateTransitions` commits accepted transitions once;
-7. `SealTick` seals and validates the completed predicted tick;
-8. `SubmitTickOutputs` submits outputs, suppressing duplicate external effects
-   during re-simulation.
+7. `SealTick` validates the state and canonicalizes stable predicted-event IDs;
+8. `SubmitTickOutputs` classifies and reconciles forward, replayed, corrected,
+   and cancelled events before idempotent in-memory publication.
 
 The authoritative reconciliation flow is:
 

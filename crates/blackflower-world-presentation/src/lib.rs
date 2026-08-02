@@ -15,13 +15,16 @@ mod telemetry;
 mod types;
 mod world;
 
-pub use audio::{AudioCommand, PresentationAudioError};
+pub use audio::{AudioCommand, AudioCommandBatch, PresentationAudioError};
 pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
 pub use systems::{
-    BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
-    EvaluateAnimationPosesSystem, PrepareFrameSystem, ResolveSceneGraphSystem,
-    SampleRenderTimelineSystem, SubmitBackendCommandsSystem, UpdateCamerasAndListenersSystem,
+    BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
+    EvaluateAnimationPosesSystem, PrepareFrameSystem, PrepareViewsAndListenersSystem,
+    PublishFrameOutputsSystem, ResolveSceneGraphSystem, SampleRenderTimelineSystem,
     UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 pub use types::FrameIndex;
-pub use world::{FrameExecution, FrameExecutionContext, PresentationError, PresentationWorld};
+pub use world::{
+    FrameExecution, FrameExecutionContext, PresentationError, PresentationOutputError,
+    PresentationWorld,
+};

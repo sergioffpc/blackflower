@@ -7,12 +7,13 @@ use blackflower_acoustics::{
     AcousticStructureVersion, AudibleSoundDelivery, BandEnergy, PropagationDescriptor,
 };
 use blackflower_ecs::{Component, Read, TickDelta, World};
+use blackflower_rendering::RenderFrameId;
 use blackflower_world_presentation::{
-    AudioCommand, BuildBackendCommandsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
+    AudioCommand, BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
     EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, PrepareFrameSystem,
-    PresentationError, PresentationPhase, PresentationPipeline, PresentationWorld,
-    ResolveSceneGraphSystem, SampleRenderTimelineSystem, SubmitBackendCommandsSystem,
-    UpdateCamerasAndListenersSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
+    PrepareViewsAndListenersSystem, PresentationError, PresentationPhase, PresentationPipeline,
+    PresentationWorld, PublishFrameOutputsSystem, ResolveSceneGraphSystem,
+    SampleRenderTimelineSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -31,12 +32,12 @@ fn phase_names_are_stable() {
             "CaptureFrameInputs",
             "UpdateSceneProxies",
             "SampleRenderTimeline",
-            "UpdateCamerasAndListeners",
+            "PrepareViewsAndListeners",
             "EvaluateAnimationPoses",
             "ResolveSceneGraph",
             "UpdateEffectsAndFeedback",
-            "BuildBackendCommands",
-            "SubmitBackendCommands",
+            "BuildFrameOutputs",
+            "PublishFrameOutputs",
             "CommitFrameHistory",
         ]
     );
@@ -46,7 +47,11 @@ fn phase_names_are_stable() {
 fn prepare_frame_system_names_are_stable() {
     assert_eq!(
         PrepareFrameSystem::ORDER.map(PrepareFrameSystem::name),
-        ["OpenFrame", "ResetFrameTransientStorage"]
+        [
+            "OpenFrame",
+            "ResetFrameTransientStorage",
+            "ResolveFrameTiming",
+        ]
     );
 }
 
@@ -55,10 +60,11 @@ fn capture_frame_inputs_system_names_are_stable() {
     assert_eq!(
         CaptureFrameInputsSystem::ORDER.map(CaptureFrameInputsSystem::name),
         [
-            "CaptureLocalPredictionState",
-            "CaptureRemoteSnapshotHistory",
-            "CaptureSimulationEvents",
+            "CaptureClientView",
+            "CaptureInterpolationWindow",
+            "CaptureClientEvents",
             "CaptureFrameConfiguration",
+            "CaptureBackendFeedback",
         ]
     );
 }
@@ -89,15 +95,14 @@ fn sample_render_timeline_system_names_are_stable() {
 }
 
 #[test]
-fn update_cameras_and_listeners_system_names_are_stable() {
+fn prepare_views_and_listeners_system_names_are_stable() {
     assert_eq!(
-        UpdateCamerasAndListenersSystem::ORDER.map(UpdateCamerasAndListenersSystem::name),
+        PrepareViewsAndListenersSystem::ORDER.map(PrepareViewsAndListenersSystem::name),
         [
             "SelectActiveViews",
             "UpdateViewportLayouts",
             "UpdateCameraRigs",
             "UpdateCameraProjections",
-            "UpdateSpatialAudioListeners",
         ]
     );
 }
@@ -129,6 +134,8 @@ fn resolve_scene_graph_system_names_are_stable() {
             "ResolveSocketTransforms",
             "ResolveAttachmentTransforms",
             "PropagateWorldTransforms",
+            "ResolveCameraWorldTransforms",
+            "ResolveListenerWorldTransforms",
         ]
     );
 }
@@ -139,6 +146,7 @@ fn update_effects_and_feedback_system_names_are_stable() {
         UpdateEffectsAndFeedbackSystem::ORDER.map(UpdateEffectsAndFeedbackSystem::name),
         [
             "ResolvePresentationCues",
+            "DeduplicatePresentationCues",
             "AdvanceVisualEffects",
             "UpdateSpatialAudioEmitters",
             "UpdateUserInterface",
@@ -148,30 +156,29 @@ fn update_effects_and_feedback_system_names_are_stable() {
 }
 
 #[test]
-fn build_backend_commands_system_names_are_stable() {
+fn build_frame_outputs_system_names_are_stable() {
     assert_eq!(
-        BuildBackendCommandsSystem::ORDER.map(BuildBackendCommandsSystem::name),
+        BuildFrameOutputsSystem::ORDER.map(BuildFrameOutputsSystem::name),
         [
-            "BuildVisibilitySets",
-            "BuildRenderingCommands",
+            "BuildSemanticVisibilityMasks",
+            "BuildRenderFrame",
             "BuildAudioCommands",
             "BuildUserInterfaceCommands",
             "BuildHapticCommands",
-            "SealBackendCommands",
+            "SealFrameOutputs",
         ]
     );
 }
 
 #[test]
-fn submit_backend_commands_system_names_are_stable() {
+fn publish_frame_outputs_system_names_are_stable() {
     assert_eq!(
-        SubmitBackendCommandsSystem::ORDER.map(SubmitBackendCommandsSystem::name),
+        PublishFrameOutputsSystem::ORDER.map(PublishFrameOutputsSystem::name),
         [
-            "SubmitRenderingCommands",
-            "SubmitUserInterfaceCommands",
-            "SubmitAudioCommands",
-            "SubmitHapticCommands",
-            "PresentViewportFrames",
+            "PublishRenderFrame",
+            "PublishUserInterfaceCommands",
+            "PublishAudioCommands",
+            "PublishHapticCommands",
         ]
     );
 }
@@ -187,7 +194,7 @@ fn commit_frame_history_system_names_are_stable() {
             "CommitEffectsAndFeedbackHistory",
             "RetireConsumedEvents",
             "ReleaseCapturedFrameInputs",
-            "RecycleSubmittedBackendCommands",
+            "ReleasePublishedFrameOutputs",
         ]
     );
 }
@@ -290,7 +297,7 @@ fn failed_submission_does_not_commit_frame_history() -> TestResult {
     let entity = presentation.ecs_mut().spawn()?;
     presentation.ecs_mut().insert(entity, probe, Probe(0))?;
 
-    let submit_commands = presentation.phase(PresentationPhase::SubmitBackendCommands);
+    let submit_commands = presentation.phase(PresentationPhase::PublishFrameOutputs);
     presentation
         .ecs_mut()
         .system("FailBackendSubmission", "Probe")?
@@ -333,11 +340,70 @@ fn failed_submission_does_not_commit_frame_history() -> TestResult {
 }
 
 #[test]
+fn retrying_a_failed_frame_does_not_republish_backend_effects() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let mailbox = presentation.render_mailbox();
+    let probe = presentation.ecs_mut().register_component::<Probe>()?;
+    let entity = presentation.ecs_mut().spawn()?;
+    presentation.ecs_mut().insert(entity, probe, Probe(0))?;
+    let delivery = audible_sound_delivery(91);
+    presentation.queue_audible_sound(delivery)?;
+
+    let fail_once = Arc::new(AtomicBool::new(true));
+    let fail_once_by_system = Arc::clone(&fail_once);
+    let publish_outputs = presentation.phase(PresentationPhase::PublishFrameOutputs);
+    presentation
+        .ecs_mut()
+        .system("FailFirstBackendPublication", "Probe")?
+        .phase(publish_outputs)?
+        .project(Read::<Probe>::field(0))?
+        .each(move |_context, _entity, _probe| {
+            if fail_once_by_system.swap(false, Ordering::AcqRel) {
+                Err(io::Error::other("expected first publication failure").into())
+            } else {
+                Ok(())
+            }
+        })?;
+
+    assert!(
+        presentation
+            .frame(TickDelta::from_seconds(1.0 / 60.0)?)
+            .is_err()
+    );
+    assert_eq!(presentation.current_frame(), FrameIndex::ZERO);
+    assert_eq!(
+        mailbox.take_latest()?.map(|frame| frame.id),
+        Some(RenderFrameId::new(1))
+    );
+    assert_eq!(
+        presentation.drain_submitted_audio_commands()?,
+        [AudioCommand::PlayAudibleSound(delivery)]
+    );
+
+    assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    assert_eq!(presentation.current_frame(), FrameIndex::new(1));
+    assert_eq!(mailbox.pending_id()?, None);
+    assert!(presentation.drain_submitted_audio_commands()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn audible_delivery_flows_through_the_three_audio_systems() -> TestResult {
     let mut presentation = PresentationWorld::new()?;
-    let delivery = AudibleSoundDelivery {
+    let delivery = audible_sound_delivery(77);
+    presentation.queue_audible_sound(delivery)?;
+    assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    assert_eq!(
+        presentation.drain_submitted_audio_commands()?,
+        vec![AudioCommand::PlayAudibleSound(delivery)]
+    );
+    Ok(())
+}
+
+fn audible_sound_delivery(client_event_id: u32) -> AudibleSoundDelivery {
+    AudibleSoundDelivery {
         receiver_id: 20,
-        client_event_id: 77,
+        client_event_id,
         play_sample: 4_800,
         propagation: PropagationDescriptor {
             structure_version: AcousticStructureVersion(3),
@@ -349,12 +415,19 @@ fn audible_delivery_flows_through_the_three_audio_systems() -> TestResult {
             uncertainty_q16: 512,
             direct: false,
         },
-    };
-    presentation.queue_audible_sound(delivery)?;
+    }
+}
+
+#[test]
+fn presentation_publishes_one_complete_latest_render_frame() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let mailbox = presentation.render_mailbox();
+
     assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    assert_eq!(mailbox.pending_id()?, Some(RenderFrameId::new(1)));
     assert_eq!(
-        presentation.drain_submitted_audio_commands()?,
-        vec![AudioCommand::PlayAudibleSound(delivery)]
+        mailbox.take_latest()?.map(|frame| frame.id),
+        Some(RenderFrameId::new(1))
     );
     Ok(())
 }

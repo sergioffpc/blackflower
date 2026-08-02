@@ -13,14 +13,20 @@ use tracing::{Event, Metadata as TracingMetadata, Subscriber};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
-const EXPECTED_SYSTEM_ORDER: [&str; 50] = [
+const EXPECTED_SYSTEM_ORDER: [&str; 62] = [
     "OpenTick",
+    "ResetTickTransientStorage",
     "ActivateScheduledCommits",
-    "CaptureActorControlFrames",
+    "CaptureCanonicalActorInputs",
+    "CaptureEligibleDiscreteCommands",
     "DeriveLocomotionActions",
     "DeriveWeaponActions",
     "DeriveInteractionActions",
+    "ResolveRewindRayCommands",
+    "CatchUpLateBallistics",
+    "CanonicalizeHistoricalCommandFacts",
     "ApplyCharacterControllerInputs",
+    "ApplyQueuedPhenomenonEffects",
     "ApplyRigidBodyInputs",
     "AdvanceRigidBodyWorld",
     "RefreshCharacterGroundState",
@@ -30,8 +36,10 @@ const EXPECTED_SYSTEM_ORDER: [&str; 50] = [
     "AdvanceBallistics",
     "ResolveExplosions",
     "ResolveMaterialResponses",
-    "AdvanceFire",
-    "AdvanceSmoke",
+    "ResolveAssemblyDamage",
+    "ResolveFractureAndBondFailures",
+    "AdvanceAuthoritativeFireState",
+    "AdvanceAuthoritativeSmokeField",
     "QueueRigidBodyEffects",
     "CapturePhenomenonFacts",
     "CaptureSoundEmissions",
@@ -43,6 +51,7 @@ const EXPECTED_SYSTEM_ORDER: [&str; 50] = [
     "DeriveWeaponStateTransitions",
     "DeriveInventoryStateTransitions",
     "DeriveWorldObjectStateTransitions",
+    "DeriveDestructionTransitions",
     "DerivePhenomenonLifecycleTransitions",
     "CanonicalizeTransitionCandidates",
     "EvaluateTransitionPreconditions",
@@ -53,16 +62,19 @@ const EXPECTED_SYSTEM_ORDER: [&str; 50] = [
     "CaptureCommittedTransitions",
     "DeriveSpatialStructureChanges",
     "UpdateCollisionStructure",
-    "UpdateNavigationStructure",
+    "PublishNavigationChanges",
     "UpdateAcousticStructure",
-    "UpdateVisibilityStructure",
+    "UpdateAuthoritativeVisibilityStructure",
     "PublishSpatialStructureVersions",
     "CaptureSpatialStructureFacts",
     "ValidateAuthoritativeState",
+    "CanonicalizeSimulationEvents",
     "ComputeAuthoritativeStateHash",
     "SealAuthoritativeState",
     "BuildTickOutputBatch",
-    "BuildDueSnapshotOutput",
+    "BuildCommandDispositionOutput",
+    "BuildDueReplicationView",
+    "SealTickOutputBatch",
     "SubmitTickOutputBatch",
 ];
 
@@ -166,8 +178,9 @@ fn registered_simulation_systems_emit_observability_signals() -> TestResult {
         })
     })?;
 
-    assert_eq!(system_executions.load(Ordering::Relaxed), 50);
-    assert!(simulation_events.load(Ordering::Relaxed) >= 50);
+    let expected_count = u64::try_from(EXPECTED_SYSTEM_ORDER.len())?;
+    assert_eq!(system_executions.load(Ordering::Relaxed), expected_count);
+    assert!(simulation_events.load(Ordering::Relaxed) >= EXPECTED_SYSTEM_ORDER.len());
     assert_eq!(
         *simulation_systems
             .lock()

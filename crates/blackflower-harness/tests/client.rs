@@ -116,6 +116,16 @@ fn incremental_snapshot_is_applied_and_acknowledged_on_input() -> TestResult {
             .map(blackflower_networking_replication::Snapshot::tick),
         Some(SnapshotTick::new(108))
     );
+    let view = harness.view();
+    let window = view.authoritative_window();
+    assert_eq!(window.len(), 2);
+    assert_eq!(
+        window
+            .iter()
+            .map(blackflower_networking_replication::Snapshot::tick)
+            .collect::<Vec<_>>(),
+        [SnapshotTick::new(100), SnapshotTick::new(108)]
+    );
     harness.set_control_binding(default_control_binding());
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(128),

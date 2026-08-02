@@ -17,12 +17,12 @@ pub use pipeline::{
 };
 pub use systems::{
     CaptureTickInputsSystem, CommitStateTransitionsSystem, DeriveActorActionsSystem,
-    DeriveStateTransitionsSystem, PrepareTickSystem, SealTickSystem, SolveAcousticsSystem,
-    SolvePhysicalPhenomenaSystem, SolveRigidBodyDynamicsSystem, SubmitTickOutputsSystem,
-    UpdateSpatialStructuresSystem,
+    DeriveStateTransitionsSystem, PrepareTickSystem, ResolveHistoricalCommandsSystem,
+    SealTickSystem, SolveAcousticsSystem, SolvePhysicalPhenomenaSystem,
+    SolveRigidBodyDynamicsSystem, SubmitTickOutputsSystem, UpdateSpatialStructuresSystem,
 };
 pub use types::SimulationTick;
 pub use world::{
-    AcousticRuntimeError, SIMULATION_TICK_DELTA_SECONDS, SimulationExecution,
-    SimulationExecutionContext, SimulationWorld,
+    AcousticMode, AcousticRuntimeError, SIMULATION_TICK_DELTA_SECONDS, SimulationExecution,
+    SimulationExecutionContext, SimulationWorld, SimulationWorldConfig,
 };

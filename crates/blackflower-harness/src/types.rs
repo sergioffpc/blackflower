@@ -7,7 +7,7 @@ use blackflower_networking::{
 };
 use blackflower_networking_replication::Snapshot;
 
-use crate::PredictionUpdate;
+use crate::{PredictionUpdate, SnapshotWindow};
 
 /// Immutable construction parameters shared by human and headless clients.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +104,7 @@ pub enum ClientEvent {
 #[derive(Debug, Clone, Copy)]
 pub struct ClientView<'a, S> {
     pub(crate) session_state: SessionState,
-    pub(crate) authoritative: Option<&'a Snapshot>,
+    pub(crate) authoritative: SnapshotWindow<'a>,
     pub(crate) predicted: Option<&'a S>,
     pub(crate) pending_events: usize,
 }
@@ -118,7 +118,13 @@ impl<S> ClientView<'_, S> {
 
     /// Return the latest fully reconstructed authoritative projection.
     #[must_use]
-    pub const fn authoritative(&self) -> Option<&Snapshot> {
+    pub fn authoritative(&self) -> Option<&Snapshot> {
+        self.authoritative.newest()
+    }
+
+    /// Return the bounded chronological window used for remote interpolation.
+    #[must_use]
+    pub const fn authoritative_window(&self) -> SnapshotWindow<'_> {
         self.authoritative
     }
 

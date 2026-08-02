@@ -24,6 +24,24 @@ const _: () = assert!(SIMULATION_TICK_RATE_HZ == 240);
 struct ExecutionState {
     tick: AtomicU64,
     acoustics: Mutex<Option<AcousticWorld>>,
+    acoustic_mode: AcousticMode,
+}
+
+/// Whether authoritative acoustic solving is disabled or required by this world.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AcousticMode {
+    /// Deliberate compatibility mode with no acoustic facts or deliveries.
+    #[default]
+    Disabled,
+    /// Every acoustic phase must have an installed [`AcousticWorld`].
+    Required,
+}
+
+/// Construction policy for one authoritative simulation world.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SimulationWorldConfig {
+    /// Authoritative acoustic capability selected by compatibility negotiation.
+    pub acoustics: AcousticMode,
 }
 
 /// Failure while configuring or exchanging data with the authoritative acoustic runtime.
@@ -58,11 +76,12 @@ pub struct SimulationExecutionContext {
 }
 
 impl SimulationExecutionContext {
-    fn new() -> Self {
+    fn new(config: SimulationWorldConfig) -> Self {
         Self {
             state: Arc::new(ExecutionState {
                 tick: AtomicU64::new(SimulationTick::ZERO.get()),
                 acoustics: Mutex::new(None),
+                acoustic_mode: config.acoustics,
             }),
         }
     }
@@ -99,9 +118,15 @@ impl SimulationExecutionContext {
             .map_err(|_error| AcousticRuntimeError::Poisoned)
     }
 
+    fn acoustics_required(&self) -> bool {
+        self.state.acoustic_mode == AcousticMode::Required
+    }
+
     pub(crate) fn capture_acoustic_tick(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.capture_tick(self.current().tick.get());
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -109,6 +134,8 @@ impl SimulationExecutionContext {
     pub(crate) fn resolve_acoustic_paths(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.resolve_acoustic_paths()?;
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -116,6 +143,8 @@ impl SimulationExecutionContext {
     pub(crate) fn advance_acoustic_propagation(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.advance_acoustic_propagation();
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -123,6 +152,8 @@ impl SimulationExecutionContext {
     pub(crate) fn build_acoustic_observations(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.build_acoustic_observations()?;
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -131,6 +162,8 @@ impl SimulationExecutionContext {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.capture_acoustic_facts(self.current().tick.get());
             telemetry::acoustic_frame(world.frame());
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -138,6 +171,8 @@ impl SimulationExecutionContext {
     pub(crate) fn update_acoustic_structure(&self) -> Result<(), AcousticRuntimeError> {
         if let Some(world) = self.acoustic_lock()?.as_mut() {
             world.update_acoustic_structure()?;
+        } else if self.acoustics_required() {
+            return Err(AcousticRuntimeError::NotInstalled);
         }
         Ok(())
     }
@@ -160,16 +195,29 @@ pub struct SimulationWorld {
 impl SimulationWorld {
     /// Create a single-threaded authoritative simulation world.
     pub fn new() -> Result<Self, Error> {
-        Self::from_ecs(World::new()?)
+        Self::new_with_config(SimulationWorldConfig::default())
+    }
+
+    /// Create a single-threaded world with an explicit compatibility policy.
+    pub fn new_with_config(config: SimulationWorldConfig) -> Result<Self, Error> {
+        Self::from_ecs_with_config(World::new()?, config)
     }
 
     /// Turn an existing, independently configured ECS world into a simulation world.
     ///
     /// This supports configurations such as a persistent ECS worker pool
     /// created through [`World::builder`].
-    pub fn from_ecs(mut ecs: World) -> Result<Self, Error> {
+    pub fn from_ecs(ecs: World) -> Result<Self, Error> {
+        Self::from_ecs_with_config(ecs, SimulationWorldConfig::default())
+    }
+
+    /// Turn an ECS world into a simulation with explicit capability policy.
+    pub fn from_ecs_with_config(
+        mut ecs: World,
+        config: SimulationWorldConfig,
+    ) -> Result<Self, Error> {
         let pipeline = SimulationPipeline::register(&mut ecs)?;
-        let execution_context = SimulationExecutionContext::new();
+        let execution_context = SimulationExecutionContext::new(config);
         systems::register(&mut ecs, pipeline, execution_context.clone())?;
         let tick_delta = TickDelta::from_seconds(SIMULATION_TICK_DELTA_SECONDS)?;
         telemetry::describe_metrics();
@@ -221,6 +269,12 @@ impl SimulationWorld {
     #[must_use]
     pub fn execution_context(&self) -> SimulationExecutionContext {
         self.execution_context.clone()
+    }
+
+    /// Return the acoustic capability selected for this simulation world.
+    #[must_use]
+    pub fn acoustic_mode(&self) -> AcousticMode {
+        self.execution_context.state.acoustic_mode
     }
 
     /// Install or replace the pure-Rust authoritative acoustic world.

@@ -38,6 +38,8 @@ pub enum SimulationPhase {
     CaptureTickInputs,
     /// Derive actor actions from the captured client inputs.
     DeriveActorActions,
+    /// Resolve bounded read-only historical commands into current-tick facts.
+    ResolveHistoricalCommands,
     /// Advance characters, rigid bodies, constraints, and collision response.
     SolveRigidBodyDynamics,
     /// Advance ballistics, material response, explosions, fire, and smoke.
@@ -58,13 +60,14 @@ pub enum SimulationPhase {
 
 impl SimulationPhase {
     /// Number of phases in the authoritative simulation pipeline.
-    pub const COUNT: usize = 11;
+    pub const COUNT: usize = 12;
 
     /// Normative execution order of the authoritative simulation phases.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::PrepareTick,
         Self::CaptureTickInputs,
         Self::DeriveActorActions,
+        Self::ResolveHistoricalCommands,
         Self::SolveRigidBodyDynamics,
         Self::SolvePhysicalPhenomena,
         Self::SolveAcoustics,
@@ -88,6 +91,7 @@ pub struct SimulationPhases {
     prepare_tick: PhaseId,
     capture_tick_inputs: PhaseId,
     derive_actor_actions: PhaseId,
+    resolve_historical_commands: PhaseId,
     solve_rigid_body_dynamics: PhaseId,
     solve_physical_phenomena: PhaseId,
     solve_acoustics: PhaseId,
@@ -104,6 +108,7 @@ impl SimulationPhases {
             prepare_tick,
             capture_tick_inputs,
             derive_actor_actions,
+            resolve_historical_commands,
             solve_rigid_body_dynamics,
             solve_physical_phenomena,
             solve_acoustics,
@@ -117,6 +122,7 @@ impl SimulationPhases {
             prepare_tick,
             capture_tick_inputs,
             derive_actor_actions,
+            resolve_historical_commands,
             solve_rigid_body_dynamics,
             solve_physical_phenomena,
             solve_acoustics,
@@ -135,6 +141,7 @@ impl SimulationPhases {
             SimulationPhase::PrepareTick => self.prepare_tick,
             SimulationPhase::CaptureTickInputs => self.capture_tick_inputs,
             SimulationPhase::DeriveActorActions => self.derive_actor_actions,
+            SimulationPhase::ResolveHistoricalCommands => self.resolve_historical_commands,
             SimulationPhase::SolveRigidBodyDynamics => self.solve_rigid_body_dynamics,
             SimulationPhase::SolvePhysicalPhenomena => self.solve_physical_phenomena,
             SimulationPhase::SolveAcoustics => self.solve_acoustics,

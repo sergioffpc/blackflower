@@ -50,7 +50,11 @@ fn phase_names_are_stable() {
 fn prepare_tick_system_names_are_stable() {
     assert_eq!(
         PrepareTickSystem::ORDER.map(PrepareTickSystem::name),
-        ["OpenTick", "ActivateScheduledCommits"]
+        [
+            "OpenTick",
+            "ResetTickTransientStorage",
+            "ActivateScheduledCommits",
+        ]
     );
 }
 
@@ -58,7 +62,7 @@ fn prepare_tick_system_names_are_stable() {
 fn capture_tick_inputs_system_names_are_stable() {
     assert_eq!(
         CaptureTickInputsSystem::ORDER.map(CaptureTickInputsSystem::name),
-        ["CaptureActorControlFrames"]
+        ["CapturePredictionInputFrame"]
     );
 }
 
@@ -125,6 +129,7 @@ fn seal_tick_system_names_are_stable() {
         SealTickSystem::ORDER.map(SealTickSystem::name),
         [
             "ValidatePredictedState",
+            "CanonicalizePredictedEvents",
             "ComputePredictedStateHash",
             "SealPredictedState",
         ]
@@ -137,7 +142,8 @@ fn submit_tick_outputs_system_names_are_stable() {
         SubmitTickOutputsSystem::ORDER.map(SubmitTickOutputsSystem::name),
         [
             "BuildTickOutputBatch",
-            "SuppressResimulationEffects",
+            "ClassifyPredictionOutputsForPass",
+            "ReconcilePredictedEvents",
             "SubmitTickOutputBatch",
         ]
     );

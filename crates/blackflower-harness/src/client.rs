@@ -151,7 +151,7 @@ where
     pub fn view(&self) -> ClientView<'_, P::State> {
         ClientView {
             session_state: self.session.state(),
-            authoritative: self.snapshots.latest(),
+            authoritative: self.snapshots.window(),
             predicted: self.prediction.predicted_state(),
             pending_events: self.events.len(),
         }

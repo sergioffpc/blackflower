@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_world_simulation::{
-    CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem, CommitStateTransitionsSystem,
-    DeriveActorActionsSystem, DeriveStateTransitionsSystem, INPUT_FAILSAFE_TICKS,
-    INPUT_GRACE_TICKS, PrepareTickSystem, SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS,
-    SealTickSystem, SimulationPhase, SimulationPipeline, SimulationTick, SimulationWorld,
+    AcousticMode, CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem,
+    CommitStateTransitionsSystem, DeriveActorActionsSystem, DeriveStateTransitionsSystem,
+    INPUT_FAILSAFE_TICKS, INPUT_GRACE_TICKS, PrepareTickSystem, ResolveHistoricalCommandsSystem,
+    SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS, SealTickSystem, SimulationPhase,
+    SimulationPipeline, SimulationTick, SimulationWorld, SimulationWorldConfig,
     SolveAcousticsSystem, SolvePhysicalPhenomenaSystem, SolveRigidBodyDynamicsSystem,
     SubmitTickOutputsSystem, UpdateSpatialStructuresSystem,
 };
@@ -27,6 +28,7 @@ fn phase_names_and_scheduling_intervals_are_stable() {
             "PrepareTick",
             "CaptureTickInputs",
             "DeriveActorActions",
+            "ResolveHistoricalCommands",
             "SolveRigidBodyDynamics",
             "SolvePhysicalPhenomena",
             "SolveAcoustics",
@@ -47,7 +49,11 @@ fn phase_names_and_scheduling_intervals_are_stable() {
 fn prepare_tick_system_names_are_stable() {
     assert_eq!(
         PrepareTickSystem::ORDER.map(PrepareTickSystem::name),
-        ["OpenTick", "ActivateScheduledCommits"]
+        [
+            "OpenTick",
+            "ResetTickTransientStorage",
+            "ActivateScheduledCommits",
+        ]
     );
 }
 
@@ -55,7 +61,22 @@ fn prepare_tick_system_names_are_stable() {
 fn capture_tick_inputs_system_names_are_stable() {
     assert_eq!(
         CaptureTickInputsSystem::ORDER.map(CaptureTickInputsSystem::name),
-        ["CaptureActorControlFrames"]
+        [
+            "CaptureCanonicalActorInputs",
+            "CaptureEligibleDiscreteCommands",
+        ]
+    );
+}
+
+#[test]
+fn resolve_historical_commands_system_names_are_stable() {
+    assert_eq!(
+        ResolveHistoricalCommandsSystem::ORDER.map(ResolveHistoricalCommandsSystem::name),
+        [
+            "ResolveRewindRayCommands",
+            "CatchUpLateBallistics",
+            "CanonicalizeHistoricalCommandFacts",
+        ]
     );
 }
 
@@ -77,6 +98,7 @@ fn solve_rigid_body_dynamics_system_names_are_stable() {
         SolveRigidBodyDynamicsSystem::ORDER.map(SolveRigidBodyDynamicsSystem::name),
         [
             "ApplyCharacterControllerInputs",
+            "ApplyQueuedPhenomenonEffects",
             "ApplyRigidBodyInputs",
             "AdvanceRigidBodyWorld",
             "RefreshCharacterGroundState",
@@ -95,8 +117,10 @@ fn solve_physical_phenomena_system_names_are_stable() {
             "AdvanceBallistics",
             "ResolveExplosions",
             "ResolveMaterialResponses",
-            "AdvanceFire",
-            "AdvanceSmoke",
+            "ResolveAssemblyDamage",
+            "ResolveFractureAndBondFailures",
+            "AdvanceAuthoritativeFireState",
+            "AdvanceAuthoritativeSmokeField",
             "QueueRigidBodyEffects",
             "CapturePhenomenonFacts",
         ]
@@ -126,6 +150,7 @@ fn derive_state_transitions_system_names_are_stable() {
             "DeriveWeaponStateTransitions",
             "DeriveInventoryStateTransitions",
             "DeriveWorldObjectStateTransitions",
+            "DeriveDestructionTransitions",
             "DerivePhenomenonLifecycleTransitions",
             "CanonicalizeTransitionCandidates",
         ]
@@ -154,9 +179,9 @@ fn update_spatial_structures_system_names_are_stable() {
         [
             "DeriveSpatialStructureChanges",
             "UpdateCollisionStructure",
-            "UpdateNavigationStructure",
+            "PublishNavigationChanges",
             "UpdateAcousticStructure",
-            "UpdateVisibilityStructure",
+            "UpdateAuthoritativeVisibilityStructure",
             "PublishSpatialStructureVersions",
             "CaptureSpatialStructureFacts",
         ]
@@ -169,6 +194,7 @@ fn seal_tick_system_names_are_stable() {
         SealTickSystem::ORDER.map(SealTickSystem::name),
         [
             "ValidateAuthoritativeState",
+            "CanonicalizeSimulationEvents",
             "ComputeAuthoritativeStateHash",
             "SealAuthoritativeState",
         ]
@@ -181,7 +207,9 @@ fn submit_tick_outputs_system_names_are_stable() {
         SubmitTickOutputsSystem::ORDER.map(SubmitTickOutputsSystem::name),
         [
             "BuildTickOutputBatch",
-            "BuildDueSnapshotOutput",
+            "BuildCommandDispositionOutput",
+            "BuildDueReplicationView",
+            "SealTickOutputBatch",
             "SubmitTickOutputBatch",
         ]
     );
@@ -257,6 +285,22 @@ fn simulation_world_owns_the_pipeline_and_advances_at_the_fixed_rate() -> TestRe
             .as_ref()
             .map(|delta| delta.to_bits()),
         Some(SIMULATION_TICK_DELTA_SECONDS.to_bits())
+    );
+    Ok(())
+}
+
+#[test]
+fn required_acoustics_rejects_a_tick_without_an_installed_world() -> TestResult {
+    let mut simulation = SimulationWorld::new_with_config(SimulationWorldConfig {
+        acoustics: AcousticMode::Required,
+    })?;
+    let Err(error) = simulation.tick() else {
+        return Err(io::Error::other("required acoustics accepted a missing runtime").into());
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("authoritative acoustic world is not installed")
     );
     Ok(())
 }

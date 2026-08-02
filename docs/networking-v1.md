@@ -220,6 +220,9 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 - **NET-HARNESS-003**: human frontends and headless bots MUST consume the same
   immutable `ClientView` and submit the same canonical `ControlSubmission`.
   Neither may query authoritative ECS state through the harness.
+- **NET-HARNESS-004**: `ClientView` MUST expose a bounded immutable window of
+  fully reconstructed authoritative projections in tick order. Presentation
+  MAY use it for interpolation but MUST NOT own or mutate replication history.
 
 ## Acceptance gates
 
@@ -243,7 +246,7 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 | `NET-QUIC-*`, `NET-TLS-*`, `NET-BOOT-*` | `crates/blackflower-networking-quic/tests/loopback.rs` |
 | loss, jitter, reorder, duplication, outage, MTU, NAT rebinding | `crates/blackflower-networking-quic/tests/udp_proxy.rs` and `loopback.rs` |
 | admission, full bootstrap, activation, reconnect composition | `apps/blackflower-server/tests/network.rs` |
-| `NET-HARNESS-*` | `tools/ci/check-test-layout.sh` and workspace metadata checks |
+| `NET-HARNESS-*` | `crates/blackflower-harness/tests/client.rs`, `scripts/check-test-layout.sh`, and workspace metadata checks |
 | `NET-GATE-*` | `cargo xtask network-gate` smoke and scheduled/manual soak workflows |
 
 The gate profiles run in wall-clock time: five seconds for `smoke`, thirty

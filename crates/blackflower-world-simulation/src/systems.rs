@@ -16,16 +16,22 @@ type SystemCallback = fn(&SimulationExecutionContext) -> SystemResult;
 pub enum PrepareTickSystem {
     /// Open the next tick and initialize its tick-local working context.
     OpenTick,
+    /// Reset scratch storage left by the previous tick attempt.
+    ResetTickTransientStorage,
     /// Activate accepted commits whose scheduled activation tick is now.
     ActivateScheduledCommits,
 }
 
 impl PrepareTickSystem {
     /// Number of systems in `PrepareTick`.
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
 
     /// Stable registration order for `PrepareTick` systems.
-    pub const ORDER: [Self; Self::COUNT] = [Self::OpenTick, Self::ActivateScheduledCommits];
+    pub const ORDER: [Self; Self::COUNT] = [
+        Self::OpenTick,
+        Self::ResetTickTransientStorage,
+        Self::ActivateScheduledCommits,
+    ];
 
     /// Stable scheduler entity and trace field name for this system.
     #[must_use]
@@ -36,6 +42,7 @@ impl PrepareTickSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::OpenTick => open_tick,
+            Self::ResetTickTransientStorage => reset_tick_transient_storage,
             Self::ActivateScheduledCommits => activate_scheduled_commits,
         }
     }
@@ -65,16 +72,21 @@ impl PrepareTickSystem {
 /// active simulation tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum CaptureTickInputsSystem {
-    /// Capture the client control frames eligible for the active tick.
-    CaptureActorControlFrames,
+    /// Capture the canonical actor input selected for each participant at this tick.
+    CaptureCanonicalActorInputs,
+    /// Capture network-classified discrete commands eligible for gameplay dispatch.
+    CaptureEligibleDiscreteCommands,
 }
 
 impl CaptureTickInputsSystem {
     /// Number of systems in `CaptureTickInputs`.
-    pub const COUNT: usize = 1;
+    pub const COUNT: usize = 2;
 
     /// Stable registration order for `CaptureTickInputs` systems.
-    pub const ORDER: [Self; Self::COUNT] = [Self::CaptureActorControlFrames];
+    pub const ORDER: [Self; Self::COUNT] = [
+        Self::CaptureCanonicalActorInputs,
+        Self::CaptureEligibleDiscreteCommands,
+    ];
 
     /// Stable scheduler entity and trace field name for this system.
     #[must_use]
@@ -84,7 +96,8 @@ impl CaptureTickInputsSystem {
 
     fn callback(self) -> SystemCallback {
         match self {
-            Self::CaptureActorControlFrames => capture_actor_control_frames,
+            Self::CaptureCanonicalActorInputs => capture_canonical_actor_inputs,
+            Self::CaptureEligibleDiscreteCommands => capture_eligible_discrete_commands,
         }
     }
 
@@ -100,6 +113,65 @@ impl CaptureTickInputsSystem {
             phase,
             driver_expression,
             SimulationPhase::CaptureTickInputs,
+            self.name(),
+            execution_context,
+            self.callback(),
+        )
+    }
+}
+
+/// A system in the authoritative [`SimulationPhase::ResolveHistoricalCommands`] phase.
+///
+/// These systems resolve bounded historical command classes against immutable
+/// retained state and publish canonical current-tick facts. They never mutate
+/// historical state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
+pub enum ResolveHistoricalCommandsSystem {
+    /// Resolve hitscan commands against their validated read-only view tick.
+    ResolveRewindRayCommands,
+    /// Advance late projectiles from their validated historical tick to the current tick.
+    CatchUpLateBallistics,
+    /// Validate, deduplicate, and deterministically order historical command facts.
+    CanonicalizeHistoricalCommandFacts,
+}
+
+impl ResolveHistoricalCommandsSystem {
+    /// Number of systems in `ResolveHistoricalCommands`.
+    pub const COUNT: usize = 3;
+
+    /// Stable registration order for historical-command systems.
+    pub const ORDER: [Self; Self::COUNT] = [
+        Self::ResolveRewindRayCommands,
+        Self::CatchUpLateBallistics,
+        Self::CanonicalizeHistoricalCommandFacts,
+    ];
+
+    /// Stable scheduler entity and trace field name for this system.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        self.into()
+    }
+
+    fn callback(self) -> SystemCallback {
+        match self {
+            Self::ResolveRewindRayCommands => resolve_rewind_ray_commands,
+            Self::CatchUpLateBallistics => catch_up_late_ballistics,
+            Self::CanonicalizeHistoricalCommandFacts => canonicalize_historical_command_facts,
+        }
+    }
+
+    pub(crate) fn register(
+        self,
+        world: &mut World,
+        phase: PhaseId,
+        driver_expression: &'static str,
+        execution_context: SimulationExecutionContext,
+    ) -> Result<(), Error> {
+        register_system(
+            world,
+            phase,
+            driver_expression,
+            SimulationPhase::ResolveHistoricalCommands,
             self.name(),
             execution_context,
             self.callback(),
@@ -173,6 +245,8 @@ impl DeriveActorActionsSystem {
 pub enum SolveRigidBodyDynamicsSystem {
     /// Apply desired velocities and commands to character controllers.
     ApplyCharacterControllerInputs,
+    /// Apply forces, torques, and impulses queued by the previous phenomenon solve.
+    ApplyQueuedPhenomenonEffects,
     /// Apply velocities, rotations, forces, torques, and impulses to rigid bodies.
     ApplyRigidBodyInputs,
     /// Advance the rigid-body world exactly once at the fixed tick delta.
@@ -189,11 +263,12 @@ pub enum SolveRigidBodyDynamicsSystem {
 
 impl SolveRigidBodyDynamicsSystem {
     /// Number of systems in `SolveRigidBodyDynamics`.
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
 
     /// Stable registration and execution order for rigid-body dynamics systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::ApplyCharacterControllerInputs,
+        Self::ApplyQueuedPhenomenonEffects,
         Self::ApplyRigidBodyInputs,
         Self::AdvanceRigidBodyWorld,
         Self::RefreshCharacterGroundState,
@@ -211,6 +286,7 @@ impl SolveRigidBodyDynamicsSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::ApplyCharacterControllerInputs => apply_character_controller_inputs,
+            Self::ApplyQueuedPhenomenonEffects => apply_queued_phenomenon_effects,
             Self::ApplyRigidBodyInputs => apply_rigid_body_inputs,
             Self::AdvanceRigidBodyWorld => advance_rigid_body_world,
             Self::RefreshCharacterGroundState => refresh_character_ground_state,
@@ -251,10 +327,14 @@ pub enum SolvePhysicalPhenomenaSystem {
     ResolveExplosions,
     /// Resolve penetration, ricochet, fracture, deformation, and ignition candidates.
     ResolveMaterialResponses,
-    /// Advance combustion, fuel consumption, heat propagation, and extinction.
-    AdvanceFire,
-    /// Advance authoritative smoke emission, transport, expansion, and dissipation.
-    AdvanceSmoke,
+    /// Resolve damage accumulated by layered assemblies and structural members.
+    ResolveAssemblyDamage,
+    /// Resolve deterministic bond, chunk, and fracture failures.
+    ResolveFractureAndBondFailures,
+    /// Advance coarse authoritative combustion, fuel, heat, and extinction state.
+    AdvanceAuthoritativeFireState,
+    /// Advance coarse authoritative smoke fields used by gameplay and replication.
+    AdvanceAuthoritativeSmokeField,
     /// Queue forces, torques, and impulses for the next rigid-body step.
     QueueRigidBodyEffects,
     /// Capture the canonical physical facts consumed by later phases.
@@ -263,15 +343,17 @@ pub enum SolvePhysicalPhenomenaSystem {
 
 impl SolvePhysicalPhenomenaSystem {
     /// Number of systems in `SolvePhysicalPhenomena`.
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 9;
 
     /// Stable registration and execution order for physical-phenomena systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::AdvanceBallistics,
         Self::ResolveExplosions,
         Self::ResolveMaterialResponses,
-        Self::AdvanceFire,
-        Self::AdvanceSmoke,
+        Self::ResolveAssemblyDamage,
+        Self::ResolveFractureAndBondFailures,
+        Self::AdvanceAuthoritativeFireState,
+        Self::AdvanceAuthoritativeSmokeField,
         Self::QueueRigidBodyEffects,
         Self::CapturePhenomenonFacts,
     ];
@@ -287,8 +369,10 @@ impl SolvePhysicalPhenomenaSystem {
             Self::AdvanceBallistics => advance_ballistics,
             Self::ResolveExplosions => resolve_explosions,
             Self::ResolveMaterialResponses => resolve_material_responses,
-            Self::AdvanceFire => advance_fire,
-            Self::AdvanceSmoke => advance_smoke,
+            Self::ResolveAssemblyDamage => resolve_assembly_damage,
+            Self::ResolveFractureAndBondFailures => resolve_fracture_and_bond_failures,
+            Self::AdvanceAuthoritativeFireState => advance_authoritative_fire_state,
+            Self::AdvanceAuthoritativeSmokeField => advance_authoritative_smoke_field,
             Self::QueueRigidBodyEffects => queue_rigid_body_effects,
             Self::CapturePhenomenonFacts => capture_phenomenon_facts,
         }
@@ -393,6 +477,8 @@ pub enum DeriveStateTransitionsSystem {
     DeriveInventoryStateTransitions,
     /// Derive interactive and destructible world-object transition candidates.
     DeriveWorldObjectStateTransitions,
+    /// Derive structural destruction and bond/chunk transition candidates.
+    DeriveDestructionTransitions,
     /// Derive lifecycle transition candidates for active physical phenomena.
     DerivePhenomenonLifecycleTransitions,
     /// Validate, deduplicate, and deterministically order transition candidates.
@@ -401,7 +487,7 @@ pub enum DeriveStateTransitionsSystem {
 
 impl DeriveStateTransitionsSystem {
     /// Number of systems in `DeriveStateTransitions`.
-    pub const COUNT: usize = 6;
+    pub const COUNT: usize = 7;
 
     /// Stable registration and execution order for state-transition systems.
     pub const ORDER: [Self; Self::COUNT] = [
@@ -409,6 +495,7 @@ impl DeriveStateTransitionsSystem {
         Self::DeriveWeaponStateTransitions,
         Self::DeriveInventoryStateTransitions,
         Self::DeriveWorldObjectStateTransitions,
+        Self::DeriveDestructionTransitions,
         Self::DerivePhenomenonLifecycleTransitions,
         Self::CanonicalizeTransitionCandidates,
     ];
@@ -425,6 +512,7 @@ impl DeriveStateTransitionsSystem {
             Self::DeriveWeaponStateTransitions => derive_weapon_state_transitions,
             Self::DeriveInventoryStateTransitions => derive_inventory_state_transitions,
             Self::DeriveWorldObjectStateTransitions => derive_world_object_state_transitions,
+            Self::DeriveDestructionTransitions => derive_destruction_transitions,
             Self::DerivePhenomenonLifecycleTransitions => derive_phenomenon_lifecycle_transitions,
             Self::CanonicalizeTransitionCandidates => canonicalize_transition_candidates,
         }
@@ -529,12 +617,12 @@ pub enum UpdateSpatialStructuresSystem {
     DeriveSpatialStructureChanges,
     /// Update collision bodies, shapes, filters, and broad-phase state.
     UpdateCollisionStructure,
-    /// Replace affected navigation tiles and update traversability links.
-    UpdateNavigationStructure,
+    /// Publish traversability changes for external client and bot navigation runtimes.
+    PublishNavigationChanges,
     /// Update acoustic geometry, materials, and propagation connectivity.
     UpdateAcousticStructure,
-    /// Update visibility occluders and line-of-sight acceleration data.
-    UpdateVisibilityStructure,
+    /// Update authoritative gameplay line-of-sight acceleration data.
+    UpdateAuthoritativeVisibilityStructure,
     /// Atomically publish the complete set of updated spatial structure versions.
     PublishSpatialStructureVersions,
     /// Capture canonical facts describing changed structures, regions, and versions.
@@ -549,9 +637,9 @@ impl UpdateSpatialStructuresSystem {
     pub const ORDER: [Self; Self::COUNT] = [
         Self::DeriveSpatialStructureChanges,
         Self::UpdateCollisionStructure,
-        Self::UpdateNavigationStructure,
+        Self::PublishNavigationChanges,
         Self::UpdateAcousticStructure,
-        Self::UpdateVisibilityStructure,
+        Self::UpdateAuthoritativeVisibilityStructure,
         Self::PublishSpatialStructureVersions,
         Self::CaptureSpatialStructureFacts,
     ];
@@ -566,9 +654,11 @@ impl UpdateSpatialStructuresSystem {
         match self {
             Self::DeriveSpatialStructureChanges => derive_spatial_structure_changes,
             Self::UpdateCollisionStructure => update_collision_structure,
-            Self::UpdateNavigationStructure => update_navigation_structure,
+            Self::PublishNavigationChanges => publish_navigation_changes,
             Self::UpdateAcousticStructure => update_acoustic_structure,
-            Self::UpdateVisibilityStructure => update_visibility_structure,
+            Self::UpdateAuthoritativeVisibilityStructure => {
+                update_authoritative_visibility_structure
+            }
             Self::PublishSpatialStructureVersions => publish_spatial_structure_versions,
             Self::CaptureSpatialStructureFacts => capture_spatial_structure_facts,
         }
@@ -601,6 +691,8 @@ impl UpdateSpatialStructuresSystem {
 pub enum SealTickSystem {
     /// Validate invariants across the complete authoritative state.
     ValidateAuthoritativeState,
+    /// Assign stable identities and canonical order to simulation events.
+    CanonicalizeSimulationEvents,
     /// Compute the deterministic hash of the canonical authoritative state.
     ComputeAuthoritativeStateHash,
     /// Make the validated state and its hash immutable for the completed tick.
@@ -609,11 +701,12 @@ pub enum SealTickSystem {
 
 impl SealTickSystem {
     /// Number of systems in `SealTick`.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 4;
 
     /// Stable registration and execution order for tick-sealing systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::ValidateAuthoritativeState,
+        Self::CanonicalizeSimulationEvents,
         Self::ComputeAuthoritativeStateHash,
         Self::SealAuthoritativeState,
     ];
@@ -627,6 +720,7 @@ impl SealTickSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::ValidateAuthoritativeState => validate_authoritative_state,
+            Self::CanonicalizeSimulationEvents => canonicalize_simulation_events,
             Self::ComputeAuthoritativeStateHash => compute_authoritative_state_hash,
             Self::SealAuthoritativeState => seal_authoritative_state,
         }
@@ -653,26 +747,32 @@ impl SealTickSystem {
 
 /// A system in the authoritative [`SimulationPhase::SubmitTickOutputs`] phase.
 ///
-/// These systems build a batch from sealed state, attach a snapshot when due,
-/// and submit the completed batch to in-memory consumers.
+/// These systems build a batch from sealed state, attach a transport-neutral
+/// replication view when due, and submit it to in-memory consumers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum SubmitTickOutputsSystem {
     /// Build the immutable output batch for the completed tick.
     BuildTickOutputBatch,
-    /// Add an authoritative snapshot view when the snapshot cadence is due.
-    BuildDueSnapshotOutput,
+    /// Add final gameplay-owned dispositions for discrete commands.
+    BuildCommandDispositionOutput,
+    /// Add a transport-neutral replication source view when its cadence is due.
+    BuildDueReplicationView,
+    /// Seal the tick-keyed output batch for idempotent fan-out.
+    SealTickOutputBatch,
     /// Submit the completed batch to in-memory consumers.
     SubmitTickOutputBatch,
 }
 
 impl SubmitTickOutputsSystem {
     /// Number of systems in `SubmitTickOutputs`.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 5;
 
     /// Stable registration and execution order for tick-output systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::BuildTickOutputBatch,
-        Self::BuildDueSnapshotOutput,
+        Self::BuildCommandDispositionOutput,
+        Self::BuildDueReplicationView,
+        Self::SealTickOutputBatch,
         Self::SubmitTickOutputBatch,
     ];
 
@@ -685,7 +785,9 @@ impl SubmitTickOutputsSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::BuildTickOutputBatch => build_tick_output_batch,
-            Self::BuildDueSnapshotOutput => build_due_snapshot_output,
+            Self::BuildCommandDispositionOutput => build_command_disposition_output,
+            Self::BuildDueReplicationView => build_due_replication_view,
+            Self::SealTickOutputBatch => seal_tick_output_batch,
             Self::SubmitTickOutputBatch => submit_tick_output_batch,
         }
     }
@@ -727,6 +829,11 @@ pub(crate) fn register(
 
     let phase = pipeline.phase(SimulationPhase::DeriveActorActions);
     for system in DeriveActorActionsSystem::ORDER {
+        system.register(world, phase, driver_expression, execution_context.clone())?;
+    }
+
+    let phase = pipeline.phase(SimulationPhase::ResolveHistoricalCommands);
+    for system in ResolveHistoricalCommandsSystem::ORDER {
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
@@ -808,13 +915,25 @@ fn open_tick(execution_context: &SimulationExecutionContext) -> SystemResult {
     Ok(())
 }
 
+fn reset_tick_transient_storage(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Clear tick-local candidates, facts, command results, and output staging.
+    Ok(())
+}
+
 fn activate_scheduled_commits(_execution_context: &SimulationExecutionContext) -> SystemResult {
     // Make accepted commits scheduled for the active tick visible to the simulation.
     Ok(())
 }
 
-fn capture_actor_control_frames(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Select and canonicalize the actor control frames eligible for the active tick.
+fn capture_canonical_actor_inputs(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Capture the already selected hold, neutral, or canonical actor input for this tick.
+    Ok(())
+}
+
+fn capture_eligible_discrete_commands(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Capture network-classified commands without importing transport policy.
     Ok(())
 }
 
@@ -833,10 +952,34 @@ fn derive_interaction_actions(_execution_context: &SimulationExecutionContext) -
     Ok(())
 }
 
+fn resolve_rewind_ray_commands(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Query the validated immutable historical view and emit current-tick hit facts.
+    Ok(())
+}
+
+fn catch_up_late_ballistics(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Advance a late projectile through the bounded retained history into this tick.
+    Ok(())
+}
+
+fn canonicalize_historical_command_facts(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Validate, deduplicate, and deterministically order historical command results.
+    Ok(())
+}
+
 fn apply_character_controller_inputs(
     _execution_context: &SimulationExecutionContext,
 ) -> SystemResult {
     // Apply desired velocities and commands to character controllers.
+    Ok(())
+}
+
+fn apply_queued_phenomenon_effects(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Apply forces, torques, and impulses queued by the previous tick's phenomena.
     Ok(())
 }
 
@@ -885,13 +1028,29 @@ fn resolve_material_responses(_execution_context: &SimulationExecutionContext) -
     Ok(())
 }
 
-fn advance_fire(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Advance combustion, fuel consumption, heat propagation, and extinction.
+fn resolve_assembly_damage(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Accumulate deterministic damage across authored assembly layers and members.
     Ok(())
 }
 
-fn advance_smoke(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Advance authoritative smoke emission, transport, expansion, and dissipation.
+fn resolve_fracture_and_bond_failures(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Resolve authoritative fracture, chunk, and bond failures without presentation voxels.
+    Ok(())
+}
+
+fn advance_authoritative_fire_state(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Advance coarse combustion, fuel, heat, ignition, and extinction state.
+    Ok(())
+}
+
+fn advance_authoritative_smoke_field(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Advance bounded gameplay smoke fields; high-resolution voxels remain presentation-only.
     Ok(())
 }
 
@@ -958,6 +1117,11 @@ fn derive_world_object_state_transitions(
     Ok(())
 }
 
+fn derive_destruction_transitions(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Derive structural bond, chunk, breach, and destruction transition candidates.
+    Ok(())
+}
+
 fn derive_phenomenon_lifecycle_transitions(
     _execution_context: &SimulationExecutionContext,
 ) -> SystemResult {
@@ -1016,8 +1180,8 @@ fn update_collision_structure(_execution_context: &SimulationExecutionContext) -
     Ok(())
 }
 
-fn update_navigation_structure(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Replace affected navigation tiles and update traversability links.
+fn publish_navigation_changes(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Publish traversability changes; external clients and bots own Detour runtime updates.
     Ok(())
 }
 
@@ -1026,8 +1190,10 @@ fn update_acoustic_structure(execution_context: &SimulationExecutionContext) -> 
     Ok(())
 }
 
-fn update_visibility_structure(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Update visibility occluders and line-of-sight acceleration data.
+fn update_authoritative_visibility_structure(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Update only gameplay-authoritative line-of-sight acceleration data.
     Ok(())
 }
 
@@ -1050,6 +1216,11 @@ fn validate_authoritative_state(_execution_context: &SimulationExecutionContext)
     Ok(())
 }
 
+fn canonicalize_simulation_events(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Assign replay-stable identities and canonical order before outputs are built.
+    Ok(())
+}
+
 fn compute_authoritative_state_hash(
     _execution_context: &SimulationExecutionContext,
 ) -> SystemResult {
@@ -1067,8 +1238,20 @@ fn build_tick_output_batch(_execution_context: &SimulationExecutionContext) -> S
     Ok(())
 }
 
-fn build_due_snapshot_output(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Add an authoritative snapshot view when the snapshot cadence is due.
+fn build_command_disposition_output(
+    _execution_context: &SimulationExecutionContext,
+) -> SystemResult {
+    // Add gameplay-owned committed, rejected, and superseded command results.
+    Ok(())
+}
+
+fn build_due_replication_view(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Add a sealed transport-neutral state view for the replication layer.
+    Ok(())
+}
+
+fn seal_tick_output_batch(_execution_context: &SimulationExecutionContext) -> SystemResult {
+    // Seal the tick-keyed batch so retries and multiple consumers remain idempotent.
     Ok(())
 }
 

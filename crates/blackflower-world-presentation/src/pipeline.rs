@@ -16,18 +16,18 @@ pub enum PresentationPhase {
     UpdateSceneProxies,
     /// Sample local prediction and remote interpolation at the render time.
     SampleRenderTimeline,
-    /// Update active cameras, viewports, and spatial-audio listeners.
-    UpdateCamerasAndListeners,
+    /// Prepare active views, layouts, camera rigs, and projection parameters.
+    PrepareViewsAndListeners,
     /// Evaluate animation graphs, inverse kinematics, and procedural poses.
     EvaluateAnimationPoses,
     /// Resolve hierarchies, bones, sockets, attachments, and world transforms.
     ResolveSceneGraph,
     /// Advance visual effects, audio, user interface, and haptic feedback.
     UpdateEffectsAndFeedback,
-    /// Build immutable commands for the active client backends.
-    BuildBackendCommands,
-    /// Submit frame commands to rendering, audio, UI, and haptic backends.
-    SubmitBackendCommands,
+    /// Build immutable frame outputs for the active client backends.
+    BuildFrameOutputs,
+    /// Publish sealed frame outputs to bounded backend handoffs.
+    PublishFrameOutputs,
     /// Commit previous-frame state and retire consumed inputs and events.
     CommitFrameHistory,
 }
@@ -42,12 +42,12 @@ impl PresentationPhase {
         Self::CaptureFrameInputs,
         Self::UpdateSceneProxies,
         Self::SampleRenderTimeline,
-        Self::UpdateCamerasAndListeners,
+        Self::PrepareViewsAndListeners,
         Self::EvaluateAnimationPoses,
         Self::ResolveSceneGraph,
         Self::UpdateEffectsAndFeedback,
-        Self::BuildBackendCommands,
-        Self::SubmitBackendCommands,
+        Self::BuildFrameOutputs,
+        Self::PublishFrameOutputs,
         Self::CommitFrameHistory,
     ];
 
@@ -65,12 +65,12 @@ pub struct PresentationPhases {
     capture_frame_inputs: PhaseId,
     update_scene_proxies: PhaseId,
     sample_render_timeline: PhaseId,
-    update_cameras_and_listeners: PhaseId,
+    prepare_views_and_listeners: PhaseId,
     evaluate_animation_poses: PhaseId,
     resolve_scene_graph: PhaseId,
     update_effects_and_feedback: PhaseId,
-    build_backend_commands: PhaseId,
-    submit_backend_commands: PhaseId,
+    build_frame_outputs: PhaseId,
+    publish_frame_outputs: PhaseId,
     commit_frame_history: PhaseId,
 }
 
@@ -81,12 +81,12 @@ impl PresentationPhases {
             capture_frame_inputs,
             update_scene_proxies,
             sample_render_timeline,
-            update_cameras_and_listeners,
+            prepare_views_and_listeners,
             evaluate_animation_poses,
             resolve_scene_graph,
             update_effects_and_feedback,
-            build_backend_commands,
-            submit_backend_commands,
+            build_frame_outputs,
+            publish_frame_outputs,
             commit_frame_history,
         ] = register_phase_chain(world)?;
         Ok(Self {
@@ -94,12 +94,12 @@ impl PresentationPhases {
             capture_frame_inputs,
             update_scene_proxies,
             sample_render_timeline,
-            update_cameras_and_listeners,
+            prepare_views_and_listeners,
             evaluate_animation_poses,
             resolve_scene_graph,
             update_effects_and_feedback,
-            build_backend_commands,
-            submit_backend_commands,
+            build_frame_outputs,
+            publish_frame_outputs,
             commit_frame_history,
         })
     }
@@ -112,12 +112,12 @@ impl PresentationPhases {
             PresentationPhase::CaptureFrameInputs => self.capture_frame_inputs,
             PresentationPhase::UpdateSceneProxies => self.update_scene_proxies,
             PresentationPhase::SampleRenderTimeline => self.sample_render_timeline,
-            PresentationPhase::UpdateCamerasAndListeners => self.update_cameras_and_listeners,
+            PresentationPhase::PrepareViewsAndListeners => self.prepare_views_and_listeners,
             PresentationPhase::EvaluateAnimationPoses => self.evaluate_animation_poses,
             PresentationPhase::ResolveSceneGraph => self.resolve_scene_graph,
             PresentationPhase::UpdateEffectsAndFeedback => self.update_effects_and_feedback,
-            PresentationPhase::BuildBackendCommands => self.build_backend_commands,
-            PresentationPhase::SubmitBackendCommands => self.submit_backend_commands,
+            PresentationPhase::BuildFrameOutputs => self.build_frame_outputs,
+            PresentationPhase::PublishFrameOutputs => self.publish_frame_outputs,
             PresentationPhase::CommitFrameHistory => self.commit_frame_history,
         }
     }

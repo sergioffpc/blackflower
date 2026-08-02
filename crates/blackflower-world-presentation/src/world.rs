@@ -4,8 +4,11 @@ use std::sync::{Mutex, MutexGuard};
 
 use blackflower_acoustics::{AudibleSoundDelivery, AudibleVoiceDelivery};
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
+use blackflower_rendering::{LatestFrameMailbox, MailboxError, RenderFrame, RenderFrameId};
 
-use crate::audio::{AudioCommand, PresentationAudioError, PresentationAudioState};
+use crate::audio::{
+    AudioCommand, AudioCommandBatch, PresentationAudioError, PresentationAudioState,
+};
 use crate::telemetry;
 use crate::telemetry::FrameObservation;
 use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
@@ -14,6 +17,13 @@ use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
 struct ExecutionState {
     frame: AtomicU64,
     audio: Mutex<PresentationAudioState>,
+    render: Mutex<PresentationRenderState>,
+    render_mailbox: Arc<LatestFrameMailbox>,
+}
+
+#[derive(Debug, Default)]
+struct PresentationRenderState {
+    staged: Option<RenderFrame>,
 }
 
 /// Snapshot of the presentation execution visible to registered systems.
@@ -38,6 +48,8 @@ impl FrameExecutionContext {
             state: Arc::new(ExecutionState {
                 frame: AtomicU64::new(FrameIndex::ZERO.get()),
                 audio: Mutex::new(PresentationAudioState::default()),
+                render: Mutex::new(PresentationRenderState::default()),
+                render_mailbox: Arc::new(LatestFrameMailbox::default()),
             }),
         }
     }
@@ -63,8 +75,13 @@ impl FrameExecutionContext {
             .map_err(|_error| PresentationAudioError::Unavailable)
     }
 
-    pub(crate) fn reset_audio_transient(&self) -> Result<(), PresentationAudioError> {
+    pub(crate) fn reset_frame_transient(&self) -> Result<(), PresentationOutputError> {
         self.audio()?.reset_transient();
+        self.state
+            .render
+            .lock()
+            .map_err(|_error| PresentationOutputError::RenderStateUnavailable)?
+            .staged = None;
         Ok(())
     }
 
@@ -78,10 +95,50 @@ impl FrameExecutionContext {
         Ok(())
     }
 
-    pub(crate) fn submit_audio_commands(&self) -> Result<(), PresentationAudioError> {
-        self.audio()?.submit();
+    pub(crate) fn publish_audio_commands(&self) -> Result<(), PresentationAudioError> {
+        self.audio()?.publish(self.current().frame);
         Ok(())
     }
+
+    pub(crate) fn build_render_frame(&self) -> Result<(), PresentationOutputError> {
+        let frame = RenderFrame::empty(RenderFrameId::new(self.current().frame.get()));
+        self.state
+            .render
+            .lock()
+            .map_err(|_error| PresentationOutputError::RenderStateUnavailable)?
+            .staged = Some(frame);
+        Ok(())
+    }
+
+    pub(crate) fn publish_render_frame(&self) -> Result<(), PresentationOutputError> {
+        let frame = self
+            .state
+            .render
+            .lock()
+            .map_err(|_error| PresentationOutputError::RenderStateUnavailable)?
+            .staged
+            .take()
+            .ok_or(PresentationOutputError::RenderFrameNotBuilt)?;
+        let _outcome = self.state.render_mailbox.publish(frame)?;
+        Ok(())
+    }
+}
+
+/// Failure while building or publishing immutable presentation outputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PresentationOutputError {
+    /// Presentation-owned render staging was poisoned by a previous panic.
+    #[error("presentation render output state is unavailable")]
+    RenderStateUnavailable,
+    /// `PublishRenderFrame` ran without a frame built for this attempt.
+    #[error("render frame was not built before publication")]
+    RenderFrameNotBuilt,
+    /// The renderer handoff rejected access.
+    #[error(transparent)]
+    Mailbox(#[from] MailboxError),
+    /// Presentation-owned audio command state rejected access.
+    #[error(transparent)]
+    Audio(#[from] PresentationAudioError),
 }
 
 /// Failure while advancing a presentation frame.
@@ -167,6 +224,12 @@ impl PresentationWorld {
         self.execution_context.clone()
     }
 
+    /// Return the single-slot latest-frame handoff consumed by the renderer thread.
+    #[must_use]
+    pub fn render_mailbox(&self) -> Arc<LatestFrameMailbox> {
+        Arc::clone(&self.execution_context.state.render_mailbox)
+    }
+
     /// Queue one server-authorized remote sound for the next presentation frame.
     pub fn queue_audible_sound(
         &self,
@@ -185,17 +248,24 @@ impl PresentationWorld {
         Ok(())
     }
 
-    /// Drain immutable audio commands after `SubmitAudioCommands` accepts them.
+    /// Drain immutable audio commands after `PublishAudioCommands` accepts them.
     pub fn drain_submitted_audio_commands(
         &self,
     ) -> Result<Vec<AudioCommand>, PresentationAudioError> {
         Ok(self.execution_context.audio()?.drain_submitted())
     }
 
+    /// Drain frame-keyed immutable audio batches in presentation order.
+    pub fn drain_submitted_audio_batches(
+        &self,
+    ) -> Result<Vec<AudioCommandBatch>, PresentationAudioError> {
+        Ok(self.execution_context.audio()?.drain_submitted_batches())
+    }
+
     /// Advance the presentation pipeline by one frame using a validated delta.
     ///
     /// The frame index is committed only after every phase succeeds. In
-    /// particular, a failure in `SubmitBackendCommands` prevents
+    /// particular, a failure in `PublishFrameOutputs` prevents
     /// `CommitFrameHistory` from running and leaves the frame index unchanged.
     #[cfg_attr(
         feature = "tracing",
