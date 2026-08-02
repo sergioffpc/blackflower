@@ -18,7 +18,6 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | --- | --- |
 | `apps/blackflower` | Player client executable |
 | `apps/blackflower-server` | Authoritative server executable |
-| `apps/blackflower-harness` | Simulation and integration test harness |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
 | `crates/blackflower-acoustics` | Authoritative acoustic formats, Embree-backed propagation, and observations |
@@ -36,8 +35,10 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-cooker-volume` | Host-only OpenVDB-to-NanoVDB cooking |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-gltf-metadata` | Versioned Blackflower authoring metadata in glTF and GLB |
+| `crates/blackflower-harness` | Reserved library for the future shared frontend/headless client binding |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-networking` | Shared networking primitives |
+| `crates/blackflower-networking-quic` | Low-level Quinn transport endpoints and bounded host queues |
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
@@ -64,11 +65,8 @@ Run the authoritative server:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
-Run the simulation and integration harness:
-
-```sh
-RUST_LOG=info cargo run --package blackflower-harness --locked
-```
+`blackflower-harness` is intentionally a library and has no executable yet.
+Frontend and headless client composition will be designed separately.
 
 ## Cooking assets
 

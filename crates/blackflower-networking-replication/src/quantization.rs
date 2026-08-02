@@ -1,219 +1,253 @@
-/// Integer representation of one quantized scalar field.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct QuantizedScalar(u32);
+use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 
-impl QuantizedScalar {
-    /// Construct a quantized scalar from its protocol code.
-    #[must_use]
-    pub const fn new(code: u32) -> Self {
-        Self(code)
+/// Normative position resolution: one signed centimetre.
+pub const POSITION_UNITS_PER_METER: f64 = 100.0;
+/// Normative velocity resolution: one signed centimetre per second.
+pub const VELOCITY_UNITS_PER_METER_PER_SECOND: f64 = 100.0;
+
+/// Signed centimetre world position on each axis.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuantizedPosition([i32; 3]);
+
+impl QuantizedPosition {
+    /// Quantize a finite metre-space position using signed centimetres.
+    pub fn quantize(position_meters: [f64; 3]) -> Result<Self, QuantizationError> {
+        Ok(Self([
+            position_code(position_meters[0])?,
+            position_code(position_meters[1])?,
+            position_code(position_meters[2])?,
+        ]))
     }
 
-    /// Return the protocol code.
+    /// Return signed centimetre codes.
     #[must_use]
-    pub const fn code(self) -> u32 {
+    pub const fn codes(self) -> [i32; 3] {
         self.0
     }
+
+    /// Reconstruct metres from signed centimetres.
+    #[must_use]
+    pub fn dequantize(self) -> [f64; 3] {
+        self.0
+            .map(|code| f64::from(code) / POSITION_UNITS_PER_METER)
+    }
 }
 
-/// Uniform scalar quantization over one closed finite interval.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ScalarQuantizer {
-    minimum: f64,
-    maximum: f64,
-    span: f64,
-    bits: u8,
-    maximum_code: u32,
+/// Signed centimetres-per-second velocity on each axis.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuantizedVelocity([i16; 3]);
+
+impl QuantizedVelocity {
+    /// Quantize a finite velocity using signed centimetres per second.
+    pub fn quantize(meters_per_second: [f64; 3]) -> Result<Self, QuantizationError> {
+        Ok(Self([
+            velocity_code(meters_per_second[0])?,
+            velocity_code(meters_per_second[1])?,
+            velocity_code(meters_per_second[2])?,
+        ]))
+    }
+
+    /// Return signed centimetres-per-second codes.
+    #[must_use]
+    pub const fn codes(self) -> [i16; 3] {
+        self.0
+    }
+
+    /// Reconstruct metres per second.
+    #[must_use]
+    pub fn dequantize(self) -> [f64; 3] {
+        self.0
+            .map(|code| f64::from(code) / VELOCITY_UNITS_PER_METER_PER_SECOND)
+    }
 }
 
-impl ScalarQuantizer {
-    /// Construct a quantizer using between one and 32 protocol bits.
-    pub fn new(minimum: f64, maximum: f64, bits: u8) -> Result<Self, QuantizationError> {
-        if !(1..=32).contains(&bits) {
-            return Err(QuantizationError::InvalidBitCount { bits });
+/// Unsigned 16-bit turn angle with wrap-around canonicalization.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuantizedAngle(u16);
+
+impl QuantizedAngle {
+    /// Quantize radians modulo one full turn.
+    pub fn quantize(radians: f64) -> Result<Self, QuantizationError> {
+        if !radians.is_finite() {
+            return Err(QuantizationError::NonFinite);
         }
-        let span = maximum - minimum;
-        if !minimum.is_finite() || !maximum.is_finite() || !span.is_finite() || span <= 0.0 {
-            return Err(QuantizationError::InvalidRange { minimum, maximum });
+        let normalized = radians.rem_euclid(TAU) / TAU;
+        let scaled = (normalized * 65_536.0).round();
+        Ok(Self(angle_code(scaled)))
+    }
+
+    /// Return the unsigned turn code.
+    #[must_use]
+    pub const fn code(self) -> u16 {
+        self.0
+    }
+
+    /// Reconstruct radians in the half-open interval `[0, 2pi)`.
+    #[must_use]
+    pub fn dequantize(self) -> f64 {
+        f64::from(self.0) * TAU / 65_536.0
+    }
+}
+
+/// Canonical smallest-three unit quaternion encoding.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuantizedQuaternion {
+    largest_index: u8,
+    components: [i16; 3],
+}
+
+impl QuantizedQuaternion {
+    /// Normalize and encode a quaternion, canonicalizing the omitted term positive.
+    pub fn quantize(quaternion: [f64; 4]) -> Result<Self, QuantizationError> {
+        if !quaternion.into_iter().all(f64::is_finite) {
+            return Err(QuantizationError::NonFinite);
         }
-        let maximum_code = match bits {
-            32 => u32::MAX,
-            _ => (1_u32 << bits) - 1,
-        };
+        let magnitude_squared = quaternion
+            .into_iter()
+            .map(|value| value * value)
+            .sum::<f64>();
+        if magnitude_squared <= f64::EPSILON {
+            return Err(QuantizationError::ZeroQuaternion);
+        }
+        let inverse_magnitude = magnitude_squared.sqrt().recip();
+        let mut normalized = quaternion.map(|value| value * inverse_magnitude);
+        let largest_index = largest_component(normalized);
+        if normalized[largest_index] < 0.0 {
+            normalized = normalized.map(|value| -value);
+        }
+        let mut components = [0_i16; 3];
+        let mut output_index = 0;
+        for (index, value) in normalized.into_iter().enumerate() {
+            if index != largest_index {
+                components[output_index] = quaternion_code(value)?;
+                output_index += 1;
+            }
+        }
         Ok(Self {
-            minimum,
-            maximum,
-            span,
-            bits,
-            maximum_code,
+            largest_index: u8::try_from(largest_index)
+                .map_err(|_error| QuantizationError::OutOfRange)?,
+            components,
         })
     }
 
-    /// Return the protocol bit width.
+    /// Return the omitted largest component index from zero through three.
     #[must_use]
-    pub const fn bits(self) -> u8 {
-        self.bits
+    pub const fn largest_index(self) -> u8 {
+        self.largest_index
     }
 
-    /// Return the inclusive source interval.
+    /// Return the three signed protocol components.
     #[must_use]
-    pub fn range(self) -> [f64; 2] {
-        [self.minimum, self.maximum]
+    pub const fn components(self) -> [i16; 3] {
+        self.components
     }
 
-    /// Quantize a finite value inside the configured interval.
-    pub fn quantize(self, value: f64) -> Result<QuantizedScalar, QuantizationError> {
-        if !value.is_finite() {
-            return Err(QuantizationError::NonFiniteValue { value });
+    /// Reconstruct the canonical positive-largest unit quaternion.
+    pub fn dequantize(self) -> Result<[f64; 4], QuantizationError> {
+        let largest_index = usize::from(self.largest_index);
+        if largest_index >= 4 {
+            return Err(QuantizationError::InvalidQuaternionIndex);
         }
-        if value < self.minimum || value > self.maximum {
-            return Err(QuantizationError::ValueOutOfRange {
-                value,
-                minimum: self.minimum,
-                maximum: self.maximum,
-            });
+        let mut quaternion = [0.0_f64; 4];
+        let mut input_index = 0;
+        let mut sum = 0.0;
+        for (index, output) in quaternion.iter_mut().enumerate() {
+            if index != largest_index {
+                let value =
+                    f64::from(self.components[input_index]) * FRAC_1_SQRT_2 / f64::from(i16::MAX);
+                *output = value;
+                sum += value * value;
+                input_index += 1;
+            }
         }
-        Ok(self.quantize_in_range(value))
+        quaternion[largest_index] = (1.0 - sum).max(0.0).sqrt();
+        Ok(quaternion)
     }
+}
 
-    /// Quantize a finite value after clamping it to the configured interval.
-    pub fn quantize_clamped(self, value: f64) -> Result<QuantizedScalar, QuantizationError> {
-        if !value.is_finite() {
-            return Err(QuantizationError::NonFiniteValue { value });
-        }
-        Ok(self.quantize_in_range(value.clamp(self.minimum, self.maximum)))
-    }
+/// Invalid source value or protocol representation for normative quantization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum QuantizationError {
+    /// Source value contains NaN or infinity.
+    #[error("quantization source must be finite")]
+    NonFinite,
+    /// Quantized value does not fit the normative signed representation.
+    #[error("quantization source is outside the normative range")]
+    OutOfRange,
+    /// Quaternion magnitude is zero.
+    #[error("quaternion magnitude must be non-zero")]
+    ZeroQuaternion,
+    /// Smallest-three omitted index is outside zero through three.
+    #[error("smallest-three quaternion index is invalid")]
+    InvalidQuaternionIndex,
+}
 
-    /// Reconstruct the scalar represented by one protocol code.
-    pub fn dequantize(self, value: QuantizedScalar) -> Result<f64, QuantizationError> {
-        if value.code() > self.maximum_code {
-            return Err(QuantizationError::CodeOutOfRange {
-                code: value.code(),
-                maximum: self.maximum_code,
-            });
-        }
-        if value.code() == 0 {
-            return Ok(self.minimum);
-        }
-        if value.code() == self.maximum_code {
-            return Ok(self.maximum);
-        }
-        let normalized = f64::from(value.code()) / f64::from(self.maximum_code);
-        Ok(self.minimum + normalized * self.span)
+fn position_code(value: f64) -> Result<i32, QuantizationError> {
+    if !value.is_finite() {
+        return Err(QuantizationError::NonFinite);
     }
+    let scaled = (value * POSITION_UNITS_PER_METER).round();
+    if scaled < f64::from(i32::MIN) || scaled > f64::from(i32::MAX) {
+        Err(QuantizationError::OutOfRange)
+    } else {
+        Ok(f64_to_i32(scaled))
+    }
+}
 
-    fn quantize_in_range(self, value: f64) -> QuantizedScalar {
-        let normalized = (value - self.minimum) / self.span;
-        let scaled = normalized * f64::from(self.maximum_code);
-        QuantizedScalar(rounded_code(scaled))
+fn velocity_code(value: f64) -> Result<i16, QuantizationError> {
+    if !value.is_finite() {
+        return Err(QuantizationError::NonFinite);
     }
+    let scaled = (value * VELOCITY_UNITS_PER_METER_PER_SECOND).round();
+    if scaled < f64::from(i16::MIN) || scaled > f64::from(i16::MAX) {
+        Err(QuantizationError::OutOfRange)
+    } else {
+        Ok(f64_to_i16(scaled))
+    }
+}
+
+fn quaternion_code(value: f64) -> Result<i16, QuantizationError> {
+    if !(-FRAC_1_SQRT_2..=FRAC_1_SQRT_2).contains(&value) {
+        return Err(QuantizationError::OutOfRange);
+    }
+    let scaled = (value / FRAC_1_SQRT_2 * f64::from(i16::MAX)).round();
+    Ok(f64_to_i16(scaled))
+}
+
+fn largest_component(quaternion: [f64; 4]) -> usize {
+    let mut largest_index = 0;
+    let mut largest_magnitude = quaternion[0].abs();
+    for (index, value) in quaternion.into_iter().enumerate().skip(1) {
+        let magnitude = value.abs();
+        if magnitude > largest_magnitude {
+            largest_index = index;
+            largest_magnitude = magnitude;
+        }
+    }
+    largest_index
 }
 
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "the caller bounds and rounds the finite value to the inclusive u32 protocol range"
+    reason = "the caller rounds and bounds the value to the full u16 turn domain"
 )]
-fn rounded_code(value: f64) -> u32 {
-    value.round() as u32
+fn angle_code(value: f64) -> u16 {
+    if value >= 65_536.0 { 0 } else { value as u16 }
 }
 
-/// Three independently configured scalar quantizers for a world position.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PositionQuantizer {
-    axes: [ScalarQuantizer; 3],
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the caller rounds and bounds the finite value to the inclusive i32 domain"
+)]
+fn f64_to_i32(value: f64) -> i32 {
+    value as i32
 }
 
-impl PositionQuantizer {
-    /// Construct a position quantizer from the X, Y, and Z field policies.
-    #[must_use]
-    pub const fn new(axes: [ScalarQuantizer; 3]) -> Self {
-        Self { axes }
-    }
-
-    /// Quantize a position, rejecting any component outside its policy.
-    pub fn quantize(self, position: [f64; 3]) -> Result<QuantizedPosition, QuantizationError> {
-        Ok(QuantizedPosition([
-            self.axes[0].quantize(position[0])?,
-            self.axes[1].quantize(position[1])?,
-            self.axes[2].quantize(position[2])?,
-        ]))
-    }
-
-    /// Quantize a position after clamping every finite component.
-    pub fn quantize_clamped(
-        self,
-        position: [f64; 3],
-    ) -> Result<QuantizedPosition, QuantizationError> {
-        Ok(QuantizedPosition([
-            self.axes[0].quantize_clamped(position[0])?,
-            self.axes[1].quantize_clamped(position[1])?,
-            self.axes[2].quantize_clamped(position[2])?,
-        ]))
-    }
-
-    /// Reconstruct a position from its protocol representation.
-    pub fn dequantize(self, position: QuantizedPosition) -> Result<[f64; 3], QuantizationError> {
-        let components = position.components();
-        Ok([
-            self.axes[0].dequantize(components[0])?,
-            self.axes[1].dequantize(components[1])?,
-            self.axes[2].dequantize(components[2])?,
-        ])
-    }
-}
-
-/// Quantized protocol representation of a three-dimensional position.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct QuantizedPosition([QuantizedScalar; 3]);
-
-impl QuantizedPosition {
-    /// Return the X, Y, and Z protocol codes.
-    #[must_use]
-    pub const fn components(self) -> [QuantizedScalar; 3] {
-        self.0
-    }
-}
-
-/// Invalid quantization policy, source value, or protocol code.
-#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
-pub enum QuantizationError {
-    /// Uniform scalar quantization supports one to 32 bits.
-    #[error("quantization bit count must be between 1 and 32, got {bits}")]
-    InvalidBitCount {
-        /// Rejected bit count.
-        bits: u8,
-    },
-    /// Interval endpoints did not describe a finite positive span.
-    #[error("quantization range must have a finite positive span, got [{minimum}, {maximum}]")]
-    InvalidRange {
-        /// Inclusive lower endpoint.
-        minimum: f64,
-        /// Inclusive upper endpoint.
-        maximum: f64,
-    },
-    /// A source component was not finite.
-    #[error("quantization source value must be finite, got {value}")]
-    NonFiniteValue {
-        /// Rejected source value.
-        value: f64,
-    },
-    /// A source component fell outside the configured interval.
-    #[error("quantization source value {value} is outside [{minimum}, {maximum}]")]
-    ValueOutOfRange {
-        /// Rejected source value.
-        value: f64,
-        /// Inclusive lower endpoint.
-        minimum: f64,
-        /// Inclusive upper endpoint.
-        maximum: f64,
-    },
-    /// A protocol code did not fit the configured bit width.
-    #[error("quantized code {code} exceeds maximum {maximum}")]
-    CodeOutOfRange {
-        /// Rejected protocol code.
-        code: u32,
-        /// Largest code accepted by the quantizer.
-        maximum: u32,
-    },
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "the caller rounds and bounds the finite value to the inclusive i16 domain"
+)]
+fn f64_to_i16(value: f64) -> i16 {
+    value as i16
 }

@@ -1,0 +1,159 @@
+name: Network gate
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Gate profile to run
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - nominal
+          - degraded
+
+permissions:
+  contents: read
+
+concurrency:
+  group: network-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'workflow_dispatch' || inputs.profile == 'smoke')
+    name: Network smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize network build submodules
+        run: .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: network-gate
+          cargo-cache-restore-key: network-gate
+          install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh assets
+
+      - name: Run reduced network gate
+        run: cargo xtask network-gate --profile smoke --output target/network-gate-smoke.json
+
+      - name: Upload network report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: network-gate-smoke
+          path: target/network-gate-smoke.json
+          if-no-files-found: error
+
+  scheduled-soaks:
+    if: github.event_name == 'schedule'
+    name: Network ${{ matrix.profile }} soak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - nominal
+          - degraded
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize network build submodules
+        run: .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: network-gate-${{ matrix.profile }}
+          cargo-cache-restore-key: network-gate
+          install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh assets
+
+      - name: Run network soak
+        run: >-
+          cargo xtask network-gate
+          --profile ${{ matrix.profile }}
+          --output target/network-gate-${{ matrix.profile }}.json
+
+      - name: Upload network report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: network-gate-${{ matrix.profile }}
+          path: target/network-gate-${{ matrix.profile }}.json
+          if-no-files-found: error
+
+  manual-soak:
+    if: github.event_name == 'workflow_dispatch' && inputs.profile != 'smoke'
+    name: Network ${{ inputs.profile }} soak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize network build submodules
+        run: .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: network-gate-${{ inputs.profile }}
+          cargo-cache-restore-key: network-gate
+          install-ispc: "true"
+
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh assets
+
+      - name: Run selected network soak
+        run: >-
+          cargo xtask network-gate
+          --profile ${{ inputs.profile }}
+          --output target/network-gate-${{ inputs.profile }}.json
+
+      - name: Upload network report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: network-gate-${{ inputs.profile }}
+          path: target/network-gate-${{ inputs.profile }}.json
+          if-no-files-found: error

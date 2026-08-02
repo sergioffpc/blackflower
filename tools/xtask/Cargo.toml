@@ -20,6 +20,7 @@ blackflower-gltf-metadata.workspace = true
 blackflower-rendering-models.workspace = true
 blackflower-rendering-textures.workspace = true
 blackflower-navigation.workspace = true
+blackflower-networking.workspace = true
 blackflower-shader-compiler.workspace = true
 blackflower-scripting-luau.workspace = true
 
@@ -33,14 +34,12 @@ image.workspace = true
 meshopt.workspace = true
 naga.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 toml.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -6,9 +6,9 @@ use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_world_simulation::{
     AI_UPDATE_INTERVAL_TICKS, CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem,
     CommitStateTransitionsSystem, DeriveActorActionsSystem, DeriveStateTransitionsSystem,
-    EmitBotControlFramesSystem, INPUT_TIMEOUT_TICKS, PlanBotTacticsSystem, PrepareTickSystem,
-    SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS, SealTickSystem, SimulationPhase,
-    SimulationPipeline, SimulationTick, SimulationWorld, SolveAcousticsSystem,
+    EmitBotControlFramesSystem, INPUT_FAILSAFE_TICKS, INPUT_GRACE_TICKS, PlanBotTacticsSystem,
+    PrepareTickSystem, SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS, SealTickSystem,
+    SimulationPhase, SimulationPipeline, SimulationTick, SimulationWorld, SolveAcousticsSystem,
     SolvePhysicalPhenomenaSystem, SolveRigidBodyDynamicsSystem, SubmitTickOutputsSystem,
     UpdateBotPerceptionSystem, UpdateSpatialStructuresSystem,
 };
@@ -44,7 +44,8 @@ fn phase_names_and_scheduling_intervals_are_stable() {
     assert_eq!(CONTROL_FRAME_INTERVAL_TICKS, 4);
     assert_eq!(SNAPSHOT_INTERVAL_TICKS, 8);
     assert_eq!(AI_UPDATE_INTERVAL_TICKS, 48);
-    assert_eq!(INPUT_TIMEOUT_TICKS, 240);
+    assert_eq!(INPUT_GRACE_TICKS, 12);
+    assert_eq!(INPUT_FAILSAFE_TICKS, 240);
 }
 
 #[test]

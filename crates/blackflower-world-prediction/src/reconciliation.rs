@@ -6,6 +6,9 @@ use crate::{
     HistoryError, InputFrame, InputHistory, InputSequence, PredictionHistory, PredictionTick,
 };
 
+/// Network v1 maximum reconciliation rollback.
+pub const NETWORK_MAX_RECONCILIATION_TICKS: u64 = 64;
+
 /// Authoritative predicted-state subset sealed by the server at one tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthoritativeSnapshot<S> {
@@ -123,6 +126,12 @@ pub struct ReconciliationCoordinator {
 }
 
 impl ReconciliationCoordinator {
+    /// Construct the normative network v1 64-tick reconciliation bound.
+    #[must_use]
+    pub fn network_v1() -> Self {
+        Self::new(NonZeroU64::new(NETWORK_MAX_RECONCILIATION_TICKS).unwrap_or(NonZeroU64::MIN))
+    }
+
     /// Construct a coordinator with an explicit re-simulation work bound.
     #[must_use]
     pub const fn new(max_resimulation_ticks: NonZeroU64) -> Self {

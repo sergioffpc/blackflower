@@ -1,3 +1,4 @@
+// Golden and rejection coverage for the stable BFAD v1 application codec.
 use super::*;
 
 fn descriptor() -> PropagationDescriptor {
@@ -26,6 +27,30 @@ fn voice_round_trip_preserves_opus_exactly() -> Result<(), Box<dyn std::error::E
     let decoded = decode_audible_voice(&bytes, 44)?;
     assert_eq!(decoded.receiver_id, 44);
     assert_eq!(decoded.encoded.payload(), &[9, 8, 7, 6]);
+    Ok(())
+}
+
+#[test]
+fn capture_packet_matches_bfad_v1_golden() -> Result<(), Box<dyn std::error::Error>> {
+    let encoded = EncodedVoice::new(VoiceStreamId(1), 1, &[1])?;
+    let packet = VoiceCapturePacket {
+        stream: VoiceStreamId(1),
+        sequence: 1,
+        sample_timestamp: 960,
+        encoded,
+    };
+    let bytes = encode_voice_capture(&packet)?;
+    assert_eq!(
+        bytes,
+        [
+            b'B', b'F', b'A', b'D', 1, 0, 1, 0, // BFAD v1 capture header
+            1, 0, 0, 0, // stream
+            1, 0, 0, 0, // sequence
+            0xc0, 0x03, 0, 0, 0, 0, 0, 0, // sample timestamp 960
+            1, 0, // payload length
+            1, // exact Opus payload
+        ]
+    );
     Ok(())
 }
 

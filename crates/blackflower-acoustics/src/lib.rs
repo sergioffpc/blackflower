@@ -5,6 +5,7 @@ mod error;
 mod geometry;
 mod solver;
 mod types;
+mod wire;
 
 pub use asset::{
     ACOUSTIC_ASSET_SCHEMA, AcousticEmissionProfile, AcousticMaterial, AcousticMaterialLibrary,
@@ -23,6 +24,11 @@ pub use types::{
     AudibleSoundDelivery, AudibleVoiceDelivery, BandEnergy, EncodedVoice, MAX_OPUS_PACKET_BYTES,
     PositionMm, PropagationDescriptor, QuantizedTransform, SoundClass, SoundEmission,
     VoiceStreamId,
+};
+pub use wire::{
+    ACOUSTIC_DATAGRAM_VERSION, DatagramError, MAX_ACOUSTIC_DATAGRAM_BYTES, VoiceCapturePacket,
+    VoicePacketDisposition, VoiceReorderBuffer, decode_audible_sound, decode_audible_voice,
+    decode_voice_capture, encode_audible_sound, encode_audible_voice, encode_voice_capture,
 };
 
 /// Authoritative acoustic sample rate.

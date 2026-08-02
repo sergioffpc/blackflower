@@ -15,11 +15,14 @@ mod telemetry;
 mod types;
 mod world;
 
-pub use history::{HistoryError, InputFrame, InputHistory, PredictionFrame, PredictionHistory};
+pub use history::{
+    HistoryError, InputFrame, InputHistory, NETWORK_HISTORY_TICKS, PredictionFrame,
+    PredictionHistory,
+};
 pub use pipeline::{PredictionPhase, PredictionPhases, PredictionPipeline};
 pub use reconciliation::{
-    AuthoritativeSnapshot, HardResyncReason, ReconciliationCoordinator, ReconciliationDriver,
-    ReconciliationError, ReconciliationOutcome,
+    AuthoritativeSnapshot, HardResyncReason, NETWORK_MAX_RECONCILIATION_TICKS,
+    ReconciliationCoordinator, ReconciliationDriver, ReconciliationError, ReconciliationOutcome,
 };
 pub use systems::{
     CaptureTickInputsSystem, CommitStateTransitionsSystem, DeriveActorActionsSystem,
