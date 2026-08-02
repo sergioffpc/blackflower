@@ -1,9 +1,11 @@
+mod blast;
 mod blosc;
 mod boost;
 mod common;
 mod embree;
 mod flatbuffers;
 mod flecs;
+mod flow;
 mod jolt;
 mod ktx;
 mod luau;
@@ -34,10 +36,12 @@ use common::*;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum)]
 pub(crate) enum Vendor {
     Blosc,
+    Blast,
     Boost,
     Embree,
     Flatbuffers,
     Flecs,
+    Flow,
     Jolt,
     Ktx,
     Luau,
@@ -56,6 +60,7 @@ pub(crate) enum Vendor {
 impl Vendor {
     pub(crate) const ALL: &[Self] = &[
         Self::Boost,
+        Self::Blast,
         Self::Zlib,
         Self::Blosc,
         Self::Tbb,
@@ -66,6 +71,7 @@ impl Vendor {
         Self::Mysofa,
         Self::SteamAudio,
         Self::Flecs,
+        Self::Flow,
         Self::Jolt,
         Self::Ozz,
         Self::Recast,
@@ -78,10 +84,12 @@ impl Vendor {
     const fn name(self) -> &'static str {
         match self {
             Self::Blosc => "blosc",
+            Self::Blast => "blast",
             Self::Boost => "boost",
             Self::Embree => "embree",
             Self::Flatbuffers => "flatbuffers",
             Self::Flecs => "flecs",
+            Self::Flow => "flow",
             Self::Jolt => "jolt",
             Self::Ktx => "ktx",
             Self::Luau => "luau",
@@ -101,10 +109,12 @@ impl Vendor {
     const fn version(self) -> &'static str {
         match self {
             Self::Blosc => blosc::VERSION,
+            Self::Blast => blast::VERSION,
             Self::Boost => boost::VERSION,
             Self::Embree => embree::VERSION,
             Self::Flatbuffers => flatbuffers::VERSION,
             Self::Flecs => flecs::VERSION,
+            Self::Flow => flow::VERSION,
             Self::Jolt => jolt::VERSION,
             Self::Ktx => ktx::VERSION,
             Self::Luau => luau::VERSION,
@@ -133,10 +143,12 @@ impl Vendor {
                 Self::Zlib,
             ],
             Self::Blosc
+            | Self::Blast
             | Self::Boost
             | Self::Embree
             | Self::Flatbuffers
             | Self::Flecs
+            | Self::Flow
             | Self::Jolt
             | Self::Ktx
             | Self::Luau
@@ -176,12 +188,14 @@ pub(crate) fn build(
     for vendor in ordered {
         match vendor {
             Vendor::Blosc => blosc::build(workspace_root, &native_root, &configuration)?,
+            Vendor::Blast => blast::build(workspace_root, &native_root, &configuration)?,
             Vendor::Boost => boost::build(workspace_root, &native_root, &configuration)?,
             Vendor::Embree => embree::build(workspace_root, &native_root, &configuration)?,
             Vendor::Flatbuffers => {
                 flatbuffers::build(workspace_root, &native_root, &configuration)?;
             }
             Vendor::Flecs => flecs::build(workspace_root, &native_root, &configuration)?,
+            Vendor::Flow => flow::build(workspace_root, &native_root, &configuration)?,
             Vendor::Jolt => jolt::build(workspace_root, &native_root, &configuration)?,
             Vendor::Ktx => ktx::build(workspace_root, &native_root, &configuration)?,
             Vendor::Luau => luau::build(workspace_root, &native_root, &configuration)?,

@@ -47,11 +47,13 @@ git add vendor/JoltPhysics
 
 ## Safe API
 
-The safe surface supports worlds, sphere, box and capsule bodies, body
-lifetime, transforms, linear and angular velocity, forces, torques, impulses,
-rigid-body character controllers, contact manifolds, broad-phase optimization
-and fixed simulation steps. The API uses the SIMD-backed `glam::Vec3A` and
-`glam::Quat` types directly; consumers must import them from `glam`:
+The safe surface supports worlds, sphere, box, capsule and convex-hull bodies,
+flat immutable compounds with local child transforms, and indexed triangle
+meshes for static collision. It also covers body lifetime, transforms, linear
+and angular velocity, forces, torques, impulses, rigid-body character
+controllers, contact manifolds, broad-phase optimization and fixed simulation
+steps. The API uses the SIMD-backed `glam::Vec3A` and `glam::Quat` types
+directly; consumers must import them from `glam`:
 
 ```rust
 use std::num::NonZeroU32;
@@ -92,6 +94,13 @@ for contact in world.contact_events()? {
 `BodyId` values are tied to their creating world and stale handles are
 rejected. `World` is neither `Send` nor `Sync`; Jolt's worker pool remains an
 internal implementation detail of `World::step`.
+
+Convex hulls accept between four and `MAX_CONVEX_HULL_POINTS` finite source
+points. Compounds are intentionally flat; flatten nested authoring structures
+in the asset cooker before runtime. Triangle meshes are single-sided, use
+counter-clockwise vertex winding, and may only create static bodies. Complex
+shape descriptions are copied into reference-counted Jolt shapes when a body
+is created, so the native layer never borrows caller-owned Rust buffers.
 
 Forces and torques accumulate until the next step. Impulses affect velocity
 immediately. These commands affect dynamic bodies and are ignored by Jolt for

@@ -36,6 +36,9 @@ case "$mode" in
             blackflower-cooker-volume)
                 set -- "$@" openvdb
                 ;;
+            blackflower-destruction)
+                set -- "$@" blast
+                ;;
             blackflower-ecs)
                 set -- "$@" flecs
                 ;;
@@ -44,6 +47,9 @@ case "$mode" in
                 ;;
             blackflower-physics)
                 set -- "$@" jolt
+                ;;
+            blackflower-rendering-fluids)
+                set -- "$@" flow
                 ;;
             blackflower-rendering-textures)
                 set -- "$@" ktx

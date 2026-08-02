@@ -1,53 +1,5 @@
-use crate::Error;
+use crate::{Error, Shape};
 use glam::{Quat, Vec3A};
-
-/// Collision shape supported by the initial safe binding surface.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Shape(ShapeKind);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ShapeKind {
-    Sphere { radius: f32 },
-    Box { half_extent: Vec3A },
-    Capsule { half_height: f32, radius: f32 },
-}
-
-impl Shape {
-    /// Construct a sphere with a finite, positive radius.
-    pub fn sphere(radius: f32) -> Result<Self, Error> {
-        if radius.is_finite() && radius > 0.0 {
-            Ok(Self(ShapeKind::Sphere { radius }))
-        } else {
-            Err(Error::InvalidShape)
-        }
-    }
-
-    /// Construct a box with finite, positive half extents.
-    pub fn cuboid(half_extent: Vec3A) -> Result<Self, Error> {
-        validate_vector(half_extent).map_err(|_error| Error::InvalidShape)?;
-        if half_extent.x > 0.0 && half_extent.y > 0.0 && half_extent.z > 0.0 {
-            Ok(Self(ShapeKind::Box { half_extent }))
-        } else {
-            Err(Error::InvalidShape)
-        }
-    }
-
-    /// Construct a Y-axis capsule from its cylinder half-height and radius.
-    pub fn capsule(half_height: f32, radius: f32) -> Result<Self, Error> {
-        if half_height.is_finite() && half_height > 0.0 && radius.is_finite() && radius > 0.0 {
-            Ok(Self(ShapeKind::Capsule {
-                half_height,
-                radius,
-            }))
-        } else {
-            Err(Error::InvalidShape)
-        }
-    }
-
-    pub(crate) const fn kind(self) -> ShapeKind {
-        self.0
-    }
-}
 
 /// Jolt rigid-body motion mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +23,7 @@ impl MotionType {
 }
 
 /// Validated settings used to create a rigid body.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BodySettings {
     pub(crate) shape: Shape,
     pub(crate) motion_type: MotionType,

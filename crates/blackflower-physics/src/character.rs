@@ -3,7 +3,8 @@ use glam::{Quat, Vec3A};
 use crate::error::Error;
 use crate::ffi;
 use crate::ids::{BodyId, SubShapeId, WorldKey};
-use crate::types::{Shape, ShapeKind, validate_rotation, validate_vector};
+use crate::shape::{Shape, ShapeKind};
+use crate::types::{validate_rotation, validate_vector};
 
 const DEFAULT_CHARACTER_MASS: f32 = 80.0;
 const DEFAULT_CHARACTER_FRICTION: f32 = 0.2;
@@ -32,7 +33,7 @@ impl CharacterSettings {
         let ShapeKind::Capsule {
             half_height,
             radius,
-        } = capsule.kind()
+        } = *capsule.kind()
         else {
             return Err(Error::InvalidCharacterShape);
         };
