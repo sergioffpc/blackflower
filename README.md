@@ -1,4 +1,13 @@
-# Blackflower
+<p align="center">
+  <img src="docs/assets/blackflower-mark.svg" alt="Blackflower logo" width="180">
+</p>
+
+<p align="center">
+  <a href="https://github.com/sergioffpc/blackflower/actions/workflows/ci.yml"><img src="https://github.com/sergioffpc/blackflower/actions/workflows/ci.yml/badge.svg?branch=develop" alt="CI status"></a>
+  <a href="https://github.com/sergioffpc/blackflower/actions/workflows/network-gate.yml"><img src="https://github.com/sergioffpc/blackflower/actions/workflows/network-gate.yml/badge.svg?branch=develop" alt="Network gate status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.97.1-orange.svg?logo=rust" alt="Rust 1.97.1"></a>
+</p>
 
 Blackflower is an early-stage Rust workspace for a military multiplayer shooting
 simulation. The project is organized around an authoritative server, a

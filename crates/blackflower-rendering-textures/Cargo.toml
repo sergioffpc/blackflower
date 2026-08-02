@@ -11,9 +11,10 @@ bytes.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
+blackflower-build.workspace = true
+
 bindgen.workspace = true
 cmake.workspace = true
-blackflower-build.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Blackflower application icon</title>
+  <desc id="description">The six-petal Blackflower mark on a warm rounded-square background.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#f2efe8" />
+  <defs>
+    <path
+      id="petal"
+      d="M 512 342
+         C 452 318, 408 250, 419 177
+         C 430 104, 468 51, 512 30
+         C 556 51, 594 104, 605 177
+         C 616 250, 572 318, 512 342
+         Z"
+    />
+  </defs>
+  <g fill="#111318" transform="translate(512 512) scale(0.74) translate(-512 -512)">
+    <use href="#petal" />
+    <use href="#petal" transform="rotate(60 512 512)" />
+    <use href="#petal" transform="rotate(120 512 512)" />
+    <use href="#petal" transform="rotate(180 512 512)" />
+    <use href="#petal" transform="rotate(240 512 512)" />
+    <use href="#petal" transform="rotate(300 512 512)" />
+    <circle cx="512" cy="512" r="102" />
+  </g>
+</svg>

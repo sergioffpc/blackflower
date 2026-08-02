@@ -101,7 +101,7 @@ bytes = { version = "1.12.1", default-features = false }
 cpal = { version = "0.18.1", default-features = false }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
-clap = { version = "4.6.4", default-features = false, features = ["derive", "help", "std", "usage"] }
+clap = { version = "4.6.5", default-features = false, features = ["derive", "help", "std", "usage"] }
 claxon = { version = "0.4.3", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
@@ -118,9 +118,9 @@ naga = { version = "30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }
 proc-macro2 = { version = "1.0.107", default-features = false }
 profiling = { version = "1.0.18", default-features = false }
-quinn = { version = "=0.11.11", default-features = false, features = ["bloom", "runtime-tokio", "rustls-ring"] }
+quinn = { version = "0.11.11", default-features = false, features = ["bloom", "runtime-tokio", "rustls-ring"] }
 quote = { version = "1.0.47", default-features = false }
-rcgen = { version = "0.14.5", default-features = false, features = ["crypto", "pem", "ring"] }
+rcgen = { version = "0.14.8", default-features = false, features = ["crypto", "pem", "ring"] }
 rubato = { version = "4.0.0", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
@@ -134,8 +134,8 @@ tracing-appender = { version = "0.2.5", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 tracing-tracy = { version = "0.11.4", default-features = false }
 wgpu = { version = "30.0.0", default-features = false, features = ["dx12", "metal", "spirv", "std", "vulkan"] }
-rustls = { version = "=0.23.42", default-features = false, features = ["ring", "std"] }
-tokio = { version = "=1.53.1", default-features = false, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1.53.1", default-features = false, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 urlencoding = { version = "2.1.3", default-features = false }
 windows-sys = { version = "0.61.2", default-features = false, features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
