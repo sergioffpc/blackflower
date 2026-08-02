@@ -94,8 +94,12 @@ fn run_assets(workspace_root: &Path, command: AssetsCommand) -> anyhow::Result<(
         AssetsCommand::Check => {
             let checked = pipeline.check()?;
             println!(
-                "checked {} profiles, {} assets, {} glTF sources, and {} packages",
-                checked.profiles, checked.assets, checked.gltf_sources, checked.packages
+                "checked {} profiles, {} assets, {} maps, {} glTF sources, and {} packages",
+                checked.profiles,
+                checked.assets,
+                checked.maps,
+                checked.gltf_sources,
+                checked.packages
             );
         }
         AssetsCommand::Cook {

@@ -54,6 +54,7 @@ pub(crate) struct CookResult {
 pub(crate) struct CheckResult {
     pub(crate) profiles: usize,
     pub(crate) assets: usize,
+    pub(crate) maps: usize,
     pub(crate) gltf_sources: usize,
     pub(crate) packages: usize,
 }
@@ -74,6 +75,7 @@ impl Pipeline {
         Ok(CheckResult {
             profiles: profiles.len(),
             assets: repository.assets.len(),
+            maps: repository.maps.len(),
             gltf_sources: gltf.sources,
             packages: repository.packages.len(),
         })

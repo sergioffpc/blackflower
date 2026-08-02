@@ -83,7 +83,7 @@ class ExportHookTests(unittest.TestCase):
             str,
         )
         self.assertNotIsInstance(
-            extension.BlackflowerNodeMetadata.__annotations__["kind"],
+            extension.BlackflowerNodeMetadata.__annotations__["role"],
             str,
         )
 
@@ -173,12 +173,14 @@ class ExportHookTests(unittest.TestCase):
                 },
             )
 
-    def test_node_hook_exports_typed_identity(self):
+    def test_node_hook_exports_typed_spawn_point(self):
         blender_object = BlenderObject()
         blender_object.blackflower_node_metadata = SimpleNamespace(
             enabled=True,
-            kind="spawn_point",
+            role="spawn_point",
             identifier="base_north",
+            spawn_set="players",
+            spawn_weight=1.0,
         )
         gltf_node = SimpleNamespace(extras=None)
 
@@ -190,24 +192,22 @@ class ExportHookTests(unittest.TestCase):
             {
                 "blackflower": {
                     "schema": 1,
-                    "node": {
-                        "kind": "spawn_point",
-                        "id": "base_north",
-                    },
+                    "node": {"role": "spawn_point", "id": "base_north"},
+                    "spawn_point": {"set": "players", "weight": 1.0},
                 }
             },
         )
 
-    def test_node_hook_exports_navigation_policy(self):
+    def test_node_hook_combines_geometry_uses(self):
         blender_object = BlenderObject()
         blender_object.blackflower_node_metadata = SimpleNamespace(
-            enabled=False,
-            kind="",
+            enabled=True,
+            role="geometry",
             identifier="floor_main",
-            navigation_role="surface",
-            navigation_area_key="ground",
-            navigation_direction="bidirectional",
-            navigation_radius=0.5,
+            render=True,
+            collision=True,
+            navigation="surface",
+            acoustic_class="static",
         )
         gltf_node = SimpleNamespace(extras=None)
 
@@ -219,26 +219,35 @@ class ExportHookTests(unittest.TestCase):
 
         self.assertEqual(gltf_node.extras["blackflower"]["schema"], 1)
         self.assertEqual(
-            gltf_node.extras["blackflower"]["navigation"],
-            {"role": "surface", "area_key": "ground"},
+            gltf_node.extras["blackflower"]["geometry"],
+            {
+                "render": True,
+                "collision": True,
+                "navigation": "surface",
+                "acoustic_class": "static",
+            },
         )
 
-    def test_node_hook_exports_probe_volume_without_recipe(self):
-        blender_object = BlenderObject()
-        blender_object.blackflower_node_metadata = SimpleNamespace(
-            enabled=False,
-            kind="",
+    def test_node_hook_resolves_probe_zone_object_reference(self):
+        zone = BlenderObject()
+        zone.blackflower_node_metadata = SimpleNamespace(
+            enabled=True,
+            role="acoustic_zone",
+            identifier="ground_floor",
+        )
+        probes = BlenderObject()
+        probes.blackflower_node_metadata = SimpleNamespace(
+            enabled=True,
+            role="acoustic_zone",
             identifier="ground_floor_probes",
-            navigation_role="none",
-            acoustics_kind="probe_volume",
-            acoustic_geometry_class="static",
-            acoustic_zone="ground_floor",
+            acoustic_zone_kind="probes",
+            acoustic_zone=zone,
         )
         gltf_node = SimpleNamespace(extras=None)
 
         extension.glTF2ExportUserExtension().gather_node_hook(
             gltf_node,
-            blender_object,
+            probes,
             {},
         )
 
@@ -246,47 +255,47 @@ class ExportHookTests(unittest.TestCase):
             gltf_node.extras["blackflower"],
             {
                 "schema": 1,
-                "node": {
-                    "kind": "acoustic_probe_volume",
-                    "id": "ground_floor_probes",
-                },
-                "acoustics": {
-                    "kind": "probe_volume",
+                "node": {"role": "acoustic_zone", "id": "ground_floor_probes"},
+                "acoustic_zone": {
+                    "kind": "probes",
                     "zone": "ground_floor",
                 },
             },
         )
 
-    def test_node_hook_combines_navigation_and_static_acoustics(self):
-        blender_object = BlenderObject()
-        blender_object.blackflower_node_metadata = SimpleNamespace(
-            enabled=False,
-            kind="",
-            identifier="floor_main",
-            navigation_role="surface",
-            navigation_area_key="ground",
+    def test_map_wide_validation_rejects_missing_reference(self):
+        anchor = BlenderObject()
+        anchor.blackflower_node_metadata = SimpleNamespace(
+            enabled=True,
+            role="navigation_anchor",
+            identifier="missing_anchor",
+        )
+        link = BlenderObject()
+        link.blackflower_node_metadata = SimpleNamespace(
+            enabled=True,
+            role="navigation_link",
+            identifier="jump_start",
+            navigation_end=anchor,
+            navigation_area="jump",
             navigation_direction="bidirectional",
             navigation_radius=0.5,
-            acoustics_kind="geometry",
-            acoustic_geometry_class="static",
-            acoustic_zone="",
         )
-        gltf_node = SimpleNamespace(extras=None)
+        user_extension = extension.glTF2ExportUserExtension()
+        gltf_node = SimpleNamespace(extras=None, children=[])
+        user_extension.gather_node_hook(gltf_node, link, {})
+        with self.assertRaisesRegex(extension.MetadataError, "missing node"):
+            user_extension.gather_gltf_hook(
+                0,
+                [SimpleNamespace(nodes=[gltf_node])],
+                [],
+                {},
+            )
 
-        extension.glTF2ExportUserExtension().gather_node_hook(
-            gltf_node,
-            blender_object,
-            {},
-        )
-
-        blackflower = gltf_node.extras["blackflower"]
-        self.assertEqual(blackflower["node"]["kind"], "acoustic_geometry")
-        self.assertEqual(blackflower["navigation"]["role"], "surface")
-        self.assertEqual(blackflower["acoustics"]["class"], "static")
-
-    def test_material_hook_exports_acoustic_asset(self):
+    def test_material_hook_exports_complete_surface_mapping(self):
         material = BlenderMaterial()
         material.blackflower_material_metadata = SimpleNamespace(
+            physics_material="materials/physics/concrete",
+            navigation_area="ground",
             acoustic_material="acoustics/materials/concrete",
         )
         gltf_material = SimpleNamespace(extras={"vendor": True})
@@ -302,8 +311,10 @@ class ExportHookTests(unittest.TestCase):
             gltf_material.extras["blackflower"],
             {
                 "schema": 1,
-                "acoustics": {
-                    "material": "acoustics/materials/concrete",
+                "material": {
+                    "physics_material": "materials/physics/concrete",
+                    "navigation_area": "ground",
+                    "acoustic_material": "acoustics/materials/concrete",
                 },
             },
         )

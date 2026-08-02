@@ -182,6 +182,20 @@ pub enum Error {
     /// A node ID is empty, padded, too long, or contains control text.
     #[error("node `{0}` has an invalid Blackflower ID")]
     InvalidNodeId(String),
+    /// No glTF scene has the exact name selected by the map manifest.
+    #[error("glTF map scene `{0}` does not exist")]
+    MapSceneNotFound(String),
+    /// More than one glTF scene has the name selected by the map manifest.
+    #[error("glTF map scene name `{0}` is ambiguous")]
+    DuplicateMapScene(String),
+    /// Map node or material metadata is structurally or semantically invalid.
+    #[error("{owner} has invalid Blackflower map metadata: {reason}")]
+    InvalidMapMetadata {
+        /// Node, material, or scene containing the invalid metadata.
+        owner: String,
+        /// Concise validation failure.
+        reason: String,
+    },
     /// The glTF materials property is not an array or contains a non-object.
     #[error("glTF materials must be an array of objects")]
     InvalidMaterials,
