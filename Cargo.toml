@@ -113,6 +113,9 @@ kira = { version = "0.12.2", default-features = false, features = ["cpal"] }
 hound = { version = "3.5.1", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+regex = { version = "1.13.1", default-features = false, features = ["perf", "std"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["component", "disk", "network", "system"] }
 meshopt = { version = "0.6.2", default-features = false }
 naga = { version = "30.0.0", default-features = false, features = ["spv-in"] }
 notify-debouncer-mini = { version = "0.7.0", default-features = false, features = ["macos_kqueue"] }

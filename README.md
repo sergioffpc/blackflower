@@ -77,6 +77,29 @@ Run the authoritative server:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
+Run the server with the interactive Black Ink diagnostics dashboard:
+
+```sh
+cargo run --package blackflower-server --locked -- --foreground
+```
+
+The dashboard reads the same `http://127.0.0.1:9000/metrics` exposition used by
+Prometheus. It provides Overview, Logs, Simulation, Network, World, and Host
+panels without requiring Prometheus, Grafana, or a separate host-exporter
+process. Set the initial structured log capture level and optional regex with:
+
+```sh
+cargo run --package blackflower-server --locked -- \
+    --foreground \
+    --log-level debug \
+    --log-regex 'network|deadline'
+```
+
+Use `1`-`6` or `Tab` to change panels, `?` for the complete key map, and `q` or
+`Ctrl-C` for orderly terminal restoration and shutdown. See the
+[observability policy](docs/observability.md#foreground-diagnostics) for the
+data and isolation contract.
+
 `blackflower-harness` is a reusable library rather than an executable. The
 player frontend and headless bots use its same session, snapshot, input, and
 prediction contract.
