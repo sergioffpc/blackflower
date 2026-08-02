@@ -33,6 +33,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-cooker-acoustics` | Host-only Steam Audio presentation and pure-Rust authoritative acoustic cooking |
 | `crates/blackflower-cooker-navigation` | Host-only Recast navmesh cooking |
 | `crates/blackflower-cooker-volume` | Host-only OpenVDB-to-NanoVDB cooking |
+| `crates/blackflower-destruction` | NVIDIA Blast asset, family, fracture, split, and stress bindings |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-gltf-metadata` | Versioned Blackflower authoring metadata in glTF and GLB |
 | `crates/blackflower-harness` | Shared human/headless client session, replication, input, and prediction runtime |
@@ -42,6 +43,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
+| `crates/blackflower-rendering-fluids` | NVIDIA Flow context bridge for renderer-owned GPU resources and passes |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
@@ -183,6 +185,8 @@ See the
 [spatial audio setup](crates/blackflower-audio-spatial/README.md),
 [voice audio setup](crates/blackflower-audio-voice/README.md),
 [ECS setup](crates/blackflower-ecs/README.md),
+[destruction setup](crates/blackflower-destruction/README.md),
+[rendering fluids setup](crates/blackflower-rendering-fluids/README.md),
 [rendering models format](crates/blackflower-rendering-models/README.md),
 [rendering volumes setup](crates/blackflower-rendering-volumes/README.md),
 [rendering textures setup](crates/blackflower-rendering-textures/README.md),

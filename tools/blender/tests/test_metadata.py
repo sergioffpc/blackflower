@@ -171,78 +171,170 @@ class AnimationMetadataTests(unittest.TestCase):
 
 
 class NodeMetadataTests(unittest.TestCase):
-    def test_typed_node_identity_is_serialized(self):
+    def test_spawn_point_uses_map_schema_one(self):
         self.assertEqual(
-            metadata.build_node_metadata("spawn_point", "base_north"),
-            {
-                "schema": 1,
-                "node": {"kind": "spawn_point", "id": "base_north"},
-            },
-        )
-
-    def test_node_id_is_optional(self):
-        self.assertEqual(
-            metadata.build_node_metadata("cover"),
-            {"schema": 1, "node": {"kind": "cover"}},
-        )
-
-    def test_navigation_policy_uses_schema_one(self):
-        self.assertEqual(
-            metadata.build_node_metadata(
-                "navigation_surface",
-                "floor_main",
-                navigation_role="surface",
-                area_key="ground",
+            metadata.build_map_node_metadata(
+                "spawn_point",
+                "base_north",
+                spawn_set="players",
+                spawn_weight=2.0,
             ),
             {
                 "schema": 1,
-                "node": {
-                    "kind": "navigation_surface",
-                    "id": "floor_main",
-                },
-                "navigation": {
-                    "role": "surface",
-                    "area_key": "ground",
-                },
+                "node": {"role": "spawn_point", "id": "base_north"},
+                "spawn_point": {"set": "players", "weight": 2.0},
             },
         )
 
-    def test_static_acoustic_geometry_can_also_be_navigation(self):
-        combined = metadata.build_node_metadata(
-            "acoustic_geometry",
+    def test_geometry_combines_domain_uses(self):
+        combined = metadata.build_map_node_metadata(
+            "geometry",
             "floor_main",
-            navigation_role="surface",
-            area_key="ground",
-            acoustics_kind="geometry",
-            geometry_class="static",
+            render=True,
+            collision=True,
+            navigation="surface",
+            acoustic_class="static",
         )
-        self.assertEqual(combined["navigation"]["role"], "surface")
-        self.assertEqual(combined["acoustics"]["class"], "static")
+        self.assertEqual(combined["schema"], 1)
+        self.assertEqual(
+            combined["geometry"],
+            {
+                "render": True,
+                "collision": True,
+                "navigation": "surface",
+                "acoustic_class": "static",
+            },
+        )
 
-    def test_navigation_requires_stable_id_and_complete_link_policy(self):
-        with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
-            metadata.build_node_metadata(
-                "navigation_surface",
-                navigation_role="surface",
-                area_key="ground",
-            )
-        with self.assertRaisesRegex(metadata.MetadataError, "radius"):
-            metadata.build_node_metadata(
-                "navigation_off_mesh_link",
-                "jump_gap",
-                navigation_role="off_mesh_link",
-                area_key="jump",
-                radius=0.0,
-            )
+    def test_navigation_link_references_an_anchor(self):
+        link = metadata.build_map_node_metadata(
+            "navigation_link",
+            "jump_gap",
+            navigation_end="jump_end",
+            navigation_area="jump",
+            navigation_direction="one_way",
+            navigation_radius=0.75,
+        )
+        self.assertEqual(
+            link["navigation_link"],
+            {
+                "end": "jump_end",
+                "area": "jump",
+                "direction": "one_way",
+                "radius": 0.75,
+            },
+        )
 
-    def test_invalid_node_kind_is_rejected(self):
-        for invalid in ("", "SpawnPoint", "spawn-point", "spawn point", "_spawn"):
+    def test_asset_backed_roles_require_portable_ids(self):
+        self.assertEqual(
+            metadata.build_map_node_metadata(
+                "prefab_instance",
+                "crate_one",
+                asset="prefabs/crate",
+            )["prefab_instance"],
+            {"asset": "prefabs/crate"},
+        )
+        for invalid in ("../crate", "Prefabs/crate", "a//b"):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(metadata.MetadataError):
-                    metadata.build_node_metadata(invalid)
+                    metadata.build_map_node_metadata(
+                        "prefab_instance",
+                        "crate_one",
+                        asset=invalid,
+                    )
+
+    def test_node_role_and_id_are_closed_and_required(self):
+        for role, identifier in (
+            ("cover", "cover_one"),
+            ("spawn_point", ""),
+            ("spawn_point", "SpawnOne"),
+        ):
+            with self.subTest(role=role, identifier=identifier):
+                with self.assertRaises(metadata.MetadataError):
+                    metadata.build_map_node_metadata(role, identifier)
+
+    def test_acoustic_zone_and_portal_payloads_are_typed(self):
+        probes = metadata.build_map_node_metadata(
+            "acoustic_zone",
+            "ground_floor_probes",
+            acoustic_zone_kind="probes",
+            acoustic_zone="ground_floor",
+        )
+        portal = metadata.build_map_node_metadata(
+            "acoustic_portal",
+            "doorway",
+            acoustic_zone_a="room_a_bounds",
+            acoustic_zone_b="room_b_bounds",
+            acoustic_controller="door_geometry",
+            acoustic_initially_open=False,
+        )
+        self.assertEqual(
+            probes["acoustic_zone"],
+            {"kind": "probes", "zone": "ground_floor"},
+        )
+        self.assertEqual(
+            portal["acoustic_portal"],
+            {
+                "zone_a": "room_a_bounds",
+                "zone_b": "room_b_bounds",
+                "controller": "door_geometry",
+                "initially_open": False,
+            },
+        )
+        with self.assertRaisesRegex(metadata.MetadataError, "must differ"):
+            metadata.build_map_node_metadata(
+                "acoustic_portal",
+                "invalid",
+                acoustic_zone_a="room_a_bounds",
+                acoustic_zone_b="room_a_bounds",
+            )
+
+    def test_map_references_are_validated_together(self):
+        nodes = [
+            metadata.build_map_node_metadata(
+                "navigation_anchor", "jump_end"
+            ),
+            metadata.build_map_node_metadata(
+                "navigation_link",
+                "jump_start",
+                navigation_end="jump_end",
+                navigation_area="jump",
+            ),
+            metadata.build_map_node_metadata(
+                "acoustic_zone", "room", acoustic_zone_kind="identity"
+            ),
+            metadata.build_map_node_metadata(
+                "acoustic_zone",
+                "room_bounds",
+                acoustic_zone_kind="bounds",
+            ),
+            metadata.build_map_node_metadata(
+                "acoustic_zone",
+                "room_probes",
+                acoustic_zone_kind="probes",
+                acoustic_zone="room",
+            ),
+        ]
+        metadata.validate_map_references(nodes)
+
+        with self.assertRaisesRegex(metadata.MetadataError, "missing node"):
+            metadata.validate_map_references(
+                [
+                    metadata.build_map_node_metadata(
+                        "navigation_link",
+                        "jump_start",
+                        navigation_end="missing",
+                        navigation_area="jump",
+                    )
+                ]
+            )
+        with self.assertRaisesRegex(metadata.MetadataError, "duplicates"):
+            metadata.validate_map_references([nodes[0], nodes[0]])
 
     def test_merge_preserves_other_extras_and_rejects_owned_collision(self):
-        owned = metadata.build_node_metadata("spawn_point")
+        owned = metadata.build_map_node_metadata(
+            "spawn_point", "base_north"
+        )
         self.assertEqual(
             metadata.merge_extras({"vendor": {"enabled": True}}, owned),
             {
@@ -251,91 +343,37 @@ class NodeMetadataTests(unittest.TestCase):
             },
         )
         with self.assertRaisesRegex(metadata.MetadataError, "already contain"):
-                metadata.merge_extras({"blackflower": {}}, owned)
-
-    def test_static_geometry_and_probe_volume_use_schema_one(self):
-        self.assertEqual(
-            metadata.build_node_metadata(
-                "acoustic_geometry",
-                "wall_north",
-                acoustics_kind="geometry",
-                geometry_class="static",
-            )["acoustics"],
-            {"kind": "geometry", "class": "static"},
-        )
-        probes = metadata.build_node_metadata(
-            "acoustic_probe_volume",
-            "ground_floor_probes",
-            acoustics_kind="probe_volume",
-            acoustic_zone="ground_floor",
-        )
-        self.assertEqual(probes["schema"], 1)
-        self.assertEqual(
-            probes["acoustics"],
-            {"kind": "probe_volume", "zone": "ground_floor"},
-        )
-        self.assertNotIn("generation", probes["acoustics"])
-        self.assertNotIn("spacing_meters", probes["acoustics"])
-
-    def test_zone_volume_and_portal_are_typed(self):
-        volume = metadata.build_node_metadata(
-            "acoustic_zone_volume",
-            "room_a",
-            acoustics_kind="zone_volume",
-        )
-        portal = metadata.build_node_metadata(
-            "acoustic_portal",
-            "doorway",
-            acoustics_kind="portal",
-            acoustic_zone_a="room_a",
-            acoustic_zone_b="room_b",
-        )
-        self.assertEqual(volume["acoustics"], {"kind": "zone_volume"})
-        self.assertEqual(
-            portal["acoustics"],
-            {"kind": "portal", "zone_a": "room_a", "zone_b": "room_b"},
-        )
-        with self.assertRaisesRegex(metadata.MetadataError, "must differ"):
-            metadata.build_node_metadata(
-                "acoustic_portal",
-                "invalid",
-                acoustics_kind="portal",
-                acoustic_zone_a="room_a",
-                acoustic_zone_b="room_a",
-            )
-
-    def test_acoustic_nodes_require_stable_ids_and_matching_kinds(self):
-        with self.assertRaisesRegex(metadata.MetadataError, "id is required"):
-            metadata.build_node_metadata(
-                "acoustic_zone",
-                acoustics_kind="zone",
-            )
-        with self.assertRaisesRegex(metadata.MetadataError, "requires node kind"):
-            metadata.build_node_metadata(
-                "mesh",
-                "wall",
-                acoustics_kind="geometry",
-            )
+            metadata.merge_extras({"blackflower": {}}, owned)
 
 
 class MaterialMetadataTests(unittest.TestCase):
-    def test_material_reference_is_portable(self):
+    def test_complete_surface_mapping_uses_schema_one(self):
         self.assertEqual(
-            metadata.build_material_metadata("acoustics/materials/concrete"),
+            metadata.build_map_material_metadata(
+                physics_material="materials/physics/concrete",
+                navigation_area="ground",
+                acoustic_material="acoustics/materials/concrete",
+            ),
             {
                 "schema": 1,
-                "acoustics": {
-                    "material": "acoustics/materials/concrete",
+                "material": {
+                    "physics_material": "materials/physics/concrete",
+                    "navigation_area": "ground",
+                    "acoustic_material": "acoustics/materials/concrete",
                 },
             },
         )
-        self.assertIsNone(metadata.build_material_metadata(""))
+        self.assertIsNone(metadata.build_map_material_metadata())
 
-    def test_invalid_material_reference_is_rejected(self):
+    def test_invalid_surface_mapping_is_rejected(self):
         for invalid in ("../concrete", "Acoustics/concrete", "a//b"):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(metadata.MetadataError):
-                    metadata.build_material_metadata(invalid)
+                    metadata.build_map_material_metadata(
+                        acoustic_material=invalid
+                    )
+        with self.assertRaises(metadata.MetadataError):
+            metadata.build_map_material_metadata(navigation_area="Ground")
 
 
 if __name__ == "__main__":

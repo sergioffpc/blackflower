@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, bail};
 use blackflower_assets::{AssetAudience, AssetId, AssetKind, ContentHash, PackageName};
+use blackflower_gltf_metadata::{Document, MapMetadata};
 use blackflower_shader_compiler::ShaderStage;
 use serde::{Deserialize, Serialize};
 
@@ -526,6 +527,15 @@ struct PackageManifestFile {
     pub(crate) assets: Vec<AssetId>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MapManifestFile {
+    schema: u32,
+    id: AssetId,
+    source: PathBuf,
+    scene: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PackageManifest {
     pub(crate) name: PackageName,
@@ -542,8 +552,22 @@ pub(crate) struct LoadedAsset {
 }
 
 #[derive(Debug)]
+#[allow(
+    dead_code,
+    reason = "map source identity is retained for the later map cooker projection stage"
+)]
+pub(crate) struct LoadedMap {
+    pub(crate) id: AssetId,
+    pub(crate) source_relative: String,
+    pub(crate) source_path: PathBuf,
+    pub(crate) scene: String,
+    pub(crate) metadata: MapMetadata,
+}
+
+#[derive(Debug)]
 pub(crate) struct Repository {
     pub(crate) assets: BTreeMap<AssetId, LoadedAsset>,
+    pub(crate) maps: BTreeMap<AssetId, LoadedMap>,
     pub(crate) packages: BTreeMap<PackageName, PackageManifest>,
 }
 
@@ -560,15 +584,22 @@ impl Repository {
         manifest_paths.sort();
 
         let mut assets = BTreeMap::new();
+        let mut maps = BTreeMap::new();
         let mut packages = BTreeMap::new();
         for path in manifest_paths {
             if is_asset_manifest_path(&path) {
                 load_asset(&canonical_root, &path, &mut assets)?;
+            } else if path.file_name().is_some_and(|name| name == "map.toml") {
+                load_map(&canonical_root, &path, &mut maps)?;
             } else if path.file_name().is_some_and(|name| name == "package.toml") {
                 load_package(&canonical_root, &path, &mut packages)?;
             }
         }
-        let repository = Self { assets, packages };
+        let repository = Self {
+            assets,
+            maps,
+            packages,
+        };
         repository.validate_graph()?;
         Ok(repository)
     }
@@ -760,15 +791,101 @@ fn collect_manifest_paths(root: &Path, output: &mut Vec<PathBuf>) -> anyhow::Res
 
 fn is_manifest_path(path: &Path) -> bool {
     is_asset_manifest_path(path)
-        || path
-            .file_name()
-            .is_some_and(|file_name| file_name == "package.toml")
+        || path.file_name().is_some_and(|file_name| {
+            matches!(file_name.to_str(), Some("map.toml" | "package.toml"))
+        })
 }
 
 fn is_asset_manifest_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|value| value.to_str())
         .is_some_and(|file_name| file_name == "asset.toml" || file_name.ends_with(".asset.toml"))
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "map loading keeps path, manifest, glTF, and scene validation at one boundary"
+)]
+fn load_map(
+    source_root: &Path,
+    path: &Path,
+    maps: &mut BTreeMap<AssetId, LoadedMap>,
+) -> anyhow::Result<()> {
+    let relative = path
+        .strip_prefix(source_root)
+        .with_context(|| format!("map manifest `{}` escapes source root", path.display()))?;
+    let logical_parent = relative
+        .parent()
+        .and_then(|parent| parent.strip_prefix("maps").ok())
+        .with_context(|| {
+            format!(
+                "map manifest `{}` must be at `maps/<logical-path>/map.toml`",
+                path.display()
+            )
+        })?;
+    if logical_parent.as_os_str().is_empty()
+        || relative.file_name().is_none_or(|name| name != "map.toml")
+    {
+        bail!(
+            "map manifest `{}` must be at `maps/<logical-path>/map.toml`",
+            path.display()
+        );
+    }
+    let logical_path = portable_relative_path(logical_parent)
+        .with_context(|| format!("invalid map path for `{}`", path.display()))?;
+    let expected_id = AssetId::from_str(&format!("maps/{logical_path}"))?;
+
+    let text =
+        fs::read_to_string(path).with_context(|| format!("failed to read `{}`", path.display()))?;
+    let file: MapManifestFile =
+        toml::from_str(&text).with_context(|| format!("invalid `{}`", path.display()))?;
+    validate_schema(file.schema, path)?;
+    if file.id != expected_id {
+        bail!(
+            "map manifest `{}` must use ID `{expected_id}`, found `{}`",
+            path.display(),
+            file.id
+        );
+    }
+    if file.scene.is_empty()
+        || file.scene.trim() != file.scene
+        || file.scene.len() > 128
+        || file.scene.chars().any(char::is_control)
+    {
+        bail!("map scene in `{}` is invalid", path.display());
+    }
+    let extension = file.source.extension().and_then(|value| value.to_str());
+    if !matches!(extension, Some("gltf" | "glb")) {
+        bail!(
+            "map source in `{}` must be a .gltf or .glb file",
+            path.display()
+        );
+    }
+    let source_relative = portable_relative_path(&file.source)
+        .with_context(|| format!("invalid map source in `{}`", path.display()))?;
+    let source_path = resolve_source(source_root, path, &file.source)?;
+    let metadata = Document::open(&source_path)
+        .with_context(|| format!("invalid map source `{}`", source_path.display()))?
+        .map_metadata(&file.scene)
+        .with_context(|| {
+            format!(
+                "invalid map scene `{}` in `{}`",
+                file.scene,
+                source_path.display()
+            )
+        })?;
+    let id = file.id;
+    let loaded = LoadedMap {
+        id: id.clone(),
+        source_relative,
+        source_path,
+        scene: file.scene,
+        metadata,
+    };
+    if maps.insert(id.clone(), loaded).is_some() {
+        bail!("duplicate map ID `{id}`");
+    }
+    Ok(())
 }
 
 #[allow(

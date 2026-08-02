@@ -355,12 +355,14 @@ jobs:
           - blackflower-animation
           - blackflower-audio-capture
           - blackflower-cooker-animation
+          - blackflower-destruction
           - blackflower-audio-spatial
           - blackflower-audio-voice
           - blackflower-ecs
           - blackflower-navigation
           - blackflower-networking
           - blackflower-physics
+          - blackflower-rendering-fluids
           - blackflower-rendering-textures
           - blackflower-rendering-volumes
           - blackflower-scripting-luau

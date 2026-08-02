@@ -19,6 +19,7 @@ members = [
     "crates/blackflower-cooker-acoustics",
     "crates/blackflower-cooker-navigation",
     "crates/blackflower-cooker-volume",
+    "crates/blackflower-destruction",
     "crates/blackflower-ecs",
     "crates/blackflower-ecs-derive",
     "crates/blackflower-gltf-metadata",
@@ -30,6 +31,7 @@ members = [
     "crates/blackflower-observability",
     "crates/blackflower-physics",
     "crates/blackflower-rendering",
+    "crates/blackflower-rendering-fluids",
     "crates/blackflower-rendering-models",
     "crates/blackflower-rendering-textures",
     "crates/blackflower-rendering-volumes",
@@ -67,6 +69,7 @@ blackflower-cooker-animation = { path = "crates/blackflower-cooker-animation" }
 blackflower-cooker-acoustics = { path = "crates/blackflower-cooker-acoustics" }
 blackflower-cooker-navigation = { path = "crates/blackflower-cooker-navigation" }
 blackflower-cooker-volume = { path = "crates/blackflower-cooker-volume" }
+blackflower-destruction = { path = "crates/blackflower-destruction" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
 blackflower-ecs-derive = { path = "crates/blackflower-ecs-derive" }
 blackflower-gltf-metadata = { path = "crates/blackflower-gltf-metadata" }
@@ -78,6 +81,7 @@ blackflower-networking-replication = { path = "crates/blackflower-networking-rep
 blackflower-observability = { path = "crates/blackflower-observability" }
 blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
+blackflower-rendering-fluids = { path = "crates/blackflower-rendering-fluids" }
 blackflower-rendering-models = { path = "crates/blackflower-rendering-models" }
 blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
@@ -102,7 +106,7 @@ claxon = { version = "0.4.3", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.2", default-features = false, features = ["f64", "i32", "std"] }
-gltf = { version = "1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_materials_unlit", "KHR_texture_transform"] }
+gltf = { version = "1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_lights_punctual", "KHR_materials_unlit", "KHR_texture_transform"] }
 half = { version = "2.7.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["exr", "png"] }
 kira = { version = "0.12.2", default-features = false, features = ["cpal"] }
@@ -129,6 +133,7 @@ tracing = { version = "0.1.44", default-features = false, features = ["attribute
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 tracing-tracy = { version = "0.11.4", default-features = false }
+wgpu = { version = "30.0.0", default-features = false, features = ["dx12", "metal", "spirv", "std", "vulkan"] }
 rustls = { version = "=0.23.42", default-features = false, features = ["ring", "std"] }
 tokio = { version = "=1.53.1", default-features = false, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 urlencoding = { version = "2.1.3", default-features = false }

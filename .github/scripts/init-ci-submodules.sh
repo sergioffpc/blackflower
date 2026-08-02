@@ -68,6 +68,14 @@ initialize_spatial_audio()
         vendor/zlib
 }
 
+initialize_physx()
+{
+    git submodule update --init --filter=blob:none --depth 1 \
+        vendor/PhysX
+    git -C vendor/PhysX sparse-checkout init --cone
+    git -C vendor/PhysX sparse-checkout set blast flow
+}
+
 initialize_all()
 {
     git submodule update --init --recursive --depth 1 \
@@ -84,6 +92,7 @@ initialize_all()
         vendor/recastnavigation \
         vendor/steam-audio-sdk \
         vendor/zlib
+    initialize_physx
     initialize_slang
     initialize_volume_cooker
 }
@@ -119,6 +128,9 @@ case "$mode" in
             blackflower-cooker-volume|blackflower-rendering-volumes)
                 git submodule update --init --depth 1 vendor/zlib
                 initialize_volume_cooker
+                ;;
+            blackflower-destruction|blackflower-rendering-fluids)
+                initialize_physx
                 ;;
             blackflower-ecs)
                 git submodule update --init --recursive --depth 1 \

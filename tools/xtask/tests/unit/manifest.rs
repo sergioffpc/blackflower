@@ -10,6 +10,80 @@ use super::{AssetSource, Repository};
 #[test]
 #[allow(
     clippy::too_many_lines,
+    reason = "the fixture proves the complete map.toml to typed glTF boundary"
+)]
+fn map_manifest_selects_and_validates_typed_gltf_scene() -> anyhow::Result<()> {
+    let directory = TempDir::new()?;
+    let map = directory.path().join("maps/arena");
+    fs::create_dir_all(&map)?;
+    fs::write(
+        map.join("arena.gltf"),
+        br#"{
+            "asset": {"version": "2.0"},
+            "scenes": [{"name": "Arena", "nodes": [0]}],
+            "nodes": [{
+                "name": "North Spawn",
+                "extras": {"blackflower": {
+                    "schema": 1,
+                    "node": {"id": "base_north", "role": "spawn_point"},
+                    "spawn_point": {"set": "players", "weight": 1.0}
+                }}
+            }]
+        }"#,
+    )?;
+    fs::write(
+        map.join("map.toml"),
+        r#"
+schema = 1
+id = "maps/arena"
+source = "arena.gltf"
+scene = "Arena"
+"#,
+    )?;
+
+    let repository = Repository::load(directory.path())?;
+    let id = AssetId::from_str("maps/arena")?;
+    let loaded = repository.maps.get(&id).context("map was not loaded")?;
+    assert_eq!(loaded.id, id);
+    assert_eq!(loaded.source_relative, "arena.gltf");
+    assert_eq!(loaded.scene, "Arena");
+    assert_eq!(loaded.metadata.nodes()[0].identifier(), "base_north");
+    Ok(())
+}
+
+#[test]
+fn map_manifest_id_is_derived_from_its_maps_path() -> anyhow::Result<()> {
+    let directory = TempDir::new()?;
+    let map = directory.path().join("maps/arena");
+    fs::create_dir_all(&map)?;
+    fs::write(
+        map.join("arena.gltf"),
+        br#"{
+            "asset": {"version": "2.0"},
+            "scenes": [{"name": "Arena", "nodes": []}],
+            "nodes": []
+        }"#,
+    )?;
+    fs::write(
+        map.join("map.toml"),
+        r#"
+schema = 1
+id = "maps/wrong"
+source = "arena.gltf"
+scene = "Arena"
+"#,
+    )?;
+
+    let Err(error) = Repository::load(directory.path()) else {
+        anyhow::bail!("wrong map ID was accepted");
+    };
+    assert!(error.to_string().contains("must use ID `maps/arena`"));
+    Ok(())
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
     reason = "the manifest fixture spells out every required navigation field"
 )]
 fn navigation_manifest_is_explicit_and_canonicalizes_areas() -> anyhow::Result<()> {

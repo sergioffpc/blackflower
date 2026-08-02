@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const CONTRACT_SCHEMA: &str = "1";
 pub const MANIFEST_FILE: &str = "blackflower-native-vendor.txt";
@@ -159,6 +160,69 @@ pub fn locate_from_cargo_build_script(
     let workspace_root = find_workspace_root(manifest_dir)?;
     let directory = locate_vendor(&workspace_root, &configuration, vendor, version)?;
     Ok((configuration, workspace_root, directory))
+}
+
+/// Verifies that a prepared vendor artifact was built from the checked-out source revision.
+pub fn validate_vendor_source_revision(
+    vendor_directory: &Path,
+    source_directory: &Path,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let manifest = vendor_directory.join(MANIFEST_FILE);
+    let manifest_contents = fs::read_to_string(&manifest)?;
+    let expected = manifest_contents
+        .lines()
+        .find_map(|line| line.strip_prefix("source_revision="))
+        .ok_or_else(|| {
+            format!(
+                "native vendor manifest {} has no source revision",
+                manifest.display()
+            )
+        })?;
+    let source = fs::canonicalize(source_directory)?;
+    let top_level = run_git(&source, &["rev-parse", "--show-toplevel"])?;
+    let reported_top_level = fs::canonicalize(Path::new(top_level.trim()))?;
+    if reported_top_level != source {
+        return Err(format!(
+            "native vendor source {} resolved to unexpected Git worktree {}",
+            source.display(),
+            reported_top_level.display()
+        )
+        .into());
+    }
+    let actual = run_git(&source, &["rev-parse", "HEAD"])?;
+    if actual.trim() != expected {
+        return Err(format!(
+            "native vendor artifact {} was built from {}, but {} is checked out; rebuild the vendor",
+            vendor_directory.display(),
+            expected,
+            actual.trim()
+        )
+        .into());
+    }
+    let git_head = PathBuf::from(run_git(&source, &["rev-parse", "--git-path", "HEAD"])?.trim());
+    let git_head = if git_head.is_absolute() {
+        git_head
+    } else {
+        source.join(git_head)
+    };
+    println!("cargo:rerun-if-changed={}", git_head.display());
+    Ok(())
+}
+
+fn run_git(source: &Path, arguments: &[&str]) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(source)
+        .args(arguments)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .output()?;
+    if !output.status.success() {
+        return Err(format!("git {} failed in {}", arguments.join(" "), source.display()).into());
+    }
+    String::from_utf8(output.stdout).map_err(Into::into)
 }
 
 pub fn find_static_library(

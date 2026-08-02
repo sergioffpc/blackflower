@@ -1,6 +1,6 @@
 use blackflower_physics::{
-    BodySettings, CharacterSettings, ContactEventKind, Error, GroundState, MotionType, Shape,
-    StepDelta, World, jolt_version,
+    BodySettings, CharacterSettings, CompoundShapeChild, ContactEventKind, Error, GroundState,
+    MAX_CONVEX_HULL_POINTS, MotionType, Shape, StepDelta, World, jolt_version,
 };
 use glam::{Quat, Vec3A};
 use std::num::NonZeroU32;
@@ -66,6 +66,22 @@ fn safe_values_reject_invalid_native_inputs() -> Result<(), Error> {
         CharacterSettings::new(Shape::sphere(0.5)?),
         Err(Error::InvalidCharacterShape),
     );
+    assert_eq!(
+        Shape::convex_hull(vec![Vec3A::ZERO; 3]),
+        Err(Error::InvalidShape),
+    );
+    assert_eq!(
+        Shape::convex_hull(vec![Vec3A::ZERO; MAX_CONVEX_HULL_POINTS + 1]),
+        Err(Error::InvalidShape),
+    );
+    assert_eq!(
+        Shape::triangle_mesh([Vec3A::ZERO, Vec3A::X, Vec3A::Z], [[0, 1, 3]],),
+        Err(Error::InvalidShape),
+    );
+    assert_eq!(
+        Shape::compound(Vec::<CompoundShapeChild>::new()),
+        Err(Error::InvalidShape),
+    );
 
     let settings = BodySettings::new(Shape::sphere(0.5)?, MotionType::Dynamic);
     assert_eq!(
@@ -90,12 +106,107 @@ fn configured_body_capacity_is_enforced() -> Result<(), Error> {
     let mut world = World::builder().max_bodies(NonZeroU32::MIN).build()?;
     let settings = BodySettings::new(Shape::sphere(0.5)?, MotionType::Dynamic);
 
-    world.create_body(settings)?;
+    world.create_body(settings.clone())?;
     assert_eq!(
         world.create_body(settings),
         Err(Error::BodyCapacityExhausted),
     );
     Ok(())
+}
+
+#[test]
+fn convex_hulls_support_dynamic_bodies_and_rays() -> Result<(), Error> {
+    let mut world = World::new()?;
+    let body = world.create_body(
+        BodySettings::new(cube_hull(0.5)?, MotionType::Dynamic)
+            .with_position(Vec3A::new(0.0, 2.0, 0.0))?,
+    )?;
+
+    let hit = world
+        .cast_ray(Vec3A::new(0.0, 2.0, -2.0), Vec3A::new(0.0, 0.0, 4.0))?
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(hit.body, body);
+
+    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    assert!(world.position(body)?.y < 2.0);
+    Ok(())
+}
+
+#[test]
+fn compounds_apply_child_transforms() -> Result<(), Error> {
+    let children = vec![
+        CompoundShapeChild::new(cube_hull(0.5)?).with_position(Vec3A::new(-1.0, 0.0, 0.0))?,
+        CompoundShapeChild::new(cube_hull(0.5)?).with_position(Vec3A::new(1.0, 0.0, 0.0))?,
+    ];
+    let mut world = World::new()?;
+    let body = world.create_body(BodySettings::new(
+        Shape::compound(children)?,
+        MotionType::Static,
+    ))?;
+
+    let hit = world
+        .cast_ray(Vec3A::new(1.0, 0.0, -2.0), Vec3A::new(0.0, 0.0, 4.0))?
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(hit.body, body);
+    assert!((hit.position.z + 0.5).abs() < 0.001);
+    Ok(())
+}
+
+#[test]
+fn triangle_meshes_are_static_and_collidable() -> Result<(), Error> {
+    let mesh = floor_mesh()?;
+    let mut world = World::new()?;
+    assert_eq!(
+        world.create_body(BodySettings::new(mesh.clone(), MotionType::Dynamic)),
+        Err(Error::StaticShapeRequiresStaticBody),
+    );
+    let body = world.create_body(BodySettings::new(mesh, MotionType::Static))?;
+
+    let hit = world
+        .cast_ray(Vec3A::new(0.0, 2.0, 0.0), Vec3A::new(0.0, -4.0, 0.0))?
+        .ok_or(Error::NativeContract)?;
+    assert_eq!(hit.body, body);
+    assert!(hit.position.abs_diff_eq(Vec3A::ZERO, 0.001));
+    assert!(hit.normal.abs_diff_eq(Vec3A::Y, 0.001));
+    Ok(())
+}
+
+#[test]
+fn degenerate_convex_hulls_report_shape_creation_failure() -> Result<(), Error> {
+    let hull = Shape::convex_hull([Vec3A::ZERO; 4])?;
+    let mut world = World::new()?;
+
+    assert_eq!(
+        world.create_body(BodySettings::new(hull, MotionType::Dynamic)),
+        Err(Error::ShapeCreationFailed),
+    );
+    Ok(())
+}
+
+fn cube_hull(half_extent: f32) -> Result<Shape, Error> {
+    let points = [-half_extent, half_extent]
+        .into_iter()
+        .flat_map(|x| {
+            [-half_extent, half_extent].into_iter().flat_map(move |y| {
+                [-half_extent, half_extent]
+                    .into_iter()
+                    .map(move |z| Vec3A::new(x, y, z))
+            })
+        })
+        .collect::<Vec<_>>();
+    Shape::convex_hull(points)
+}
+
+fn floor_mesh() -> Result<Shape, Error> {
+    Shape::triangle_mesh(
+        [
+            Vec3A::new(-2.0, 0.0, -2.0),
+            Vec3A::new(-2.0, 0.0, 2.0),
+            Vec3A::new(2.0, 0.0, 2.0),
+            Vec3A::new(2.0, 0.0, -2.0),
+        ],
+        [[0, 1, 2], [0, 2, 3]],
+    )
 }
 
 #[test]
