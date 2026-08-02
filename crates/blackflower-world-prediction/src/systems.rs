@@ -16,16 +16,22 @@ type SystemCallback = fn(&PredictionExecutionContext) -> SystemResult;
 pub enum PrepareTickSystem {
     /// Open the prepared tick and initialize its tick-local working context.
     OpenTick,
+    /// Reset scratch storage left by the previous prediction attempt.
+    ResetTickTransientStorage,
     /// Activate accepted commits whose scheduled activation tick is now.
     ActivateScheduledCommits,
 }
 
 impl PrepareTickSystem {
     /// Number of systems in `PrepareTick`.
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
 
     /// Stable registration order for `PrepareTick` systems.
-    pub const ORDER: [Self; Self::COUNT] = [Self::OpenTick, Self::ActivateScheduledCommits];
+    pub const ORDER: [Self; Self::COUNT] = [
+        Self::OpenTick,
+        Self::ResetTickTransientStorage,
+        Self::ActivateScheduledCommits,
+    ];
 
     /// Stable scheduler entity and trace field name for this system.
     #[must_use]
@@ -36,6 +42,7 @@ impl PrepareTickSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::OpenTick => open_tick,
+            Self::ResetTickTransientStorage => reset_tick_transient_storage,
             Self::ActivateScheduledCommits => activate_scheduled_commits,
         }
     }
@@ -65,8 +72,8 @@ impl PrepareTickSystem {
 /// active prediction tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum CaptureTickInputsSystem {
-    /// Capture current or recorded actor control frames for the active pass.
-    CaptureActorControlFrames,
+    /// Capture the exact tick input selected by the shared prediction coordinator.
+    CapturePredictionInputFrame,
 }
 
 impl CaptureTickInputsSystem {
@@ -74,7 +81,7 @@ impl CaptureTickInputsSystem {
     pub const COUNT: usize = 1;
 
     /// Stable registration order for `CaptureTickInputs` systems.
-    pub const ORDER: [Self; Self::COUNT] = [Self::CaptureActorControlFrames];
+    pub const ORDER: [Self; Self::COUNT] = [Self::CapturePredictionInputFrame];
 
     /// Stable scheduler entity and trace field name for this system.
     #[must_use]
@@ -84,7 +91,7 @@ impl CaptureTickInputsSystem {
 
     fn callback(self) -> SystemCallback {
         match self {
-            Self::CaptureActorControlFrames => capture_actor_control_frames,
+            Self::CapturePredictionInputFrame => capture_prediction_input_frame,
         }
     }
 
@@ -383,6 +390,8 @@ impl CommitStateTransitionsSystem {
 pub enum SealTickSystem {
     /// Validate invariants across the complete predicted state.
     ValidatePredictedState,
+    /// Assign stable identities and canonical order to predicted events.
+    CanonicalizePredictedEvents,
     /// Compute the deterministic hash of canonical predicted state.
     ComputePredictedStateHash,
     /// Make the validated predicted state and hash immutable for this tick.
@@ -391,11 +400,12 @@ pub enum SealTickSystem {
 
 impl SealTickSystem {
     /// Number of systems in `SealTick`.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 4;
 
     /// Stable registration and execution order for tick-sealing systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::ValidatePredictedState,
+        Self::CanonicalizePredictedEvents,
         Self::ComputePredictedStateHash,
         Self::SealPredictedState,
     ];
@@ -409,6 +419,7 @@ impl SealTickSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::ValidatePredictedState => validate_predicted_state,
+            Self::CanonicalizePredictedEvents => canonicalize_predicted_events,
             Self::ComputePredictedStateHash => compute_predicted_state_hash,
             Self::SealPredictedState => seal_predicted_state,
         }
@@ -436,25 +447,29 @@ impl SealTickSystem {
 /// A system in the predicted [`PredictionPhase::SubmitTickOutputs`] phase.
 ///
 /// These systems build an immutable batch from sealed predicted state,
-/// suppress duplicate re-simulation effects, and submit it in memory.
+/// classify pass-aware effects, reconcile stable event identities, and submit
+/// the completed output batch in memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum SubmitTickOutputsSystem {
     /// Build the immutable output batch for the completed predicted tick.
     BuildTickOutputBatch,
-    /// Remove externally visible effects during re-simulation.
-    SuppressResimulationEffects,
+    /// Classify outputs as forward, replayed, corrected, or cancelled.
+    ClassifyPredictionOutputsForPass,
+    /// Reconcile stable predicted-event identities against previously published events.
+    ReconcilePredictedEvents,
     /// Submit the completed batch to in-memory consumers.
     SubmitTickOutputBatch,
 }
 
 impl SubmitTickOutputsSystem {
     /// Number of systems in `SubmitTickOutputs`.
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 4;
 
     /// Stable registration and execution order for tick-output systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::BuildTickOutputBatch,
-        Self::SuppressResimulationEffects,
+        Self::ClassifyPredictionOutputsForPass,
+        Self::ReconcilePredictedEvents,
         Self::SubmitTickOutputBatch,
     ];
 
@@ -467,7 +482,8 @@ impl SubmitTickOutputsSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::BuildTickOutputBatch => build_tick_output_batch,
-            Self::SuppressResimulationEffects => suppress_resimulation_effects,
+            Self::ClassifyPredictionOutputsForPass => classify_prediction_outputs_for_pass,
+            Self::ReconcilePredictedEvents => reconcile_predicted_events,
             Self::SubmitTickOutputBatch => submit_tick_output_batch,
         }
     }
@@ -552,13 +568,18 @@ fn open_tick(execution_context: &PredictionExecutionContext) -> SystemResult {
     Ok(())
 }
 
+fn reset_tick_transient_storage(_execution_context: &PredictionExecutionContext) -> SystemResult {
+    // Clear tick-local candidates, facts, event reconciliation, and output staging.
+    Ok(())
+}
+
 fn activate_scheduled_commits(_execution_context: &PredictionExecutionContext) -> SystemResult {
     // Make accepted commits scheduled for the active tick visible to prediction.
     Ok(())
 }
 
-fn capture_actor_control_frames(execution_context: &PredictionExecutionContext) -> SystemResult {
-    // Capture current inputs or select recorded inputs for the active pass.
+fn capture_prediction_input_frame(execution_context: &PredictionExecutionContext) -> SystemResult {
+    // Capture the exact InputFrame selected by PredictionSession for this tick and pass.
     let _execution = execution_context.current();
     Ok(())
 }
@@ -687,6 +708,11 @@ fn validate_predicted_state(_execution_context: &PredictionExecutionContext) -> 
     Ok(())
 }
 
+fn canonicalize_predicted_events(_execution_context: &PredictionExecutionContext) -> SystemResult {
+    // Assign replay-stable identities and canonical order to speculative events.
+    Ok(())
+}
+
 fn compute_predicted_state_hash(_execution_context: &PredictionExecutionContext) -> SystemResult {
     // Compute the deterministic hash of canonical predicted state.
     Ok(())
@@ -702,9 +728,16 @@ fn build_tick_output_batch(_execution_context: &PredictionExecutionContext) -> S
     Ok(())
 }
 
-fn suppress_resimulation_effects(execution_context: &PredictionExecutionContext) -> SystemResult {
-    // Remove externally visible effects when the active pass is re-simulation.
+fn classify_prediction_outputs_for_pass(
+    execution_context: &PredictionExecutionContext,
+) -> SystemResult {
+    // Classify events as new, replayed, corrected, or cancelled for the active pass.
     let _execution = execution_context.current();
+    Ok(())
+}
+
+fn reconcile_predicted_events(_execution_context: &PredictionExecutionContext) -> SystemResult {
+    // Compare stable event identities with prior forward outputs without duplicating effects.
     Ok(())
 }
 

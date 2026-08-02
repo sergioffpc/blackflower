@@ -36,12 +36,13 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-destruction` | NVIDIA Blast asset, family, fracture, split, and stress bindings |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
 | `crates/blackflower-gltf-metadata` | Versioned Blackflower authoring metadata in glTF and GLB |
-| `crates/blackflower-harness` | Reserved library for the future shared frontend/headless client binding |
+| `crates/blackflower-harness` | Shared human/headless client session, replication, input, and prediction runtime |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-networking` | Shared networking primitives |
 | `crates/blackflower-networking-quic` | Low-level Quinn transport endpoints and bounded host queues |
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
+| `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
 | `crates/blackflower-rendering-fluids` | NVIDIA Flow context bridge for renderer-owned GPU resources and passes |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
@@ -67,8 +68,9 @@ Run the authoritative server:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
-`blackflower-harness` is intentionally a library and has no executable yet.
-Frontend and headless client composition will be designed separately.
+`blackflower-harness` is a reusable library rather than an executable. The
+player frontend and headless bots use its same session, snapshot, input, and
+prediction contract.
 
 ## Cooking assets
 
@@ -211,9 +213,9 @@ Pushing a `v*` tag runs the release workflow and uploads six binary archives:
 | Windows | IntelLLVM 2025.0.4 + ISPC 1.31.0 | MSVC |
 | macOS | AppleClang + ISPC 1.31.0 | AppleClang |
 
-Each archive contains `blackflower`, `blackflower-server`, and
-`blackflower-harness` (with `.exe` suffixes on Windows). The x86-64 jobs also
-build the statically linked Steam Audio crate, so the pinned ISPC,
+Each archive contains `blackflower` and `blackflower-server` (with `.exe`
+suffixes on Windows). The x86-64 jobs also build the statically linked Steam
+Audio crate, so the pinned ISPC,
 Steam Audio, and Embree combination is part of the release gate. ARM64 Windows
 uses GitHub's public-preview hosted runner and remains a required matrix entry.
 

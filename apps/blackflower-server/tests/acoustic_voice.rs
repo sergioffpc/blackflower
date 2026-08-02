@@ -8,7 +8,7 @@ use blackflower_audio_capture::{
     CaptureSettings, CaptureStream, VoiceActivation, VoiceAnalyzerBank,
 };
 use blackflower_audio_voice::{Channels, Decoder, SampleRate};
-use blackflower_networking::{HarnessEndpoint, InMemoryDatagramHarness};
+use blackflower_networking::{DatagramLinkEndpoint, InMemoryDatagramLink};
 
 fn acoustic_world() -> Result<AcousticWorld, Box<dyn std::error::Error>> {
     let materials = AcousticMaterialLibrary::new(vec![AcousticMaterial {
@@ -67,9 +67,9 @@ fn microphone_to_server_solver_bot_and_client_is_complete() -> Result<(), Box<dy
     assert_eq!(capture_worker.poll(&mut captured)?, 1);
     let captured = captured.remove(0);
 
-    let mut link = InMemoryDatagramHarness::new(4);
+    let mut link = InMemoryDatagramLink::new(4);
     link.send(
-        HarnessEndpoint::Server,
+        DatagramLinkEndpoint::Server,
         encode_voice_capture(&VoiceCapturePacket {
             stream: captured.encoded.stream,
             sequence: captured.encoded.sequence,
@@ -78,7 +78,7 @@ fn microphone_to_server_solver_bot_and_client_is_complete() -> Result<(), Box<dy
         })?,
     )?;
     let server_datagram = link
-        .receive(HarnessEndpoint::Server)
+        .receive(DatagramLinkEndpoint::Server)
         .ok_or_else(|| std::io::Error::other("server packet is missing"))?;
     let packet = decode_voice_capture(&server_datagram)?;
     let mut analyzers = VoiceAnalyzerBank::new(32)?;
@@ -130,11 +130,11 @@ fn microphone_to_server_solver_bot_and_client_is_complete() -> Result<(), Box<dy
     assert!(frame.voices[0].propagation.arrival_sample > packet.sample_timestamp);
 
     link.send(
-        HarnessEndpoint::Client,
+        DatagramLinkEndpoint::Client,
         encode_audible_voice(&frame.voices[0])?,
     )?;
     let client_datagram = link
-        .receive(HarnessEndpoint::Client)
+        .receive(DatagramLinkEndpoint::Client)
         .ok_or_else(|| std::io::Error::other("client packet is missing"))?;
     let delivery = decode_audible_voice(&client_datagram, 20)?;
     assert_eq!(delivery.encoded.payload(), packet.encoded.payload());

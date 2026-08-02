@@ -18,14 +18,20 @@ pub enum PrepareFrameSystem {
     OpenFrame,
     /// Reset scratch storage and command staging left by the previous frame attempt.
     ResetFrameTransientStorage,
+    /// Resolve bounded frame timing, pause, and discontinuity policy.
+    ResolveFrameTiming,
 }
 
 impl PrepareFrameSystem {
     /// Number of systems in `PrepareFrame`.
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
 
     /// Stable registration order for `PrepareFrame` systems.
-    pub const ORDER: [Self; Self::COUNT] = [Self::OpenFrame, Self::ResetFrameTransientStorage];
+    pub const ORDER: [Self; Self::COUNT] = [
+        Self::OpenFrame,
+        Self::ResetFrameTransientStorage,
+        Self::ResolveFrameTiming,
+    ];
 
     /// Stable scheduler entity and trace field name for this system.
     #[must_use]
@@ -37,6 +43,7 @@ impl PrepareFrameSystem {
         match self {
             Self::OpenFrame => open_frame,
             Self::ResetFrameTransientStorage => reset_frame_transient_storage,
+            Self::ResolveFrameTiming => resolve_frame_timing,
         }
     }
 
@@ -65,26 +72,29 @@ impl PrepareFrameSystem {
 /// advancing or mutating their prediction and simulation sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum CaptureFrameInputsSystem {
-    /// Capture sealed state for entities presented from local prediction.
-    CaptureLocalPredictionState,
-    /// Capture the remote snapshot history required for interpolation.
-    CaptureRemoteSnapshotHistory,
-    /// Capture available simulation events without consuming their source.
-    CaptureSimulationEvents,
+    /// Capture one immutable session, authoritative, and predicted client view.
+    CaptureClientView,
+    /// Capture the bounded authoritative projection window required for interpolation.
+    CaptureInterpolationWindow,
+    /// Capture available client-facing events without consuming their source.
+    CaptureClientEvents,
     /// Capture the active view and output configuration for this frame.
     CaptureFrameConfiguration,
+    /// Capture immutable renderer, audio, UI, and haptic backend feedback.
+    CaptureBackendFeedback,
 }
 
 impl CaptureFrameInputsSystem {
     /// Number of systems in `CaptureFrameInputs`.
-    pub const COUNT: usize = 4;
+    pub const COUNT: usize = 5;
 
     /// Stable registration order for `CaptureFrameInputs` systems.
     pub const ORDER: [Self; Self::COUNT] = [
-        Self::CaptureLocalPredictionState,
-        Self::CaptureRemoteSnapshotHistory,
-        Self::CaptureSimulationEvents,
+        Self::CaptureClientView,
+        Self::CaptureInterpolationWindow,
+        Self::CaptureClientEvents,
         Self::CaptureFrameConfiguration,
+        Self::CaptureBackendFeedback,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -95,10 +105,11 @@ impl CaptureFrameInputsSystem {
 
     fn callback(self) -> SystemCallback {
         match self {
-            Self::CaptureLocalPredictionState => capture_local_prediction_state,
-            Self::CaptureRemoteSnapshotHistory => capture_remote_snapshot_history,
-            Self::CaptureSimulationEvents => capture_simulation_events,
+            Self::CaptureClientView => capture_client_view,
+            Self::CaptureInterpolationWindow => capture_interpolation_window,
+            Self::CaptureClientEvents => capture_client_events,
             Self::CaptureFrameConfiguration => capture_frame_configuration,
+            Self::CaptureBackendFeedback => capture_backend_feedback,
         }
     }
 
@@ -241,12 +252,12 @@ impl SampleRenderTimelineSystem {
     }
 }
 
-/// A system in the client [`PresentationPhase::UpdateCamerasAndListeners`] phase.
+/// A system in the client [`PresentationPhase::PrepareViewsAndListeners`] phase.
 ///
 /// These systems update active views and spatial-audio listeners from sampled
 /// scene state and the immutable configuration captured for the active frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum UpdateCamerasAndListenersSystem {
+pub enum PrepareViewsAndListenersSystem {
     /// Associate active cameras, viewports, and spatial-audio listeners.
     SelectActiveViews,
     /// Resolve viewport dimensions, aspect ratios, and output regions.
@@ -255,21 +266,18 @@ pub enum UpdateCamerasAndListenersSystem {
     UpdateCameraRigs,
     /// Derive projection parameters and view data for active cameras.
     UpdateCameraProjections,
-    /// Update spatial-audio listener poses and velocities.
-    UpdateSpatialAudioListeners,
 }
 
-impl UpdateCamerasAndListenersSystem {
-    /// Number of systems in `UpdateCamerasAndListeners`.
-    pub const COUNT: usize = 5;
+impl PrepareViewsAndListenersSystem {
+    /// Number of systems in `PrepareViewsAndListeners`.
+    pub const COUNT: usize = 4;
 
-    /// Stable registration order for `UpdateCamerasAndListeners` systems.
+    /// Stable registration order for `PrepareViewsAndListeners` systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::SelectActiveViews,
         Self::UpdateViewportLayouts,
         Self::UpdateCameraRigs,
         Self::UpdateCameraProjections,
-        Self::UpdateSpatialAudioListeners,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -284,7 +292,6 @@ impl UpdateCamerasAndListenersSystem {
             Self::UpdateViewportLayouts => update_viewport_layouts,
             Self::UpdateCameraRigs => update_camera_rigs,
             Self::UpdateCameraProjections => update_camera_projections,
-            Self::UpdateSpatialAudioListeners => update_spatial_audio_listeners,
         }
     }
 
@@ -299,7 +306,7 @@ impl UpdateCamerasAndListenersSystem {
             world,
             phase,
             driver_expression,
-            PresentationPhase::UpdateCamerasAndListeners,
+            PresentationPhase::PrepareViewsAndListeners,
             self.name(),
             execution_context,
             self.callback(),
@@ -402,11 +409,15 @@ pub enum ResolveSceneGraphSystem {
     ResolveAttachmentTransforms,
     /// Compose final world-space transforms in stable hierarchy order.
     PropagateWorldTransforms,
+    /// Resolve final camera world transforms after hierarchy and attachment propagation.
+    ResolveCameraWorldTransforms,
+    /// Resolve final spatial-audio listener poses and velocities.
+    ResolveListenerWorldTransforms,
 }
 
 impl ResolveSceneGraphSystem {
     /// Number of systems in `ResolveSceneGraph`.
-    pub const COUNT: usize = 5;
+    pub const COUNT: usize = 7;
 
     /// Stable registration order for `ResolveSceneGraph` systems.
     pub const ORDER: [Self; Self::COUNT] = [
@@ -415,6 +426,8 @@ impl ResolveSceneGraphSystem {
         Self::ResolveSocketTransforms,
         Self::ResolveAttachmentTransforms,
         Self::PropagateWorldTransforms,
+        Self::ResolveCameraWorldTransforms,
+        Self::ResolveListenerWorldTransforms,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -430,6 +443,8 @@ impl ResolveSceneGraphSystem {
             Self::ResolveSocketTransforms => resolve_socket_transforms,
             Self::ResolveAttachmentTransforms => resolve_attachment_transforms,
             Self::PropagateWorldTransforms => propagate_world_transforms,
+            Self::ResolveCameraWorldTransforms => resolve_camera_world_transforms,
+            Self::ResolveListenerWorldTransforms => resolve_listener_world_transforms,
         }
     }
 
@@ -460,6 +475,8 @@ impl ResolveSceneGraphSystem {
 pub enum UpdateEffectsAndFeedbackSystem {
     /// Convert captured events and animation markers into frame-local cues.
     ResolvePresentationCues,
+    /// Deduplicate and reconcile cues by stable authoritative or predicted event identity.
+    DeduplicatePresentationCues,
     /// Create, advance, and retire visual effects.
     AdvanceVisualEffects,
     /// Update spatial-audio cues, emitters, parameters, and transforms.
@@ -472,11 +489,12 @@ pub enum UpdateEffectsAndFeedbackSystem {
 
 impl UpdateEffectsAndFeedbackSystem {
     /// Number of systems in `UpdateEffectsAndFeedback`.
-    pub const COUNT: usize = 5;
+    pub const COUNT: usize = 6;
 
     /// Stable registration order for `UpdateEffectsAndFeedback` systems.
     pub const ORDER: [Self; Self::COUNT] = [
         Self::ResolvePresentationCues,
+        Self::DeduplicatePresentationCues,
         Self::AdvanceVisualEffects,
         Self::UpdateSpatialAudioEmitters,
         Self::UpdateUserInterface,
@@ -492,6 +510,7 @@ impl UpdateEffectsAndFeedbackSystem {
     fn callback(self) -> SystemCallback {
         match self {
             Self::ResolvePresentationCues => resolve_presentation_cues,
+            Self::DeduplicatePresentationCues => deduplicate_presentation_cues,
             Self::AdvanceVisualEffects => advance_visual_effects,
             Self::UpdateSpatialAudioEmitters => update_spatial_audio_emitters,
             Self::UpdateUserInterface => update_user_interface,
@@ -518,38 +537,38 @@ impl UpdateEffectsAndFeedbackSystem {
     }
 }
 
-/// A system in the client [`PresentationPhase::BuildBackendCommands`] phase.
+/// A system in the client [`PresentationPhase::BuildFrameOutputs`] phase.
 ///
 /// These systems transform finalized presentation state into immutable command
 /// buffers without calling concrete client backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum BuildBackendCommandsSystem {
-    /// Determine visible proxies, lights, effects, and levels of detail per view.
-    BuildVisibilitySets,
-    /// Build immutable geometry, lighting, effects, and composition commands.
-    BuildRenderingCommands,
+pub enum BuildFrameOutputsSystem {
+    /// Build semantic layer and view masks without performing renderer-owned culling.
+    BuildSemanticVisibilityMasks,
+    /// Build one complete immutable visual snapshot for the renderer.
+    BuildRenderFrame,
     /// Build immutable listener, emitter, playback, parameter, and stop commands.
     BuildAudioCommands,
     /// Build immutable HUD and world-space interface commands.
     BuildUserInterfaceCommands,
     /// Build immutable device-targeted commands from active haptic envelopes.
     BuildHapticCommands,
-    /// Validate and seal every backend command buffer before submission.
-    SealBackendCommands,
+    /// Validate and seal every frame output before publication.
+    SealFrameOutputs,
 }
 
-impl BuildBackendCommandsSystem {
-    /// Number of systems in `BuildBackendCommands`.
+impl BuildFrameOutputsSystem {
+    /// Number of systems in `BuildFrameOutputs`.
     pub const COUNT: usize = 6;
 
-    /// Stable registration order for `BuildBackendCommands` systems.
+    /// Stable registration order for `BuildFrameOutputs` systems.
     pub const ORDER: [Self; Self::COUNT] = [
-        Self::BuildVisibilitySets,
-        Self::BuildRenderingCommands,
+        Self::BuildSemanticVisibilityMasks,
+        Self::BuildRenderFrame,
         Self::BuildAudioCommands,
         Self::BuildUserInterfaceCommands,
         Self::BuildHapticCommands,
-        Self::SealBackendCommands,
+        Self::SealFrameOutputs,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -560,12 +579,12 @@ impl BuildBackendCommandsSystem {
 
     fn callback(self) -> SystemCallback {
         match self {
-            Self::BuildVisibilitySets => build_visibility_sets,
-            Self::BuildRenderingCommands => build_rendering_commands,
+            Self::BuildSemanticVisibilityMasks => build_semantic_visibility_masks,
+            Self::BuildRenderFrame => build_render_frame,
             Self::BuildAudioCommands => build_audio_commands,
             Self::BuildUserInterfaceCommands => build_user_interface_commands,
             Self::BuildHapticCommands => build_haptic_commands,
-            Self::SealBackendCommands => seal_backend_commands,
+            Self::SealFrameOutputs => seal_frame_outputs,
         }
     }
 
@@ -580,7 +599,7 @@ impl BuildBackendCommandsSystem {
             world,
             phase,
             driver_expression,
-            PresentationPhase::BuildBackendCommands,
+            PresentationPhase::BuildFrameOutputs,
             self.name(),
             execution_context,
             self.callback(),
@@ -588,35 +607,32 @@ impl BuildBackendCommandsSystem {
     }
 }
 
-/// A system in the client [`PresentationPhase::SubmitBackendCommands`] phase.
+/// A system in the client [`PresentationPhase::PublishFrameOutputs`] phase.
 ///
-/// These systems submit sealed command buffers to concrete client backends and
-/// present viewport outputs only after every command batch is accepted.
+/// These systems publish independently frame-keyed sealed outputs to bounded
+/// backend handoffs. Swapchain acquisition and presentation remain renderer-owned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum SubmitBackendCommandsSystem {
-    /// Submit sealed geometry, lighting, effects, and composition commands.
-    SubmitRenderingCommands,
-    /// Submit sealed HUD and world-space interface commands.
-    SubmitUserInterfaceCommands,
-    /// Submit sealed listener, emitter, playback, parameter, and stop commands.
-    SubmitAudioCommands,
-    /// Submit sealed haptic commands to their target devices.
-    SubmitHapticCommands,
-    /// Present completed viewport outputs after all command batches are accepted.
-    PresentViewportFrames,
+pub enum PublishFrameOutputsSystem {
+    /// Publish the immutable visual snapshot to the latest-frame renderer mailbox.
+    PublishRenderFrame,
+    /// Publish sealed HUD and world-space interface commands.
+    PublishUserInterfaceCommands,
+    /// Publish sealed listener, emitter, playback, parameter, and stop commands.
+    PublishAudioCommands,
+    /// Publish sealed haptic commands to their target devices.
+    PublishHapticCommands,
 }
 
-impl SubmitBackendCommandsSystem {
-    /// Number of systems in `SubmitBackendCommands`.
-    pub const COUNT: usize = 5;
+impl PublishFrameOutputsSystem {
+    /// Number of systems in `PublishFrameOutputs`.
+    pub const COUNT: usize = 4;
 
-    /// Stable registration order for `SubmitBackendCommands` systems.
+    /// Stable registration order for `PublishFrameOutputs` systems.
     pub const ORDER: [Self; Self::COUNT] = [
-        Self::SubmitRenderingCommands,
-        Self::SubmitUserInterfaceCommands,
-        Self::SubmitAudioCommands,
-        Self::SubmitHapticCommands,
-        Self::PresentViewportFrames,
+        Self::PublishRenderFrame,
+        Self::PublishUserInterfaceCommands,
+        Self::PublishAudioCommands,
+        Self::PublishHapticCommands,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -627,11 +643,10 @@ impl SubmitBackendCommandsSystem {
 
     fn callback(self) -> SystemCallback {
         match self {
-            Self::SubmitRenderingCommands => submit_rendering_commands,
-            Self::SubmitUserInterfaceCommands => submit_user_interface_commands,
-            Self::SubmitAudioCommands => submit_audio_commands,
-            Self::SubmitHapticCommands => submit_haptic_commands,
-            Self::PresentViewportFrames => present_viewport_frames,
+            Self::PublishRenderFrame => publish_render_frame,
+            Self::PublishUserInterfaceCommands => publish_user_interface_commands,
+            Self::PublishAudioCommands => publish_audio_commands,
+            Self::PublishHapticCommands => publish_haptic_commands,
         }
     }
 
@@ -646,7 +661,7 @@ impl SubmitBackendCommandsSystem {
             world,
             phase,
             driver_expression,
-            PresentationPhase::SubmitBackendCommands,
+            PresentationPhase::PublishFrameOutputs,
             self.name(),
             execution_context,
             self.callback(),
@@ -674,8 +689,8 @@ pub enum CommitFrameHistorySystem {
     RetireConsumedEvents,
     /// Release frame-local captured prediction, snapshot, and configuration references.
     ReleaseCapturedFrameInputs,
-    /// Recycle sealed command buffers after successful backend submission.
-    RecycleSubmittedBackendCommands,
+    /// Release presentation-owned staging after backend ownership transfer.
+    ReleasePublishedFrameOutputs,
 }
 
 impl CommitFrameHistorySystem {
@@ -690,7 +705,7 @@ impl CommitFrameHistorySystem {
         Self::CommitEffectsAndFeedbackHistory,
         Self::RetireConsumedEvents,
         Self::ReleaseCapturedFrameInputs,
-        Self::RecycleSubmittedBackendCommands,
+        Self::ReleasePublishedFrameOutputs,
     ];
 
     /// Stable scheduler entity and trace field name for this system.
@@ -707,7 +722,7 @@ impl CommitFrameHistorySystem {
             Self::CommitEffectsAndFeedbackHistory => commit_effects_and_feedback_history,
             Self::RetireConsumedEvents => retire_consumed_events,
             Self::ReleaseCapturedFrameInputs => release_captured_frame_inputs,
-            Self::RecycleSubmittedBackendCommands => recycle_submitted_backend_commands,
+            Self::ReleasePublishedFrameOutputs => release_published_frame_outputs,
         }
     }
 
@@ -756,8 +771,8 @@ pub(crate) fn register(
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
-    let phase = pipeline.phase(PresentationPhase::UpdateCamerasAndListeners);
-    for system in UpdateCamerasAndListenersSystem::ORDER {
+    let phase = pipeline.phase(PresentationPhase::PrepareViewsAndListeners);
+    for system in PrepareViewsAndListenersSystem::ORDER {
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
@@ -776,13 +791,13 @@ pub(crate) fn register(
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
-    let phase = pipeline.phase(PresentationPhase::BuildBackendCommands);
-    for system in BuildBackendCommandsSystem::ORDER {
+    let phase = pipeline.phase(PresentationPhase::BuildFrameOutputs);
+    for system in BuildFrameOutputsSystem::ORDER {
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
-    let phase = pipeline.phase(PresentationPhase::SubmitBackendCommands);
-    for system in SubmitBackendCommandsSystem::ORDER {
+    let phase = pipeline.phase(PresentationPhase::PublishFrameOutputs);
+    for system in PublishFrameOutputsSystem::ORDER {
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
@@ -807,27 +822,37 @@ fn open_frame(execution_context: &FrameExecutionContext) -> SystemResult {
 }
 
 fn reset_frame_transient_storage(execution_context: &FrameExecutionContext) -> SystemResult {
-    execution_context.reset_audio_transient()?;
+    execution_context.reset_frame_transient()?;
     Ok(())
 }
 
-fn capture_local_prediction_state(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Capture sealed local prediction state without mutating its source.
+fn resolve_frame_timing(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Apply the caller-configured pause, maximum-delta, and discontinuity policy.
     Ok(())
 }
 
-fn capture_remote_snapshot_history(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Capture the stable remote snapshot window required for interpolation.
+fn capture_client_view(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Capture one immutable ClientView containing session and predicted state.
     Ok(())
 }
 
-fn capture_simulation_events(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Capture available simulation events; commit history retires consumed events.
+fn capture_interpolation_window(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Capture ClientView::authoritative_window without owning network history.
+    Ok(())
+}
+
+fn capture_client_events(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Capture available session, simulation, prediction, command, and voice events.
     Ok(())
 }
 
 fn capture_frame_configuration(_execution_context: &FrameExecutionContext) -> SystemResult {
     // Capture the active view and output configuration for this frame.
+    Ok(())
+}
+
+fn capture_backend_feedback(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Capture immutable resource residency, device, and submission feedback.
     Ok(())
 }
 
@@ -883,11 +908,6 @@ fn update_camera_rigs(_execution_context: &FrameExecutionContext) -> SystemResul
 
 fn update_camera_projections(_execution_context: &FrameExecutionContext) -> SystemResult {
     // Derive projection parameters and view data for active cameras.
-    Ok(())
-}
-
-fn update_spatial_audio_listeners(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Update spatial-audio listener poses and velocities.
     Ok(())
 }
 
@@ -956,8 +976,23 @@ fn propagate_world_transforms(_execution_context: &FrameExecutionContext) -> Sys
     Ok(())
 }
 
+fn resolve_camera_world_transforms(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Resolve final camera transforms after hierarchy, skeletons, sockets, and attachments.
+    Ok(())
+}
+
+fn resolve_listener_world_transforms(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Resolve final listener poses and velocities from the completed scene graph.
+    Ok(())
+}
+
 fn resolve_presentation_cues(_execution_context: &FrameExecutionContext) -> SystemResult {
     // Convert captured events and animation markers into frame-local cues.
+    Ok(())
+}
+
+fn deduplicate_presentation_cues(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Reconcile authoritative and predicted cue identities before advancing effects.
     Ok(())
 }
 
@@ -981,13 +1016,13 @@ fn advance_haptic_feedback(_execution_context: &FrameExecutionContext) -> System
     Ok(())
 }
 
-fn build_visibility_sets(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Determine visible proxies, lights, effects, and levels of detail per view.
+fn build_semantic_visibility_masks(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Build semantic view masks; the renderer owns culling and LOD selection.
     Ok(())
 }
 
-fn build_rendering_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Build immutable geometry, lighting, effects, and composition commands.
+fn build_render_frame(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.build_render_frame()?;
     Ok(())
 }
 
@@ -1006,33 +1041,28 @@ fn build_haptic_commands(_execution_context: &FrameExecutionContext) -> SystemRe
     Ok(())
 }
 
-fn seal_backend_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Validate and seal every backend command buffer before submission.
+fn seal_frame_outputs(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Validate complete immutable outputs and their frame-keyed identities.
     Ok(())
 }
 
-fn submit_rendering_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Submit sealed geometry, lighting, effects, and composition commands.
+fn publish_render_frame(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.publish_render_frame()?;
     Ok(())
 }
 
-fn submit_user_interface_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Submit sealed HUD and world-space interface commands.
+fn publish_user_interface_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Publish a frame-keyed sealed HUD and world-space interface batch.
     Ok(())
 }
 
-fn submit_audio_commands(execution_context: &FrameExecutionContext) -> SystemResult {
-    execution_context.submit_audio_commands()?;
+fn publish_audio_commands(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.publish_audio_commands()?;
     Ok(())
 }
 
-fn submit_haptic_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Submit sealed haptic commands to their target devices.
-    Ok(())
-}
-
-fn present_viewport_frames(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Present viewport outputs only after all command batches are accepted.
+fn publish_haptic_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Publish frame-keyed sealed haptic commands to their device backend.
     Ok(())
 }
 
@@ -1066,8 +1096,8 @@ fn release_captured_frame_inputs(_execution_context: &FrameExecutionContext) -> 
     Ok(())
 }
 
-fn recycle_submitted_backend_commands(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Recycle sealed command buffers after successful backend submission.
+fn release_published_frame_outputs(_execution_context: &FrameExecutionContext) -> SystemResult {
+    // Release only presentation staging; backend-owned frames and resources remain alive.
     Ok(())
 }
 

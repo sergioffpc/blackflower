@@ -516,6 +516,13 @@ dependencies = [
 [[package]]
 name = "blackflower-harness"
 version = "0.1.0"
+dependencies = [
+ "blackflower-networking",
+ "blackflower-networking-quic",
+ "blackflower-networking-replication",
+ "blackflower-world-prediction",
+ "thiserror 2.0.19",
+]
 
 [[package]]
 name = "blackflower-navigation"
@@ -590,6 +597,9 @@ dependencies = [
 [[package]]
 name = "blackflower-rendering"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.19",
+]
 
 [[package]]
 name = "blackflower-rendering-fluids"
@@ -708,6 +718,7 @@ version = "0.1.0"
 dependencies = [
  "blackflower-acoustics",
  "blackflower-ecs",
+ "blackflower-rendering",
  "bytemuck",
  "metrics",
  "profiling",

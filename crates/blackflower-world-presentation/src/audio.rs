@@ -1,4 +1,8 @@
+use std::collections::BTreeMap;
+
 use blackflower_acoustics::{AudibleSoundDelivery, AudibleVoiceDelivery};
+
+use crate::FrameIndex;
 
 /// Immutable backend-neutral audio command built by the presentation pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +15,15 @@ pub enum AudioCommand {
     PlayAudibleSound(AudibleSoundDelivery),
     /// Queue one server-gated exact-Opus live voice packet.
     PlayAudibleVoice(AudibleVoiceDelivery),
+}
+
+/// Idempotent frame-keyed audio command batch published to the audio worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioCommandBatch {
+    /// Presentation frame that produced the commands.
+    pub frame: FrameIndex,
+    /// Immutable commands in their canonical presentation order.
+    pub commands: Vec<AudioCommand>,
 }
 
 /// Failure while accessing presentation-owned audio command state.
@@ -27,7 +40,8 @@ pub(crate) struct PresentationAudioState {
     incoming_voices: Vec<AudibleVoiceDelivery>,
     emitters: Vec<AudioCommand>,
     built: Vec<AudioCommand>,
-    submitted: Vec<AudioCommand>,
+    submitted: BTreeMap<FrameIndex, Vec<AudioCommand>>,
+    newest_published: Option<FrameIndex>,
 }
 
 impl PresentationAudioState {
@@ -61,11 +75,27 @@ impl PresentationAudioState {
         self.built.append(&mut self.emitters);
     }
 
-    pub(crate) fn submit(&mut self) {
-        self.submitted.append(&mut self.built);
+    pub(crate) fn publish(&mut self, frame: FrameIndex) {
+        if self.newest_published.is_some_and(|newest| newest >= frame) {
+            self.built.clear();
+            return;
+        }
+        self.newest_published = Some(frame);
+        self.submitted
+            .insert(frame, core::mem::take(&mut self.built));
     }
 
     pub(crate) fn drain_submitted(&mut self) -> Vec<AudioCommand> {
         core::mem::take(&mut self.submitted)
+            .into_values()
+            .flatten()
+            .collect()
+    }
+
+    pub(crate) fn drain_submitted_batches(&mut self) -> Vec<AudioCommandBatch> {
+        core::mem::take(&mut self.submitted)
+            .into_iter()
+            .map(|(frame, commands)| AudioCommandBatch { frame, commands })
+            .collect()
     }
 }

@@ -159,6 +159,7 @@ Every observability change must preserve:
 - correct redaction of credentials and personal data;
 - measured overhead under representative multi-world load.
 
-The harness integration test executes simulation, prediction, and presentation
-with and without active metrics/tracing collectors and compares the resulting
-world progress.
+World integration tests execute simulation, prediction, and presentation with
+and without active metrics/tracing collectors and compare the resulting world
+progress. Harness tests instead cover the shared session/input/prediction
+contract used by human and headless clients.

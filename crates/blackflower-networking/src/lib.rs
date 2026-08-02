@@ -4,8 +4,8 @@ mod authority;
 mod clock;
 mod codec;
 mod control;
+mod datagram_link;
 mod datagrams;
-mod harness;
 mod input;
 mod scheduler;
 mod session;
@@ -28,6 +28,7 @@ pub use control::{
     MAX_RESUME_TOKEN_BYTES, ResyncReason, SessionControlMessage, decode_control_message,
     encode_control_message,
 };
+pub use datagram_link::{DatagramLinkEndpoint, DatagramLinkError, InMemoryDatagramLink};
 pub use datagrams::{
     CommandTimingClass, ControlFrame, DiscreteCommand, InputDatagram, MAX_COMMAND_BYTES,
     MAX_COMMANDS, MAX_CONTROL_FRAME_BYTES, MAX_CONTROL_FRAMES, MAX_INPUT_DATAGRAM_PAYLOAD_BYTES,
@@ -37,7 +38,6 @@ pub use datagrams::{
     encode_snapshot_applied_ack, encode_snapshot_chunk, encode_state_bootstrap_header,
     encode_time_sync,
 };
-pub use harness::{HarnessEndpoint, HarnessError, InMemoryDatagramHarness};
 pub use input::{
     CodecViolation, CommandCodec, CommandRejection, CommandTimingDecision, ControlCodec,
     Deduplication, DeduplicationError, HistoricalCommandContext, INPUT_FAILSAFE_TICKS,
