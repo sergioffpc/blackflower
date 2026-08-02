@@ -51,7 +51,7 @@ case "$mode" in
             blackflower-rendering-volumes)
                 set -- "$@" openvdb
                 ;;
-            blackflower-scripting)
+            blackflower-scripting-luau)
                 set -- "$@" luau
                 ;;
             blackflower-shader-compiler)

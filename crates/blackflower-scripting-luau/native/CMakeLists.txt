@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-project(BlackflowerScriptingBindings LANGUAGES CXX)
+project(BlackflowerScriptingLuauBindings LANGUAGES CXX)
 
 foreach(input ROOT COMPILER_LIBRARY AST_LIBRARY BYTECODE_LIBRARY CODEGEN_LIBRARY VM_LIBRARY COMMON_LIBRARY)
     if(NOT DEFINED BLACKFLOWER_LUAU_${input})
@@ -52,24 +52,24 @@ target_include_directories(
     "${BLACKFLOWER_LUAU_ROOT}/VM/include"
 )
 
-add_library(blackflower_scripting_wrapper STATIC wrapper.cpp)
-target_compile_features(blackflower_scripting_wrapper PRIVATE cxx_std_17)
+add_library(blackflower_scripting_luau_wrapper STATIC wrapper.cpp)
+target_compile_features(blackflower_scripting_luau_wrapper PRIVATE cxx_std_17)
 target_compile_definitions(
-    blackflower_scripting_wrapper
+    blackflower_scripting_luau_wrapper
     PRIVATE
     BF_LUAU_VERSION_MAJOR=0
     BF_LUAU_VERSION_MINOR=731
     BF_LUAU_VERSION_PATCH=0
 )
 target_include_directories(
-    blackflower_scripting_wrapper
+    blackflower_scripting_luau_wrapper
     PRIVATE
     "${BLACKFLOWER_LUAU_ROOT}/CodeGen/include"
     "${BLACKFLOWER_LUAU_ROOT}/Compiler/include"
     "${BLACKFLOWER_LUAU_ROOT}/VM/include"
 )
 target_link_libraries(
-    blackflower_scripting_wrapper
+    blackflower_scripting_luau_wrapper
     PRIVATE
     Luau.CodeGen
     Luau.Compiler
@@ -78,6 +78,6 @@ target_link_libraries(
 
 include(GNUInstallDirs)
 install(
-    TARGETS blackflower_scripting_wrapper
+    TARGETS blackflower_scripting_luau_wrapper
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

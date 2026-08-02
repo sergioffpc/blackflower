@@ -121,7 +121,7 @@ fn link_native(install_dir: &Path, libraries: &LuauLibraries) -> Result<(), Box<
             println!("cargo:rustc-link-search=native={}", path.display());
         }
     }
-    println!("cargo:rustc-link-lib=static=blackflower_scripting_wrapper");
+    println!("cargo:rustc-link-lib=static=blackflower_scripting_luau_wrapper");
     for library in [
         &libraries.compiler,
         &libraries.ast,

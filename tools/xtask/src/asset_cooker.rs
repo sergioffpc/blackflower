@@ -5,7 +5,7 @@ use blackflower_assets::{AssetAudience, AssetId, AssetKind, Bytes, ContentHash, 
 use blackflower_audio_media::{
     Attenuation, Concurrency, LoopRegion, SoundEvent, Spatialization, cook_clip, cook_stream,
 };
-use blackflower_scripting::{compile, luau_version};
+use blackflower_scripting_luau::{compile, luau_version};
 use blackflower_shader_compiler::{compile as compile_shader, slang_version};
 use naga::front::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
