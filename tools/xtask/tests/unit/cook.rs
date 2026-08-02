@@ -16,7 +16,7 @@ use blackflower_assets::{
 use blackflower_audio_spatial::{AcousticEnvironment, AcousticScene, ProbeBatch};
 use blackflower_navigation::NavMeshAsset;
 use blackflower_rendering_models::MeshAsset;
-use blackflower_scripting::{Bytecode, Runtime, Value};
+use blackflower_scripting_luau::{Bytecode, Runtime, Value};
 use tempfile::TempDir;
 
 use crate::asset_cooker::{CookedAsset, cook_assets};

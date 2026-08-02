@@ -33,6 +33,7 @@ members = [
     "crates/blackflower-rendering-volumes",
     "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
+    "crates/blackflower-scripting-luau",
     "crates/blackflower-world-prediction",
     "crates/blackflower-world-presentation",
     "crates/blackflower-world-simulation",
@@ -78,6 +79,7 @@ blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
 blackflower-shader-compiler = { path = "crates/blackflower-shader-compiler" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
+blackflower-scripting-luau = { path = "crates/blackflower-scripting-luau" }
 blackflower-spatial-query = { path = "crates/blackflower-spatial-query" }
 blackflower-world-prediction = { path = "crates/blackflower-world-prediction" }
 blackflower-world-presentation = { path = "crates/blackflower-world-presentation" }

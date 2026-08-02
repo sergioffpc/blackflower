@@ -1,6 +1,6 @@
 use std::error::Error as StdError;
 
-use blackflower_scripting::{
+use blackflower_scripting_luau::{
     CompileOptions, DebugAction, DebugEventKind, DebugLevel, DebugOptions, DebugValue, Error,
     Library, MIN_NATIVE_CODEGEN_LIMIT_BYTES, OptimizationLevel, Runtime, RuntimeConfig,
     SandboxPolicy, TypeInfoLevel, Value, compile, luau_version, native_codegen_supported,
@@ -277,7 +277,7 @@ fn full_debug_info_supports_breakpoints_steps_and_variable_inspection() -> TestR
     )?;
     let options = DebugOptions::default().with_breakpoint(3);
     let mut events = Vec::new();
-    let mut handler = |event: &blackflower_scripting::DebugEvent| {
+    let mut handler = |event: &blackflower_scripting_luau::DebugEvent| {
         events.push(event.clone());
         if event.kind == DebugEventKind::Breakpoint {
             DebugAction::Step
@@ -325,7 +325,7 @@ fn bytecode_without_line_info_rejects_source_breakpoints() -> TestResult {
         },
     )?;
     let options = DebugOptions::default().with_breakpoint(1);
-    let mut handler = |_event: &blackflower_scripting::DebugEvent| DebugAction::Continue;
+    let mut handler = |_event: &blackflower_scripting_luau::DebugEvent| DebugAction::Continue;
     let mut runtime = Runtime::new()?;
     assert_eq!(
         runtime.execute_bytecode_debugged("no-debug-info.luau", &bytecode, &options, &mut handler,),
@@ -344,7 +344,7 @@ fn debugger_panics_are_contained_and_the_runtime_remains_usable() -> TestResult 
         },
     )?;
     let options = DebugOptions::default().with_breakpoint(2);
-    let mut handler = |_event: &blackflower_scripting::DebugEvent| -> DebugAction {
+    let mut handler = |_event: &blackflower_scripting_luau::DebugEvent| -> DebugAction {
         std::panic::resume_unwind(Box::new("debugger failure"));
     };
     let mut runtime = Runtime::new()?;
@@ -456,7 +456,7 @@ fn debugger_temporarily_uses_the_interpreter_when_codegen_is_enabled() -> TestRe
     let mut runtime = Runtime::with_config(config)?;
     let options = DebugOptions::default().with_breakpoint(3);
     let mut breakpoint_hits = 0;
-    let mut handler = |event: &blackflower_scripting::DebugEvent| {
+    let mut handler = |event: &blackflower_scripting_luau::DebugEvent| {
         if event.kind == DebugEventKind::Breakpoint {
             breakpoint_hits += 1;
         }

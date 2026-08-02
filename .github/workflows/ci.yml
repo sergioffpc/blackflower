@@ -70,7 +70,7 @@ jobs:
           --exclude blackflower-gltf-metadata
           --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
-          --exclude blackflower-scripting
+          --exclude blackflower-scripting-luau
           --exclude blackflower-shader-compiler
           --exclude xtask
           --all-targets --all-features --locked -- -D warnings
@@ -83,7 +83,7 @@ jobs:
           --exclude blackflower-gltf-metadata
           --exclude blackflower-rendering-models
           --exclude blackflower-rendering-textures
-          --exclude blackflower-scripting
+          --exclude blackflower-scripting-luau
           --exclude blackflower-shader-compiler
           --exclude xtask
           --all-targets --all-features --locked
@@ -165,6 +165,7 @@ jobs:
                crates/blackflower-rendering-textures \
                crates/blackflower-rendering-volumes \
                crates/blackflower-scripting \
+               crates/blackflower-scripting-luau \
                crates/blackflower-shader-compiler \
                crates/blackflower-spatial-query \
                rust-toolchain.toml \
@@ -362,7 +363,7 @@ jobs:
           - blackflower-physics
           - blackflower-rendering-textures
           - blackflower-rendering-volumes
-          - blackflower-scripting
+          - blackflower-scripting-luau
           - blackflower-shader-compiler
         os:
           - ubuntu-24.04

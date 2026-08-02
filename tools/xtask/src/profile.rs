@@ -7,7 +7,7 @@ use anyhow::{Context, bail};
 use blackflower_assets::{CookingProfileIdentity, ProfileHash, ProfileName};
 use blackflower_audio_media::AudioCookSettings;
 use blackflower_rendering_textures::{EncodeOptions as TextureEncodeOptions, TextureQuality};
-use blackflower_scripting::{
+use blackflower_scripting_luau::{
     CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel,
 };
 use blackflower_shader_compiler::{

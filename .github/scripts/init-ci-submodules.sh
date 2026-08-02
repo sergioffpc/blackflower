@@ -136,7 +136,7 @@ case "$mode" in
                 git submodule update --init --depth 1 \
                     vendor/KTX-Software
                 ;;
-            blackflower-scripting)
+            blackflower-scripting-luau)
                 git submodule update --init --depth 1 \
                     vendor/luau
                 ;;

@@ -11,7 +11,7 @@ use blackflower_assets::{
     AssetTrustStore, Bytes, ContentHash, CookingProfileIdentity, PackageHash, PackageName,
     ProfileName, RecipeHash, ToolchainIdentity, sign_package,
 };
-use blackflower_scripting::luau_version;
+use blackflower_scripting_luau::luau_version;
 use serde::Serialize;
 use tempfile::{NamedTempFile, TempDir};
 
