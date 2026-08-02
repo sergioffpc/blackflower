@@ -25,9 +25,15 @@ pub enum Error {
     /// A quaternion must be finite and normalized.
     #[error("quaternion must be finite and normalized")]
     InvalidRotation,
-    /// A shape dimension must be finite and strictly positive.
-    #[error("shape dimensions must be finite and strictly positive")]
+    /// A collision-shape description has invalid dimensions or topology.
+    #[error("invalid collision-shape description")]
     InvalidShape,
+    /// Jolt could not build collision geometry from a validated shape description.
+    #[error("Jolt could not create collision geometry from the shape description")]
+    ShapeCreationFailed,
+    /// Triangle meshes and compounds containing them may only be static bodies.
+    #[error("triangle mesh collision geometry requires a static body")]
+    StaticShapeRequiresStaticBody,
     /// The rigid-body character controller requires a capsule shape.
     #[error("character controller requires a capsule shape")]
     InvalidCharacterShape,

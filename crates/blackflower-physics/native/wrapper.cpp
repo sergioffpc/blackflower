@@ -15,8 +15,11 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -28,9 +31,14 @@
 #include <new>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace JPH;
+
+static_assert(
+    BF_PHYSICS_MAX_CONVEX_HULL_POINTS == ConvexHullShape::cMaxPointsInHull,
+    "Rust/C wrapper convex hull limit must match Jolt");
 
 namespace {
 
@@ -362,7 +370,39 @@ struct BFPhysicsWorld {
     std::unordered_map<uint32_t, Character *> characters;
 };
 
+struct BFPhysicsShape {
+    explicit BFPhysicsShape(ShapeRefC in_shape)
+        : shape(std::move(in_shape)) {
+    }
+
+    ShapeRefC shape;
+};
+
 namespace {
+
+int32_t store_shape(ShapeRefC shape, BFPhysicsShape **out_shape) {
+    if (out_shape == nullptr) {
+        return BF_PHYSICS_STATUS_NULL_POINTER;
+    }
+    *out_shape = nullptr;
+    BFPhysicsShape *wrapper = new (std::nothrow) BFPhysicsShape(std::move(shape));
+    if (wrapper == nullptr) {
+        return BF_PHYSICS_STATUS_INITIALIZATION_FAILED;
+    }
+    *out_shape = wrapper;
+    return BF_PHYSICS_STATUS_OK;
+}
+
+int32_t store_shape(ShapeSettings::ShapeResult result, BFPhysicsShape **out_shape) {
+    if (out_shape == nullptr) {
+        return BF_PHYSICS_STATUS_NULL_POINTER;
+    }
+    if (!result.IsValid()) {
+        *out_shape = nullptr;
+        return BF_PHYSICS_STATUS_SHAPE_CREATION_FAILED;
+    }
+    return store_shape(ShapeRefC(result.Get()), out_shape);
+}
 
 int32_t require_body(const BFPhysicsWorld *world, BodyID body_id) {
     if (!world->system.GetBodyInterface().IsAdded(body_id)) {
@@ -402,7 +442,6 @@ int32_t create_body(
     const BFPhysicsBodySettings *settings,
     const Shape *shape,
     uint32_t *out_body_id) {
-    ShapeRefC owned_shape(shape);
     if (world == nullptr || settings == nullptr || shape == nullptr || out_body_id == nullptr) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
@@ -410,7 +449,11 @@ int32_t create_body(
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
 
+    ShapeRefC owned_shape(shape);
     const EMotionType type = motion_type(settings->motion_type);
+    if (type != EMotionType::Static && owned_shape->MustBeStatic()) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
     BodyCreationSettings creation_settings(
         owned_shape,
         RVec3(settings->position.x, settings->position.y, settings->position.z),
@@ -435,6 +478,121 @@ extern "C" BFPhysicsVersion bf_physics_jolt_version() {
         JPH_VERSION_MINOR,
         JPH_VERSION_PATCH,
     };
+}
+
+extern "C" int32_t bf_physics_shape_create_sphere(
+    float radius,
+    BFPhysicsShape **out_shape) {
+    if (!std::isfinite(radius) || radius <= 0.0F) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    return store_shape(ShapeRefC(new SphereShape(radius)), out_shape);
+}
+
+extern "C" int32_t bf_physics_shape_create_box(
+    BFPhysicsVec3 half_extent,
+    BFPhysicsShape **out_shape) {
+    if (!finite(half_extent) || half_extent.x <= 0.0F || half_extent.y <= 0.0F
+        || half_extent.z <= 0.0F) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    return store_shape(
+        ShapeRefC(new BoxShape(to_vec3(half_extent))),
+        out_shape);
+}
+
+extern "C" int32_t bf_physics_shape_create_capsule(
+    float half_height,
+    float radius,
+    BFPhysicsShape **out_shape) {
+    if (!std::isfinite(half_height) || !std::isfinite(radius) || half_height <= 0.0F
+        || radius <= 0.0F) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    return store_shape(
+        ShapeRefC(new CapsuleShape(half_height, radius)),
+        out_shape);
+}
+
+extern "C" int32_t bf_physics_shape_create_convex_hull(
+    const BFPhysicsVec3 *points,
+    uint32_t point_count,
+    BFPhysicsShape **out_shape) {
+    if (points == nullptr || point_count < 4
+        || point_count > BF_PHYSICS_MAX_CONVEX_HULL_POINTS) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    Array<Vec3> jolt_points;
+    jolt_points.reserve(point_count);
+    for (uint32_t index = 0; index < point_count; ++index) {
+        if (!finite(points[index])) {
+            return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+        }
+        jolt_points.push_back(to_vec3(points[index]));
+    }
+    return store_shape(ConvexHullShapeSettings(jolt_points).Create(), out_shape);
+}
+
+extern "C" int32_t bf_physics_shape_create_compound(
+    const BFPhysicsCompoundChild *children,
+    uint32_t child_count,
+    BFPhysicsShape **out_shape) {
+    if (children == nullptr || child_count == 0) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    StaticCompoundShapeSettings settings;
+    for (uint32_t index = 0; index < child_count; ++index) {
+        const BFPhysicsCompoundChild &child = children[index];
+        if (child.shape == nullptr || !finite(child.position) || !finite(child.rotation)
+            || !to_quat(child.rotation).IsNormalized()) {
+            return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+        }
+        settings.AddShape(
+            to_vec3(child.position),
+            to_quat(child.rotation),
+            child.shape->shape.GetPtr());
+    }
+    return store_shape(settings.Create(), out_shape);
+}
+
+extern "C" int32_t bf_physics_shape_create_triangle_mesh(
+    const BFPhysicsVec3 *vertices,
+    uint32_t vertex_count,
+    const BFPhysicsTriangle *triangles,
+    uint32_t triangle_count,
+    BFPhysicsShape **out_shape) {
+    if (vertices == nullptr || vertex_count < 3 || triangles == nullptr || triangle_count == 0) {
+        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+    }
+    VertexList jolt_vertices;
+    jolt_vertices.reserve(vertex_count);
+    for (uint32_t index = 0; index < vertex_count; ++index) {
+        if (!finite(vertices[index])) {
+            return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+        }
+        jolt_vertices.push_back(Float3(vertices[index].x, vertices[index].y, vertices[index].z));
+    }
+    IndexedTriangleList jolt_triangles;
+    jolt_triangles.reserve(triangle_count);
+    for (uint32_t index = 0; index < triangle_count; ++index) {
+        const BFPhysicsTriangle &triangle = triangles[index];
+        if (triangle.first >= vertex_count || triangle.second >= vertex_count
+            || triangle.third >= vertex_count || triangle.first == triangle.second
+            || triangle.second == triangle.third || triangle.third == triangle.first) {
+            return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
+        }
+        jolt_triangles.emplace_back(
+            triangle.first,
+            triangle.second,
+            triangle.third,
+            0);
+    }
+    MeshShapeSettings settings(std::move(jolt_vertices), std::move(jolt_triangles));
+    return store_shape(settings.Create(), out_shape);
+}
+
+extern "C" void bf_physics_shape_destroy(BFPhysicsShape *shape) {
+    delete shape;
 }
 
 extern "C" int32_t bf_physics_world_create(
@@ -470,47 +628,15 @@ extern "C" void bf_physics_world_destroy(BFPhysicsWorld *world) {
     release_runtime();
 }
 
-extern "C" int32_t bf_physics_world_create_sphere_body(
+extern "C" int32_t bf_physics_world_create_body(
     BFPhysicsWorld *world,
     const BFPhysicsBodySettings *settings,
-    float radius,
+    const BFPhysicsShape *shape,
     uint32_t *out_body_id) {
-    if (!std::isfinite(radius) || radius <= 0.0F) {
-        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
-    }
-    return create_body(world, settings, new SphereShape(radius), out_body_id);
-}
-
-extern "C" int32_t bf_physics_world_create_box_body(
-    BFPhysicsWorld *world,
-    const BFPhysicsBodySettings *settings,
-    BFPhysicsVec3 half_extent,
-    uint32_t *out_body_id) {
-    if (!finite(half_extent) || half_extent.x <= 0.0F || half_extent.y <= 0.0F
-        || half_extent.z <= 0.0F) {
-        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
-    }
     return create_body(
         world,
         settings,
-        new BoxShape(Vec3(half_extent.x, half_extent.y, half_extent.z)),
-        out_body_id);
-}
-
-extern "C" int32_t bf_physics_world_create_capsule_body(
-    BFPhysicsWorld *world,
-    const BFPhysicsBodySettings *settings,
-    float half_height,
-    float radius,
-    uint32_t *out_body_id) {
-    if (!std::isfinite(half_height) || !std::isfinite(radius) || half_height <= 0.0F
-        || radius <= 0.0F) {
-        return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
-    }
-    return create_body(
-        world,
-        settings,
-        new CapsuleShape(half_height, radius),
+        shape == nullptr ? nullptr : shape->shape.GetPtr(),
         out_body_id);
 }
 

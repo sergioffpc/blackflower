@@ -129,7 +129,12 @@ impl World {
 
     /// Create and add a rigid body.
     pub fn create_body(&mut self, settings: BodySettings) -> Result<BodyId, Error> {
-        let raw = ffi::create_body(self.pointer, settings).map_err(map_status)?;
+        if settings.shape.requires_static_body()
+            && settings.motion_type != crate::MotionType::Static
+        {
+            return Err(Error::StaticShapeRequiresStaticBody);
+        }
+        let raw = ffi::create_body(self.pointer, &settings).map_err(map_status)?;
         Ok(BodyId {
             raw,
             world: self.key,
@@ -389,6 +394,7 @@ const fn map_world_initialization(status: Status) -> Error {
         | Status::BodyNotFound
         | Status::CharacterNotFound
         | Status::BodyOwnedByCharacter
+        | Status::ShapeCreationFailed
         | Status::ContractViolation => Error::NativeContract,
     }
 }
@@ -399,6 +405,7 @@ const fn map_status(status: Status) -> Error {
         Status::BodyNotFound => Error::BodyNotFound,
         Status::CharacterNotFound => Error::CharacterNotFound,
         Status::BodyOwnedByCharacter => Error::BodyOwnedByCharacter,
+        Status::ShapeCreationFailed => Error::ShapeCreationFailed,
         Status::InvalidArgument | Status::InitializationFailed | Status::ContractViolation => {
             Error::NativeContract
         }

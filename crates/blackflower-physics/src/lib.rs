@@ -6,6 +6,7 @@ mod error;
 mod ffi;
 mod ids;
 mod raycast;
+mod shape;
 mod types;
 mod world;
 
@@ -14,7 +15,8 @@ pub use contact::{ContactEvent, ContactEventKind, ContactManifold, ContactPoint}
 pub use error::{Error, UpdateError};
 pub use ids::{BodyId, CharacterId, SubShapeId};
 pub use raycast::RayHit;
-pub use types::{BodySettings, MotionType, Shape, StepDelta};
+pub use shape::{CompoundShapeChild, MAX_CONVEX_HULL_POINTS, Shape};
+pub use types::{BodySettings, MotionType, StepDelta};
 pub use world::{World, WorldBuilder};
 
 /// The Jolt Physics version compiled into this crate.

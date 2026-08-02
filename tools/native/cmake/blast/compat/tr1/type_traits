@@ -1,0 +1,9 @@
+#pragma once
+
+#include <type_traits>
+
+namespace std {
+namespace tr1 {
+using std::is_pod;
+} // namespace tr1
+} // namespace std
