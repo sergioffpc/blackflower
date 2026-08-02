@@ -20,6 +20,7 @@ set -- \
     --package blackflower-rendering-textures \
     --package blackflower-rendering-volumes \
     --package blackflower-scripting \
+    --package blackflower-scripting-luau \
     --package blackflower-shader-compiler \
     --package xtask
 

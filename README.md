@@ -45,7 +45,8 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
 | `crates/blackflower-shader-compiler` | Statically linked Slang-to-SPIR-V compiler binding |
-| `crates/blackflower-scripting` | Sandboxed Luau compilation and execution |
+| `crates/blackflower-scripting` | Backend-neutral policy scripting contracts |
+| `crates/blackflower-scripting-luau` | Sandboxed Luau compilation and execution |
 | `crates/blackflower-world-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-world-presentation` | Client-only presentation systems |
 | `crates/blackflower-world-simulation` | Authoritative fixed-step simulation |
@@ -183,8 +184,9 @@ See the
 [rendering models format](crates/blackflower-rendering-models/README.md),
 [rendering volumes setup](crates/blackflower-rendering-volumes/README.md),
 [rendering textures setup](crates/blackflower-rendering-textures/README.md),
-[shader compiler setup](crates/blackflower-shader-compiler/README.md), and
-[scripting setup](crates/blackflower-scripting/README.md) for details.
+[shader compiler setup](crates/blackflower-shader-compiler/README.md),
+[scripting contract](crates/blackflower-scripting/README.md), and
+[Luau scripting setup](crates/blackflower-scripting-luau/README.md) for details.
 Steam Audio builds on supported x86-64 targets additionally require
 the pinned ISPC compiler documented by the spatial audio setup.
 

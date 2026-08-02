@@ -1,7 +1,9 @@
 use std::io::Cursor;
 
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
+    WindowFunction,
 };
 
 use crate::{AUDIO_SAMPLE_RATE, AudioClip, Error, LoopRegion};
@@ -163,28 +165,32 @@ fn resample(source: DecodedAudio) -> Result<DecodedAudio, Error> {
     let ratio = f64::from(AUDIO_SAMPLE_RATE) / f64::from(source.sample_rate);
     let parameters = SincInterpolationParameters {
         sinc_len: 256,
-        f_cutoff: 0.95,
+        f_cutoff: Some(0.95),
         oversampling_factor: 160,
         interpolation: SincInterpolationType::Cubic,
         window: WindowFunction::BlackmanHarris2,
     };
-    let mut resampler = SincFixedIn::<f32>::new(
+    let channel_count = usize::from(source.channel_count);
+    let input = SequentialSliceOfVecs::new(&source.channels, channel_count, input_frames)
+        .map_err(|error| Error::Resample(error.to_string()))?;
+    let mut resampler = Async::<f32>::new_sinc(
         ratio,
         1.0,
-        parameters,
-        input_frames,
-        usize::from(source.channel_count),
+        &parameters,
+        1_024,
+        channel_count,
+        FixedAsync::Input,
     )
     .map_err(|error| Error::Resample(error.to_string()))?;
-    let mut output = resampler
-        .process(&source.channels, None)
+    let interleaved = resampler
+        .process_all(&input, input_frames, None)
         .map_err(|error| Error::Resample(error.to_string()))?;
-    let tail = resampler
-        .process_partial::<Vec<f32>>(None, None)
-        .map_err(|error| Error::Resample(error.to_string()))?;
-    for (channel, tail) in output.iter_mut().zip(tail) {
-        channel.extend(tail);
-    }
+    let mut output = deinterleave(
+        AUDIO_SAMPLE_RATE,
+        u16::from(source.channel_count),
+        interleaved.take_data(),
+    )?
+    .channels;
     let expected = target_frame_count(input_frames, source.sample_rate)?;
     for channel in &mut output {
         channel.resize(expected, 0.0);

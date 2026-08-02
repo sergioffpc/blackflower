@@ -33,4 +33,4 @@ pub const HOUND_VERSION: &str = "3.5.1";
 pub const CLAXON_VERSION: &str = "0.4.3";
 
 /// Pinned offline resampler.
-pub const RUBATO_VERSION: &str = "0.16.2";
+pub const RUBATO_VERSION: &str = "4.0.0";

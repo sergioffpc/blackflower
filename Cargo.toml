@@ -35,6 +35,7 @@ members = [
     "crates/blackflower-rendering-volumes",
     "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
+    "crates/blackflower-scripting-luau",
     "crates/blackflower-world-prediction",
     "crates/blackflower-world-presentation",
     "crates/blackflower-world-simulation",
@@ -82,6 +83,7 @@ blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
 blackflower-shader-compiler = { path = "crates/blackflower-shader-compiler" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
+blackflower-scripting-luau = { path = "crates/blackflower-scripting-luau" }
 blackflower-spatial-query = { path = "crates/blackflower-spatial-query" }
 blackflower-world-prediction = { path = "crates/blackflower-world-prediction" }
 blackflower-world-presentation = { path = "crates/blackflower-world-presentation" }
@@ -115,7 +117,7 @@ profiling = { version = "1.0.18", default-features = false }
 quinn = { version = "=0.11.11", default-features = false, features = ["bloom", "runtime-tokio", "rustls-ring"] }
 quote = { version = "1.0.47", default-features = false }
 rcgen = { version = "0.14.5", default-features = false, features = ["crypto", "pem", "ring"] }
-rubato = { version = "=0.16.2", default-features = false }
+rubato = { version = "4.0.0", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }

@@ -18,6 +18,20 @@ pub(super) fn build(
         architecture,
         operating_system,
     );
+    if architecture == "aarch64" && operating_system == "macos" {
+        // CMake reports Apple Silicon as `arm64`, while Opus only automatically
+        // presumes NEON for `aarch64`. AArch64 guarantees NEON, so runtime CPU
+        // detection is neither necessary nor supported here. Opus 1.5.2 also
+        // gates required NEON declarations behind its MAY_HAVE definitions,
+        // so provide those compile-time capability definitions without enabling
+        // the CMake option that requests runtime detection.
+        config
+            .cflag("-DOPUS_ARM_MAY_HAVE_NEON=1")
+            .cflag("-DOPUS_ARM_MAY_HAVE_NEON_INTR=1")
+            .define("OPUS_USE_NEON", "ON")
+            .define("OPUS_MAY_HAVE_NEON", "OFF")
+            .define("OPUS_PRESUME_NEON", "ON");
+    }
     config
         .build_target("install")
         .define("BUILD_SHARED_LIBS", "OFF")
