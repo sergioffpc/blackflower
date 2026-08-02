@@ -65,7 +65,7 @@ impl PrepareTickSystem {
 /// active simulation tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 pub enum CaptureTickInputsSystem {
-    /// Capture the human and bot control frames eligible for the active tick.
+    /// Capture the client control frames eligible for the active tick.
     CaptureActorControlFrames,
 }
 
@@ -651,180 +651,6 @@ impl SealTickSystem {
     }
 }
 
-/// A system in the authoritative [`SimulationPhase::UpdateBotPerception`] phase.
-///
-/// These systems build visual and acoustic observations from sealed state and
-/// combine them into the perception state consumed by bot planning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum UpdateBotPerceptionSystem {
-    /// Build visual observations from sensor limits and line-of-sight queries.
-    BuildBotVisualObservations,
-    /// Select the acoustic observations received by each bot.
-    CollectBotAcousticObservations,
-    /// Combine current observations with prior bot perception memory.
-    UpdateBotPerceptionState,
-}
-
-impl UpdateBotPerceptionSystem {
-    /// Number of systems in `UpdateBotPerception`.
-    pub const COUNT: usize = 3;
-
-    /// Stable registration and execution order for bot-perception systems.
-    pub const ORDER: [Self; Self::COUNT] = [
-        Self::BuildBotVisualObservations,
-        Self::CollectBotAcousticObservations,
-        Self::UpdateBotPerceptionState,
-    ];
-
-    /// Stable scheduler entity and trace field name for this system.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        self.into()
-    }
-
-    fn callback(self) -> SystemCallback {
-        match self {
-            Self::BuildBotVisualObservations => build_bot_visual_observations,
-            Self::CollectBotAcousticObservations => collect_bot_acoustic_observations,
-            Self::UpdateBotPerceptionState => update_bot_perception_state,
-        }
-    }
-
-    pub(crate) fn register(
-        self,
-        world: &mut World,
-        phase: PhaseId,
-        driver_expression: &'static str,
-        execution_context: SimulationExecutionContext,
-    ) -> Result<(), Error> {
-        register_system(
-            world,
-            phase,
-            driver_expression,
-            SimulationPhase::UpdateBotPerception,
-            self.name(),
-            execution_context,
-            self.callback(),
-        )
-    }
-}
-
-/// A system in the authoritative [`SimulationPhase::PlanBotTactics`] phase.
-///
-/// These systems select bot objectives, build tactical plans, and maintain the
-/// navigation paths consumed by bot control-frame generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum PlanBotTacticsSystem {
-    /// Select each bot's highest-priority objective from its perception state.
-    SelectBotObjectives,
-    /// Build concrete tactical plans for the selected objectives.
-    BuildBotTacticalPlans,
-    /// Calculate or refresh navigation paths for the planned destinations.
-    UpdateBotNavigationPaths,
-}
-
-impl PlanBotTacticsSystem {
-    /// Number of systems in `PlanBotTactics`.
-    pub const COUNT: usize = 3;
-
-    /// Stable registration and execution order for bot-tactics systems.
-    pub const ORDER: [Self; Self::COUNT] = [
-        Self::SelectBotObjectives,
-        Self::BuildBotTacticalPlans,
-        Self::UpdateBotNavigationPaths,
-    ];
-
-    /// Stable scheduler entity and trace field name for this system.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        self.into()
-    }
-
-    fn callback(self) -> SystemCallback {
-        match self {
-            Self::SelectBotObjectives => select_bot_objectives,
-            Self::BuildBotTacticalPlans => build_bot_tactical_plans,
-            Self::UpdateBotNavigationPaths => update_bot_navigation_paths,
-        }
-    }
-
-    pub(crate) fn register(
-        self,
-        world: &mut World,
-        phase: PhaseId,
-        driver_expression: &'static str,
-        execution_context: SimulationExecutionContext,
-    ) -> Result<(), Error> {
-        register_system(
-            world,
-            phase,
-            driver_expression,
-            SimulationPhase::PlanBotTactics,
-            self.name(),
-            execution_context,
-            self.callback(),
-        )
-    }
-}
-
-/// A system in the authoritative [`SimulationPhase::EmitBotControlFrames`] phase.
-///
-/// These systems follow planned navigation paths, build canonical actor control
-/// frames, and queue them as future in-memory simulation inputs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
-pub enum EmitBotControlFramesSystem {
-    /// Convert planned navigation paths into current steering controls.
-    FollowBotNavigationPaths,
-    /// Build canonical actor control frames from steering and tactical plans.
-    BuildBotControlFrames,
-    /// Queue bot control frames for capture by a future simulation tick.
-    QueueBotControlFrames,
-}
-
-impl EmitBotControlFramesSystem {
-    /// Number of systems in `EmitBotControlFrames`.
-    pub const COUNT: usize = 3;
-
-    /// Stable registration and execution order for bot-control-frame systems.
-    pub const ORDER: [Self; Self::COUNT] = [
-        Self::FollowBotNavigationPaths,
-        Self::BuildBotControlFrames,
-        Self::QueueBotControlFrames,
-    ];
-
-    /// Stable scheduler entity and trace field name for this system.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        self.into()
-    }
-
-    fn callback(self) -> SystemCallback {
-        match self {
-            Self::FollowBotNavigationPaths => follow_bot_navigation_paths,
-            Self::BuildBotControlFrames => build_bot_control_frames,
-            Self::QueueBotControlFrames => queue_bot_control_frames,
-        }
-    }
-
-    pub(crate) fn register(
-        self,
-        world: &mut World,
-        phase: PhaseId,
-        driver_expression: &'static str,
-        execution_context: SimulationExecutionContext,
-    ) -> Result<(), Error> {
-        register_system(
-            world,
-            phase,
-            driver_expression,
-            SimulationPhase::EmitBotControlFrames,
-            self.name(),
-            execution_context,
-            self.callback(),
-        )
-    }
-}
-
 /// A system in the authoritative [`SimulationPhase::SubmitTickOutputs`] phase.
 ///
 /// These systems build a batch from sealed state, attach a snapshot when due,
@@ -960,21 +786,6 @@ fn register_post_seal_systems(
 ) -> Result<(), Error> {
     let phase = pipeline.phase(SimulationPhase::SealTick);
     for system in SealTickSystem::ORDER {
-        system.register(world, phase, driver_expression, execution_context.clone())?;
-    }
-
-    let phase = pipeline.phase(SimulationPhase::UpdateBotPerception);
-    for system in UpdateBotPerceptionSystem::ORDER {
-        system.register(world, phase, driver_expression, execution_context.clone())?;
-    }
-
-    let phase = pipeline.phase(SimulationPhase::PlanBotTactics);
-    for system in PlanBotTacticsSystem::ORDER {
-        system.register(world, phase, driver_expression, execution_context.clone())?;
-    }
-
-    let phase = pipeline.phase(SimulationPhase::EmitBotControlFrames);
-    for system in EmitBotControlFramesSystem::ORDER {
         system.register(world, phase, driver_expression, execution_context.clone())?;
     }
 
@@ -1248,53 +1059,6 @@ fn compute_authoritative_state_hash(
 
 fn seal_authoritative_state(_execution_context: &SimulationExecutionContext) -> SystemResult {
     // Make the validated state and its hash immutable for the completed tick.
-    Ok(())
-}
-
-fn build_bot_visual_observations(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Build visual observations from sensor limits and line-of-sight queries.
-    Ok(())
-}
-
-fn collect_bot_acoustic_observations(
-    _execution_context: &SimulationExecutionContext,
-) -> SystemResult {
-    // Select the acoustic observations received by each bot.
-    Ok(())
-}
-
-fn update_bot_perception_state(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Combine current observations with prior bot perception memory.
-    Ok(())
-}
-
-fn select_bot_objectives(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Select each bot's highest-priority objective from its perception state.
-    Ok(())
-}
-
-fn build_bot_tactical_plans(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Build concrete tactical plans for the selected objectives.
-    Ok(())
-}
-
-fn update_bot_navigation_paths(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Calculate or refresh navigation paths for the planned destinations.
-    Ok(())
-}
-
-fn follow_bot_navigation_paths(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Convert planned navigation paths into current steering controls.
-    Ok(())
-}
-
-fn build_bot_control_frames(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Build canonical actor control frames from steering and tactical plans.
-    Ok(())
-}
-
-fn queue_bot_control_frames(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Queue bot control frames for capture by a future simulation tick.
     Ok(())
 }
 

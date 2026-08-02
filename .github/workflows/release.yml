@@ -102,7 +102,6 @@ jobs:
           --target ${{ matrix.target }}
           --package blackflower
           --package blackflower-server
-          --package blackflower-harness
 
       - name: Package Unix executables
         if: runner.os != 'Windows'
@@ -114,7 +113,6 @@ jobs:
           mkdir -p "$package"
           cp "target/$TARGET/release/blackflower" "$package/"
           cp "target/$TARGET/release/blackflower-server" "$package/"
-          cp "target/$TARGET/release/blackflower-harness" "$package/"
           cp LICENSE README.md "$package/"
           tar -C "$RUNNER_TEMP" -czf "blackflower-$TARGET.tar.gz" "blackflower-$TARGET"
 
@@ -128,7 +126,6 @@ jobs:
           New-Item -ItemType Directory -Path $package | Out-Null
           Copy-Item "target/$env:TARGET/release/blackflower.exe" $package
           Copy-Item "target/$env:TARGET/release/blackflower-server.exe" $package
-          Copy-Item "target/$env:TARGET/release/blackflower-harness.exe" $package
           Copy-Item LICENSE, README.md $package
           Compress-Archive -Path "$package/*" -DestinationPath "blackflower-$env:TARGET.zip"
 

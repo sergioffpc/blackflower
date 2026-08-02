@@ -208,16 +208,18 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 
 ## Harness and client boundary
 
-- **NET-HARNESS-001**: `blackflower-harness` MUST be a library with no current
-  dependencies or public binding API. It MUST NOT contain `main.rs` or create a
-  frontend or headless client.
-- **NET-HARNESS-002**: a future task will make the harness the only shared
-  binding from human or bot canonical input into networking and prediction.
-  That future contract MUST reuse networking and prediction rather than
-  duplicate them.
-- **NET-HARNESS-003**: `apps/blackflower` is not connected to networking in this
-  revision task. Internal clients are permitted only in transport tests and the
-  network gate.
+- **NET-HARNESS-001**: `blackflower-harness` MUST remain a library and the only
+  shared binding from human or bot canonical input into networking and
+  prediction. It MUST NOT contain device collection, presentation, or bot
+  decision logic.
+- **NET-HARNESS-002**: the harness MUST own the client application session,
+  bootstrap and incremental projection application, applied-snapshot ACKs,
+  input and command identities, bounded histories, prediction coordination,
+  reconciliation, reconnect, and hard resync. It MUST reuse networking,
+  replication, and `blackflower-world-prediction` rather than duplicate them.
+- **NET-HARNESS-003**: human frontends and headless bots MUST consume the same
+  immutable `ClientView` and submit the same canonical `ControlSubmission`.
+  Neither may query authoritative ECS state through the harness.
 
 ## Acceptance gates
 

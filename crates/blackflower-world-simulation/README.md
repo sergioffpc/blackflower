@@ -20,25 +20,22 @@ phases:
 9. `UpdateSpatialStructures` updates and versions collision, navigation,
    acoustic, and visibility structures;
 10. `SealTick` validates, hashes, and seals the authoritative state;
-11. `UpdateBotPerception` builds visual and acoustic perception from sealed
-    state;
-12. `PlanBotTactics` updates bot objectives, tactical plans, and navigation
-    paths;
-13. `EmitBotControlFrames` queues canonical bot controls for a future tick;
-14. `SubmitTickOutputs` builds the sealed output batch, attaches a snapshot when
+11. `SubmitTickOutputs` builds the sealed output batch, attaches a snapshot when
     due, and submits it to in-memory consumers.
 
-The cadence policy defines 60 Hz control frames every 4 ticks, 30 Hz snapshots
-every 8 ticks, 5 Hz bot perception and tactical updates every 48 ticks, and a
-12-tick input grace followed by neutral control, with a separate one-second
-failsafe after 240 ticks.
+The cadence policy defines 60 Hz client control frames every 4 ticks, 30 Hz
+snapshots every 8 ticks, a 12-tick input grace followed by neutral control, and
+a separate one-second failsafe after 240 ticks.
 
 When installed, `AcousticWorld` backs the five `SolveAcoustics` systems and
 `UpdateAcousticStructure`. It resolves bounded zone/portal candidates, direct
-and transmitted geometry, path arrivals on a 48 kHz timeline, masking, private
-bot observations, and gated player deliveries. Committed door, destructible,
-and portal changes become visible on the next tick. Transient observations are
-retained for the complete 48-tick bot-perception interval.
+and transmitted geometry, path arrivals on a 48 kHz timeline, masking,
+privacy-preserving observations, and gated client deliveries. Committed door,
+destructible, and portal changes become visible on the next tick.
 
 The pipeline performs no network I/O, serialization, socket access, file
 handling, or wall-clock pacing.
+
+Human and bot participants both arrive as ordinary client inputs. Bot
+perception, memory, planning, navigation, and control generation run outside
+the authoritative world against snapshots and client-facing events.

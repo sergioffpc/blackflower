@@ -1,10 +1,22 @@
 # blackflower-harness
 
-`blackflower-harness` is reserved for the common client-side binding between
-canonical inputs, networking, and prediction. A future frontend client will
-provide human inputs and a future headless client will provide bot inputs
-through the same contract.
+`blackflower-harness` is the stateful client runtime shared by the player
+frontend and headless bots. Both submit source-neutral canonical controls and
+consume the same reconstructed snapshots, prediction state, and client-facing
+events.
 
-The crate deliberately exposes no API yet. Client orchestration, input-source
-traits, networking handles, prediction coordination, and client executables
-will be designed in a separate change.
+`ClientHarness` owns the application session above QUIC, admission and resume
+transitions, full bootstrap and incremental snapshot reconstruction, applied
+snapshot acknowledgements, control/command identities, input redundancy,
+prediction coordination, reconciliation, and hard-resync requests. It never
+collects devices, renders presentation, or makes bot decisions.
+
+`PredictionSession` reuses `blackflower-world-prediction` histories and
+reconciliation. Gameplay supplies a `PredictionCodec` for canonical component
+and input bytes plus a `ForwardPredictionDriver` that advances the existing
+prediction pipeline. `ClientView` exposes immutable authoritative and predicted
+state to either presentation or bot policy.
+
+The crate is a library. Low-level Quinn tasks remain in
+`blackflower-networking-quic`, and the authoritative simulation sees only the
+ordinary input datagrams produced here; it has no human/bot execution branch.

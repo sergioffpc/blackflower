@@ -2,16 +2,16 @@ use std::collections::VecDeque;
 
 /// Side of the in-memory client/server datagram link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HarnessEndpoint {
+pub enum DatagramLinkEndpoint {
     /// Client-facing receive queue.
     Client,
     /// Server-facing receive queue.
     Server,
 }
 
-/// Bounded in-memory transport failure.
+/// Bounded in-memory datagram-link failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum HarnessError {
+pub enum DatagramLinkError {
     /// A queue reached its configured packet capacity.
     #[error("in-memory datagram queue is full")]
     Full,
@@ -20,15 +20,15 @@ pub enum HarnessError {
     Empty,
 }
 
-/// Bounded deterministic harness; it deliberately implements no sockets or clocks.
+/// Bounded deterministic link; it deliberately implements no sockets or clocks.
 #[derive(Debug)]
-pub struct InMemoryDatagramHarness {
+pub struct InMemoryDatagramLink {
     capacity: usize,
     client: VecDeque<Vec<u8>>,
     server: VecDeque<Vec<u8>>,
 }
 
-impl InMemoryDatagramHarness {
+impl InMemoryDatagramLink {
     /// Allocate queues for a fixed packet count.
     #[must_use]
     pub fn new(capacity: usize) -> Self {
@@ -40,26 +40,30 @@ impl InMemoryDatagramHarness {
     }
 
     /// Send a datagram to one endpoint.
-    pub fn send(&mut self, endpoint: HarnessEndpoint, bytes: Vec<u8>) -> Result<(), HarnessError> {
+    pub fn send(
+        &mut self,
+        endpoint: DatagramLinkEndpoint,
+        bytes: Vec<u8>,
+    ) -> Result<(), DatagramLinkError> {
         if bytes.is_empty() {
-            return Err(HarnessError::Empty);
+            return Err(DatagramLinkError::Empty);
         }
         let queue = match endpoint {
-            HarnessEndpoint::Client => &mut self.client,
-            HarnessEndpoint::Server => &mut self.server,
+            DatagramLinkEndpoint::Client => &mut self.client,
+            DatagramLinkEndpoint::Server => &mut self.server,
         };
         if queue.len() >= self.capacity {
-            return Err(HarnessError::Full);
+            return Err(DatagramLinkError::Full);
         }
         queue.push_back(bytes);
         Ok(())
     }
 
     /// Receive the oldest datagram for one endpoint.
-    pub fn receive(&mut self, endpoint: HarnessEndpoint) -> Option<Vec<u8>> {
+    pub fn receive(&mut self, endpoint: DatagramLinkEndpoint) -> Option<Vec<u8>> {
         match endpoint {
-            HarnessEndpoint::Client => self.client.pop_front(),
-            HarnessEndpoint::Server => self.server.pop_front(),
+            DatagramLinkEndpoint::Client => self.client.pop_front(),
+            DatagramLinkEndpoint::Server => self.server.pop_front(),
         }
     }
 }

@@ -4,13 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_world_simulation::{
-    AI_UPDATE_INTERVAL_TICKS, CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem,
-    CommitStateTransitionsSystem, DeriveActorActionsSystem, DeriveStateTransitionsSystem,
-    EmitBotControlFramesSystem, INPUT_FAILSAFE_TICKS, INPUT_GRACE_TICKS, PlanBotTacticsSystem,
-    PrepareTickSystem, SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS, SealTickSystem,
-    SimulationPhase, SimulationPipeline, SimulationTick, SimulationWorld, SolveAcousticsSystem,
-    SolvePhysicalPhenomenaSystem, SolveRigidBodyDynamicsSystem, SubmitTickOutputsSystem,
-    UpdateBotPerceptionSystem, UpdateSpatialStructuresSystem,
+    CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem, CommitStateTransitionsSystem,
+    DeriveActorActionsSystem, DeriveStateTransitionsSystem, INPUT_FAILSAFE_TICKS,
+    INPUT_GRACE_TICKS, PrepareTickSystem, SIMULATION_TICK_DELTA_SECONDS, SNAPSHOT_INTERVAL_TICKS,
+    SealTickSystem, SimulationPhase, SimulationPipeline, SimulationTick, SimulationWorld,
+    SolveAcousticsSystem, SolvePhysicalPhenomenaSystem, SolveRigidBodyDynamicsSystem,
+    SubmitTickOutputsSystem, UpdateSpatialStructuresSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -35,15 +34,11 @@ fn phase_names_and_scheduling_intervals_are_stable() {
             "CommitStateTransitions",
             "UpdateSpatialStructures",
             "SealTick",
-            "UpdateBotPerception",
-            "PlanBotTactics",
-            "EmitBotControlFrames",
             "SubmitTickOutputs",
         ]
     );
     assert_eq!(CONTROL_FRAME_INTERVAL_TICKS, 4);
     assert_eq!(SNAPSHOT_INTERVAL_TICKS, 8);
-    assert_eq!(AI_UPDATE_INTERVAL_TICKS, 48);
     assert_eq!(INPUT_GRACE_TICKS, 12);
     assert_eq!(INPUT_FAILSAFE_TICKS, 240);
 }
@@ -176,42 +171,6 @@ fn seal_tick_system_names_are_stable() {
             "ValidateAuthoritativeState",
             "ComputeAuthoritativeStateHash",
             "SealAuthoritativeState",
-        ]
-    );
-}
-
-#[test]
-fn update_bot_perception_system_names_are_stable() {
-    assert_eq!(
-        UpdateBotPerceptionSystem::ORDER.map(UpdateBotPerceptionSystem::name),
-        [
-            "BuildBotVisualObservations",
-            "CollectBotAcousticObservations",
-            "UpdateBotPerceptionState",
-        ]
-    );
-}
-
-#[test]
-fn plan_bot_tactics_system_names_are_stable() {
-    assert_eq!(
-        PlanBotTacticsSystem::ORDER.map(PlanBotTacticsSystem::name),
-        [
-            "SelectBotObjectives",
-            "BuildBotTacticalPlans",
-            "UpdateBotNavigationPaths",
-        ]
-    );
-}
-
-#[test]
-fn emit_bot_control_frames_system_names_are_stable() {
-    assert_eq!(
-        EmitBotControlFramesSystem::ORDER.map(EmitBotControlFramesSystem::name),
-        [
-            "FollowBotNavigationPaths",
-            "BuildBotControlFrames",
-            "QueueBotControlFrames",
         ]
     );
 }

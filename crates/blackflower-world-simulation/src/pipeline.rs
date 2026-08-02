@@ -4,14 +4,11 @@ use strum::IntoStaticStr;
 /// Authoritative simulation ticks executed per second.
 pub const SIMULATION_TICK_RATE_HZ: u64 = 240;
 
-/// Human and bot control frames produced per second.
+/// Canonical client control frames produced per second.
 pub const CONTROL_FRAME_RATE_HZ: u64 = 60;
 
 /// Authoritative snapshots produced per second.
 pub const SNAPSHOT_RATE_HZ: u64 = 30;
-
-/// Bot perception and tactical updates executed per second.
-pub const AI_UPDATE_RATE_HZ: u64 = 5;
 
 /// Simulation ticks covered by one control frame.
 pub const CONTROL_FRAME_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / CONTROL_FRAME_RATE_HZ;
@@ -19,18 +16,14 @@ pub const CONTROL_FRAME_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / CONTROL_
 /// Simulation ticks between authoritative snapshots.
 pub const SNAPSHOT_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / SNAPSHOT_RATE_HZ;
 
-/// Simulation ticks between bot perception and tactical updates.
-pub const AI_UPDATE_INTERVAL_TICKS: u64 = SIMULATION_TICK_RATE_HZ / AI_UPDATE_RATE_HZ;
-
-/// Simulation ticks for which the latest canonical input may be held.
+/// Simulation ticks for which the latest canonical client input may be held.
 pub const INPUT_GRACE_TICKS: u64 = 12;
 
-/// Simulation ticks after which missing authenticated input is a failsafe.
+/// Simulation ticks after which missing authenticated client input is a failsafe.
 pub const INPUT_FAILSAFE_TICKS: u64 = SIMULATION_TICK_RATE_HZ;
 
 const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(CONTROL_FRAME_RATE_HZ));
 const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(SNAPSHOT_RATE_HZ));
-const _: () = assert!(SIMULATION_TICK_RATE_HZ.is_multiple_of(AI_UPDATE_RATE_HZ));
 
 /// A phase in the authoritative simulation pipeline.
 ///
@@ -43,7 +36,7 @@ pub enum SimulationPhase {
     PrepareTick,
     /// Capture an immutable, canonical set of in-memory inputs for this tick.
     CaptureTickInputs,
-    /// Derive actor actions from the captured human and bot inputs.
+    /// Derive actor actions from the captured client inputs.
     DeriveActorActions,
     /// Advance characters, rigid bodies, constraints, and collision response.
     SolveRigidBodyDynamics,
@@ -59,19 +52,13 @@ pub enum SimulationPhase {
     UpdateSpatialStructures,
     /// Validate, hash, and make the authoritative tick state immutable.
     SealTick,
-    /// Build bot perception from accumulated visual and acoustic observations.
-    UpdateBotPerception,
-    /// Update bot objectives, navigation paths, and tactical decisions.
-    PlanBotTactics,
-    /// Convert current bot plans into the same control frames used by humans.
-    EmitBotControlFrames,
     /// Submit tick outputs to in-memory consumers.
     SubmitTickOutputs,
 }
 
 impl SimulationPhase {
     /// Number of phases in the authoritative simulation pipeline.
-    pub const COUNT: usize = 14;
+    pub const COUNT: usize = 11;
 
     /// Normative execution order of the authoritative simulation phases.
     pub const ORDER: [Self; Self::COUNT] = [
@@ -85,9 +72,6 @@ impl SimulationPhase {
         Self::CommitStateTransitions,
         Self::UpdateSpatialStructures,
         Self::SealTick,
-        Self::UpdateBotPerception,
-        Self::PlanBotTactics,
-        Self::EmitBotControlFrames,
         Self::SubmitTickOutputs,
     ];
 
@@ -111,9 +95,6 @@ pub struct SimulationPhases {
     commit_state_transitions: PhaseId,
     update_spatial_structures: PhaseId,
     seal_tick: PhaseId,
-    update_bot_perception: PhaseId,
-    plan_bot_tactics: PhaseId,
-    emit_bot_control_frames: PhaseId,
     submit_tick_outputs: PhaseId,
 }
 
@@ -130,9 +111,6 @@ impl SimulationPhases {
             commit_state_transitions,
             update_spatial_structures,
             seal_tick,
-            update_bot_perception,
-            plan_bot_tactics,
-            emit_bot_control_frames,
             submit_tick_outputs,
         ] = register_phase_chain(world)?;
         Ok(Self {
@@ -146,9 +124,6 @@ impl SimulationPhases {
             commit_state_transitions,
             update_spatial_structures,
             seal_tick,
-            update_bot_perception,
-            plan_bot_tactics,
-            emit_bot_control_frames,
             submit_tick_outputs,
         })
     }
@@ -167,9 +142,6 @@ impl SimulationPhases {
             SimulationPhase::CommitStateTransitions => self.commit_state_transitions,
             SimulationPhase::UpdateSpatialStructures => self.update_spatial_structures,
             SimulationPhase::SealTick => self.seal_tick,
-            SimulationPhase::UpdateBotPerception => self.update_bot_perception,
-            SimulationPhase::PlanBotTactics => self.plan_bot_tactics,
-            SimulationPhase::EmitBotControlFrames => self.emit_bot_control_frames,
             SimulationPhase::SubmitTickOutputs => self.submit_tick_outputs,
         }
     }

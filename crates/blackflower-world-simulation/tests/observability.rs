@@ -13,7 +13,7 @@ use tracing::{Event, Metadata as TracingMetadata, Subscriber};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
-const EXPECTED_SYSTEM_ORDER: [&str; 59] = [
+const EXPECTED_SYSTEM_ORDER: [&str; 50] = [
     "OpenTick",
     "ActivateScheduledCommits",
     "CaptureActorControlFrames",
@@ -61,15 +61,6 @@ const EXPECTED_SYSTEM_ORDER: [&str; 59] = [
     "ValidateAuthoritativeState",
     "ComputeAuthoritativeStateHash",
     "SealAuthoritativeState",
-    "BuildBotVisualObservations",
-    "CollectBotAcousticObservations",
-    "UpdateBotPerceptionState",
-    "SelectBotObjectives",
-    "BuildBotTacticalPlans",
-    "UpdateBotNavigationPaths",
-    "FollowBotNavigationPaths",
-    "BuildBotControlFrames",
-    "QueueBotControlFrames",
     "BuildTickOutputBatch",
     "BuildDueSnapshotOutput",
     "SubmitTickOutputBatch",
@@ -175,8 +166,8 @@ fn registered_simulation_systems_emit_observability_signals() -> TestResult {
         })
     })?;
 
-    assert_eq!(system_executions.load(Ordering::Relaxed), 59);
-    assert!(simulation_events.load(Ordering::Relaxed) >= 59);
+    assert_eq!(system_executions.load(Ordering::Relaxed), 50);
+    assert!(simulation_events.load(Ordering::Relaxed) >= 50);
     assert_eq!(
         *simulation_systems
             .lock()

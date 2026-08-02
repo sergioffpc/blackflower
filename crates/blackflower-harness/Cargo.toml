@@ -6,5 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+blackflower-networking.workspace = true
+blackflower-networking-quic.workspace = true
+blackflower-networking-replication.workspace = true
+blackflower-world-prediction.workspace = true
+
+thiserror.workspace = true
+
 [lints]
 workspace = true

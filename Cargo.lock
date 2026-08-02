@@ -481,6 +481,13 @@ dependencies = [
 [[package]]
 name = "blackflower-harness"
 version = "0.1.0"
+dependencies = [
+ "blackflower-networking",
+ "blackflower-networking-quic",
+ "blackflower-networking-replication",
+ "blackflower-world-prediction",
+ "thiserror 2.0.19",
+]
 
 [[package]]
 name = "blackflower-navigation"
