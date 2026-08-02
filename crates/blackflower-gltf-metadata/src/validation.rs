@@ -8,6 +8,7 @@ use crate::Error;
 pub const GLTF_VERSION: &str = "1.4.1";
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "KHR_lights_punctual",
     "KHR_materials_unlit",
     "KHR_mesh_quantization",
     "KHR_texture_transform",

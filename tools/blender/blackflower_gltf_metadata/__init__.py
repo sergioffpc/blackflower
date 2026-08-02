@@ -15,9 +15,10 @@ from bpy.types import Panel, PropertyGroup
 from .metadata import (
     MetadataError,
     build_animation_metadata,
-    build_material_metadata,
-    build_node_metadata,
+    build_map_material_metadata,
+    build_map_node_metadata,
     merge_extras,
+    validate_map_references,
 )
 
 
@@ -48,43 +49,107 @@ class BlackflowerExportSettings(PropertyGroup):
 
 
 class BlackflowerNodeMetadata(PropertyGroup):
-    """Typed metadata attached to an exported Blender object."""
+    """Schema-1 map metadata attached to an exported Blender object."""
 
     enabled: BoolProperty(
-        name="Blackflower Node",
-        description="Attach typed Blackflower metadata to this glTF node",
+        name="Blackflower Map Node",
+        description="Attach typed Blackflower map metadata to this glTF node",
         default=False,
-    )
-    kind: StringProperty(
-        name="Kind",
-        description="Stable lower_snake_case domain type, such as spawn_point",
-        default="",
-        maxlen=64,
     )
     identifier: StringProperty(
         name="ID",
-        description="Optional stable identifier within the source asset",
+        description="Required stable lower_snake_case identifier within the map",
         default="",
         maxlen=128,
     )
-    navigation_role: EnumProperty(
-        name="Navigation Role",
-        description="How this object participates in Recast cooking",
+    role: EnumProperty(
+        name="Role",
+        description="The node's single primary map role",
         items=(
-            ("none", "None", "Do not export navigation metadata"),
-            ("surface", "Surface", "Rasterize triangles as an authored area"),
-            ("obstacle", "Obstacle", "Rasterize triangles as blocked geometry"),
-            (
-                "off_mesh_link",
-                "Off-mesh Link",
-                "Use the first two mesh vertices as connection endpoints",
-            ),
+            ("geometry", "Geometry", "Map geometry with combined domain uses"),
+            ("spawn_point", "Spawn Point", "Named spawn transform"),
+            ("prefab_instance", "Prefab Instance", "Instance a prefab asset"),
+            ("volume_instance", "Volume Instance", "Instance a volume asset"),
+            ("trigger_volume", "Trigger Volume", "Bound a trigger definition"),
+            ("navigation_anchor", "Navigation Anchor", "Navigation endpoint"),
+            ("navigation_link", "Navigation Link", "Connection to an anchor"),
+            ("acoustic_zone", "Acoustic Zone", "Zone identity, bounds, or probes"),
+            ("acoustic_portal", "Acoustic Portal", "Portal between zone bounds"),
+            ("audio_emitter", "Audio Emitter", "Placed sound source"),
+        ),
+        default="geometry",
+    )
+    render: BoolProperty(
+        name="Render",
+        description="Include geometry in the presentation projection",
+        default=True,
+    )
+    collision: BoolProperty(
+        name="Collision",
+        description="Include geometry in the simulation collision projection",
+        default=False,
+    )
+    navigation: EnumProperty(
+        name="Navigation",
+        description="How geometry participates in navigation cooking",
+        items=(
+            ("none", "None", "Exclude from navigation cooking"),
+            ("surface", "Surface", "Rasterize as walkable input"),
+            ("obstacle", "Obstacle", "Rasterize as blocked input"),
         ),
         default="none",
     )
-    navigation_area_key: StringProperty(
+    acoustic_class: EnumProperty(
+        name="Acoustic Class",
+        description="How geometry participates in acoustic cooking",
+        items=(
+            ("ignored", "Ignored", "Exclude from acoustic cooking"),
+            ("static", "Static", "Include in the static acoustic scene"),
+            (
+                "dynamic_rigid",
+                "Dynamic Rigid",
+                "Select through acoustic prefabs",
+            ),
+            (
+                "dynamic_state",
+                "Dynamic State",
+                "Select through acoustic prefab variants",
+            ),
+        ),
+        default="ignored",
+    )
+    spawn_set: StringProperty(
+        name="Set",
+        description="Stable spawn set key",
+        default="default",
+        maxlen=64,
+    )
+    spawn_weight: FloatProperty(
+        name="Weight",
+        description="Positive relative selection weight",
+        default=1.0,
+        min=0.0001,
+    )
+    asset: StringProperty(
+        name="Asset",
+        description="Portable prefab or volume asset ID",
+        default="",
+        maxlen=255,
+    )
+    trigger_definition: StringProperty(
+        name="Definition",
+        description="Portable trigger definition asset ID",
+        default="",
+        maxlen=255,
+    )
+    navigation_end: PointerProperty(
+        name="End Anchor",
+        description="Navigation Anchor at the end of this link",
+        type=bpy.types.Object,
+    )
+    navigation_area: StringProperty(
         name="Area",
-        description="Area key declared in the navigation asset.toml",
+        description="Area key declared by the navigation asset",
         default="",
         maxlen=64,
     )
@@ -92,77 +157,79 @@ class BlackflowerNodeMetadata(PropertyGroup):
         name="Direction",
         items=(
             ("bidirectional", "Bidirectional", "Allow travel both ways"),
-            ("one_way", "One Way", "Travel from the first endpoint to the second"),
+            ("one_way", "One Way", "Travel from this node to the end anchor"),
         ),
         default="bidirectional",
     )
     navigation_radius: FloatProperty(
         name="Radius",
-        description="Off-mesh endpoint matching radius in world units",
+        description="Positive endpoint matching radius in world units",
         default=0.5,
         min=0.0001,
     )
-    acoustics_kind: EnumProperty(
-        name="Acoustic Role",
-        description="How this object participates in acoustic cooking",
+    acoustic_zone_kind: EnumProperty(
+        name="Zone Kind",
+        description="Whether this node names, bounds, or seeds probes for a zone",
         items=(
-            ("none", "None", "Do not export acoustic metadata"),
-            ("geometry", "Geometry", "Classify mesh geometry for acoustics"),
-            ("zone", "Zone", "Identify an acoustic zone"),
-            (
-                "zone_volume",
-                "Zone Volume",
-                "Bound an acoustic zone for authoritative broad phase",
-            ),
-            ("portal", "Portal", "Connect two acoustic zones"),
-            (
-                "probe_volume",
-                "Probe Volume",
-                "Bound automatic probe generation for one zone",
-            ),
+            ("identity", "Identity", "Declare a stable zone identity"),
+            ("bounds", "Bounds", "Bound an acoustic zone"),
+            ("probes", "Probes", "Bound probe generation for a zone identity"),
         ),
-        default="none",
+        default="bounds",
     )
-    acoustic_geometry_class: EnumProperty(
-        name="Geometry Class",
-        items=(
-            ("static", "Static", "Include in the serialized static scene"),
-            (
-                "dynamic_rigid",
-                "Dynamic Rigid",
-                "Select rigid movable geometry through acoustic prefabs",
-            ),
-            (
-                "dynamic_state",
-                "Dynamic State",
-                "Select state-dependent geometry through acoustic prefab variants",
-            ),
-            ("ignored", "Ignored", "Exclude geometry from acoustic cooking"),
-        ),
-        default="static",
-    )
-    acoustic_zone: StringProperty(
+    acoustic_zone: PointerProperty(
         name="Zone",
-        description="Stable acoustic zone ID containing this probe volume",
-        default="",
-        maxlen=128,
+        description="Acoustic Zone identity used by these probe bounds",
+        type=bpy.types.Object,
     )
-    acoustic_zone_a: StringProperty(
+    acoustic_zone_a: PointerProperty(
         name="Zone A",
-        description="First adjacent acoustic zone-volume ID",
-        default="",
-        maxlen=128,
+        description="First adjacent Acoustic Zone bounds object",
+        type=bpy.types.Object,
     )
-    acoustic_zone_b: StringProperty(
+    acoustic_zone_b: PointerProperty(
         name="Zone B",
-        description="Second adjacent acoustic zone-volume ID",
+        description="Second adjacent Acoustic Zone bounds object",
+        type=bpy.types.Object,
+    )
+    acoustic_controller: PointerProperty(
+        name="Controller",
+        description="Optional Geometry or Prefab Instance controlling the portal",
+        type=bpy.types.Object,
+    )
+    acoustic_initially_open: BoolProperty(
+        name="Initially Open",
+        description="Initial authoritative portal state",
+        default=True,
+    )
+    sound: StringProperty(
+        name="Sound",
+        description="Portable audio asset ID",
         default="",
-        maxlen=128,
+        maxlen=255,
+    )
+    autoplay: BoolProperty(
+        name="Autoplay",
+        description="Start this emitter when the map becomes active",
+        default=False,
     )
 
 
 class BlackflowerMaterialMetadata(PropertyGroup):
-    """Acoustic material asset attached to a Blender material."""
+    """Typed surface metadata attached to a Blender material."""
+
+    physics_material: StringProperty(
+        name="Physics Material",
+        description="Portable physics material asset ID",
+        default="",
+        maxlen=255,
+    )
+    navigation_area: StringProperty(
+        name="Navigation Area",
+        description="Portable navigation area key",
+        default="",
+        maxlen=64,
+    )
 
     acoustic_material: StringProperty(
         name="Acoustic Material",
@@ -274,7 +341,7 @@ class BLACKFLOWER_PT_animation_metadata(Panel):
 
 
 class BLACKFLOWER_PT_node_metadata(Panel):
-    """Object Properties panel for model and level node metadata."""
+    """Object Properties panel for typed map node metadata."""
 
     bl_label = "Blackflower Metadata"
     bl_idname = "BLACKFLOWER_PT_node_metadata"
@@ -291,53 +358,49 @@ class BLACKFLOWER_PT_node_metadata(Panel):
         properties = context.object.blackflower_node_metadata
         layout.use_property_split = True
         layout.prop(properties, "enabled")
-
-        navigation_role = properties.navigation_role
-        acoustics_kind = getattr(properties, "acoustics_kind", "none")
         fields = layout.column()
-        fields.enabled = (
-            properties.enabled
-            or navigation_role != "none"
-            or acoustics_kind != "none"
-        )
-        fields.prop(properties, "kind")
+        fields.enabled = properties.enabled
         fields.prop(properties, "identifier")
-        if properties.enabled and not properties.kind:
-            fields.label(text="Kind is required for export", icon="ERROR")
-        layout.separator()
-        layout.prop(properties, "navigation_role")
-        navigation = layout.column()
-        navigation.enabled = navigation_role != "none"
-        if navigation_role in {"surface", "off_mesh_link"}:
-            navigation.prop(properties, "navigation_area_key")
-        if navigation_role == "off_mesh_link":
-            navigation.prop(properties, "navigation_direction")
-            navigation.prop(properties, "navigation_radius")
-        if navigation_role != "none" and not properties.identifier:
-            navigation.label(text="Stable ID is required for navigation", icon="ERROR")
-        layout.separator()
-        layout.prop(properties, "acoustics_kind")
-        acoustics = layout.column()
-        acoustics.enabled = acoustics_kind != "none"
-        if acoustics_kind == "geometry":
-            acoustics.prop(properties, "acoustic_geometry_class")
-        if acoustics_kind == "probe_volume":
-            acoustics.prop(properties, "acoustic_zone")
-        if acoustics_kind == "portal":
-            acoustics.prop(properties, "acoustic_zone_a")
-            acoustics.prop(properties, "acoustic_zone_b")
-        if acoustics_kind != "none" and not properties.identifier:
-            acoustics.label(text="Stable ID is required for acoustics", icon="ERROR")
-        if acoustics_kind != "none":
-            expected_kind = f"acoustic_{acoustics_kind}"
-            if properties.kind and properties.kind != expected_kind:
-                acoustics.label(text=f"Kind must be {expected_kind}", icon="ERROR")
+        fields.prop(properties, "role")
+        if properties.enabled and not properties.identifier:
+            fields.label(text="Stable ID is required for export", icon="ERROR")
+
+        role = properties.role
+        if role == "geometry":
+            fields.prop(properties, "render")
+            fields.prop(properties, "collision")
+            fields.prop(properties, "navigation")
+            fields.prop(properties, "acoustic_class")
+        elif role == "spawn_point":
+            fields.prop(properties, "spawn_set")
+            fields.prop(properties, "spawn_weight")
+        elif role in {"prefab_instance", "volume_instance"}:
+            fields.prop(properties, "asset")
+        elif role == "trigger_volume":
+            fields.prop(properties, "trigger_definition")
+        elif role == "navigation_link":
+            fields.prop(properties, "navigation_end")
+            fields.prop(properties, "navigation_area")
+            fields.prop(properties, "navigation_direction")
+            fields.prop(properties, "navigation_radius")
+        elif role == "acoustic_zone":
+            fields.prop(properties, "acoustic_zone_kind")
+            if properties.acoustic_zone_kind == "probes":
+                fields.prop(properties, "acoustic_zone")
+        elif role == "acoustic_portal":
+            fields.prop(properties, "acoustic_zone_a")
+            fields.prop(properties, "acoustic_zone_b")
+            fields.prop(properties, "acoustic_controller")
+            fields.prop(properties, "acoustic_initially_open")
+        elif role == "audio_emitter":
+            fields.prop(properties, "sound")
+            fields.prop(properties, "autoplay")
 
 
 class BLACKFLOWER_PT_material_metadata(Panel):
-    """Material Properties panel for acoustic material mapping."""
+    """Material Properties panel for typed map surface metadata."""
 
-    bl_label = "Blackflower Acoustics"
+    bl_label = "Blackflower Surface"
     bl_idname = "BLACKFLOWER_PT_material_metadata"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -350,10 +413,10 @@ class BLACKFLOWER_PT_material_metadata(Panel):
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
-        layout.prop(
-            context.material.blackflower_material_metadata,
-            "acoustic_material",
-        )
+        properties = context.material.blackflower_material_metadata
+        layout.prop(properties, "physics_material")
+        layout.prop(properties, "navigation_area")
+        layout.prop(properties, "acoustic_material")
 
 
 def draw_export(context, layout):
@@ -368,8 +431,8 @@ def draw_export(context, layout):
     header.prop(properties, "enabled")
     if body is not None and properties.enabled:
         body.label(text="Action policy and Pose Markers become animation metadata.")
-        body.label(text="Object metadata becomes typed node extras.")
-        body.label(text="Material mappings and probe volumes become acoustic extras.")
+        body.label(text="Object metadata becomes typed map node extras.")
+        body.label(text="Material mappings become typed map surface extras.")
 
 
 # The glTF exporter discovers this exact class name.
@@ -419,7 +482,7 @@ class glTF2ExportUserExtension:
         gltf2_animation.extras = merge_extras(gltf2_animation.extras, metadata)
 
     def gather_node_hook(self, gltf2_node, blender_object, export_settings):
-        """Attach typed model/level metadata to one glTF node."""
+        """Attach typed schema-1 map metadata to one glTF node."""
 
         del export_settings
         if not self.properties.enabled or not isinstance(
@@ -428,41 +491,76 @@ class glTF2ExportUserExtension:
             return
 
         properties = blender_object.blackflower_node_metadata
-        navigation_role = getattr(properties, "navigation_role", "none")
-        acoustics_kind = getattr(properties, "acoustics_kind", "none")
-        if (
-            not properties.enabled
-            and navigation_role == "none"
-            and acoustics_kind == "none"
-        ):
+        if not properties.enabled:
             return
-        kind = properties.kind
-        if not kind and acoustics_kind != "none":
-            kind = f"acoustic_{acoustics_kind}"
-        if not kind and navigation_role != "none":
-            kind = f"navigation_{navigation_role}"
-        metadata = build_node_metadata(
-            kind,
+
+        role = properties.role
+        _validate_object_role(blender_object, role, properties)
+        metadata = build_map_node_metadata(
+            role,
             properties.identifier,
-            navigation_role=navigation_role,
-            area_key=getattr(properties, "navigation_area_key", ""),
-            direction=getattr(
-                properties,
-                "navigation_direction",
-                "bidirectional",
+            render=getattr(properties, "render", False),
+            collision=getattr(properties, "collision", False),
+            navigation=getattr(properties, "navigation", "none"),
+            acoustic_class=getattr(properties, "acoustic_class", "ignored"),
+            spawn_set=getattr(properties, "spawn_set", "default"),
+            spawn_weight=getattr(properties, "spawn_weight", 1.0),
+            asset=getattr(properties, "asset", ""),
+            definition=getattr(properties, "trigger_definition", ""),
+            navigation_end=_referenced_identifier(
+                getattr(properties, "navigation_end", None),
+                {"navigation_anchor"},
+                "navigation link end",
             ),
-            radius=getattr(properties, "navigation_radius", 0.0),
-            acoustics_kind=acoustics_kind,
-            geometry_class=getattr(
-                properties,
-                "acoustic_geometry_class",
-                "static",
+            navigation_area=getattr(properties, "navigation_area", ""),
+            navigation_direction=getattr(
+                properties, "navigation_direction", "bidirectional"
             ),
-            acoustic_zone=getattr(properties, "acoustic_zone", ""),
-            acoustic_zone_a=getattr(properties, "acoustic_zone_a", ""),
-            acoustic_zone_b=getattr(properties, "acoustic_zone_b", ""),
+            navigation_radius=getattr(properties, "navigation_radius", 0.5),
+            acoustic_zone_kind=getattr(
+                properties, "acoustic_zone_kind", "bounds"
+            ),
+            acoustic_zone=_referenced_identifier(
+                getattr(properties, "acoustic_zone", None),
+                {"acoustic_zone"},
+                "probe zone",
+            ),
+            acoustic_zone_a=_referenced_identifier(
+                getattr(properties, "acoustic_zone_a", None),
+                {"acoustic_zone"},
+                "portal zone A",
+            ),
+            acoustic_zone_b=_referenced_identifier(
+                getattr(properties, "acoustic_zone_b", None),
+                {"acoustic_zone"},
+                "portal zone B",
+            ),
+            acoustic_controller=_referenced_identifier(
+                getattr(properties, "acoustic_controller", None),
+                {"geometry", "prefab_instance"},
+                "portal controller",
+            ),
+            acoustic_initially_open=getattr(
+                properties, "acoustic_initially_open", True
+            ),
+            sound=getattr(properties, "sound", ""),
+            autoplay=getattr(properties, "autoplay", False),
         )
         gltf2_node.extras = merge_extras(gltf2_node.extras, metadata)
+
+    def gather_gltf_hook(
+        self,
+        active_scene_index,
+        scenes,
+        animations,
+        export_settings,
+    ):
+        """Validate map-wide IDs and references after all nodes are gathered."""
+
+        del active_scene_index, animations, export_settings
+        if self.properties.enabled:
+            for scene in scenes:
+                validate_map_references(_map_metadata_in_scene(scene))
 
     def gather_material_hook(
         self,
@@ -470,7 +568,7 @@ class glTF2ExportUserExtension:
         blender_material,
         export_settings,
     ):
-        """Attach a portable acoustic-material asset ID."""
+        """Attach typed schema-1 surface metadata."""
 
         del export_settings
         if not self.properties.enabled:
@@ -482,7 +580,11 @@ class glTF2ExportUserExtension:
         )
         if properties is None:
             return
-        metadata = build_material_metadata(properties.acoustic_material)
+        metadata = build_map_material_metadata(
+            physics_material=getattr(properties, "physics_material", ""),
+            navigation_area=getattr(properties, "navigation_area", ""),
+            acoustic_material=getattr(properties, "acoustic_material", ""),
+        )
         gltf2_material.extras = merge_extras(gltf2_material.extras, metadata)
 
     def merge_animation_extensions_hook(
@@ -520,6 +622,54 @@ class glTF2ExportUserExtension:
                 f"action `{action_name}` has Blackflower metadata, but merge mode "
                 f"`{merge}` can combine unrelated timelines; use None or Action"
             )
+
+
+def _referenced_identifier(target, expected_roles, label):
+    if target is None:
+        return ""
+    properties = getattr(target, "blackflower_node_metadata", None)
+    if properties is None or not getattr(properties, "enabled", False):
+        raise MetadataError(f"{label} must reference an enabled Blackflower map node")
+    role = getattr(properties, "role", "")
+    if role not in expected_roles:
+        choices = ", ".join(sorted(expected_roles))
+        raise MetadataError(f"{label} must reference role {choices}, not `{role}`")
+    identifier = getattr(properties, "identifier", "")
+    if not identifier:
+        raise MetadataError(f"{label} references a map node without a stable ID")
+    return identifier
+
+
+def _validate_object_role(blender_object, role, properties):
+    object_type = getattr(blender_object, "type", None)
+    if object_type is None:
+        return
+    mesh_roles = {"geometry", "trigger_volume", "acoustic_portal"}
+    if role == "acoustic_zone":
+        expected = "EMPTY" if properties.acoustic_zone_kind == "identity" else "MESH"
+    else:
+        expected = "MESH" if role in mesh_roles else "EMPTY"
+    if object_type != expected:
+        raise MetadataError(
+            f"map role `{role}` requires a Blender {expected.title()} object"
+        )
+
+
+def _map_metadata_in_scene(scene):
+    metadata = []
+    pending = list(getattr(scene, "nodes", None) or [])
+    visited = set()
+    while pending:
+        node = pending.pop()
+        identity = id(node)
+        if identity in visited:
+            continue
+        visited.add(identity)
+        blackflower = _blackflower_extra(node)
+        if isinstance(blackflower, dict) and "node" in blackflower:
+            metadata.append(blackflower)
+        pending.extend(getattr(node, "children", None) or [])
+    return metadata
 
 
 def _blackflower_extra(animation):

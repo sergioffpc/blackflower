@@ -4,6 +4,7 @@ mod acoustics;
 mod animation;
 mod container;
 mod error;
+mod map;
 mod navigation;
 mod node;
 mod validation;
@@ -20,6 +21,13 @@ pub use animation::{
     MotionAxis, RootMotionMetadata, RootMotionReference,
 };
 pub use error::Error;
+pub use map::{
+    AcousticGeometryClass as MapAcousticGeometryClass, AcousticPortalMetadata,
+    AcousticZoneMetadata, AssetInstanceMetadata, AudioEmitterMetadata, GeometryMetadata,
+    GeometryNavigation, MAP_METADATA_SCHEMA, MapMaterialMetadata, MapMetadata,
+    MapNavigationDirection, MapNodeMetadata, MapNodeRole, NavigationLinkMetadata,
+    SpawnPointMetadata, TriggerVolumeMetadata,
+};
 pub use navigation::{NavigationDirection, NavigationMetadata, NavigationRole};
 pub use node::NodeMetadata;
 pub use validation::GLTF_VERSION;
@@ -82,6 +90,15 @@ impl Document {
     /// A node without `extras.blackflower` returns `None`.
     pub fn node_metadata(&self, node: &str) -> Result<Option<NodeMetadata>, Error> {
         node::metadata(&self.root, node)
+    }
+
+    /// Extract and validate typed schema-1 authoring data from one named map scene.
+    ///
+    /// Nodes are returned in stable glTF node-index order. All map-local IDs,
+    /// cross-node references, role payloads, mesh requirements, and material
+    /// mappings are validated before this method succeeds.
+    pub fn map_metadata(&self, scene: &str) -> Result<MapMetadata, Error> {
+        map::metadata(&self.root, scene)
     }
 
     /// Extract navigation-cooking metadata from exactly one named glTF node.

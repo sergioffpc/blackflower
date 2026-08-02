@@ -94,15 +94,49 @@ and inspect `animations[].extras.blackflower`. Re-export once and confirm the
 metadata is identical. The repository's Python stubs cover the same hook and
 serialization paths automatically.
 
-## Model and level nodes
+## Typed map authoring
+
+The extension exports only glTF or GLB. It never creates or rewrites
+`map.toml`; that manifest remains an explicit, reviewable source file beside
+the exported geometry.
+
+The repository layout and manifest are strict:
+
+```text
+assets/source/maps/arena/map.toml
+assets/source/maps/arena/arena.glb
+```
+
+```toml
+schema = 1
+id = "maps/arena"
+source = "arena.glb"
+scene = "Arena"
+```
+
+`cargo xtask assets check` derives `maps/arena` from the directory, opens the
+contained `.gltf` or `.glb`, selects `Arena` exactly, and validates the complete
+typed map boundary. There is no cooked map format or runtime loading contract
+in this stage.
 
 Select an Object or Empty and open **Object Properties > Blackflower
-Metadata**. Enable the node and enter:
+Metadata**. Enable **Blackflower Map Node**, assign a required stable
+lower-snake-case **ID**, and select exactly one primary role:
 
-- **Kind**: required stable lower snake case type, such as `spawn_point`.
-- **ID**: optional stable identifier within the source asset.
+- `geometry`, with independent render, collision, navigation, and acoustic
+  uses;
+- `spawn_point`, `prefab_instance`, `volume_instance`, or `trigger_volume`;
+- `navigation_anchor` or `navigation_link`;
+- `acoustic_zone` (identity, bounds, or probes) or `acoustic_portal`;
+- `audio_emitter`.
 
-The exported glTF node receives:
+Geometry, trigger volumes, portals, and acoustic bounds/probes use Mesh
+objects. Transform-only roles and acoustic zone identities use Empty objects.
+Links, probe bounds, and portals reference other enabled map objects through
+Blender object pickers; the exporter resolves their stable IDs and validates
+the complete exported map before writing it.
+
+All map metadata uses the unreleased schema 1. For example:
 
 ```json
 {
@@ -110,108 +144,34 @@ The exported glTF node receives:
   "extras": {
     "blackflower": {
       "schema": 1,
-      "node": {
-        "kind": "spawn_point",
-        "id": "base_north"
-      }
+      "node": {"id": "base_north", "role": "spawn_point"},
+      "spawn_point": {"set": "players", "weight": 1.0}
     }
   }
 }
 ```
 
-## Navigation geometry
-
-In the same Object Properties panel, choose a **Navigation Role**:
-
-- **Surface** rasterizes triangle geometry using an area key declared in the
-  navigation asset's `asset.toml`.
-- **Obstacle** rasterizes triangle geometry as blocked spans.
-- **Off-mesh Link** exports one line primitive with exactly two indexed
-  endpoints, an area key, direction, and positive endpoint radius.
-
-Every navigation object requires a stable **ID**. Navigation metadata uses
-strict node schema 1:
+One geometry node can feed multiple projections without acquiring multiple
+primary roles:
 
 ```json
 {
-  "extras": {
-    "blackflower": {
-      "schema": 1,
-      "node": {
-        "kind": "navigation_surface",
-        "id": "floor_main"
-      },
-      "navigation": {
-        "role": "surface",
-        "area_key": "ground"
-      }
-    }
+  "schema": 1,
+  "node": {"id": "floor_main", "role": "geometry"},
+  "geometry": {
+    "render": true,
+    "collision": true,
+    "navigation": "surface",
+    "acoustic_class": "static"
   }
 }
 ```
 
-Area costs, traversal permissions, physical agent dimensions, and Recast build
-settings are not duplicated in Blender or Lua. They live exclusively in the
-navigation `asset.toml`.
-
-## Static acoustics
-
-The extension version is kept equal to the workspace project version. In
-**Object Properties > Blackflower Metadata**, choose an **Acoustic Role**:
-
-- **Geometry**, then classify it as `static`, `dynamic_rigid`,
-  `dynamic_state`, or `ignored`. Static-scene cooking consumes only `static`.
-- **Zone** for a stable acoustic zone ID.
-- **Probe Volume** for a bounded mesh object and its containing zone. Author a
-  cube or other mesh whose local bounds define the volume; the cooker uses the
-  full world transform.
-
-One mesh may be both a navigation surface/obstacle and acoustic geometry; the
-extension emits both schema-1 policies on that node.
-
-Every acoustic object requires a stable **ID**. A probe volume exports only its
-identity and zone:
-
-```json
-{
-  "extras": {
-    "blackflower": {
-      "schema": 1,
-      "node": {
-        "kind": "acoustic_probe_volume",
-        "id": "ground_floor_probes"
-      },
-      "acoustics": {
-        "kind": "probe_volume",
-        "zone": "ground_floor"
-      }
-    }
-  }
-}
-```
-
-Individual probes are not authored in Blender. `generation`,
-`spacing_meters`, and `height_meters` live in the probe batch's `asset.toml`;
-the cooker generates probes inside the selected volume.
-
-In **Material Properties > Blackflower Acoustics**, map each material used by
-static geometry to a portable acoustic material ID:
-
-```json
-{
-  "extras": {
-    "blackflower": {
-      "schema": 1,
-      "acoustics": {
-        "material": "acoustics/materials/concrete"
-      }
-    }
-  }
-}
-```
-
-Absorption, scattering, and transmission coefficients are declared once in
-the acoustic-scene manifest, not duplicated in Blender.
+In **Material Properties > Blackflower Surface**, a material may reference a
+physics material asset, a navigation area key, and an acoustic material asset.
+The coefficients, area costs, agent settings, probe placement recipe, and bake
+quality remain in their domain manifests and the global cooking profile; they
+are not duplicated in Blender.
 
 ## License
 

@@ -12,13 +12,25 @@ import unicodedata
 
 
 ANIMATION_SCHEMA = 1
-NODE_SCHEMA = 1
+MAP_SCHEMA = 1
 MAX_MARKERS = 4_096
 MAX_MARKER_NAME_BYTES = 128
-MAX_NODE_KIND_BYTES = 64
 MAX_NODE_ID_BYTES = 128
+MAX_ASSET_ID_BYTES = 255
 
-_NODE_KIND = re.compile(r"^[a-z][a-z0-9_]*$")
+_PORTABLE_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+_MAP_ROLES = {
+    "geometry",
+    "spawn_point",
+    "prefab_instance",
+    "volume_instance",
+    "trigger_volume",
+    "navigation_anchor",
+    "navigation_link",
+    "acoustic_zone",
+    "acoustic_portal",
+    "audio_emitter",
+}
 
 
 class MetadataError(ValueError):
@@ -137,113 +149,230 @@ def build_animation_metadata(
     }
 
 
-def build_node_metadata(
-    kind: str,
-    identifier: str = "",
+def build_map_node_metadata(
+    role: str,
+    identifier: str,
     *,
-    navigation_role: str = "none",
-    area_key: str = "",
-    direction: str = "bidirectional",
-    radius: float = 0.0,
-    acoustics_kind: str = "none",
-    geometry_class: str = "static",
+    render: bool = False,
+    collision: bool = False,
+    navigation: str = "none",
+    acoustic_class: str = "ignored",
+    spawn_set: str = "default",
+    spawn_weight: float = 1.0,
+    asset: str = "",
+    definition: str = "",
+    navigation_end: str = "",
+    navigation_area: str = "",
+    navigation_direction: str = "bidirectional",
+    navigation_radius: float = 0.5,
+    acoustic_zone_kind: str = "bounds",
     acoustic_zone: str = "",
     acoustic_zone_a: str = "",
     acoustic_zone_b: str = "",
+    acoustic_controller: str = "",
+    acoustic_initially_open: bool = True,
+    sound: str = "",
+    autoplay: bool = False,
 ) -> dict[str, object]:
-    """Build schema-1 typed node metadata for level cooking."""
+    """Build strict schema-1 metadata for one authored map node."""
 
-    if not isinstance(kind, str):
-        raise MetadataError("node kind must be text")
-    if (
-        not kind
-        or len(kind.encode("utf-8")) > MAX_NODE_KIND_BYTES
-        or _NODE_KIND.fullmatch(kind) is None
-    ):
-        raise MetadataError(
-            "node kind must be lower_snake_case and at most "
-            f"{MAX_NODE_KIND_BYTES} UTF-8 bytes"
-        )
+    if role not in _MAP_ROLES:
+        raise MetadataError("map node role is not supported")
+    _validate_portable_key(identifier, "map node id", MAX_NODE_ID_BYTES)
+    result: dict[str, object] = {
+        "schema": MAP_SCHEMA,
+        "node": {"id": identifier, "role": role},
+    }
 
-    node: dict[str, str] = {"kind": kind}
-    if identifier:
-        _validate_text(identifier, "node id", MAX_NODE_ID_BYTES)
-        node["id"] = identifier
-    result: dict[str, object] = {"schema": NODE_SCHEMA, "node": node}
-    if navigation_role != "none":
-        if not identifier:
-            raise MetadataError("navigation node id is required")
-        if navigation_role not in {"surface", "obstacle", "off_mesh_link"}:
-            raise MetadataError("navigation role is not supported")
-
-        navigation: dict[str, object] = {"role": navigation_role}
-        if navigation_role in {"surface", "off_mesh_link"}:
-            _validate_portable_key(area_key, "navigation area key")
-            navigation["area_key"] = area_key
-        elif area_key:
-            raise MetadataError("navigation obstacle cannot declare an area key")
-        if navigation_role == "off_mesh_link":
-            if direction not in {"one_way", "bidirectional"}:
-                raise MetadataError("off-mesh link direction is not supported")
-            link_radius = _finite_number(radius, "off-mesh link radius")
-            if link_radius <= 0.0:
-                raise MetadataError("off-mesh link radius must be greater than zero")
-            navigation["direction"] = direction
-            navigation["radius"] = _float32(link_radius)
-        result["navigation"] = navigation
-
-    if acoustics_kind != "none":
-        if not identifier:
-            raise MetadataError("acoustic node id is required")
-        expected_kinds = {
-            "geometry": "acoustic_geometry",
-            "zone": "acoustic_zone",
-            "zone_volume": "acoustic_zone_volume",
-            "portal": "acoustic_portal",
-            "probe_volume": "acoustic_probe_volume",
+    if role == "geometry":
+        if navigation not in {"none", "surface", "obstacle"}:
+            raise MetadataError("geometry navigation use is not supported")
+        if acoustic_class not in {
+            "ignored",
+            "static",
+            "dynamic_rigid",
+            "dynamic_state",
+        }:
+            raise MetadataError("acoustic geometry class is not supported")
+        if not render and not collision and navigation == "none" and acoustic_class == "ignored":
+            raise MetadataError("geometry must enable at least one domain use")
+        result["geometry"] = {
+            "render": bool(render),
+            "collision": bool(collision),
+            "navigation": navigation,
+            "acoustic_class": acoustic_class,
         }
-        expected_kind = expected_kinds.get(acoustics_kind)
-        if expected_kind is None:
-            raise MetadataError("acoustic node kind is not supported")
-        if kind != expected_kind:
-            raise MetadataError(
-                f"{acoustics_kind} acoustics requires node kind {expected_kind}"
+    elif role == "spawn_point":
+        _validate_portable_key(spawn_set, "spawn set", 64)
+        weight = _finite_number(spawn_weight, "spawn weight")
+        if weight <= 0.0:
+            raise MetadataError("spawn weight must be greater than zero")
+        result["spawn_point"] = {
+            "set": spawn_set,
+            "weight": _float32(weight),
+        }
+    elif role in {"prefab_instance", "volume_instance"}:
+        _validate_asset_id(asset, f"{role} asset")
+        result[role] = {"asset": asset}
+    elif role == "trigger_volume":
+        _validate_asset_id(definition, "trigger definition")
+        result[role] = {"definition": definition}
+    elif role == "navigation_anchor":
+        result[role] = {}
+    elif role == "navigation_link":
+        _validate_portable_key(navigation_end, "navigation end node", MAX_NODE_ID_BYTES)
+        _validate_portable_key(navigation_area, "navigation area", 64)
+        if navigation_direction not in {"one_way", "bidirectional"}:
+            raise MetadataError("navigation link direction is not supported")
+        radius = _finite_number(navigation_radius, "navigation link radius")
+        if radius <= 0.0:
+            raise MetadataError("navigation link radius must be greater than zero")
+        result[role] = {
+            "end": navigation_end,
+            "area": navigation_area,
+            "direction": navigation_direction,
+            "radius": _float32(radius),
+        }
+    elif role == "acoustic_zone":
+        if acoustic_zone_kind not in {"identity", "bounds", "probes"}:
+            raise MetadataError("acoustic zone kind is not supported")
+        zone: dict[str, object] = {"kind": acoustic_zone_kind}
+        if acoustic_zone_kind == "probes":
+            _validate_portable_key(acoustic_zone, "probe acoustic zone", MAX_NODE_ID_BYTES)
+            zone["zone"] = acoustic_zone
+        elif acoustic_zone:
+            raise MetadataError("only acoustic probe zones reference another zone")
+        result[role] = zone
+    elif role == "acoustic_portal":
+        _validate_portable_key(acoustic_zone_a, "portal zone A", MAX_NODE_ID_BYTES)
+        _validate_portable_key(acoustic_zone_b, "portal zone B", MAX_NODE_ID_BYTES)
+        if acoustic_zone_a == acoustic_zone_b:
+            raise MetadataError("portal zones must differ")
+        portal: dict[str, object] = {
+            "zone_a": acoustic_zone_a,
+            "zone_b": acoustic_zone_b,
+            "initially_open": bool(acoustic_initially_open),
+        }
+        if acoustic_controller:
+            _validate_portable_key(
+                acoustic_controller,
+                "acoustic portal controller",
+                MAX_NODE_ID_BYTES,
             )
-        acoustics: dict[str, object] = {"kind": acoustics_kind}
-        if acoustics_kind == "geometry":
-            if geometry_class not in {
-                "static",
-                "dynamic_rigid",
-                "dynamic_state",
-                "ignored",
-            }:
-                raise MetadataError("acoustic geometry class is not supported")
-            acoustics["class"] = geometry_class
-        elif acoustics_kind == "probe_volume":
-            _validate_text(acoustic_zone, "acoustic zone id", MAX_NODE_ID_BYTES)
-            acoustics["zone"] = acoustic_zone
-        elif acoustics_kind == "portal":
-            _validate_text(acoustic_zone_a, "portal zone A", MAX_NODE_ID_BYTES)
-            _validate_text(acoustic_zone_b, "portal zone B", MAX_NODE_ID_BYTES)
-            if acoustic_zone_a == acoustic_zone_b:
-                raise MetadataError("portal zones must differ")
-            acoustics["zone_a"] = acoustic_zone_a
-            acoustics["zone_b"] = acoustic_zone_b
-        result["acoustics"] = acoustics
+            portal["controller"] = acoustic_controller
+        result[role] = portal
+    elif role == "audio_emitter":
+        _validate_asset_id(sound, "audio emitter sound")
+        result[role] = {"sound": sound, "autoplay": bool(autoplay)}
 
     return result
 
 
-def build_material_metadata(material: str) -> dict[str, object] | None:
-    """Build schema-1 acoustic metadata for one glTF material."""
+def build_map_material_metadata(
+    *,
+    physics_material: str = "",
+    navigation_area: str = "",
+    acoustic_material: str = "",
+) -> dict[str, object] | None:
+    """Build schema-1 map surface metadata for one glTF material."""
 
-    if not material:
+    if not physics_material and not navigation_area and not acoustic_material:
         return None
-    _validate_asset_id(material, "acoustic material")
+    material: dict[str, object] = {}
+    if physics_material:
+        _validate_asset_id(physics_material, "physics material")
+        material["physics_material"] = physics_material
+    if navigation_area:
+        _validate_portable_key(navigation_area, "navigation area", 64)
+        material["navigation_area"] = navigation_area
+    if acoustic_material:
+        _validate_asset_id(acoustic_material, "acoustic material")
+        material["acoustic_material"] = acoustic_material
     return {
-        "schema": NODE_SCHEMA,
-        "acoustics": {"material": material},
+        "schema": MAP_SCHEMA,
+        "material": material,
     }
+
+
+def validate_map_references(nodes: Iterable[Mapping[str, object]]) -> None:
+    """Validate IDs and cross-node references in one exported map scene."""
+
+    indexed: dict[str, Mapping[str, object]] = {}
+    for metadata in nodes:
+        node = metadata.get("node")
+        if not isinstance(node, Mapping):
+            raise MetadataError("map node metadata is missing its node identity")
+        identifier = node.get("id")
+        role = node.get("role")
+        if not isinstance(identifier, str) or not isinstance(role, str):
+            raise MetadataError("map node identity is invalid")
+        if identifier in indexed:
+            raise MetadataError(f"map duplicates node id `{identifier}`")
+        indexed[identifier] = metadata
+
+    for identifier, metadata in indexed.items():
+        node = metadata["node"]
+        assert isinstance(node, Mapping)
+        role = node["role"]
+        if role == "navigation_link":
+            payload = metadata["navigation_link"]
+            assert isinstance(payload, Mapping)
+            _require_role(indexed, payload["end"], {"navigation_anchor"}, identifier)
+        elif role == "acoustic_zone":
+            payload = metadata["acoustic_zone"]
+            assert isinstance(payload, Mapping)
+            if payload["kind"] == "probes":
+                _require_acoustic_zone(indexed, payload["zone"], "identity", identifier)
+        elif role == "acoustic_portal":
+            payload = metadata["acoustic_portal"]
+            assert isinstance(payload, Mapping)
+            _require_acoustic_zone(indexed, payload["zone_a"], "bounds", identifier)
+            _require_acoustic_zone(indexed, payload["zone_b"], "bounds", identifier)
+            controller = payload.get("controller")
+            if controller is not None:
+                _require_role(
+                    indexed,
+                    controller,
+                    {"geometry", "prefab_instance"},
+                    identifier,
+                )
+
+
+def _require_role(
+    indexed: Mapping[str, Mapping[str, object]],
+    target: object,
+    expected: set[str],
+    owner: str,
+) -> Mapping[str, object]:
+    if not isinstance(target, str) or target not in indexed:
+        raise MetadataError(f"map node `{owner}` references missing node `{target}`")
+    metadata = indexed[target]
+    node = metadata["node"]
+    assert isinstance(node, Mapping)
+    role = node["role"]
+    if role not in expected:
+        choices = ", ".join(sorted(expected))
+        raise MetadataError(
+            f"map node `{owner}` references `{target}` with role `{role}`; "
+            f"expected {choices}"
+        )
+    return metadata
+
+
+def _require_acoustic_zone(
+    indexed: Mapping[str, Mapping[str, object]],
+    target: object,
+    expected_kind: str,
+    owner: str,
+) -> None:
+    metadata = _require_role(indexed, target, {"acoustic_zone"}, owner)
+    payload = metadata["acoustic_zone"]
+    assert isinstance(payload, Mapping)
+    if payload["kind"] != expected_kind:
+        raise MetadataError(
+            f"map node `{owner}` references acoustic zone `{target}` with kind "
+            f"`{payload['kind']}`; expected `{expected_kind}`"
+        )
 
 
 def merge_extras(
@@ -295,14 +424,14 @@ def _validate_text(value: str, field: str, maximum_bytes: int) -> None:
         )
 
 
-def _validate_portable_key(value: str, field: str) -> None:
+def _validate_portable_key(value: str, field: str, maximum_bytes: int) -> None:
     if (
         not isinstance(value, str)
-        or len(value.encode("utf-8")) > 64
-        or _NODE_KIND.fullmatch(value) is None
+        or len(value.encode("utf-8")) > maximum_bytes
+        or _PORTABLE_KEY.fullmatch(value) is None
     ):
         raise MetadataError(
-            f"{field} must be lower_snake_case and at most 64 UTF-8 bytes"
+            f"{field} must be lower_snake_case and at most {maximum_bytes} UTF-8 bytes"
         )
 
 
@@ -310,7 +439,7 @@ def _validate_asset_id(value: str, field: str) -> None:
     if (
         not isinstance(value, str)
         or not value
-        or len(value.encode("utf-8")) > 255
+        or len(value.encode("utf-8")) > MAX_ASSET_ID_BYTES
         or not value.isascii()
         or any(
             not segment
