@@ -1,7 +1,7 @@
 mod vendor;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
             mut vendors,
         } => {
             let workspace_root =
-                fs::canonicalize(&arguments.workspace_root).with_context(|| {
+                canonical_workspace_root(&arguments.workspace_root).with_context(|| {
                     format!(
                         "failed to resolve workspace root {}",
                         arguments.workspace_root.display()
@@ -36,6 +36,40 @@ fn main() -> anyhow::Result<()> {
                 &vendors,
             )
         }
+    }
+}
+
+fn canonical_workspace_root(path: &Path) -> std::io::Result<PathBuf> {
+    let canonical = fs::canonicalize(path)?;
+    #[cfg(windows)]
+    {
+        // Native build tools and Chocolatey shims cannot reliably use verbatim paths as working
+        // directories, even though Windows canonicalization returns them.
+        Ok(without_windows_verbatim_prefix(canonical))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(canonical)
+    }
+}
+
+#[cfg(windows)]
+fn without_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    const VERBATIM_PREFIX: &[u16] = &[92, 92, 63, 92];
+    const VERBATIM_UNC_PREFIX: &[u16] = &[92, 92, 63, 92, 85, 78, 67, 92];
+
+    let units = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if let Some(remainder) = units.strip_prefix(VERBATIM_UNC_PREFIX) {
+        let mut normalized = vec![92, 92];
+        normalized.extend_from_slice(remainder);
+        PathBuf::from(OsString::from_wide(&normalized))
+    } else if let Some(remainder) = units.strip_prefix(VERBATIM_PREFIX) {
+        PathBuf::from(OsString::from_wide(remainder))
+    } else {
+        path
     }
 }
 
