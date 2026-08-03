@@ -737,6 +737,7 @@ name = "blackflower-scripting-luau"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-assets",
  "blackflower-build",
  "cmake",
  "thiserror 2.0.19",

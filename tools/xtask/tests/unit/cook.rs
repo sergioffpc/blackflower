@@ -16,7 +16,7 @@ use blackflower_assets::{
 use blackflower_audio_spatial::{AcousticEnvironment, AcousticScene, ProbeBatch};
 use blackflower_navigation::NavMeshAsset;
 use blackflower_rendering_models::MeshAsset;
-use blackflower_scripting_luau::{Bytecode, Runtime, Value};
+use blackflower_scripting_luau::{CompileOptions, DebugLevel, Runtime, Value, VerifiedBytecode};
 use tempfile::TempDir;
 
 use crate::asset_cooker::{CookedAsset, cook_assets};
@@ -537,17 +537,60 @@ fn cooks_profile_configured_luau_bytecode_for_runtime_loading() -> anyhow::Resul
     assert_eq!(resolved.package().catalog().profile.name.as_str(), "debug");
     assert_eq!(resolved.package().catalog().toolchain.luau, "luau/0.731.0");
 
-    let bytes = store.read_asset(&id)?;
+    let authenticated = store.read_authenticated_asset(&id)?;
+    let bytes = authenticated.bytes();
     assert_ne!(
         bytes.as_ref(),
         b"local function answer() return 42 end\nreturn answer()\n"
     );
-    let bytecode = Bytecode::from_bytes(bytes.to_vec());
+    assert_eq!(authenticated.record(), resolved.record());
+    assert_eq!(authenticated.package_hash(), resolved.package().hash());
+    assert_eq!(
+        authenticated.signing_key_id(),
+        resolved.package().signing_key_id()
+    );
+    let bytecode = VerifiedBytecode::from_authenticated_asset(
+        authenticated,
+        CompileOptions {
+            debug: DebugLevel::Full,
+            ..CompileOptions::default()
+        },
+    )?;
     let values = Runtime::new()?.execute_bytecode("scripts/answer", &bytecode)?;
     assert!(matches!(
         values.as_slice(),
         [Value::Number(value)] if value.to_bits() == 42.0_f64.to_bits()
     ));
+    Ok(())
+}
+
+#[test]
+fn rejects_authenticated_non_luau_content_as_executable_bytecode() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.asset(
+        "scripts/not-bytecode",
+        "simulation",
+        "not-bytecode.bin",
+        b"authenticated but not executable",
+    )?;
+    let request = fixture.request("pak000", &["scripts/not-bytecode"])?;
+    let _result = fixture.pipeline.cook(&request)?;
+
+    let store = fixture.open_store()?;
+    let id = AssetId::from_str("scripts/not-bytecode")?;
+    let authenticated = store.read_authenticated_asset(&id)?;
+    let Err(error) =
+        VerifiedBytecode::from_authenticated_asset(authenticated, CompileOptions::default())
+    else {
+        anyhow::bail!("a signed opaque blob became executable bytecode");
+    };
+
+    assert_eq!(
+        error,
+        blackflower_scripting_luau::Error::InvalidBytecodeAssetKind {
+            actual: AssetKind::Blob,
+        }
+    );
     Ok(())
 }
 

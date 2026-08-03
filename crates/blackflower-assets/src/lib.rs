@@ -22,7 +22,7 @@ pub use hash::{
     AssetKeyId, AssetSetHash, ContentHash, PackageHash, PackagePayloadHash, ProfileHash, RecipeHash,
 };
 pub use id::{AssetId, PackageName, ProfileName};
-pub use package::{AssetPackage, AssetReader};
+pub use package::{AssetPackage, AssetReader, AuthenticatedAsset};
 #[cfg(feature = "hot-reload")]
 pub use reload::{
     AssetChange, AssetChangeKind, AssetChangeSet, AssetGeneration, AssetReload, AssetReloadStatus,

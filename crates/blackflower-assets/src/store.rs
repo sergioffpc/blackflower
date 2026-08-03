@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::error::io_error;
 use crate::{
     AssetAudience, AssetId, AssetKind, AssetPackage, AssetReader, AssetRecord, AssetSetHash,
-    AssetTrustStore, Bytes, CookingProfileIdentity, Error, PackageName,
+    AssetTrustStore, AuthenticatedAsset, Bytes, CookingProfileIdentity, Error, PackageName,
 };
 
 const ASSET_SET_SCHEMA: u32 = 1;
@@ -130,6 +130,18 @@ impl AssetStore {
             .resolve(id)
             .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
         resolved.package.read_asset(id)
+    }
+
+    /// Reads and authenticates the complete winning object and its provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the asset is absent, corrupt, or cannot be read.
+    pub fn read_authenticated_asset(&self, id: &AssetId) -> Result<AuthenticatedAsset, Error> {
+        let resolved = self
+            .resolve(id)
+            .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
+        resolved.package.read_authenticated_asset(id)
     }
 }
 

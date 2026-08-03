@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::compile::{Bytecode, CompileOptions};
+use crate::compile::{CompileOptions, VerifiedBytecode};
 use crate::ffi::DebugRequest;
 use crate::{
     DebugHandler, DebugOptions, Error, MIN_NATIVE_CODEGEN_LIMIT_BYTES, MemoryUsage,
@@ -116,7 +116,7 @@ impl Runtime {
     pub fn execute_bytecode(
         &mut self,
         chunk_name: &str,
-        bytecode: &Bytecode,
+        bytecode: &VerifiedBytecode,
     ) -> Result<Vec<Value>, Error> {
         self.execute_bytecode_inner(chunk_name, bytecode, None)
     }
@@ -128,7 +128,7 @@ impl Runtime {
     pub fn execute_bytecode_debugged(
         &mut self,
         chunk_name: &str,
-        bytecode: &Bytecode,
+        bytecode: &VerifiedBytecode,
         options: &DebugOptions,
         handler: &mut dyn DebugHandler,
     ) -> Result<Vec<Value>, Error> {
@@ -142,7 +142,7 @@ impl Runtime {
     fn execute_bytecode_inner(
         &mut self,
         chunk_name: &str,
-        bytecode: &Bytecode,
+        bytecode: &VerifiedBytecode,
         debug: Option<DebugRequest<'_>>,
     ) -> Result<Vec<Value>, Error> {
         let chunk_name =

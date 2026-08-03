@@ -9,7 +9,8 @@ mod runtime;
 mod value;
 
 pub use compile::{
-    Bytecode, CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel, compile,
+    CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel, VerifiedBytecode,
+    compile,
 };
 pub use config::{
     DEFAULT_EXECUTION_FUEL, DEFAULT_NATIVE_CODEGEN_LIMIT_BYTES, DEFAULT_VM_MEMORY_LIMIT_BYTES,

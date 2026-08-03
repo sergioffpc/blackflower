@@ -20,6 +20,13 @@ catalogued byte length and BLAKE3 content hash when it reaches the end of the
 asset. Complete reads return `Bytes`, allowing cheap clones and slices after
 the verified object has been materialized.
 
+Consumers that cross into native parsers which are not memory-safe verifiers
+must instead call `read_authenticated_asset`. Its opaque `AuthenticatedAsset`
+retains the signed catalog kind, cooking profile, toolchain, package hashes,
+and signing-key identity alongside the fully hash-checked bytes. This proof
+lets a backend such as Luau require signed, correctly typed content without
+exposing a safe raw-byte constructor at the native loading boundary.
+
 `PackagePayloadHash` identifies the authenticated SquashFS bytes.
 `PackageHash` continues to cover every final file byte, including the signing
 footer, so changing the signer or signature changes `AssetSetHash`.

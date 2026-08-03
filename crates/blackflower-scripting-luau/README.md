@@ -88,10 +88,13 @@ across the safe Rust and native C ABI boundaries:
   `NativeModules` limits compilation to modules marked with `--!native`;
   `AllModules` allows every loaded module.
 
-The `Bytecode` wrapper retains the options used to compile it. Authenticated
-cooked content must use `Bytecode::from_bytes_with_options` so the runtime can
-apply the matching native-codegen policy. Coverage remains disabled by the
-asset cooker.
+The `VerifiedBytecode` wrapper retains the options used to compile it. It can
+only be produced directly by the pinned compiler or reconstructed through
+`VerifiedBytecode::from_authenticated_asset`. The latter requires an
+`AuthenticatedAsset` produced by `blackflower-assets` after package-signature,
+catalog-kind, object-length, and content-hash verification. Raw bytes cannot
+construct executable bytecode through the safe API. Coverage remains disabled
+by the asset cooker.
 
 ## Debugging
 
@@ -191,9 +194,11 @@ the exact Luau/content compatibility identity and be rejected by consumers
 using another VM version.
 
 The asset cooker reads compile options from the selected versioned cooking
-profile and emits `luau_bytecode` assets. Runtime composition can reconstruct
-the safe owned wrapper with `Bytecode::from_bytes`; the VM validates the
-bytecode version and structure when the chunk is loaded.
+profile and emits `luau_bytecode` assets. Runtime composition reconstructs
+`VerifiedBytecode` from the authenticated asset and the matching authenticated
+profile options. The pinned Luau loader is not treated as a verifier for
+untrusted bytecode: although it checks the bytecode version, its deserializer
+assumes compiler-produced structure.
 
 The VM memory ceiling does not cover the standalone C++ compiler used by
 `compile`. Cook untrusted source in a separately constrained worker and run
