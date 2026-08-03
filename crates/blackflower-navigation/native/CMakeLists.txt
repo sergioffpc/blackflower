@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(BlackflowerNavigationBindings LANGUAGES CXX)
 
-set(DETOUR_ROOT "${CMAKE_CURRENT_LIST_DIR}/../vendor/recastnavigation/Detour")
+if(NOT DEFINED BLACKFLOWER_RECAST_INSTALL)
+    message(FATAL_ERROR "BLACKFLOWER_RECAST_INSTALL is required")
+endif()
+if(NOT DEFINED BLACKFLOWER_DETOUR_LIBRARY)
+    message(FATAL_ERROR "BLACKFLOWER_DETOUR_LIBRARY is required")
+endif()
 
 foreach(version_component MAJOR MINOR PATCH)
     if(NOT DEFINED BLACKFLOWER_RECAST_VERSION_${version_component})
@@ -10,18 +15,13 @@ foreach(version_component MAJOR MINOR PATCH)
     endif()
 endforeach()
 
-add_library(
+add_library(Detour STATIC IMPORTED GLOBAL)
+set_target_properties(
     Detour
-    STATIC
-    "${DETOUR_ROOT}/Source/DetourAlloc.cpp"
-    "${DETOUR_ROOT}/Source/DetourAssert.cpp"
-    "${DETOUR_ROOT}/Source/DetourCommon.cpp"
-    "${DETOUR_ROOT}/Source/DetourNavMesh.cpp"
-    "${DETOUR_ROOT}/Source/DetourNavMeshQuery.cpp"
-    "${DETOUR_ROOT}/Source/DetourNode.cpp"
+    PROPERTIES
+    IMPORTED_LOCATION "${BLACKFLOWER_DETOUR_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BLACKFLOWER_RECAST_INSTALL}/include/recastnavigation"
 )
-target_include_directories(Detour PUBLIC "${DETOUR_ROOT}/Include")
-target_compile_features(Detour PRIVATE cxx_std_17)
 
 add_library(blackflower_navigation_wrapper STATIC wrapper.cpp)
 target_compile_features(blackflower_navigation_wrapper PRIVATE cxx_std_17)
@@ -34,7 +34,7 @@ target_compile_definitions(
 )
 target_link_libraries(blackflower_navigation_wrapper PRIVATE Detour)
 
-foreach(target Detour blackflower_navigation_wrapper)
+foreach(target blackflower_navigation_wrapper)
     if(MSVC)
         target_compile_options(${target} PRIVATE /GR-)
     else()
@@ -44,6 +44,6 @@ endforeach()
 
 include(GNUInstallDirs)
 install(
-    TARGETS Detour blackflower_navigation_wrapper
+    TARGETS blackflower_navigation_wrapper
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

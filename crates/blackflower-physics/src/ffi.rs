@@ -14,7 +14,8 @@ use std::ptr::NonNull;
 use glam::{Quat, Vec3A};
 
 use crate::character::CharacterSettings;
-use crate::types::{BodySettings, ShapeKind};
+use crate::shape::{CompoundShapeChild, Shape, ShapeKind};
+use crate::types::BodySettings;
 
 #[allow(
     dead_code,
@@ -45,11 +46,26 @@ pub(crate) enum Status {
     BodyNotFound,
     CharacterNotFound,
     BodyOwnedByCharacter,
+    ShapeCreationFailed,
     ContractViolation,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WorldPtr(NonNull<raw::BFPhysicsWorld>);
+
+struct ShapePtr(NonNull<raw::BFPhysicsShape>);
+
+impl ShapePtr {
+    const fn as_ptr(&self) -> *mut raw::BFPhysicsShape {
+        self.0.as_ptr()
+    }
+}
+
+impl Drop for ShapePtr {
+    fn drop(&mut self) {
+        unsafe { raw::bf_physics_shape_destroy(self.0.as_ptr()) };
+    }
+}
 
 pub(crate) struct WorldConfig {
     pub(crate) max_bodies: u32,
@@ -91,46 +107,143 @@ pub(crate) fn destroy_world(world: WorldPtr) {
     unsafe { raw::bf_physics_world_destroy(world.0.as_ptr()) };
 }
 
-pub(crate) fn create_body(world: WorldPtr, settings: BodySettings) -> Result<u32, Status> {
+pub(crate) fn create_body(world: WorldPtr, settings: &BodySettings) -> Result<u32, Status> {
     let raw_settings = raw::BFPhysicsBodySettings {
         position: raw_vec(settings.position),
         rotation: raw_quat(settings.rotation),
         motion_type: settings.motion_type.raw(),
         active: u8::from(settings.active),
     };
+    let shape = create_shape(&settings.shape)?;
     let mut body = u32::MAX;
-    let status = match settings.shape.kind() {
-        ShapeKind::Sphere { radius } => unsafe {
-            raw::bf_physics_world_create_sphere_body(
-                world.0.as_ptr(),
-                &raw const raw_settings,
-                radius,
-                &raw mut body,
-            )
-        },
-        ShapeKind::Box { half_extent } => unsafe {
-            raw::bf_physics_world_create_box_body(
-                world.0.as_ptr(),
-                &raw const raw_settings,
-                raw_vec(half_extent),
-                &raw mut body,
-            )
-        },
-        ShapeKind::Capsule {
-            half_height,
-            radius,
-        } => unsafe {
-            raw::bf_physics_world_create_capsule_body(
-                world.0.as_ptr(),
-                &raw const raw_settings,
-                half_height,
-                radius,
-                &raw mut body,
-            )
-        },
+    let status = unsafe {
+        raw::bf_physics_world_create_body(
+            world.0.as_ptr(),
+            &raw const raw_settings,
+            shape.as_ptr(),
+            &raw mut body,
+        )
     };
     check(status)?;
     Ok(body)
+}
+
+fn create_shape(shape: &Shape) -> Result<ShapePtr, Status> {
+    match shape.kind() {
+        ShapeKind::Sphere { radius } => create_sphere(*radius),
+        ShapeKind::Box { half_extent } => create_box(*half_extent),
+        ShapeKind::Capsule {
+            half_height,
+            radius,
+        } => create_capsule(*half_height, *radius),
+        ShapeKind::ConvexHull { points } => create_convex_hull(points),
+        ShapeKind::Compound { children } => create_compound(children),
+        ShapeKind::TriangleMesh {
+            vertices,
+            triangles,
+        } => create_triangle_mesh(vertices, triangles),
+    }
+}
+
+fn create_sphere(radius: f32) -> Result<ShapePtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe { raw::bf_physics_shape_create_sphere(radius, &raw mut pointer) };
+    shape_result(status, pointer)
+}
+
+fn create_box(half_extent: Vec3A) -> Result<ShapePtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status =
+        unsafe { raw::bf_physics_shape_create_box(raw_vec(half_extent), &raw mut pointer) };
+    shape_result(status, pointer)
+}
+
+fn create_capsule(half_height: f32, radius: f32) -> Result<ShapePtr, Status> {
+    let mut pointer = std::ptr::null_mut();
+    let status =
+        unsafe { raw::bf_physics_shape_create_capsule(half_height, radius, &raw mut pointer) };
+    shape_result(status, pointer)
+}
+
+fn create_convex_hull(points: &[Vec3A]) -> Result<ShapePtr, Status> {
+    let raw_points = points.iter().copied().map(raw_vec).collect::<Vec<_>>();
+    let count = u32::try_from(raw_points.len()).map_err(|_error| Status::ContractViolation)?;
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::bf_physics_shape_create_convex_hull(raw_points.as_ptr(), count, &raw mut pointer)
+    };
+    shape_result(status, pointer)
+}
+
+fn create_compound(children: &[CompoundShapeChild]) -> Result<ShapePtr, Status> {
+    let shapes = children
+        .iter()
+        .map(|child| create_shape(&child.shape))
+        .collect::<Result<Vec<_>, _>>()?;
+    let raw_children = children
+        .iter()
+        .zip(&shapes)
+        .map(|(child, shape)| raw_compound_child(child, shape))
+        .collect::<Vec<_>>();
+    let count = u32::try_from(raw_children.len()).map_err(|_error| Status::ContractViolation)?;
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::bf_physics_shape_create_compound(raw_children.as_ptr(), count, &raw mut pointer)
+    };
+    shape_result(status, pointer)
+}
+
+fn raw_compound_child(child: &CompoundShapeChild, shape: &ShapePtr) -> raw::BFPhysicsCompoundChild {
+    raw::BFPhysicsCompoundChild {
+        shape: shape.as_ptr(),
+        position: raw_vec(child.position),
+        rotation: raw_quat(child.rotation),
+    }
+}
+
+fn create_triangle_mesh(vertices: &[Vec3A], triangles: &[[u32; 3]]) -> Result<ShapePtr, Status> {
+    let raw_vertices = vertices.iter().copied().map(raw_vec).collect::<Vec<_>>();
+    let raw_triangles = triangles
+        .iter()
+        .copied()
+        .map(raw_triangle)
+        .collect::<Vec<_>>();
+    create_triangle_mesh_from_raw(&raw_vertices, &raw_triangles)
+}
+
+fn create_triangle_mesh_from_raw(
+    vertices: &[raw::BFPhysicsVec3],
+    triangles: &[raw::BFPhysicsTriangle],
+) -> Result<ShapePtr, Status> {
+    let vertex_count = u32::try_from(vertices.len()).map_err(|_error| Status::ContractViolation)?;
+    let triangle_count =
+        u32::try_from(triangles.len()).map_err(|_error| Status::ContractViolation)?;
+    let mut pointer = std::ptr::null_mut();
+    let status = unsafe {
+        raw::bf_physics_shape_create_triangle_mesh(
+            vertices.as_ptr(),
+            vertex_count,
+            triangles.as_ptr(),
+            triangle_count,
+            &raw mut pointer,
+        )
+    };
+    shape_result(status, pointer)
+}
+
+fn raw_triangle(indices: [u32; 3]) -> raw::BFPhysicsTriangle {
+    raw::BFPhysicsTriangle {
+        first: indices[0],
+        second: indices[1],
+        third: indices[2],
+    }
+}
+
+fn shape_result(status: i32, pointer: *mut raw::BFPhysicsShape) -> Result<ShapePtr, Status> {
+    check(status)?;
+    NonNull::new(pointer)
+        .map(ShapePtr)
+        .ok_or(Status::ContractViolation)
 }
 
 pub(crate) fn destroy_body(world: WorldPtr, body: u32) -> Result<(), Status> {
@@ -458,6 +571,7 @@ fn check(status: i32) -> Result<(), Status> {
         raw::BF_PHYSICS_STATUS_BODY_NOT_FOUND => Err(Status::BodyNotFound),
         raw::BF_PHYSICS_STATUS_CHARACTER_NOT_FOUND => Err(Status::CharacterNotFound),
         raw::BF_PHYSICS_STATUS_BODY_OWNED_BY_CHARACTER => Err(Status::BodyOwnedByCharacter),
+        raw::BF_PHYSICS_STATUS_SHAPE_CREATION_FAILED => Err(Status::ShapeCreationFailed),
         _ => Err(Status::ContractViolation),
     }
 }

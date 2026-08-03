@@ -1,0 +1,24 @@
+[package]
+name = "native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autobins = false
+
+[[bin]]
+name = "native"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+blackflower-build.workspace = true
+clap.workspace = true
+cmake.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

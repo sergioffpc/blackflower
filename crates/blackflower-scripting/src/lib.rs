@@ -1,25 +1,11 @@
 #![doc = include_str!("../README.md")]
 
-mod compile;
-mod config;
-mod error;
-mod ffi;
+mod context;
+mod intents;
+mod invocation;
 mod runtime;
-mod value;
 
-pub use compile::{
-    Bytecode, CompileOptions, CoverageLevel, DebugLevel, OptimizationLevel, TypeInfoLevel, compile,
-};
-pub use config::{
-    DEFAULT_EXECUTION_FUEL, DEFAULT_VM_MEMORY_LIMIT_BYTES, Library, MemoryUsage, RuntimeConfig,
-    SandboxPolicy,
-};
-pub use error::Error;
-pub use runtime::Runtime;
-pub use value::Value;
-
-/// The Luau version compiled into this crate.
-#[must_use]
-pub fn luau_version() -> (u32, u32, u32) {
-    ffi::luau_version()
-}
+pub use context::ScriptContext;
+pub use intents::ProposedIntents;
+pub use invocation::ScriptInvocation;
+pub use runtime::ScriptRuntime;

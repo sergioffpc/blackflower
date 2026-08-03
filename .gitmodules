@@ -1,36 +1,57 @@
-[submodule "crates/blackflower-ecs/vendor/flecs"]
-	path = crates/blackflower-ecs/vendor/flecs
-	url = https://github.com/SanderMertens/flecs.git
-[submodule "crates/blackflower-physics/vendor/JoltPhysics"]
-	path = crates/blackflower-physics/vendor/JoltPhysics
-	url = https://github.com/jrouwe/JoltPhysics.git
-[submodule "crates/blackflower-animation/vendor/ozz-animation"]
-	path = crates/blackflower-animation/vendor/ozz-animation
-	url = https://github.com/guillaumeblanc/ozz-animation.git
-[submodule "crates/blackflower-audio-spatial/vendor/flatbuffers"]
-	path = crates/blackflower-audio-spatial/vendor/flatbuffers
-	url = https://github.com/google/flatbuffers.git
-[submodule "crates/blackflower-audio-spatial/vendor/libmysofa"]
-	path = crates/blackflower-audio-spatial/vendor/libmysofa
-	url = https://github.com/hoene/libmysofa.git
-[submodule "crates/blackflower-audio-spatial/vendor/pffft"]
-	path = crates/blackflower-audio-spatial/vendor/pffft
-	url = https://github.com/marton78/pffft.git
-[submodule "crates/blackflower-audio-spatial/vendor/steam-audio-sdk"]
-	path = crates/blackflower-audio-spatial/vendor/steam-audio-sdk
-	url = https://github.com/ValveSoftware/steam-audio.git
-[submodule "crates/blackflower-audio-spatial/vendor/zlib"]
-	path = crates/blackflower-audio-spatial/vendor/zlib
+[submodule "vendor/zlib"]
+	path = vendor/zlib
 	url = https://github.com/madler/zlib.git
-[submodule "crates/blackflower-navigation/vendor/recastnavigation"]
-	path = crates/blackflower-navigation/vendor/recastnavigation
+[submodule "vendor/flecs"]
+	path = vendor/flecs
+	url = https://github.com/SanderMertens/flecs.git
+[submodule "vendor/JoltPhysics"]
+	path = vendor/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "vendor/ozz-animation"]
+	path = vendor/ozz-animation
+	url = https://github.com/guillaumeblanc/ozz-animation.git
+[submodule "vendor/flatbuffers"]
+	path = vendor/flatbuffers
+	url = https://github.com/google/flatbuffers.git
+[submodule "vendor/libmysofa"]
+	path = vendor/libmysofa
+	url = https://github.com/hoene/libmysofa.git
+[submodule "vendor/pffft"]
+	path = vendor/pffft
+	url = https://github.com/marton78/pffft.git
+[submodule "vendor/steam-audio-sdk"]
+	path = vendor/steam-audio-sdk
+	url = https://github.com/ValveSoftware/steam-audio.git
+[submodule "vendor/embree"]
+	path = vendor/embree
+	url = https://github.com/RenderKit/embree.git
+[submodule "vendor/recastnavigation"]
+	path = vendor/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
-[submodule "crates/blackflower-rendering-volumes/vendor/openvdb"]
-	path = crates/blackflower-rendering-volumes/vendor/openvdb
+[submodule "vendor/openvdb"]
+	path = vendor/openvdb
 	url = https://github.com/AcademySoftwareFoundation/openvdb.git
-[submodule "crates/blackflower-scripting/vendor/luau"]
-	path = crates/blackflower-scripting/vendor/luau
+[submodule "vendor/luau"]
+	path = vendor/luau
 	url = https://github.com/luau-lang/luau.git
-[submodule "crates/blackflower-audio-voice/vendor/opus"]
-	path = crates/blackflower-audio-voice/vendor/opus
+[submodule "vendor/opus"]
+	path = vendor/opus
 	url = https://github.com/xiph/opus.git
+[submodule "vendor/slang"]
+	path = vendor/slang
+	url = https://github.com/shader-slang/slang.git
+[submodule "vendor/KTX-Software"]
+	path = vendor/KTX-Software
+	url = https://github.com/KhronosGroup/KTX-Software.git
+[submodule "vendor/boost"]
+	path = vendor/boost
+	url = https://github.com/boostorg/boost.git
+[submodule "vendor/oneTBB"]
+	path = vendor/oneTBB
+	url = https://github.com/uxlfoundation/oneTBB.git
+[submodule "vendor/c-blosc"]
+	path = vendor/c-blosc
+	url = https://github.com/Blosc/c-blosc.git
+[submodule "vendor/PhysX"]
+	path = vendor/PhysX
+	url = https://github.com/NVIDIA-Omniverse/PhysX.git

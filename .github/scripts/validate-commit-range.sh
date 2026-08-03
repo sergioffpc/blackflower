@@ -4,6 +4,7 @@ set -eu
 
 base_oid=$1
 head_oid=$2
+trusted_oid=${3-}
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 message_validator="$script_directory/../../.githooks/lib/validate-commit-message.sh"
 
@@ -17,7 +18,17 @@ case "$base_oid" in
         ;;
 esac
 
-git rev-list --reverse "$revision_range" |
+revision_list()
+{
+    if [ -n "$trusted_oid" ]
+    then
+        git rev-list --reverse "$revision_range" --not "$trusted_oid"
+    else
+        git rev-list --reverse "$revision_range"
+    fi
+}
+
+revision_list |
 while read -r commit_oid
 do
     subject=$(git show --no-patch --format=%s "$commit_oid")
@@ -34,7 +45,12 @@ do
         esac
     fi
 
-    if [ "$is_dependabot_commit" = true ]
+    if git rev-parse --verify "$commit_oid^2" >/dev/null 2>&1
+    then
+        # GitHub adds the PR title as a merge commit body. Validate only the
+        # generated merge subject, which the shared validator explicitly accepts.
+        message=$subject
+    elif [ "$is_dependabot_commit" = true ]
     then
         case "$subject" in
             'chore(deps): '*)

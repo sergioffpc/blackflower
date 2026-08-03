@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "blackflower_gltf_metadata"
+version = "0.1.0"
+name = "Blackflower glTF Metadata"
+tagline = "Export Blackflower animation and typed map metadata"
+maintainer = "Sergio Carvalho"
+type = "add-on"
+
+website = "https://github.com/sergioffpc/blackflower"
+tags = ["Import-Export"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-2.0-or-later"]
+copyright = ["2026 Sergio Carvalho"]

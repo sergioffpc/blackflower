@@ -1,30 +1,31 @@
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
-const NANOVDB_HEADER: &str = "vendor/openvdb/nanovdb/nanovdb/NanoVDB.h";
-const OPENVDB_BUILD: &str = "vendor/openvdb/CMakeLists.txt";
+const OPENVDB_VERSION: &str = "13.0.0";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    for path in [
-        NATIVE_BUILD,
-        NANOVDB_HEADER,
-        OPENVDB_BUILD,
-        WRAPPER_HEADER,
-        WRAPPER_SOURCE,
-    ] {
+    for path in [NATIVE_BUILD, WRAPPER_HEADER, WRAPPER_SOURCE] {
         println!("cargo:rerun-if-changed={path}");
         require_file(path)?;
     }
-    println!("cargo:rerun-if-changed=vendor/openvdb/nanovdb/nanovdb");
+    blackflower_build::emit_cargo_directives();
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is not set")?);
+    let (configuration, workspace_root, _openvdb) =
+        blackflower_build::locate_from_cargo_build_script(
+            &manifest_dir,
+            "openvdb",
+            OPENVDB_VERSION,
+        )
+        .map_err(blackflower_build_error)?;
+    let openvdb_source = workspace_root.join("vendor/openvdb");
 
-    let version = read_openvdb_version()?;
-    let install_dir = compile_native(version)?;
+    let install_dir = compile_wrapper(&configuration, &openvdb_source);
     generate_bindings()?;
     link_native(&install_dir)?;
     Ok(())
@@ -42,33 +43,19 @@ fn require_file(path: &str) -> Result<(), Box<dyn Error>> {
     .into())
 }
 
-fn read_openvdb_version() -> Result<[u32; 3], Box<dyn Error>> {
-    let source = fs::read_to_string(OPENVDB_BUILD)?;
-    Ok([
-        version_component(&source, "MAJOR")?,
-        version_component(&source, "MINOR")?,
-        version_component(&source, "PATCH")?,
-    ])
-}
-
-fn version_component(source: &str, component: &str) -> Result<u32, Box<dyn Error>> {
-    let prefix = format!("set(OpenVDB_{component}_VERSION ");
-    let value = source
-        .lines()
-        .find_map(|line| line.trim().strip_prefix(&prefix))
-        .and_then(|value| value.strip_suffix(')'))
-        .ok_or_else(|| format!("OpenVDB does not declare OpenVDB_{component}_VERSION"))?;
-    Ok(value.parse()?)
-}
-
-fn compile_native(version: [u32; 3]) -> Result<PathBuf, Box<dyn Error>> {
+fn compile_wrapper(
+    configuration: &blackflower_build::Configuration,
+    openvdb_source: &Path,
+) -> PathBuf {
     let mut config = cmake::Config::new("native");
     config
         .profile("Release")
-        .define("BLACKFLOWER_OPENVDB_VERSION_MAJOR", version[0].to_string())
-        .define("BLACKFLOWER_OPENVDB_VERSION_MINOR", version[1].to_string())
-        .define("BLACKFLOWER_OPENVDB_VERSION_PATCH", version[2].to_string());
-    Ok(config.build())
+        .static_crt(configuration.crt_static)
+        .define("BLACKFLOWER_OPENVDB_ROOT", openvdb_source)
+        .define("BLACKFLOWER_OPENVDB_VERSION_MAJOR", "13")
+        .define("BLACKFLOWER_OPENVDB_VERSION_MINOR", "0")
+        .define("BLACKFLOWER_OPENVDB_VERSION_PATCH", "0");
+    config.build()
 }
 
 fn generate_bindings() -> Result<(), Box<dyn Error>> {
@@ -115,4 +102,8 @@ fn link_native(install_dir: &Path) -> Result<(), Box<dyn Error>> {
         _ => {}
     }
     Ok(())
+}
+
+fn blackflower_build_error(error: Box<dyn Error + Send + Sync>) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }

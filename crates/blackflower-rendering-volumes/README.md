@@ -37,17 +37,18 @@ To deliberately update OpenVDB, fetch and check out a reviewed release in the
 submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-rendering-volumes/vendor/openvdb fetch --tags origin
-git -C crates/blackflower-rendering-volumes/vendor/openvdb checkout v13.0.0
-git add crates/blackflower-rendering-volumes/vendor/openvdb
+git -C vendor/openvdb fetch --tags origin
+git -C vendor/openvdb checkout v13.0.0
+git add vendor/openvdb
 ```
 
 ## Runtime API
 
-The loader accepts raw VDB grid buffers and uncompressed `.nvdb` files.
+The loader accepts raw VDB grid buffers and uncompressed `.nvdb` files with
+full checksums.
 Compressed ZIP and BLOSC files are rejected so the volume runtime stays free
 of system compression dependencies. The content cooker should emit raw or
-`Codec::NONE` assets with checksums enabled.
+`Codec::NONE` assets with full checksums.
 
 VDB assets are trusted, versioned runtime content. They are not a sandboxed
 format and must not be accepted directly from untrusted peers.
@@ -60,7 +61,7 @@ use glam::{DVec3, IVec3};
 # fn example() -> Result<(), blackflower_rendering_volumes::Error> {
 let asset = Vdb::from_bytes(&cooked_volume())?;
 let grid = asset
-    .grid(0)
+    .grid_by_name("density")
     .ok_or(blackflower_rendering_volumes::Error::InvalidAsset)?;
 let density = grid
     .as_float()
@@ -75,8 +76,9 @@ println!("trilinear sample={filtered}");
 # }
 ```
 
-The initial safe surface covers immutable metadata, transforms, scalar voxel
+The initial safe surface covers immutable metadata, unique lookup by grid
+name, transforms, scalar voxel
 lookups, active-state queries, and trilinear world-space sampling for Float,
 Fp4, Fp8, Fp16, and FpN grids. It deliberately excludes OpenVDB conversion,
 grid mutation, file compression, and CUDA device ownership; those belong in
-the offline content cooker or in a separately validated GPU integration.
+`blackflower-cooker-volume` or in a separately validated GPU integration.

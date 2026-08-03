@@ -1,0 +1,200 @@
+name: Set up native Rust build
+description: Configure native compiler caching, dependencies, libclang, optional IntelLLVM and ISPC, and the Cargo cache.
+
+inputs:
+  cargo-cache-key:
+    description: Cargo cache key scope. Leave empty to disable the Cargo cache.
+    required: false
+    default: ""
+  cargo-cache-restore-key:
+    description: Cargo cache restore-key scope.
+    required: false
+    default: ""
+  install-ispc:
+    description: Install the pinned ISPC required by the Embree-enabled Steam Audio build.
+    required: false
+    default: "false"
+  install-intel-llvm:
+    description: Install and require IntelLLVM for native C/C++ compilation on supported x86-64 runners.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Configure compiler cache
+      shell: bash
+      run: |
+        {
+          echo "CMAKE_C_COMPILER_LAUNCHER=sccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache"
+          echo "SCCACHE_GHA_ENABLED=true"
+        } >> "$GITHUB_ENV"
+
+    - name: Set up sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: "v0.15.0"
+
+    - name: Print Rust toolchain
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version
+
+    - name: Install native dependencies on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends libasound2-dev libclang-18-dev
+        libclang_path=/usr/lib/llvm-18/lib
+        test -f "$libclang_path/libclang.so"
+        echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
+    - name: Locate libclang on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        libclang_path="$(brew --prefix llvm@18)/lib"
+        test -f "$libclang_path/libclang.dylib"
+        echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+
+    - name: Locate libclang on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $libclangPath = "C:\Program Files\LLVM\bin"
+        if (-not (Test-Path "$libclangPath\libclang.dll")) {
+          throw "libclang.dll not found in $libclangPath"
+        }
+        "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Reject unsupported IntelLLVM host
+      if: >-
+        inputs.install-intel-llvm == 'true' &&
+        (runner.arch != 'X64' || runner.os == 'macOS')
+      shell: bash
+      run: |
+        echo "IntelLLVM is supported by this build only on Linux and Windows x86-64." >&2
+        exit 1
+
+    - name: Install IntelLLVM on Linux x86-64
+      if: inputs.install-intel-llvm == 'true' && runner.arch == 'X64' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        environment="$RUNNER_TEMP/blackflower-intel-llvm"
+        conda_executable="${CONDA:-/usr/share/miniconda}/bin/conda"
+        test -x "$conda_executable"
+        "$conda_executable" create --yes --prefix "$environment" \
+          --override-channels \
+          --channel https://software.repos.intel.com/python/conda/ \
+          --channel conda-forge \
+          dpcpp_linux-64=2025.0.4
+        icx="$(find "$environment" -type f -name icx -perm -u+x -print -quit)"
+        icpx="$(find "$environment" -type f -name icpx -perm -u+x -print -quit)"
+        test -n "$icx"
+        test -n "$icpx"
+        "$icx" --version
+        "$icpx" --version
+        echo "$(dirname "$icx")" >> "$GITHUB_PATH"
+        {
+          echo "CC=$icx"
+          echo "CXX=$icpx"
+          echo "CMAKE_C_COMPILER=$icx"
+          echo "CMAKE_CXX_COMPILER=$icpx"
+          echo "BLACKFLOWER_NATIVE_COMPILER=IntelLLVM"
+        } >> "$GITHUB_ENV"
+
+    - name: Install IntelLLVM on Windows x86-64
+      if: inputs.install-intel-llvm == 'true' && runner.arch == 'X64' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $environment = Join-Path $env:RUNNER_TEMP "blackflower-intel-llvm"
+        $condaExecutable = Join-Path $env:CONDA "Scripts\conda.exe"
+        if (-not (Test-Path $condaExecutable)) {
+          throw "Conda executable not found at $condaExecutable"
+        }
+        & $condaExecutable create --yes --prefix $environment `
+          --override-channels `
+          --channel https://software.repos.intel.com/python/conda/ `
+          --channel conda-forge `
+          dpcpp_win-64=2025.0.4
+        if ($LASTEXITCODE -ne 0) {
+          throw "IntelLLVM Conda installation failed with exit code $LASTEXITCODE"
+        }
+
+        $icx = Get-ChildItem -Path $environment -Filter "icx-cl.exe" -File -Recurse |
+          Select-Object -First 1 -ExpandProperty FullName
+        if (-not $icx) {
+          throw "icx-cl.exe was not installed below $environment"
+        }
+        & $icx --version
+        if ($LASTEXITCODE -ne 0) {
+          throw "IntelLLVM failed to start with exit code $LASTEXITCODE"
+        }
+
+        $activatedEnvironment = & $condaExecutable run --prefix $environment `
+          cmd.exe /d /c set
+        if ($LASTEXITCODE -ne 0) {
+          throw "IntelLLVM environment activation failed with exit code $LASTEXITCODE"
+        }
+        foreach ($line in $activatedEnvironment) {
+          $separator = $line.IndexOf("=")
+          if ($separator -le 0) {
+            continue
+          }
+          $name = $line.Substring(0, $separator)
+          $value = $line.Substring($separator + 1)
+          if ($name -in @("INCLUDE", "LIB", "LIBPATH")) {
+            "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+          if ($name -eq "PATH") {
+            $value.Split(";", [System.StringSplitOptions]::RemoveEmptyEntries) |
+              Out-File -FilePath $env:GITHUB_PATH -Append
+          }
+        }
+
+        $compilerDirectory = Split-Path -Parent $icx
+        $runtimeDirectory = Join-Path $environment "Library\bin"
+        $compilerDirectory | Out-File -FilePath $env:GITHUB_PATH -Append
+        if (Test-Path $runtimeDirectory) {
+          $runtimeDirectory | Out-File -FilePath $env:GITHUB_PATH -Append
+        }
+        "CC=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "CXX=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "CMAKE_C_COMPILER=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "CMAKE_CXX_COMPILER=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "BLACKFLOWER_NATIVE_COMPILER=IntelLLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Install pinned ISPC on Unix x86-64
+      if: inputs.install-ispc == 'true' && runner.arch == 'X64' && runner.os != 'Windows'
+      shell: bash
+      run: |
+        ispc_path="$(python3 .github/scripts/install-ispc.py --output "$RUNNER_TEMP/blackflower-ispc")"
+        test -x "$ispc_path"
+        echo "BLACKFLOWER_ISPC=$ispc_path" >> "$GITHUB_ENV"
+
+    - name: Install pinned ISPC on Windows x86-64
+      if: inputs.install-ispc == 'true' && runner.arch == 'X64' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ispcPath = python .github/scripts/install-ispc.py --output "$env:RUNNER_TEMP\blackflower-ispc"
+        if (-not (Test-Path $ispcPath)) {
+          throw "ISPC executable not found at $ispcPath"
+        }
+        "BLACKFLOWER_ISPC=$ispcPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Restore Cargo cache
+      if: inputs.cargo-cache-key != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ inputs.cargo-cache-key }}-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cargo-cache-restore-key }}-${{ hashFiles('rust-toolchain.toml') }}-
+          ${{ runner.os }}-${{ inputs.cargo-cache-restore-key }}-

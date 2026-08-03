@@ -20,6 +20,7 @@ profile-with-tracy = [
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 profiling.workspace = true
+sysinfo.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true

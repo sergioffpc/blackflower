@@ -1,0 +1,45 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+blackflower-acoustics.workspace = true
+blackflower-animation-format.workspace = true
+blackflower-assets = { workspace = true, features = ["hot-reload", "signing"] }
+blackflower-audio-media.workspace = true
+blackflower-audio-spatial.workspace = true
+blackflower-cooker-acoustics.workspace = true
+blackflower-cooker-animation.workspace = true
+blackflower-cooker-navigation.workspace = true
+blackflower-cooker-volume.workspace = true
+blackflower-gltf-metadata.workspace = true
+blackflower-rendering-models.workspace = true
+blackflower-rendering-textures.workspace = true
+blackflower-navigation.workspace = true
+blackflower-networking.workspace = true
+blackflower-shader-compiler.workspace = true
+blackflower-scripting-luau.workspace = true
+
+anyhow.workspace = true
+backhand.workspace = true
+blake3.workspace = true
+clap.workspace = true
+gltf.workspace = true
+half.workspace = true
+image.workspace = true
+meshopt.workspace = true
+naga.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[lints]
+workspace = true

@@ -81,6 +81,36 @@ impl NavMeshParams {
             max_polygons_per_tile,
         })
     }
+
+    /// World-space origin of the tiled navigation grid.
+    #[must_use]
+    pub const fn origin(self) -> Vec3A {
+        self.origin
+    }
+
+    /// World-space width of one tile.
+    #[must_use]
+    pub const fn tile_width(self) -> f32 {
+        self.tile_width
+    }
+
+    /// World-space height of one tile in the horizontal plane.
+    #[must_use]
+    pub const fn tile_height(self) -> f32 {
+        self.tile_height
+    }
+
+    /// Maximum number of resident tiles.
+    #[must_use]
+    pub const fn max_tiles(self) -> NonZeroU32 {
+        self.max_tiles
+    }
+
+    /// Maximum number of polygons in one tile.
+    #[must_use]
+    pub const fn max_polygons_per_tile(self) -> NonZeroU32 {
+        self.max_polygons_per_tile
+    }
 }
 
 /// An owning Detour runtime navigation mesh.

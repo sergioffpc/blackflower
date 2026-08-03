@@ -15,6 +15,12 @@ use tracing_subscriber::{
     util::TryInitError,
 };
 
+mod foreground_logs;
+mod host_metrics;
+
+pub use foreground_logs::{ForegroundLogControl, ForegroundLogEvent, ForegroundLogLevel};
+use host_metrics::HostMetricsCollector;
+
 #[cfg(feature = "profile-with-tracy")]
 use tracing_subscriber::filter::filter_fn;
 
@@ -52,6 +58,9 @@ pub struct ObservabilityConfig {
     default_log_filter: &'static str,
     log_buffer_lines: usize,
     metrics_bind_address: Option<SocketAddr>,
+    host_metrics_enabled: bool,
+    foreground_log_capacity: Option<usize>,
+    foreground_log_level: ForegroundLogLevel,
 }
 
 impl ObservabilityConfig {
@@ -65,6 +74,9 @@ impl ObservabilityConfig {
             default_log_filter: "info",
             log_buffer_lines: DEFAULT_LOG_BUFFER_LINES,
             metrics_bind_address: None,
+            host_metrics_enabled: false,
+            foreground_log_capacity: None,
+            foreground_log_level: ForegroundLogLevel::Info,
         }
     }
 
@@ -76,6 +88,7 @@ impl ObservabilityConfig {
                 IpAddr::V4(Ipv4Addr::LOCALHOST),
                 DEFAULT_SERVER_METRICS_PORT,
             )),
+            host_metrics_enabled: true,
             ..Self::client(service_name, service_version)
         }
     }
@@ -108,6 +121,28 @@ impl ObservabilityConfig {
         self
     }
 
+    /// Enable or disable collection of host and current-process metrics.
+    #[must_use]
+    pub const fn with_host_metrics(mut self, enabled: bool) -> Self {
+        self.host_metrics_enabled = enabled;
+        self
+    }
+
+    /// Capture structured logs for an interactive foreground consumer.
+    ///
+    /// Enabling this output suppresses formatted terminal logs so they cannot
+    /// corrupt the terminal UI. The capture queue is bounded and lossy.
+    #[must_use]
+    pub const fn with_foreground_logs(
+        mut self,
+        level: ForegroundLogLevel,
+        capacity: NonZeroUsize,
+    ) -> Self {
+        self.foreground_log_capacity = Some(capacity.get());
+        self.foreground_log_level = level;
+        self
+    }
+
     /// Return the configured service name.
     #[must_use]
     pub const fn service_name(&self) -> &'static str {
@@ -118,6 +153,18 @@ impl ObservabilityConfig {
     #[must_use]
     pub const fn metrics_bind_address(&self) -> Option<SocketAddr> {
         self.metrics_bind_address
+    }
+
+    /// Return whether embedded host metrics collection is enabled.
+    #[must_use]
+    pub const fn host_metrics_enabled(&self) -> bool {
+        self.host_metrics_enabled
+    }
+
+    /// Return whether structured foreground log capture is enabled.
+    #[must_use]
+    pub const fn foreground_logs_enabled(&self) -> bool {
+        self.foreground_log_capacity.is_some()
     }
 }
 
@@ -136,7 +183,11 @@ pub struct ObservabilityGuard {
     service_name: &'static str,
     service_version: &'static str,
     prometheus_listener_active: bool,
+    host_metrics_active: bool,
     dropped_log_lines: ErrorCounter,
+    foreground_log_receiver: Option<std::sync::mpsc::Receiver<ForegroundLogEvent>>,
+    foreground_log_control: Option<ForegroundLogControl>,
+    _host_metrics_collector: Option<HostMetricsCollector>,
     _writer_guard: WorkerGuard,
 }
 
@@ -153,10 +204,35 @@ impl ObservabilityGuard {
         self.prometheus_listener_active
     }
 
+    /// Report whether this process started its embedded host collector.
+    #[must_use]
+    pub const fn host_metrics_active(&self) -> bool {
+        self.host_metrics_active
+    }
+
+    /// Take the single structured foreground log receiver and its control.
+    ///
+    /// Only one foreground consumer can own the receiver. The control remains
+    /// cheap to clone so capture level and dropped-record health stay visible.
+    pub fn take_foreground_logs(
+        &mut self,
+    ) -> Option<(
+        std::sync::mpsc::Receiver<ForegroundLogEvent>,
+        ForegroundLogControl,
+    )> {
+        let receiver = self.foreground_log_receiver.take()?;
+        let control = self.foreground_log_control.as_ref()?.clone();
+        Some((receiver, control))
+    }
+
     /// Publish the current non-blocking writer health to the metrics recorder.
     pub fn report_health(&self) {
         let dropped = u64::try_from(self.dropped_log_lines()).unwrap_or(u64::MAX);
         metrics::counter!("blackflower_observability_log_lines_dropped_total").absolute(dropped);
+        if let Some(control) = &self.foreground_log_control {
+            metrics::counter!("blackflower_observability_foreground_log_lines_dropped_total")
+                .absolute(control.dropped_events());
+        }
     }
 }
 
@@ -169,6 +245,7 @@ impl Drop for ObservabilityGuard {
             service = self.service_name,
             version = self.service_version,
             prometheus_listener_active = self.prometheus_listener_active,
+            host_metrics_active = self.host_metrics_active,
             dropped_log_lines = self.dropped_log_lines(),
             "observability stopping",
         );
@@ -187,7 +264,7 @@ pub fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard, InitErro
         .thread_name("blackflower-log-writer")
         .finish(std::io::stderr());
     let dropped_log_lines = writer.error_counter();
-    install_tracing(config, writer)?;
+    let foreground_logs = install_tracing(config, writer)?;
 
     let prometheus_listener_active = match install_metrics(config.metrics_bind_address) {
         Ok(active) => active,
@@ -203,6 +280,10 @@ pub fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard, InitErro
         }
     };
     describe_metrics();
+    let host_metrics_collector = (config.host_metrics_enabled && prometheus_listener_active)
+        .then(HostMetricsCollector::start)
+        .flatten();
+    let host_metrics_active = host_metrics_collector.is_some();
 
     tracing::info!(
         target: "blackflower_observability",
@@ -212,15 +293,33 @@ pub fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard, InitErro
         log_format = config.log_format.as_str(),
         metrics_bind_address = ?config.metrics_bind_address,
         prometheus_listener_active,
+        host_metrics_active,
         "observability initialized",
     );
+
+    let (foreground_log_receiver, foreground_log_control) = split_foreground_logs(foreground_logs);
 
     Ok(ObservabilityGuard {
         service_name: config.service_name,
         service_version: config.service_version,
         prometheus_listener_active,
+        host_metrics_active,
         dropped_log_lines,
+        foreground_log_receiver,
+        foreground_log_control,
+        _host_metrics_collector: host_metrics_collector,
         _writer_guard: writer_guard,
+    })
+}
+
+fn split_foreground_logs(
+    logs: Option<foreground_logs::ForegroundLogs>,
+) -> (
+    Option<std::sync::mpsc::Receiver<ForegroundLogEvent>>,
+    Option<ForegroundLogControl>,
+) {
+    logs.map_or((None, None), |logs| {
+        (Some(logs.receiver), Some(logs.control))
     })
 }
 
@@ -236,9 +335,16 @@ fn install_metrics(
     Ok(false)
 }
 
-fn install_tracing(config: &ObservabilityConfig, writer: NonBlocking) -> Result<(), InitError> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_error| EnvFilter::new(config.default_log_filter));
+fn install_tracing(
+    config: &ObservabilityConfig,
+    writer: NonBlocking,
+) -> Result<Option<foreground_logs::ForegroundLogs>, InitError> {
+    let filter = if config.foreground_logs_enabled() {
+        EnvFilter::new("off")
+    } else {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_error| EnvFilter::new(config.default_log_filter))
+    };
     let fmt_layer: Box<dyn Layer<Registry> + Send + Sync> = match config.log_format {
         LogFormat::Compact => tracing_subscriber::fmt::layer()
             .compact()
@@ -259,11 +365,20 @@ fn install_tracing(config: &ObservabilityConfig, writer: NonBlocking) -> Result<
             .with_writer(writer)
             .boxed(),
     };
-    let subscriber = tracing_subscriber::registry().with(fmt_layer.with_filter(filter));
+    let (foreground_layer, foreground_logs) = config
+        .foreground_log_capacity
+        .map(|capacity| foreground_logs::channel(capacity, config.foreground_log_level))
+        .map_or((None, None), |(layer, logs)| (Some(layer), Some(logs)));
+    let subscriber = tracing_subscriber::registry()
+        .with(fmt_layer.with_filter(filter))
+        .with(foreground_layer);
     #[cfg(feature = "profile-with-tracy")]
     let subscriber = subscriber
         .with(tracing_tracy::TracyLayer::default().with_filter(filter_fn(is_tracy_signal)));
-    subscriber.try_init().map_err(InitError::Tracing)
+    subscriber
+        .try_init()
+        .map_err(InitError::Tracing)
+        .map(|()| foreground_logs)
 }
 
 #[cfg(feature = "profile-with-tracy")]
@@ -277,38 +392,14 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Log records dropped by the bounded non-blocking writer",
     );
+    metrics::describe_counter!(
+        "blackflower_observability_foreground_log_lines_dropped_total",
+        metrics::Unit::Count,
+        "Structured foreground log records dropped by the bounded capture queue",
+    );
+    host_metrics::describe_metrics();
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{LogFormat, ObservabilityConfig};
-
-    #[test]
-    fn server_defaults_are_loopback_and_compact() {
-        let config = ObservabilityConfig::server("blackflower-server", "0.1.0");
-
-        assert_eq!(config.service_name(), "blackflower-server");
-        assert_eq!(
-            config.metrics_bind_address().map(|address| address.ip()),
-            Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
-        );
-        assert_eq!(config.log_format, LogFormat::Compact);
-    }
-
-    #[test]
-    fn client_defaults_do_not_open_a_listener() {
-        let config = ObservabilityConfig::client("blackflower", "0.1.0");
-
-        assert_eq!(config.metrics_bind_address(), None);
-        assert_eq!(config.log_format, LogFormat::Compact);
-    }
-
-    #[test]
-    fn pretty_format_can_be_selected_explicitly() {
-        let config =
-            ObservabilityConfig::client("blackflower", "0.1.0").with_log_format(LogFormat::Pretty);
-
-        assert_eq!(config.log_format, LogFormat::Pretty);
-        assert_eq!(config.log_format.as_str(), "pretty");
-    }
-}
+#[path = "../tests/unit/lib.rs"]
+mod tests;

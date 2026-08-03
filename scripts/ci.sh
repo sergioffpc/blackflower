@@ -8,9 +8,19 @@ mode=${1:-all}
 
 cd "$repository_root"
 
+build_native_vendors() {
+    printf 'Building shared native vendors...\n'
+    cargo native build --profile debug
+}
+
 check_format() {
     printf 'Checking Rust formatting...\n'
     cargo fmt --all -- --check
+}
+
+check_test_layout() {
+    printf 'Checking Rust test layout...\n'
+    "$script_directory/check-test-layout.sh"
 }
 
 run_clippy() {
@@ -21,15 +31,22 @@ run_clippy() {
 run_tests() {
     printf 'Running tests...\n'
     cargo test --workspace --all-targets --all-features --locked
+
+    printf 'Testing Blender metadata extension...\n'
+    python3 -m unittest discover -s tools/blender/tests
+    python3 tools/blender/build_blackflower_gltf_metadata.py
 }
 
 case "$mode" in
     all)
+        build_native_vendors
+        check_test_layout
         check_format
         run_clippy
         run_tests
         ;;
     format)
+        check_test_layout
         check_format
         ;;
     *)

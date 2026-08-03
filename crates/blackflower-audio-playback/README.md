@@ -1,0 +1,16 @@
+# blackflower-audio-playback
+
+`blackflower-audio-playback` is the presentation-side audio engine. Its public
+API exposes Blackflower media, events, and voice IDs while keeping Kira, CPAL,
+and device handles private.
+
+Kira owns mixing and device output. Lossless FLAC decoding is performed by
+Kira's streaming worker and ring buffer. The audio callback does not perform file I/O,
+decoding, allocation, locking, logging, acoustic simulation, or telemetry.
+Server-gated live voice uses a separate path: a bounded jitter worker decodes raw Opus
+datagrams and publishes authoritative environmental parameters before the
+fixed-frame effects and HRTF stages.
+
+Two-dimensional sounds share one mixer track. HRTF voices use an ordinary Kira
+track with panning disabled and a custom Steam Audio mono-to-stereo effect;
+Kira's spatial panner is deliberately not used for those voices.

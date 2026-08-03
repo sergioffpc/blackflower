@@ -23,6 +23,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use parking_lot::{ReentrantMutex, const_reentrant_mutex};
+
 use crate::component::Component;
 use crate::error::{Error, ProjectionError, RunError, SystemResult};
 use crate::ids::{BuiltinPhase, ComponentId, EntityId, PhaseId, PipelineId, TickDelta, WorldKey};
@@ -58,11 +60,18 @@ pub(crate) struct QueryPtr(NonNull<raw::ecs_query_t>);
 #[derive(Debug, Clone, Copy)]
 struct IterPtr(NonNull<raw::ecs_iter_t>);
 
+// Flecs shares a non-atomic OS API reference count between all worlds. Keep
+// world initialization and finalization ordered while allowing a context
+// destructor to recursively drop another world on the same thread.
+static WORLD_LIFECYCLE: ReentrantMutex<()> = const_reentrant_mutex(());
+
 pub(crate) fn create_world() -> Option<WorldPtr> {
+    let _lifecycle = WORLD_LIFECYCLE.lock();
     NonNull::new(unsafe { raw::ecs_init() }).map(WorldPtr)
 }
 
 pub(crate) fn destroy_world(world: WorldPtr, workers_started: bool) {
+    let _lifecycle = WORLD_LIFECYCLE.lock();
     if workers_started {
         unsafe { raw::ecs_set_threads(world.0.as_ptr(), 0) };
     }

@@ -1,0 +1,3 @@
+[alias]
+native = "run --package native --"
+xtask = "run --package xtask --"

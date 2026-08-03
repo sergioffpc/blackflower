@@ -1,0 +1,20 @@
+[package]
+name = "blackflower-audio-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+blackflower-assets.workspace = true
+
+bytes.workspace = true
+claxon.workspace = true
+hound.workspace = true
+rubato.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

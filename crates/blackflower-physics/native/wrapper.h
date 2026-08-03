@@ -15,6 +15,9 @@ extern "C" {
 #define BF_PHYSICS_STATUS_BODY_NOT_FOUND 5
 #define BF_PHYSICS_STATUS_CHARACTER_NOT_FOUND 6
 #define BF_PHYSICS_STATUS_BODY_OWNED_BY_CHARACTER 7
+#define BF_PHYSICS_STATUS_SHAPE_CREATION_FAILED 8
+
+#define BF_PHYSICS_MAX_CONVEX_HULL_POINTS 256
 
 #define BF_PHYSICS_MOTION_STATIC 0
 #define BF_PHYSICS_MOTION_KINEMATIC 1
@@ -34,6 +37,7 @@ extern "C" {
 #define BF_PHYSICS_UPDATE_CONTACT_CONSTRAINTS_FULL (1u << 2)
 
 typedef struct BFPhysicsWorld BFPhysicsWorld;
+typedef struct BFPhysicsShape BFPhysicsShape;
 
 typedef struct BFPhysicsVec3 {
     float x;
@@ -68,6 +72,18 @@ typedef struct BFPhysicsBodySettings {
     uint32_t motion_type;
     uint8_t active;
 } BFPhysicsBodySettings;
+
+typedef struct BFPhysicsTriangle {
+    uint32_t first;
+    uint32_t second;
+    uint32_t third;
+} BFPhysicsTriangle;
+
+typedef struct BFPhysicsCompoundChild {
+    const BFPhysicsShape *shape;
+    BFPhysicsVec3 position;
+    BFPhysicsQuat rotation;
+} BFPhysicsCompoundChild;
 
 typedef struct BFPhysicsCharacterSettings {
     BFPhysicsVec3 position;
@@ -123,26 +139,41 @@ typedef struct BFPhysicsRayHit {
 
 BFPhysicsVersion bf_physics_jolt_version(void);
 
+int32_t bf_physics_shape_create_sphere(
+    float radius,
+    BFPhysicsShape **out_shape);
+int32_t bf_physics_shape_create_box(
+    BFPhysicsVec3 half_extent,
+    BFPhysicsShape **out_shape);
+int32_t bf_physics_shape_create_capsule(
+    float half_height,
+    float radius,
+    BFPhysicsShape **out_shape);
+int32_t bf_physics_shape_create_convex_hull(
+    const BFPhysicsVec3 *points,
+    uint32_t point_count,
+    BFPhysicsShape **out_shape);
+int32_t bf_physics_shape_create_compound(
+    const BFPhysicsCompoundChild *children,
+    uint32_t child_count,
+    BFPhysicsShape **out_shape);
+int32_t bf_physics_shape_create_triangle_mesh(
+    const BFPhysicsVec3 *vertices,
+    uint32_t vertex_count,
+    const BFPhysicsTriangle *triangles,
+    uint32_t triangle_count,
+    BFPhysicsShape **out_shape);
+void bf_physics_shape_destroy(BFPhysicsShape *shape);
+
 int32_t bf_physics_world_create(
     const BFPhysicsWorldConfig *config,
     BFPhysicsWorld **out_world);
 void bf_physics_world_destroy(BFPhysicsWorld *world);
 
-int32_t bf_physics_world_create_sphere_body(
+int32_t bf_physics_world_create_body(
     BFPhysicsWorld *world,
     const BFPhysicsBodySettings *settings,
-    float radius,
-    uint32_t *out_body_id);
-int32_t bf_physics_world_create_box_body(
-    BFPhysicsWorld *world,
-    const BFPhysicsBodySettings *settings,
-    BFPhysicsVec3 half_extent,
-    uint32_t *out_body_id);
-int32_t bf_physics_world_create_capsule_body(
-    BFPhysicsWorld *world,
-    const BFPhysicsBodySettings *settings,
-    float half_height,
-    float radius,
+    const BFPhysicsShape *shape,
     uint32_t *out_body_id);
 int32_t bf_physics_world_destroy_body(BFPhysicsWorld *world, uint32_t body_id);
 int32_t bf_physics_world_body_exists(

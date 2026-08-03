@@ -8,12 +8,16 @@ publish.workspace = true
 links = "phonon"
 
 [dependencies]
+blackflower-acoustics.workspace = true
+
+blake3.workspace = true
 glam.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
+blackflower-build.workspace = true
+
 bindgen.workspace = true
-cmake.workspace = true
 
 [lints]
 workspace = true

@@ -7,6 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+blackflower-audio-capture.workspace = true
+blackflower-audio-media.workspace = true
+blackflower-audio-playback.workspace = true
 blackflower-audio-spatial.workspace = true
 blackflower-audio-voice.workspace = true
 

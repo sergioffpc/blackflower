@@ -10,17 +10,28 @@ declarations and every `unsafe` operation in a private `ffi` module. A small C
 ABI implemented by `native/wrapper.cpp` isolates Rust from ozz's C++ ABI,
 SIMD layouts, archive types and ownership rules.
 
-The initial runtime surface loads optimized skeleton and animation `.ozz`
-archives, reuses ozz sampling contexts, evaluates local poses and exposes
-model-space joint matrices as `glam::Mat4`. Skeletons and clips are immutable
-and can be shared between threads. Each character owns a mutable
-`SamplingContext` and `Pose`.
+The public runtime surface accepts only Blackflower `.bfskel` and `.bfanim`
+assets. Their private payloads remain optimized Ozz archives, but the
+Blackflower containers add strict section validation, the required Ozz version,
+a full BLAKE3 rig identity, and typed clip policy. Raw `.ozz` input is rejected.
+The runtime reuses Ozz sampling contexts, evaluates local poses, blends normal,
+additive and per-joint weighted layers, applies aim and two-bone IK, and exposes
+local joint transforms plus model-space matrices. Skeletons and clips are
+immutable and can be shared between threads. Each character owns mutable
+sampling contexts and poses.
 
-Offline importers and the `*2ozz` conversion tools are deliberately not linked
-into the game runtime. Produce trusted runtime archives in the content
-pipeline with the matching ozz 0.16 toolchain. The upstream archive reader
-assumes well-formed content and is not a sandbox for files supplied by
-untrusted users.
+Host-driven animation graphs, `AnimationSet`, marker tracks, and root-motion
+sampling are implemented in Rust. The graph advances state timing and explicit
+crossfades; gameplay or policy code still decides which registered transition
+to request. Marker tracks report deterministically ordered timeline crossings.
+Root-motion delta calculation handles ordinary traversal and one or more loop
+wraps.
+
+Offline importers and `gltf2ozz` are deliberately not linked into the game
+runtime. `blackflower-cooker-animation` builds the pinned tool only for the
+host and packages its temporary outputs as trusted `.bfskel` and `.bfanim`
+assets. The upstream archive reader assumes well-formed content and is not a
+sandbox for files supplied by untrusted users.
 
 ## Checkout and prerequisites
 
@@ -45,9 +56,9 @@ To deliberately update ozz-animation, fetch and check out a reviewed release
 in the submodule, then commit the new submodule pointer:
 
 ```sh
-git -C crates/blackflower-animation/vendor/ozz-animation fetch --tags origin
-git -C crates/blackflower-animation/vendor/ozz-animation checkout 0.16.0
-git add crates/blackflower-animation/vendor/ozz-animation
+git -C vendor/ozz-animation fetch --tags origin
+git -C vendor/ozz-animation checkout 0.16.0
+git add vendor/ozz-animation
 ```
 
 ## Safe API
@@ -58,8 +69,8 @@ use blackflower_animation::{
 };
 
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
-let skeleton_bytes = std::fs::read("assets/character_skeleton.ozz")?;
-let animation_bytes = std::fs::read("assets/character_idle.ozz")?;
+let skeleton_bytes = std::fs::read("assets/character.bfskel")?;
+let animation_bytes = std::fs::read("assets/character_idle.bfanim")?;
 let skeleton = Skeleton::from_bytes(&skeleton_bytes)?;
 let animation = Animation::from_bytes(&animation_bytes)?;
 
@@ -79,3 +90,30 @@ for model_matrix in pose.model_matrices() {
 # Ok(())
 # }
 ```
+
+Blending accepts distinct input and output poses:
+
+```rust,no_run
+use blackflower_animation::{BlendLayer, Error, Pose, Skeleton};
+
+# fn blend(skeleton: &Skeleton, first: &Pose, second: &Pose) -> Result<(), Error> {
+let mut output = Pose::new(skeleton)?;
+let layers = [
+    BlendLayer::normal(first, 0.25)?,
+    BlendLayer::normal(second, 0.75)?,
+];
+output.blend(skeleton, &layers, 0.1)?;
+# Ok(())
+# }
+```
+
+Procedural systems can edit validated local transforms with
+`Pose::set_local_transform` or `Pose::set_local_transforms`. Aim and two-bone
+jobs use model-space targets and update both the local pose and cached
+model-space matrices without exposing Ozz SIMD layouts.
+
+`AnimationGraph` deliberately contains no gameplay conditions and owns no
+clips. Its evaluation returns state identifiers, normalized sampling ratios and
+blend weights that the presentation layer maps to immutable animation assets.
+`Pose::sample` compares the complete `SkeletonIdentity` before entering Ozz,
+even when the clip and skeleton happen to have the same joint count.

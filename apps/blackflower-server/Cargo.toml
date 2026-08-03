@@ -11,9 +11,25 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
-anyhow.workspace = true
+blackflower-acoustics.workspace = true
+blackflower-networking.workspace = true
+blackflower-networking-quic.workspace = true
+blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true
-blackflower-simulation = { workspace = true, features = ["observability"] }
+blackflower-world-simulation = { workspace = true, features = ["observability"] }
+
+anyhow.workspace = true
+clap.workspace = true
+ratatui.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+blackflower-audio-capture.workspace = true
+blackflower-audio-voice.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
 
 [lints]
 workspace = true

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
   merge_group:
     types:
@@ -23,10 +24,10 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
-  quality:
-    name: Quality
+  rust-quality:
+    name: Rust quality
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -34,44 +35,71 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          submodules: recursive
 
       - name: Validate commit messages
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         env:
           BASE_OID: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
           HEAD_OID: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: .github/scripts/validate-commit-range.sh "$BASE_OID" "$HEAD_OID"
-
-      - name: Set up Rust toolchain
+          REF_NAME: ${{ github.ref }}
         run: |
-          rustc --version
-          cargo --version
-          rustfmt --version
-          cargo clippy --version
+          trusted_oid=
+          if { [ "$EVENT_NAME" = "pull_request" ] &&
+               [ "$BASE_REF" = "main" ]; } ||
+             { [ "$EVENT_NAME" = "push" ] &&
+               [ "$REF_NAME" = "refs/heads/main" ]; }
+          then
+            trusted_oid=refs/remotes/origin/develop
+          fi
+          .github/scripts/validate-commit-range.sh \
+            "$BASE_OID" "$HEAD_OID" "$trusted_oid"
 
-      - name: Install libclang
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+      - name: Check Rust test layout
+        run: scripts/check-test-layout.sh
 
-      - name: Restore Cargo cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Initialize runtime submodules
+        run: .github/scripts/init-ci-submodules.sh runtime
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml') }}-
-            ${{ runner.os }}-cargo-
+          cargo-cache-key: cargo
+          cargo-cache-restore-key: cargo
+          install-ispc: "true"
 
-      - name: Run quality checks
-        run: ./scripts/ci.sh
+      - name: Build shared native vendors
+        run: .github/scripts/build-ci-native-vendors.sh runtime
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: >-
+          cargo clippy --workspace
+          --exclude blackflower-assets
+          --exclude blackflower-cooker-volume
+          --exclude blackflower-gltf-metadata
+          --exclude blackflower-rendering-models
+          --exclude blackflower-rendering-textures
+          --exclude blackflower-scripting-luau
+          --exclude blackflower-shader-compiler
+          --exclude xtask
+          --all-targets --all-features --locked -- -D warnings
+
+      - name: Run tests
+        run: >-
+          cargo test --workspace
+          --exclude blackflower-assets
+          --exclude blackflower-cooker-volume
+          --exclude blackflower-gltf-metadata
+          --exclude blackflower-rendering-models
+          --exclude blackflower-rendering-textures
+          --exclude blackflower-scripting-luau
+          --exclude blackflower-shader-compiler
+          --exclude xtask
+          --all-targets --all-features --locked
 
   dependency-policy:
     name: Dependency policy
@@ -83,7 +111,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
 
       - name: Audit dependencies
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -91,93 +118,302 @@ jobs:
           rust-version: "1.97.1"
           command: check
 
+  asset-changes:
+    name: Detect asset changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      cross_platform_required: ${{ steps.changes.outputs.cross_platform_required }}
+      required: ${{ steps.changes.outputs.required }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect asset pipeline changes
+        id: changes
+        env:
+          BASE_OID: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_OID: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          cross_platform_required=false
+          if [ "$BASE_REF" = "main" ] ||
+             [ "$BASE_REF" = "refs/heads/main" ]
+          then
+            cross_platform_required=true
+          fi
+          echo "cross_platform_required=$cross_platform_required" >> "$GITHUB_OUTPUT"
+
+          required=true
+          zero_oid=0000000000000000000000000000000000000000
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] &&
+             [ -n "$BASE_OID" ] &&
+             [ "$BASE_OID" != "$zero_oid" ] &&
+             git diff --quiet "$BASE_OID" "$HEAD_OID" -- \
+               .github/actions/setup-native-rust \
+               .github/scripts/build-ci-native-vendors.sh \
+               .github/scripts/init-ci-submodules.sh \
+               .github/scripts/run-asset-checks.sh \
+               .github/workflows/ci.yml \
+               .gitmodules \
+               Cargo.lock \
+               Cargo.toml \
+               assets \
+               crates/blackflower-animation \
+               crates/blackflower-audio-spatial \
+               crates/blackflower-cooker-animation \
+               crates/blackflower-cooker-acoustics \
+               crates/blackflower-cooker-navigation \
+               crates/blackflower-cooker-volume \
+               crates/blackflower-animation-format \
+               crates/blackflower-assets \
+               crates/blackflower-gltf-metadata \
+               crates/blackflower-navigation \
+               crates/blackflower-rendering-models \
+               crates/blackflower-rendering-textures \
+               crates/blackflower-rendering-volumes \
+               crates/blackflower-scripting \
+               crates/blackflower-scripting-luau \
+               crates/blackflower-shader-compiler \
+               crates/blackflower-spatial-query \
+               rust-toolchain.toml \
+               crates/blackflower-build \
+               tools/blender \
+               tools/native \
+               tools/xtask \
+               vendor
+          then
+            required=false
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+
+  asset-full-suite:
+    if: needs.asset-changes.outputs.required == 'true'
+    name: Asset full suite (ubuntu-24.04)
+    needs:
+      - asset-changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize asset compiler submodules
+        run: .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: assets-full
+          cargo-cache-restore-key: assets
+          install-ispc: "true"
+
+      - name: Build shared native vendors
+        shell: bash
+        run: .github/scripts/build-ci-native-vendors.sh assets
+
+      - name: Run asset Clippy
+        run: .github/scripts/run-asset-checks.sh clippy
+
+      - name: Run asset tests and golden cook
+        run: .github/scripts/run-asset-checks.sh test
+
+      - name: Run asset doctests
+        run: .github/scripts/run-asset-checks.sh doc
+
+  asset-cross-platform:
+    if: >-
+      needs.asset-changes.outputs.required == 'true' &&
+      needs.asset-changes.outputs.cross_platform_required == 'true'
+    name: Asset smoke (${{ matrix.os }})
+    needs:
+      - asset-changes
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize asset compiler submodules
+        shell: bash
+        run: .github/scripts/init-ci-submodules.sh assets
+
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          cargo-cache-key: assets-smoke
+          cargo-cache-restore-key: assets
+          install-ispc: "true"
+
+      - name: Build shared native vendors
+        shell: bash
+        run: .github/scripts/build-ci-native-vendors.sh assets
+
+      - name: Compile and link volume cooker
+        run: >-
+          cargo check --package blackflower-cooker-volume
+          --all-features --locked
+
+      - name: Run shader cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_profile_configured_shader_module_for_runtime_loading
+          -- --exact
+
+      - name: Run texture cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_texture_for_runtime_capability_selection
+          -- --exact
+
+      - name: Run static acoustics cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_static_acoustic_scene_probes_and_environment
+          -- --exact
+
+      - name: Run model cooking smoke test
+        run: >-
+          cargo test --package xtask --lib --all-features --locked
+          cook::tests::cooks_optimized_static_mesh_with_generated_lods
+          -- --exact
+
+  asset-compatibility:
+    if: always()
+    name: Asset compatibility
+    needs:
+      - asset-changes
+      - asset-full-suite
+      - asset-cross-platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require relevant asset checks
+        env:
+          ASSETS_REQUIRED: ${{ needs.asset-changes.outputs.required }}
+          CROSS_PLATFORM_REQUIRED: ${{ needs.asset-changes.outputs.cross_platform_required }}
+          CROSS_PLATFORM_RESULT: ${{ needs.asset-cross-platform.result }}
+          DETECT_RESULT: ${{ needs.asset-changes.result }}
+          FULL_SUITE_RESULT: ${{ needs.asset-full-suite.result }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "Asset change detection result: $DETECT_RESULT" >&2
+            exit 1
+          fi
+          if [ "$ASSETS_REQUIRED" != "true" ]; then
+            echo "Asset compatibility checks are not required."
+            exit 0
+          fi
+          if [ "$FULL_SUITE_RESULT" != "success" ] ||
+             { [ "$CROSS_PLATFORM_REQUIRED" = "true" ] &&
+               [ "$CROSS_PLATFORM_RESULT" != "success" ]; }
+          then
+            echo "Asset full suite result: $FULL_SUITE_RESULT" >&2
+            echo "Asset cross-platform result: $CROSS_PLATFORM_RESULT" >&2
+            exit 1
+          fi
+
+  quality:
+    if: always()
+    name: Quality
+    needs:
+      - rust-quality
+      - asset-compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require quality checks
+        env:
+          ASSET_RESULT: ${{ needs.asset-compatibility.result }}
+          RUST_RESULT: ${{ needs.rust-quality.result }}
+        run: |
+          if [ "$RUST_RESULT" != "success" ] ||
+             [ "$ASSET_RESULT" != "success" ]
+          then
+            echo "Rust quality result: $RUST_RESULT" >&2
+            echo "Asset compatibility result: $ASSET_RESULT" >&2
+            exit 1
+          fi
   native-bindings:
+    if: >-
+      (github.event_name == 'pull_request' &&
+      github.base_ref == 'main' &&
+      (startsWith(github.head_ref, 'release/') ||
+      startsWith(github.head_ref, 'hotfix/'))) ||
+      (github.event_name == 'merge_group' &&
+      github.event.merge_group.base_ref == 'refs/heads/main')
     name: ${{ matrix.package }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - package: blackflower-ecs
-            os: ubuntu-24.04
-          - package: blackflower-ecs
-            os: macos-15
-          - package: blackflower-ecs
-            os: windows-2025
+        package:
+          - blackflower-acoustics
+          - blackflower-animation
+          - blackflower-audio-capture
+          - blackflower-cooker-animation
+          - blackflower-destruction
+          - blackflower-audio-spatial
+          - blackflower-audio-voice
+          - blackflower-ecs
+          - blackflower-navigation
+          - blackflower-networking
+          - blackflower-physics
+          - blackflower-rendering-fluids
+          - blackflower-rendering-textures
+          - blackflower-rendering-volumes
+          - blackflower-scripting-luau
+          - blackflower-shader-compiler
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2022
+        exclude:
           - package: blackflower-physics
-            os: ubuntu-24.04
-          - package: blackflower-physics
-            os: macos-15
-          - package: blackflower-animation
-            os: ubuntu-24.04
-          - package: blackflower-animation
-            os: macos-15
-          - package: blackflower-animation
-            os: windows-2025
-          - package: blackflower-audio-spatial
-            os: ubuntu-24.04
-          - package: blackflower-audio-spatial
-            os: macos-15
-          - package: blackflower-audio-spatial
-            os: windows-2025
-          - package: blackflower-audio-voice
-            os: ubuntu-24.04
-          - package: blackflower-audio-voice
-            os: macos-15
-          - package: blackflower-audio-voice
-            os: windows-2025
-          - package: blackflower-navigation
-            os: ubuntu-24.04
-          - package: blackflower-navigation
-            os: macos-15
-          - package: blackflower-navigation
-            os: windows-2025
-          - package: blackflower-rendering-volumes
-            os: ubuntu-24.04
-          - package: blackflower-rendering-volumes
-            os: macos-15
-          - package: blackflower-rendering-volumes
-            os: windows-2025
-          - package: blackflower-scripting
-            os: ubuntu-24.04
-          - package: blackflower-scripting
-            os: macos-15
-          - package: blackflower-scripting
-            os: windows-2025
+            os: windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 90
 
     steps:
-      - name: Check out repository and native submodules
+      - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
 
-      - name: Install libclang on Linux
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-18-dev
-          libclang_path=/usr/lib/llvm-18/lib
-          test -f "$libclang_path/libclang.so"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+      - name: Initialize package native submodules
+        shell: bash
+        env:
+          NATIVE_PACKAGE: ${{ matrix.package }}
+        run: .github/scripts/init-ci-submodules.sh native "$NATIVE_PACKAGE"
 
-      - name: Locate libclang on macOS
-        if: runner.os == 'macOS'
-        run: |
-          libclang_path="$(brew --prefix llvm@18)/lib"
-          test -f "$libclang_path/libclang.dylib"
-          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
+      - name: Set up native Rust build
+        uses: ./.github/actions/setup-native-rust
+        with:
+          install-ispc: ${{ contains(fromJSON('["blackflower-acoustics", "blackflower-audio-capture", "blackflower-audio-spatial", "blackflower-networking"]'), matrix.package) }}
 
-      - name: Locate libclang on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $libclangPath = "C:\Program Files\LLVM\bin"
-          if (-not (Test-Path "$libclangPath\libclang.dll")) {
-            throw "libclang.dll not found in $libclangPath"
-          }
-          "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build package shared native vendors
+        shell: bash
+        env:
+          NATIVE_PACKAGE: ${{ matrix.package }}
+        run: .github/scripts/build-ci-native-vendors.sh native "$NATIVE_PACKAGE"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -197,3 +433,39 @@ jobs:
 
       - name: Run doctests
         run: cargo test -p ${{ matrix.package }} --doc --all-features --locked
+
+  native-bindings-result:
+    if: >-
+      always() &&
+      ((github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'merge_group' &&
+      github.event.merge_group.base_ref == 'refs/heads/main'))
+    name: Native bindings
+    needs:
+      - native-bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate release branch
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            release/*|hotfix/*)
+              ;;
+            *)
+              echo "Pull requests to main must come from a release/* or hotfix/* branch." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Require successful native bindings matrix
+        env:
+          MATRIX_RESULT: ${{ needs.native-bindings.result }}
+        run: |
+          if [ "$MATRIX_RESULT" != "success" ]; then
+            echo "Native bindings matrix result: $MATRIX_RESULT" >&2
+            exit 1
+          fi

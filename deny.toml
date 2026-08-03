@@ -1,5 +1,10 @@
 [advisories]
-ignore = []
+ignore = [
+    # OpenEXR decoding uses exr -> pulp -> paste. The advisory reports that
+    # paste is unmaintained, not vulnerable; remove this exception when pulp
+    # replaces its feature-complete macro dependency.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 unused-allowed-license = "allow"
@@ -8,10 +13,20 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
     "ISC",
     "MIT",
     "Unicode-3.0",
     "Zlib",
+]
+exceptions = [
+    # Kira's optional real-time allocation assertion support uses this
+    # single-clause BSD dependency.
+    { allow = ["BSD-1-Clause"], crate = "assert_no_alloc" },
+    # Kira uses triple_buffer to exchange mixer state without blocking the
+    # audio callback. MPL-2.0 applies at the dependency file boundary.
+    { allow = ["MPL-2.0"], crate = "triple_buffer" },
 ]
 confidence-threshold = 0.93
 
