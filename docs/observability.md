@@ -20,13 +20,15 @@ Runtime libraries emit signals but do not install process-global backends:
 - `blackflower-world-prediction` reports forward prediction and reconciliation;
 - `blackflower-world-presentation` reports variable-step presentation frames;
 - `blackflower-observability` installs the process tracing subscriber,
-  non-blocking log writer, Prometheus recorder/exporter, and selected profiler
-  backend.
+  non-blocking log writer, Prometheus recorder/exporter, embedded `sysinfo`
+  host collector, and selected profiler backend.
 
 Executables must initialize observability before constructing runtime worlds.
 The authoritative server exposes Prometheus metrics on `127.0.0.1:9000` by
 default. Client and harness defaults do not open a metrics listener. Failure to
-start the exporter is logged but does not prevent the process from continuing.
+start the exporter or embedded host collector is logged but does not prevent
+the process from continuing. Server host metrics can be disabled explicitly
+with `ObservabilityConfig::with_host_metrics(false)`.
 
 ## Deterministic boundary
 
@@ -81,6 +83,45 @@ message; for example, use `callback failed` rather than
 Never log credentials, session tokens, raw voice/chat, complete untrusted
 payloads, or full IP addresses. Player identifiers must be pseudonymous.
 
+## Foreground diagnostics
+
+`blackflower-server --foreground` runs the Black Ink Ratatui dashboard on an
+interactive terminal. Its six panels are:
+
+| Key | Panel | Signals |
+| --- | --- | --- |
+| `1` | Overview | Process, simulation, world, network, and recent logs |
+| `2` | Logs | Structured tracing events, capture/view levels, regex, scrolling, and drop health |
+| `3` | Simulation | Tick budget, rates, histogram percentiles, outcomes, and phase executions |
+| `4` | Network | QUIC health, RTT, queues, traffic, drops, voice, and snapshot actions |
+| `5` | World | ECS gauges/ticks and authoritative acoustics activity |
+| `6` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
+
+The UI polls `http://<metrics_bind_address>/metrics` once per second on a
+dedicated worker. It parses the same Prometheus exposition available to an
+external collector; it does not read a world, scheduler, recorder handle, or
+`sysinfo` directly. A failed or stale scrape is visible in the header and is
+retried without affecting the server. Missing series render as `—`, counter
+resets do not produce a false rate, and histories are bounded to 60 samples.
+
+Foreground logging is a second bounded, lossy output of the process tracing
+subscriber. Formatted terminal logging is suppressed while the alternate
+screen is active so it cannot corrupt the UI. `--log-level` sets both the
+initial capture and view thresholds. On the Logs panel, `l` changes only the
+view threshold, `L` changes capture, `/` compiles a regex over target, message,
+and structured fields, `p` pauses/resumes following, `End` resumes following,
+and `c` clears the local 10,000-event buffer. Regexes are compiled only when
+edited, not for each record. Release builds statically disable `DEBUG` and
+`TRACE` through the workspace tracing configuration even if a foreground
+threshold requests them.
+
+The capture producer never waits for the UI. Full-queue records are discarded
+and counted by
+`blackflower_observability_foreground_log_lines_dropped_total`; the current
+count is also shown on the Logs panel. `q` and `Ctrl-C` leave the event loop,
+restore the terminal, stop the scrape and host-metrics workers, publish final
+observability health, and then complete normal process teardown.
+
 ## Tracing
 
 Trace parents are created at the layer that owns the correlation identity.
@@ -104,7 +145,10 @@ applicable. Counters end in `_total`. Allowed labels are bounded enums such as
 `phase`, `pass`, `result`, `reason`, `direction`, and `transport`.
 
 Never use match, connection, player, entity, tick, IP, content hash, arbitrary
-error text, or other unbounded data as a metric label.
+error text, or other unbounded data as a metric label. The embedded host
+collector is the narrow exception: its `cpu`, `device`, `fstype`, `mountpoint`,
+`chip`, and `sensor` labels come only from the local operating-system inventory
+and are never populated from simulation or remote input.
 
 The initial domain metrics are:
 
@@ -122,6 +166,39 @@ The initial domain metrics are:
 | `blackflower_world_presentation_frames_total{result}` | Presentation frame outcomes |
 | `blackflower_world_presentation_frame_duration_seconds` | Presentation compute time |
 | `blackflower_world_presentation_frame_delta_seconds` | Validated variable frame delta |
+
+### Embedded host collector
+
+The authoritative server embeds a `sysinfo` collector in the Blackflower
+process. It samples once per second on the dedicated `blackflower-host-metrics`
+thread and publishes into the same `127.0.0.1:9000/metrics` endpoint as engine
+metrics. Collection never runs on a simulation tick and stops with the
+`ObservabilityGuard`; no `node_exporter` process or second port is required.
+
+Names match `node_exporter` where `sysinfo` exposes equivalent semantics:
+
+| Group | Metrics |
+| --- | --- |
+| Host | `node_boot_time_seconds`, `node_time_seconds`, `node_load1`, `node_load5`, `node_load15`, `node_uname_info` |
+| CPU | `node_cpu_frequency_hertz{cpu}`, `node_cpu_info{cpu,vendor,model_name}` |
+| Memory | `node_memory_MemTotal_bytes`, `node_memory_MemFree_bytes`, `node_memory_MemAvailable_bytes`, `node_memory_SwapTotal_bytes`, `node_memory_SwapFree_bytes` |
+| Filesystem | `node_filesystem_size_bytes`, `node_filesystem_avail_bytes`, `node_filesystem_readonly` with `device`, `fstype`, and `mountpoint` labels |
+| Disk I/O | `node_disk_read_bytes_total{device}`, `node_disk_written_bytes_total{device}` |
+| Network | `node_network_{receive,transmit}_{bytes,packets,errs}_total{device}` |
+| Temperature | `node_hwmon_temp_celsius{chip,sensor}`, `node_hwmon_temp_crit_celsius{chip,sensor}` when sensors are available |
+| Process | `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_virtual_memory_bytes`, `process_start_time_seconds`, `process_open_fds`, `process_max_fds` |
+
+`sysinfo` exposes current CPU utilization rather than the cumulative per-mode
+CPU times used by `node_cpu_seconds_total`. Blackflower therefore publishes
+`node_cpu_usage_ratio{cpu}` (`cpu="all"` for host-wide use) and does not emit a
+misleading synthetic `node_cpu_seconds_total`. Platform-specific collectors
+such as `systemd`, SELinux, NFS, ZFS, pressure, interrupts, and detailed kernel
+VM statistics remain outside this portable embedded collector.
+
+`blackflower_observability_host_collector_up` reports collector liveness and
+`blackflower_observability_host_collection_duration_seconds` reports the latest
+sampling cost. Metrics unavailable on a platform are omitted rather than
+reported as invented zeroes.
 
 At 240 Hz, an authoritative tick has a theoretical wall-clock budget of about
 4.17 ms. Alert policy should prioritize sustained deadline misses, tick lag,
