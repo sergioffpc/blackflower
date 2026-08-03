@@ -47,6 +47,8 @@ pub(crate) enum Status {
     CharacterNotFound,
     BodyOwnedByCharacter,
     ShapeCreationFailed,
+    OutOfMemory,
+    NativeFailure,
     ContractViolation,
 }
 
@@ -537,8 +539,9 @@ fn contact_point(
     Ok(point)
 }
 
-pub(crate) fn optimize_broad_phase(world: WorldPtr) {
-    unsafe { raw::bf_physics_world_optimize_broad_phase(world.0.as_ptr()) };
+pub(crate) fn optimize_broad_phase(world: WorldPtr) -> Result<(), Status> {
+    let status = unsafe { raw::bf_physics_world_optimize_broad_phase(world.0.as_ptr()) };
+    check(status)
 }
 
 pub(crate) fn update(
@@ -572,6 +575,8 @@ fn check(status: i32) -> Result<(), Status> {
         raw::BF_PHYSICS_STATUS_CHARACTER_NOT_FOUND => Err(Status::CharacterNotFound),
         raw::BF_PHYSICS_STATUS_BODY_OWNED_BY_CHARACTER => Err(Status::BodyOwnedByCharacter),
         raw::BF_PHYSICS_STATUS_SHAPE_CREATION_FAILED => Err(Status::ShapeCreationFailed),
+        raw::BF_PHYSICS_STATUS_OUT_OF_MEMORY => Err(Status::OutOfMemory),
+        raw::BF_PHYSICS_STATUS_NATIVE_FAILURE => Err(Status::NativeFailure),
         _ => Err(Status::ContractViolation),
     }
 }

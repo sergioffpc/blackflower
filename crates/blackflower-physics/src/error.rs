@@ -1,9 +1,15 @@
 /// Errors produced while configuring or using a physics world.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    /// Jolt could not allocate or initialize a physics world.
+    /// Jolt could not initialize a physics world.
     #[error("Jolt physics world initialization failed")]
     WorldInitialization,
+    /// A native physics allocation failed.
+    #[error("native Jolt allocation failed")]
+    OutOfMemory,
+    /// Jolt or the native wrapper raised an unexpected exception.
+    #[error("unexpected native Jolt failure")]
+    NativeFailure,
     /// The world configuration exceeds a Jolt limit.
     #[error("invalid Jolt physics world configuration")]
     InvalidWorldConfiguration,

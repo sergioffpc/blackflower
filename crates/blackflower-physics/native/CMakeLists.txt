@@ -41,12 +41,12 @@ target_compile_features(blackflower_physics_wrapper PRIVATE cxx_std_17)
 target_link_libraries(blackflower_physics_wrapper PRIVATE Jolt)
 
 if(MSVC)
-    target_compile_options(blackflower_physics_wrapper PRIVATE /GR-)
+    target_compile_options(blackflower_physics_wrapper PRIVATE /EHsc /GR-)
 else()
     target_compile_options(
         blackflower_physics_wrapper
         PRIVATE
-        -fno-exceptions
+        -fexceptions
         -fno-rtti
     )
 endif()

@@ -24,6 +24,7 @@ fn world_steps_a_dynamic_sphere() -> Result<(), Error> {
         .with_position(Vec3A::new(0.0, 2.0, 0.0))?;
     let sphere = world.create_body(sphere)?;
     world.set_linear_velocity(sphere, Vec3A::new(0.0, -5.0, 0.0))?;
+    world.optimize_broad_phase()?;
 
     let initial_position = world.position(sphere)?;
     world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;

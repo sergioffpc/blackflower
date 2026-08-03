@@ -339,8 +339,8 @@ impl World {
     }
 
     /// Optimize the broad phase after adding a large batch of bodies.
-    pub fn optimize_broad_phase(&mut self) {
-        ffi::optimize_broad_phase(self.pointer);
+    pub fn optimize_broad_phase(&mut self) -> Result<(), Error> {
+        ffi::optimize_broad_phase(self.pointer).map_err(map_status)
     }
 
     /// Advance the physics simulation.
@@ -390,6 +390,8 @@ const fn map_world_initialization(status: Status) -> Error {
     match status {
         Status::InvalidArgument => Error::InvalidWorldConfiguration,
         Status::InitializationFailed => Error::WorldInitialization,
+        Status::OutOfMemory => Error::OutOfMemory,
+        Status::NativeFailure => Error::NativeFailure,
         Status::BodyCapacityExhausted
         | Status::BodyNotFound
         | Status::CharacterNotFound
@@ -406,6 +408,8 @@ const fn map_status(status: Status) -> Error {
         Status::CharacterNotFound => Error::CharacterNotFound,
         Status::BodyOwnedByCharacter => Error::BodyOwnedByCharacter,
         Status::ShapeCreationFailed => Error::ShapeCreationFailed,
+        Status::OutOfMemory => Error::OutOfMemory,
+        Status::NativeFailure => Error::NativeFailure,
         Status::InvalidArgument | Status::InitializationFailed | Status::ContractViolation => {
             Error::NativeContract
         }
