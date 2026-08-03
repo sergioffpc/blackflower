@@ -4,9 +4,11 @@
 //! one predicted tick in either [`PredictionPass::Forward`] or
 //! [`PredictionPass::Resimulation`]. [`ReconciliationCoordinator`] remains
 //! ordinary Rust control flow: it restores an authoritative baseline and asks a
-//! simulation-provided [`ReconciliationDriver`] to run the same prediction pipeline
+//! simulation-provided [`PredictionDriver`] to run the same gameplay step
 //! for each recorded input that follows the baseline.
 
+mod comparison;
+mod driver;
 mod history;
 mod pipeline;
 mod reconciliation;
@@ -15,6 +17,10 @@ mod telemetry;
 mod types;
 mod world;
 
+pub use comparison::{
+    AbsoluteTolerance, AngularTolerance, PredictionStateComparison, ToleranceError,
+};
+pub use driver::PredictionDriver;
 pub use history::{
     HistoryError, InputFrame, InputHistory, NETWORK_HISTORY_TICKS, PredictionFrame,
     PredictionHistory,
@@ -22,7 +28,7 @@ pub use history::{
 pub use pipeline::{PredictionPhase, PredictionPhases, PredictionPipeline};
 pub use reconciliation::{
     AuthoritativeSnapshot, HardResyncReason, NETWORK_MAX_RECONCILIATION_TICKS,
-    ReconciliationCoordinator, ReconciliationDriver, ReconciliationError, ReconciliationOutcome,
+    ReconciliationCoordinator, ReconciliationError, ReconciliationOutcome,
 };
 pub use systems::{
     CaptureTickInputsSystem, CommitStateTransitionsSystem, DeriveActorActionsSystem,

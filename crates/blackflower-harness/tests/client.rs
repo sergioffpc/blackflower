@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use blackflower_harness::{
     ClientHarness, ClientHarnessConfig, ClientPrediction, ClientTransport, ClientTransportEvent,
-    CommandSubmission, ControlBinding, ControlSubmission, ForwardPredictionDriver, PredictionCodec,
-    PredictionSession, PredictionUpdate,
+    CommandSubmission, ControlBinding, ControlSubmission, PredictionCodec, PredictionDriver,
+    PredictionPass, PredictionSession, PredictionStateComparison, PredictionUpdate,
 };
 use blackflower_networking::{
     AdmissionClaims, BootstrapId, CommandDisposition, CommandTimingClass, CompatibilityContract,
@@ -22,9 +22,7 @@ use blackflower_networking_replication::{
     ReplicationPriority, Snapshot, SnapshotBuilder, SnapshotDelta, SnapshotTick,
     build_snapshot_chunks,
 };
-use blackflower_world_prediction::{
-    AuthoritativeSnapshot, InputFrame, PredictionTick, ReconciliationDriver,
-};
+use blackflower_world_prediction::{AuthoritativeSnapshot, InputFrame, PredictionTick};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -87,6 +85,17 @@ fn prediction_session_reconciles_and_replays_recorded_controls() -> TestResult {
         }
     );
     assert_eq!(prediction.predicted_state(), Some(&12));
+    assert_eq!(
+        prediction.driver().passes,
+        [
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Resimulation,
+            PredictionPass::Resimulation,
+        ]
+    );
     Ok(())
 }
 
@@ -464,32 +473,32 @@ impl ClientPrediction for FakePrediction {
 struct CounterDriver {
     tick: PredictionTick,
     state: u64,
+    passes: Vec<PredictionPass>,
 }
 
-impl ReconciliationDriver<u64, u64> for CounterDriver {
+impl PredictionDriver<u64, InputFrame<u64>> for CounterDriver {
     type Error = io::Error;
 
-    fn current_tick(&self) -> PredictionTick {
-        self.tick
+    fn current_tick(&self) -> u64 {
+        self.tick.get()
     }
 
-    fn restore_authoritative(
-        &mut self,
-        tick: PredictionTick,
-        state: &u64,
-    ) -> Result<(), Self::Error> {
-        self.tick = tick;
+    fn restore_authoritative(&mut self, tick: u64, state: &u64) -> Result<(), Self::Error> {
+        self.tick = PredictionTick::new(tick);
         self.state = *state;
         Ok(())
     }
 
-    fn resimulate_tick(&mut self, input: &InputFrame<u64>) -> Result<u64, Self::Error> {
-        self.advance(input)
-    }
-}
-
-impl ForwardPredictionDriver<u64, u64> for CounterDriver {
-    fn predict_tick(&mut self, input: &InputFrame<u64>) -> Result<u64, Self::Error> {
+    fn simulate_tick(
+        &mut self,
+        pass: PredictionPass,
+        tick: u64,
+        input: &InputFrame<u64>,
+    ) -> Result<u64, Self::Error> {
+        if tick != input.tick().get() {
+            return Err(io::Error::other("gameplay tick does not match input frame"));
+        }
+        self.passes.push(pass);
         self.advance(input)
     }
 }
@@ -534,8 +543,8 @@ impl PredictionCodec<u64, u64> for CounterCodec {
         0
     }
 
-    fn states_match(&self, predicted: &u64, authoritative: &u64) -> bool {
-        predicted == authoritative
+    fn compare_states(&self, predicted: &u64, authoritative: &u64) -> PredictionStateComparison {
+        PredictionStateComparison::from_within_tolerance(predicted == authoritative)
     }
 }
 

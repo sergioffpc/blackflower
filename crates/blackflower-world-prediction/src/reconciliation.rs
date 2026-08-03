@@ -3,7 +3,8 @@ use std::num::NonZeroU64;
 
 use crate::telemetry::{self, ReconciliationObservation};
 use crate::{
-    HistoryError, InputFrame, InputHistory, InputSequence, PredictionHistory, PredictionTick,
+    HistoryError, InputFrame, InputHistory, InputSequence, PredictionDriver, PredictionHistory,
+    PredictionPass, PredictionStateComparison, PredictionTick,
 };
 
 /// Network v1 maximum reconciliation rollback.
@@ -18,27 +19,6 @@ pub struct AuthoritativeSnapshot<S> {
     pub acknowledged_input: Option<InputSequence>,
     /// Simulation-defined subset of state needed to restore client prediction.
     pub state: S,
-}
-
-/// Simulation-specific bridge used by the reconciliation coordinator.
-///
-/// Implementations restore the authoritative component subset and execute the
-/// existing [`crate::PredictionPipeline`] in
-/// [`crate::PredictionPass::Resimulation`]. `resimulate_tick` returns the newly
-/// sealed state that must be stored in prediction history for that tick.
-pub trait ReconciliationDriver<S, I> {
-    /// Error raised while restoring or re-simulating simulation state.
-    type Error: StdError + Send + Sync + 'static;
-
-    /// Return the latest tick represented by the driver state.
-    fn current_tick(&self) -> PredictionTick;
-
-    /// Restore authoritative state and reset the local timeline to `tick`.
-    fn restore_authoritative(&mut self, tick: PredictionTick, state: &S)
-    -> Result<(), Self::Error>;
-
-    /// Execute the prediction pipeline once in re-simulation using `input`.
-    fn resimulate_tick(&mut self, input: &InputFrame<I>) -> Result<S, Self::Error>;
 }
 
 /// Reason reconciliation cannot safely re-simulate from the supplied snapshot.
@@ -75,7 +55,7 @@ pub enum HardResyncReason {
 /// Result of processing one authoritative snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReconciliationOutcome {
-    /// Predicted and authoritative states already matched at the snapshot tick.
+    /// Predicted state satisfied its comparison policy at the snapshot tick.
     Converged {
         /// Authoritative tick that was compared.
         authoritative_tick: PredictionTick,
@@ -172,13 +152,13 @@ impl ReconciliationCoordinator {
         prediction_history: &mut PredictionHistory<S>,
         input_history: &mut InputHistory<I>,
         snapshot: AuthoritativeSnapshot<S>,
-        states_match: impl FnOnce(&S, &S) -> bool,
+        compare_states: impl FnOnce(&S, &S) -> PredictionStateComparison,
     ) -> Result<ReconciliationOutcome, ReconciliationError<D::Error>>
     where
-        D: ReconciliationDriver<S, I>,
+        D: PredictionDriver<S, InputFrame<I>>,
     {
         telemetry::describe_metrics();
-        let target_tick = driver.current_tick();
+        let target_tick = PredictionTick::new(driver.current_tick());
         #[cfg(feature = "tracing")]
         tracing::Span::current().record("target_tick", target_tick.get());
         let observation = ReconciliationObservation::start();
@@ -188,7 +168,7 @@ impl ReconciliationCoordinator {
             &snapshot,
             target_tick,
             self.max_resimulation_ticks,
-            states_match,
+            compare_states,
         );
         let result = match plan {
             Ok(ReconciliationPlan::Converged) => {
@@ -225,7 +205,7 @@ fn reconciliation_plan<S, I>(
     snapshot: &AuthoritativeSnapshot<S>,
     target_tick: PredictionTick,
     max_resimulation_ticks: NonZeroU64,
-    states_match: impl FnOnce(&S, &S) -> bool,
+    compare_states: impl FnOnce(&S, &S) -> PredictionStateComparison,
 ) -> Result<ReconciliationPlan, HardResyncReason> {
     if snapshot.tick > target_tick {
         return Err(HardResyncReason::SnapshotAhead {
@@ -239,7 +219,7 @@ fn reconciliation_plan<S, I>(
             .ok_or(HardResyncReason::MissingPredictedState {
                 tick: snapshot.tick,
             })?;
-    if states_match(frame.state(), &snapshot.state) {
+    if compare_states(frame.state(), &snapshot.state).is_within_tolerance() {
         return Ok(ReconciliationPlan::Converged);
     }
     let required = target_tick.get() - snapshot.tick.get();
@@ -263,10 +243,10 @@ fn resimulate<D, S, I>(
     target_tick: PredictionTick,
 ) -> Result<ReconciliationOutcome, ReconciliationError<D::Error>>
 where
-    D: ReconciliationDriver<S, I>,
+    D: PredictionDriver<S, InputFrame<I>>,
 {
     driver
-        .restore_authoritative(snapshot.tick, &snapshot.state)
+        .restore_authoritative(snapshot.tick.get(), &snapshot.state)
         .map_err(ReconciliationError::Driver)?;
     ensure_driver_tick(driver, snapshot.tick)?;
 
@@ -279,7 +259,7 @@ where
             break;
         }
         let state = driver
-            .resimulate_tick(input)
+            .simulate_tick(PredictionPass::Resimulation, input.tick().get(), input)
             .map_err(ReconciliationError::Driver)?;
         ensure_driver_tick(driver, input.tick())?;
         prediction_history.record(input.tick(), state)?;
@@ -332,9 +312,9 @@ fn ensure_driver_tick<D, S, I>(
     expected: PredictionTick,
 ) -> Result<(), ReconciliationError<D::Error>>
 where
-    D: ReconciliationDriver<S, I>,
+    D: PredictionDriver<S, InputFrame<I>>,
 {
-    let actual = driver.current_tick();
+    let actual = PredictionTick::new(driver.current_tick());
     if actual == expected {
         Ok(())
     } else {

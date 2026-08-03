@@ -92,7 +92,9 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `SessionAuthority`.
 - **NET-SESSION-003**: admission MUST compare `ProtocolRevision`,
   `SimulationCompatibilityId`, and `RequiredContentSetId` for exact equality
-  before authoritative player state is created.
+  before authoritative player state is created. The simulation identity covers
+  authoritative rules, canonical quantization/schema choices, and solver policy;
+  it MUST NOT include client CPU architecture or SIMD path.
 - **NET-SESSION-004**: activation MUST be aligned to four ticks and scheduled at
   least 24 ticks plus current uncertainty into the future. A peer remains
   `Synchronizing` until that tick is reached.

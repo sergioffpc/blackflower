@@ -7,11 +7,14 @@ mod snapshots;
 mod transport;
 mod types;
 
+pub use blackflower_world_prediction::{
+    AbsoluteTolerance, AngularTolerance, PredictionDriver, PredictionPass,
+    PredictionStateComparison, ToleranceError,
+};
 pub use client::{ClientHarness, ClientHarnessError};
 pub use input::InputBuildError as ClientInputError;
 pub use prediction::{
-    ClientPrediction, ForwardPredictionDriver, PredictionCodec, PredictionSession,
-    PredictionSessionError, PredictionUpdate,
+    ClientPrediction, PredictionCodec, PredictionSession, PredictionSessionError, PredictionUpdate,
 };
 pub use snapshots::{SnapshotInboxError as ClientSnapshotError, SnapshotWindow};
 pub use transport::{ClientTransport, ClientTransportEvent};

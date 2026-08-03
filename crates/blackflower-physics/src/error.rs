@@ -22,9 +22,6 @@ pub enum Error {
     /// A collision-step count does not fit the Jolt C++ API.
     #[error("collision-step count {0} exceeds the Jolt limit")]
     CollisionStepCountTooLarge(u32),
-    /// A step delta must be finite and strictly positive.
-    #[error("step delta must be finite and strictly positive")]
-    InvalidStepDelta,
     /// A vector must contain only finite components.
     #[error("vector components must be finite")]
     InvalidVector,

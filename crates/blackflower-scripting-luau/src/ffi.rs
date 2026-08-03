@@ -200,19 +200,34 @@ impl State {
         bytecode: &[u8],
         compile_options: CompileOptions,
         execution_fuel: u64,
+        random_seed: i32,
         debug: Option<DebugRequest<'_>>,
     ) -> Result<(Vec<Value>, Option<NativeCodegenStats>), Error> {
         let base = unsafe { raw::lua_gettop(self.pointer()) };
-        let result = self.execute_loaded(
-            chunk_name,
-            bytecode,
-            compile_options,
-            execution_fuel,
-            debug,
-            base,
-        );
+        let result = self.prepare_execution(random_seed).and_then(|()| {
+            self.execute_loaded(
+                chunk_name,
+                bytecode,
+                compile_options,
+                execution_fuel,
+                debug,
+                base,
+            )
+        });
         unsafe { raw::lua_settop(self.pointer(), base) };
         result
+    }
+
+    fn prepare_execution(&self, random_seed: i32) -> Result<(), Error> {
+        let status = unsafe { raw::bf_scripting_prepare_execution(self.pointer(), random_seed) };
+        if raw::lua_Status_LUA_OK.matches_c_int(status) {
+            return Ok(());
+        }
+        if raw::lua_Status_LUA_ERRMEM.matches_c_int(status) {
+            Err(Error::OutOfMemory)
+        } else {
+            Err(Error::Runtime(self.runtime_error_message(-1)))
+        }
     }
 
     fn execute_loaded(

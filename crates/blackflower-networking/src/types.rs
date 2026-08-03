@@ -112,7 +112,7 @@ byte_id!(MatchId, 16, "Opaque 128-bit match identity.");
 byte_id!(
     SimulationCompatibilityId,
     32,
-    "Deterministic simulation compatibility identity."
+    "Authoritative simulation compatibility identity."
 );
 byte_id!(
     RequiredContentSetId,

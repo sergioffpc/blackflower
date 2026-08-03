@@ -8,15 +8,15 @@ use blackflower_acoustics::{
 };
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
+/// Pinned binary32 duration of one authoritative simulation tick.
+pub const SIMULATION_TICK_DELTA_SECONDS: f32 = f32::from_bits(0x3b88_8889);
+
 use crate::telemetry::TickObservation;
 use crate::types::SimulationTickOverflow;
 use crate::{
     SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline, SimulationTick, systems,
     telemetry,
 };
-
-/// Fixed duration, in seconds, of one authoritative simulation tick.
-pub const SIMULATION_TICK_DELTA_SECONDS: f32 = 1.0 / 240.0;
 
 const _: () = assert!(SIMULATION_TICK_RATE_HZ == 240);
 
@@ -190,6 +190,7 @@ pub struct SimulationWorld {
     pipeline: SimulationPipeline,
     tick_delta: TickDelta,
     execution_context: SimulationExecutionContext,
+    fault: Option<RunError>,
 }
 
 impl SimulationWorld {
@@ -226,6 +227,7 @@ impl SimulationWorld {
             pipeline,
             tick_delta,
             execution_context,
+            fault: None,
         })
     }
 
@@ -269,6 +271,18 @@ impl SimulationWorld {
     #[must_use]
     pub fn execution_context(&self) -> SimulationExecutionContext {
         self.execution_context.clone()
+    }
+
+    /// Whether a failed tick left this ECS world unsafe for further simulation.
+    #[must_use]
+    pub const fn is_faulted(&self) -> bool {
+        self.fault.is_some()
+    }
+
+    /// Return the failure that made this world terminally unusable.
+    #[must_use]
+    pub const fn fault(&self) -> Option<&RunError> {
+        self.fault.as_ref()
     }
 
     /// Return the acoustic capability selected for this simulation world.
@@ -372,6 +386,9 @@ impl SimulationWorld {
         )
     )]
     pub fn tick(&mut self) -> Result<bool, RunError> {
+        if let Some(error) = &self.fault {
+            return Err(error.clone());
+        }
         let previous_execution = self.execution_context.current();
         let observation = TickObservation::start(self.tick_delta);
         let run_result = self.ecs.progress(self.tick_delta);
@@ -381,6 +398,7 @@ impl SimulationWorld {
             Ok(should_continue) => Ok(should_continue),
             Err(error) => {
                 self.execution_context.set(previous_execution);
+                self.fault = Some(error.clone());
                 Err(error)
             }
         };

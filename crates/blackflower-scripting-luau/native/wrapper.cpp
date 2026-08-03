@@ -13,6 +13,7 @@ namespace {
 
 constexpr size_t NATIVE_CODEGEN_BLOCK_SIZE = 4 * 1024 * 1024;
 constexpr size_t STRING_OPERATION_LIMIT_BYTES = 64 * 1024;
+constexpr const char *BASE_GLOBALS_REGISTRY_KEY = "blackflower.base_globals";
 
 struct RuntimeContext {
     size_t current_bytes;
@@ -35,6 +36,10 @@ struct RuntimeContext {
 struct InitializeContext {
     int32_t random_seed;
     uint32_t libraries;
+};
+
+struct PrepareExecutionContext {
+    int32_t random_seed;
 };
 
 struct LibraryRegistration {
@@ -298,6 +303,49 @@ void execution_interrupt(lua_State *state, int gc) {
     luaL_error(state, "execution fuel exhausted");
 }
 
+void seed_random(lua_State *state, int32_t random_seed) {
+    lua_getglobal(state, LUA_MATHLIBNAME);
+    if (!lua_istable(state, -1)) {
+        lua_pop(state, 1);
+        return;
+    }
+
+    lua_getfield(state, -1, "randomseed");
+    if (!lua_isfunction(state, -1)) {
+        lua_pop(state, 2);
+        return;
+    }
+    lua_pushinteger(state, random_seed);
+    lua_call(state, 1, 0);
+    lua_pop(state, 1);
+}
+
+void reset_execution_environment(lua_State *state, int32_t random_seed) {
+    lua_newtable(state);
+
+    lua_newtable(state);
+    lua_getfield(state, LUA_REGISTRYINDEX, BASE_GLOBALS_REGISTRY_KEY);
+    if (!lua_istable(state, -1)) {
+        luaL_error(state, "missing immutable base globals");
+    }
+    lua_setfield(state, -2, "__index");
+    lua_setreadonly(state, -1, true);
+    lua_setmetatable(state, -2);
+
+    lua_replace(state, LUA_GLOBALSINDEX);
+    lua_setsafeenv(state, LUA_GLOBALSINDEX, true);
+    lua_pushvalue(state, LUA_GLOBALSINDEX);
+    lua_setfield(state, LUA_GLOBALSINDEX, "_G");
+    seed_random(state, random_seed);
+}
+
+int prepare_execution(lua_State *state) {
+    const auto *context =
+        static_cast<const PrepareExecutionContext *>(lua_touserdata(state, 1));
+    reset_execution_environment(state, context->random_seed);
+    return 0;
+}
+
 int initialize_runtime(lua_State *state) {
     const auto *context =
         static_cast<const InitializeContext *>(lua_touserdata(state, 1));
@@ -323,18 +371,10 @@ int initialize_runtime(lua_State *state) {
         }
     }
 
-    if ((context->libraries & BF_SCRIPTING_LIBRARY_MATH) != 0) {
-        lua_getglobal(state, LUA_MATHLIBNAME);
-        lua_getfield(state, -1, "randomseed");
-        lua_pushinteger(state, context->random_seed);
-        lua_call(state, 1, 0);
-        lua_pop(state, 1);
-    }
-
     luaL_sandbox(state);
-    luaL_sandboxthread(state);
     lua_pushvalue(state, LUA_GLOBALSINDEX);
-    lua_setfield(state, -1, "_G");
+    lua_setfield(state, LUA_REGISTRYINDEX, BASE_GLOBALS_REGISTRY_KEY);
+    reset_execution_environment(state, context->random_seed);
     return 0;
 }
 
@@ -529,6 +569,24 @@ extern "C" int32_t bf_scripting_begin_execution(
     context->last_debug_trace.clear();
     lua_callbacks(state)->interrupt = execution_interrupt;
     return BF_SCRIPTING_STATUS_OK;
+}
+
+extern "C" int32_t bf_scripting_prepare_execution(
+    lua_State *state,
+    int32_t random_seed) {
+    if (state == nullptr) {
+        return BF_SCRIPTING_STATUS_NULL_POINTER;
+    }
+    RuntimeContext *runtime = runtime_context(state);
+    if (runtime == nullptr) {
+        return BF_SCRIPTING_STATUS_NULL_POINTER;
+    }
+    if (runtime->execution_active) {
+        return BF_SCRIPTING_STATUS_INVALID_ARGUMENT;
+    }
+
+    PrepareExecutionContext context {random_seed};
+    return lua_cpcall(state, prepare_execution, &context);
 }
 
 extern "C" int32_t bf_scripting_end_execution(lua_State *state) {

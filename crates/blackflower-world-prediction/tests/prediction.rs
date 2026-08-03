@@ -7,11 +7,11 @@ use blackflower_ecs::{Component, ComponentId, EntityId, Read, TickDelta, World, 
 use blackflower_world_prediction::{
     AuthoritativeSnapshot, CaptureTickInputsSystem, CommitStateTransitionsSystem,
     DeriveActorActionsSystem, DeriveStateTransitionsSystem, HardResyncReason, HistoryError,
-    InputFrame, InputHistory, InputSequence, PREDICTION_TICK_DELTA_SECONDS, PredictionError,
-    PredictionExecution, PredictionHistory, PredictionPass, PredictionPhase, PredictionPipeline,
-    PredictionTick, PredictionWorld, PrepareTickSystem, ReconciliationCoordinator,
-    ReconciliationDriver, ReconciliationOutcome, SealTickSystem, SolveRigidBodyDynamicsSystem,
-    SubmitTickOutputsSystem,
+    InputFrame, InputHistory, InputSequence, PREDICTION_TICK_DELTA_SECONDS, PredictionDriver,
+    PredictionError, PredictionExecution, PredictionHistory, PredictionPass, PredictionPhase,
+    PredictionPipeline, PredictionStateComparison, PredictionTick, PredictionWorld,
+    PrepareTickSystem, ReconciliationCoordinator, ReconciliationOutcome, SealTickSystem,
+    SolveRigidBodyDynamicsSystem, SubmitTickOutputsSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -241,6 +241,48 @@ fn prediction_world_exposes_forward_and_resimulation_passes() -> TestResult {
 }
 
 #[test]
+fn failed_prediction_tick_stops_until_a_complete_restore() -> TestResult {
+    let mut prediction = PredictionWorld::new()?;
+    let probe = prediction.ecs_mut().register_component::<Probe>()?;
+    let entity = prediction.ecs_mut().spawn()?;
+    prediction.ecs_mut().insert(entity, probe, Probe(0))?;
+
+    let capture_inputs = prediction.phase(PredictionPhase::CaptureTickInputs);
+    prediction
+        .ecs_mut()
+        .system("FailPredictionAfterWrite", "Probe")?
+        .phase(capture_inputs)?
+        .project(Write::<Probe>::field(0))?
+        .each(|_context, _entity, probe| {
+            probe.0 = probe.0.saturating_add(1);
+            Err(io::Error::other("intentional prediction failure").into())
+        })?;
+
+    let error = match prediction.tick(PredictionPass::Forward) {
+        Err(error) => error,
+        Ok(_) => return Err(io::Error::other("the prediction system must fail").into()),
+    };
+    assert!(prediction.is_faulted());
+    assert_eq!(prediction.fault(), Some(&error));
+    assert_eq!(prediction.current_tick(), PredictionTick::ZERO);
+    assert_eq!(
+        prediction.ecs().get(entity, probe)?.map(|probe| probe.0),
+        Some(1)
+    );
+
+    assert_eq!(prediction.tick(PredictionPass::Forward), Err(error));
+    assert_eq!(
+        prediction.ecs().get(entity, probe)?.map(|probe| probe.0),
+        Some(1)
+    );
+
+    prediction.ecs_mut().insert(entity, probe, Probe(0))?;
+    prediction.restore_tick_for_reconciliation(PredictionTick::ZERO);
+    assert!(!prediction.is_faulted());
+    Ok(())
+}
+
+#[test]
 fn histories_are_bounded_and_reject_regression() -> TestResult {
     let capacity =
         NonZeroUsize::new(2).ok_or_else(|| io::Error::other("test capacity must be nonzero"))?;
@@ -316,7 +358,9 @@ fn reconciliation_restores_and_resimulates_the_prediction_pipeline() -> TestResu
             acknowledged_input: Some(InputSequence::new(1)),
             state: 10_i64,
         },
-        i64::eq,
+        |predicted, authoritative| {
+            PredictionStateComparison::from_within_tolerance(predicted == authoritative)
+        },
     )?;
 
     assert_eq!(
@@ -405,7 +449,9 @@ fn reconciliation_skips_resimulation_when_state_already_converged() -> TestResul
             acknowledged_input: Some(InputSequence::new(2)),
             state: 2_i64,
         },
-        i64::eq,
+        |predicted, authoritative| {
+            PredictionStateComparison::from_within_tolerance(predicted == authoritative)
+        },
     )?;
 
     assert_eq!(
@@ -460,7 +506,9 @@ fn reconciliation_requires_hard_resync_before_mutation_when_input_is_missing() -
             acknowledged_input: Some(InputSequence::new(1)),
             state: 10_i64,
         },
-        i64::eq,
+        |predicted, authoritative| {
+            PredictionStateComparison::from_within_tolerance(predicted == authoritative)
+        },
     )?;
 
     assert_eq!(
@@ -492,6 +540,8 @@ enum DriverError {
     MissingPosition,
     #[error("execution observation lock poisoned")]
     ObservationLock,
+    #[error("gameplay tick does not match input frame")]
+    TickMismatch,
 }
 
 struct TestDriver {
@@ -573,26 +623,31 @@ impl TestDriver {
     }
 }
 
-impl ReconciliationDriver<i64, i64> for TestDriver {
+impl PredictionDriver<i64, InputFrame<i64>> for TestDriver {
     type Error = DriverError;
 
-    fn current_tick(&self) -> PredictionTick {
-        self.prediction.current_tick()
+    fn current_tick(&self) -> u64 {
+        self.prediction.current_tick().get()
     }
 
-    fn restore_authoritative(
-        &mut self,
-        tick: PredictionTick,
-        state: &i64,
-    ) -> Result<(), Self::Error> {
+    fn restore_authoritative(&mut self, tick: u64, state: &i64) -> Result<(), Self::Error> {
         self.prediction
             .ecs_mut()
             .insert(self.entity, self.position, Position(*state))?;
-        self.prediction.restore_tick_for_reconciliation(tick);
+        self.prediction
+            .restore_tick_for_reconciliation(PredictionTick::new(tick));
         Ok(())
     }
 
-    fn resimulate_tick(&mut self, input: &InputFrame<i64>) -> Result<i64, Self::Error> {
-        self.advance(PredictionPass::Resimulation, input)
+    fn simulate_tick(
+        &mut self,
+        pass: PredictionPass,
+        tick: u64,
+        input: &InputFrame<i64>,
+    ) -> Result<i64, Self::Error> {
+        if tick != input.tick().get() {
+            return Err(DriverError::TickMismatch);
+        }
+        self.advance(pass, input)
     }
 }

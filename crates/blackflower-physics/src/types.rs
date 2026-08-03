@@ -65,27 +65,6 @@ impl BodySettings {
     }
 }
 
-/// Validated simulation-step duration in seconds.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StepDelta(f32);
-
-impl StepDelta {
-    /// Construct a finite, strictly positive step duration.
-    pub fn from_seconds(seconds: f32) -> Result<Self, Error> {
-        if seconds.is_finite() && seconds > 0.0 {
-            Ok(Self(seconds))
-        } else {
-            Err(Error::InvalidStepDelta)
-        }
-    }
-
-    /// Return the duration in seconds.
-    #[must_use]
-    pub const fn as_seconds(self) -> f32 {
-        self.0
-    }
-}
-
 pub(crate) fn validate_vector(value: Vec3A) -> Result<Vec3A, Error> {
     if value.is_finite() {
         Ok(value)

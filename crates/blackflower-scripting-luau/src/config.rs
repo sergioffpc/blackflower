@@ -133,7 +133,7 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Set the deterministic `math.random` seed.
+    /// Set the default deterministic `math.random` seed restored per evaluation.
     #[must_use]
     pub const fn with_random_seed(mut self, random_seed: i32) -> Self {
         self.random_seed = random_seed;
@@ -177,7 +177,7 @@ impl RuntimeConfig {
         self
     }
 
-    /// The deterministic `math.random` seed.
+    /// Default deterministic `math.random` seed restored per evaluation.
     #[must_use]
     pub const fn random_seed(self) -> i32 {
         self.random_seed

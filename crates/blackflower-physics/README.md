@@ -13,9 +13,15 @@ ownership rules and global initialization.
 The native build uses C++17, single-precision positions, static linking and
 Jolt's `Distribution` configuration. Cross-platform deterministic mode is
 enabled. Linux x86_64 builds target AVX2 for Dell PowerEdge R630 servers;
-AVX-512 and fused multiply-add remain disabled. macOS ARM64 builds use Jolt's
-automatic NEON path. The debug renderer, profiler, object stream and GPU/CPU
-compute backends are disabled.
+AVX-512 and fused multiply-add remain disabled. Floating-point contraction and
+fast-math are disabled byte-identically in the Jolt archive and wrapper. macOS
+ARM64 builds use Jolt's automatic NEON path. ARM64 clients and x86-64 servers
+reconcile continuous predicted state through gameplay-owned tolerances; CPU
+architecture does not affect session admission. The strict floating-point
+configuration supports repeatable rollback within a certified server build and
+reduces client drift, but does not promise byte-identical cross-architecture
+results. The debug renderer, profiler, object stream and GPU/CPU compute backends
+are disabled.
 
 ## Checkout and prerequisites
 
@@ -59,7 +65,7 @@ directly; consumers must import them from `glam`:
 use std::num::NonZeroU32;
 
 use blackflower_physics::{
-    BodySettings, MotionType, Shape, StepDelta, World,
+    BodySettings, MotionType, Shape, World,
 };
 use glam::Vec3A;
 
@@ -77,10 +83,7 @@ let sphere = BodySettings::new(Shape::sphere(0.5)?, MotionType::Dynamic)
 let sphere = world.create_body(sphere)?;
 world.set_linear_velocity(sphere, Vec3A::new(0.0, -5.0, 0.0))?;
 
-world.step(
-    StepDelta::from_seconds(1.0 / 60.0)?,
-    NonZeroU32::MIN,
-)?;
+world.step(NonZeroU32::MIN)?;
 
 for contact in world.contact_events()? {
     if let Some(manifold) = contact.manifold {
@@ -90,6 +93,10 @@ for contact in world.contact_events()? {
 # Ok(())
 # }
 ```
+
+The public API does not accept an arbitrary delta: every `World::step` uses the
+shared authoritative 240 Hz bit pattern. Wall-clock pacing and catch-up remain
+outside the physics crate.
 
 `BodyId` values are tied to their creating world and stale handles are
 rejected. `World` is neither `Send` nor `Sync`; Jolt's worker pool remains an

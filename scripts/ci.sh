@@ -23,6 +23,11 @@ check_test_layout() {
     "$script_directory/check-test-layout.sh"
 }
 
+check_simulation_policy() {
+    printf 'Checking simulation consistency policy...\n'
+    "$script_directory/check-simulation-policy.sh"
+}
+
 run_clippy() {
     printf 'Running Clippy...\n'
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
@@ -41,12 +46,14 @@ case "$mode" in
     all)
         build_native_vendors
         check_test_layout
+        check_simulation_policy
         check_format
         run_clippy
         run_tests
         ;;
     format)
         check_test_layout
+        check_simulation_policy
         check_format
         ;;
     *)

@@ -79,7 +79,7 @@ fn compiler_options_change_bytecode_without_changing_results() -> TestResult {
 }
 
 #[test]
-fn preserves_runtime_globals_between_chunks() -> TestResult {
+fn isolates_runtime_globals_between_evaluations() -> TestResult {
     let mut runtime = Runtime::new()?;
     assert!(
         runtime
@@ -90,20 +90,27 @@ fn preserves_runtime_globals_between_chunks() -> TestResult {
             .is_empty()
     );
     assert_eq!(
-        runtime.execute("call-policy.luau", "return decide()")?,
-        vec![Value::from("advance")]
+        runtime.execute("inspect-policy.luau", "return decide == nil")?,
+        vec![Value::Boolean(true)]
     );
     Ok(())
 }
 
 #[test]
-fn initializes_random_with_an_explicit_seed() -> TestResult {
-    let mut first = Runtime::with_seed(91)?;
-    let mut second = Runtime::with_seed(91)?;
+fn restores_random_seed_for_every_evaluation() -> TestResult {
+    let mut runtime = Runtime::with_seed(91)?;
     let source = "return math.random(), math.random(1, 1000)";
+    let first = runtime.execute("first-random.luau", source)?;
+    assert_eq!(first, runtime.execute("second-random.luau", source)?);
+
+    let seeded = runtime.execute_seeded("seeded-random.luau", source, 7)?;
     assert_eq!(
-        first.execute("first-random.luau", source)?,
-        second.execute("second-random.luau", source)?
+        seeded,
+        runtime.execute_seeded("same-seeded-random.luau", source, 7)?
+    );
+    assert_ne!(
+        seeded,
+        runtime.execute_seeded("other-seeded-random.luau", source, 8)?
     );
     Ok(())
 }

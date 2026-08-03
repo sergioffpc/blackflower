@@ -111,6 +111,10 @@ int32_t bf_scripting_initialize(
     int32_t random_seed,
     uint32_t libraries);
 
+int32_t bf_scripting_prepare_execution(
+    lua_State *state,
+    int32_t random_seed);
+
 int32_t bf_scripting_begin_execution(lua_State *state, uint64_t fuel);
 
 int32_t bf_scripting_end_execution(lua_State *state);

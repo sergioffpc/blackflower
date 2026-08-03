@@ -46,9 +46,13 @@
 using namespace JPH;
 
 extern "C" const char *bf_jolt_archive_configuration() noexcept;
+extern "C" uint32_t bf_jolt_archive_strict_float() noexcept;
 
 #if !defined(JPH_CROSS_PLATFORM_DETERMINISTIC)
 #error "Blackflower requires Jolt cross-platform deterministic mode"
+#endif
+#if !defined(BF_JOLT_STRICT_FLOAT) || BF_JOLT_STRICT_FLOAT != 1
+#error "Blackflower requires the pinned strict floating-point mode"
 #endif
 
 static_assert(
@@ -157,7 +161,9 @@ void register_throwing_allocator() noexcept {
 bool jolt_configuration_matches() noexcept {
     static const bool matches = [] {
         const char *archive = bf_jolt_archive_configuration();
-        return archive != nullptr && std::strcmp(archive, GetConfigurationString()) == 0;
+        return archive != nullptr
+            && std::strcmp(archive, GetConfigurationString()) == 0
+            && bf_jolt_archive_strict_float() == BF_JOLT_STRICT_FLOAT;
     }();
     return matches;
 }

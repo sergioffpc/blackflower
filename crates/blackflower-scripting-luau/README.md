@@ -171,14 +171,19 @@ assert!(runtime.native_codegen_memory_usage().current_bytes > 0);
 `Runtime::last_native_codegen_stats` reports the most recent chunk, while
 `Runtime::native_codegen_memory_usage` reports current, peak, and configured
 executable-memory usage. A zero budget keeps the interpreter-only default.
+Native codegen is not admissible in authoritative simulation or prediction;
+those dependency trees exclude this crate entirely.
 
 Runtime initialization excludes `os` and `debug`; no filesystem, network, or
 module loader is registered. Builtin libraries are frozen through
-`luaL_sandbox`, each runtime receives a writable sandbox global table, and
-`math.random` is seeded explicitly.
+`luaL_sandbox`. Every evaluation receives a new writable global table before
+its bytecode is loaded, so globals cannot leak across evaluations. `math.random`
+is reseeded for every evaluation; `Runtime::execute_seeded` and
+`Runtime::execute_bytecode_seeded` accept the host-derived evaluation seed.
 
-`RuntimeConfig::default()` limits each VM to 16 MiB and restores 100,000 fuel
-units before every execution. Fuel counts interruptible VM safepoints such as
+`RuntimeConfig::default()` limits each VM to 16 MiB, restores the configured
+default random seed, and restores 100,000 fuel units before every execution.
+Fuel counts interruptible VM safepoints such as
 loop back-edges and calls rather than individual bytecode instructions. The
 allocator rejects growth above the configured ceiling; `Runtime::memory_usage`
 reports current, peak, and limit values. Exhaustion is reported as

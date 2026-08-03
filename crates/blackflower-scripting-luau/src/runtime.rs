@@ -9,7 +9,7 @@ use crate::{
     NativeCodegenStats, RuntimeConfig, Value, compile, ffi,
 };
 
-/// An isolated Luau VM with deterministic standard-library initialization.
+/// An isolated Luau VM with a fresh, deterministically seeded environment per evaluation.
 ///
 /// `os`, `debug`, filesystem, networking, and module loading are not exposed.
 /// VM allocations and execution safepoints are bounded by [`RuntimeConfig`].
@@ -30,8 +30,8 @@ impl Runtime {
         Self::with_config(RuntimeConfig::default())
     }
 
-    /// Create a sandboxed runtime with an explicit `math.random` seed and
-    /// otherwise default resource limits.
+    /// Create a sandboxed runtime with an explicit default per-evaluation
+    /// `math.random` seed and otherwise default resource limits.
     pub fn with_seed(random_seed: i32) -> Result<Self, Error> {
         Self::with_config(RuntimeConfig::default().with_random_seed(random_seed))
     }
@@ -86,6 +86,16 @@ impl Runtime {
         self.execute_with_options(chunk_name, source, CompileOptions::default())
     }
 
+    /// Compile and execute one chunk with a host-derived evaluation seed.
+    pub fn execute_seeded(
+        &mut self,
+        chunk_name: &str,
+        source: &str,
+        random_seed: i32,
+    ) -> Result<Vec<Value>, Error> {
+        self.execute_with_options_seeded(chunk_name, source, CompileOptions::default(), random_seed)
+    }
+
     /// Compile and execute one chunk with explicit compiler options.
     pub fn execute_with_options(
         &mut self,
@@ -93,8 +103,19 @@ impl Runtime {
         source: &str,
         options: CompileOptions,
     ) -> Result<Vec<Value>, Error> {
+        self.execute_with_options_seeded(chunk_name, source, options, self.config.random_seed())
+    }
+
+    /// Compile and execute one seeded chunk with explicit compiler options.
+    pub fn execute_with_options_seeded(
+        &mut self,
+        chunk_name: &str,
+        source: &str,
+        options: CompileOptions,
+        random_seed: i32,
+    ) -> Result<Vec<Value>, Error> {
         let bytecode = compile(source, options)?;
-        self.execute_bytecode(chunk_name, &bytecode)
+        self.execute_bytecode_seeded(chunk_name, &bytecode, random_seed)
     }
 
     /// Compile and execute one chunk under the host-controlled debugger.
@@ -111,7 +132,15 @@ impl Runtime {
         handler: &mut dyn DebugHandler,
     ) -> Result<Vec<Value>, Error> {
         let bytecode = compile(source, compile_options)?;
-        self.execute_bytecode_debugged(chunk_name, &bytecode, debug_options, handler)
+        self.execute_bytecode_inner(
+            chunk_name,
+            &bytecode,
+            self.config.random_seed(),
+            Some(DebugRequest {
+                options: debug_options,
+                handler,
+            }),
+        )
     }
 
     /// Load and execute bytecode produced for the pinned Luau version.
@@ -120,7 +149,17 @@ impl Runtime {
         chunk_name: &str,
         bytecode: &VerifiedBytecode,
     ) -> Result<Vec<Value>, Error> {
-        self.execute_bytecode_inner(chunk_name, bytecode, None)
+        self.execute_bytecode_seeded(chunk_name, bytecode, self.config.random_seed())
+    }
+
+    /// Execute verified bytecode with a host-derived evaluation seed.
+    pub fn execute_bytecode_seeded(
+        &mut self,
+        chunk_name: &str,
+        bytecode: &VerifiedBytecode,
+        random_seed: i32,
+    ) -> Result<Vec<Value>, Error> {
+        self.execute_bytecode_inner(chunk_name, bytecode, random_seed, None)
     }
 
     /// Execute bytecode with host-controlled breakpoints and single stepping.
@@ -137,6 +176,7 @@ impl Runtime {
         self.execute_bytecode_inner(
             chunk_name,
             bytecode,
+            self.config.random_seed(),
             Some(DebugRequest { options, handler }),
         )
     }
@@ -145,6 +185,7 @@ impl Runtime {
         &mut self,
         chunk_name: &str,
         bytecode: &VerifiedBytecode,
+        random_seed: i32,
         debug: Option<DebugRequest<'_>>,
     ) -> Result<Vec<Value>, Error> {
         let chunk_name =
@@ -155,6 +196,7 @@ impl Runtime {
             bytecode.as_bytes(),
             bytecode.compile_options(),
             self.config.execution_fuel(),
+            random_seed,
             debug,
         )?;
         self.last_native_codegen_stats = stats;
