@@ -10,6 +10,9 @@ pub enum Error {
     /// Jolt or the native wrapper raised an unexpected exception.
     #[error("unexpected native Jolt failure")]
     NativeFailure,
+    /// The Jolt archive and wrapper headers were built with different configurations.
+    #[error("native Jolt configuration does not match the wrapper headers")]
+    NativeConfigurationMismatch,
     /// The world configuration exceeds a Jolt limit.
     #[error("invalid Jolt physics world configuration")]
     InvalidWorldConfiguration,

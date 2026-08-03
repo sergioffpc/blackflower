@@ -2,6 +2,7 @@
 
 #include <Jolt/Jolt.h>
 
+#include <Jolt/ConfigurationString.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
@@ -29,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -42,6 +44,12 @@
 #endif
 
 using namespace JPH;
+
+extern "C" const char *bf_jolt_archive_configuration() noexcept;
+
+#if !defined(JPH_CROSS_PLATFORM_DETERMINISTIC)
+#error "Blackflower requires Jolt cross-platform deterministic mode"
+#endif
 
 static_assert(
     BF_PHYSICS_MAX_CONVEX_HULL_POINTS == ConvexHullShape::cMaxPointsInHull,
@@ -146,8 +154,19 @@ void register_throwing_allocator() noexcept {
     AlignedFree = throwing_aligned_free;
 }
 
+bool jolt_configuration_matches() noexcept {
+    static const bool matches = [] {
+        const char *archive = bf_jolt_archive_configuration();
+        return archive != nullptr && std::strcmp(archive, GetConfigurationString()) == 0;
+    }();
+    return matches;
+}
+
 template <typename Function>
 int32_t guarded(Function &&function) noexcept {
+    if (!jolt_configuration_matches()) {
+        return BF_PHYSICS_STATUS_CONFIGURATION_MISMATCH;
+    }
     try {
         return std::forward<Function>(function)();
     } catch (const std::bad_alloc &) {

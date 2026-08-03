@@ -49,6 +49,7 @@ pub(crate) enum Status {
     ShapeCreationFailed,
     OutOfMemory,
     NativeFailure,
+    ConfigurationMismatch,
     ContractViolation,
 }
 
@@ -577,6 +578,7 @@ fn check(status: i32) -> Result<(), Status> {
         raw::BF_PHYSICS_STATUS_SHAPE_CREATION_FAILED => Err(Status::ShapeCreationFailed),
         raw::BF_PHYSICS_STATUS_OUT_OF_MEMORY => Err(Status::OutOfMemory),
         raw::BF_PHYSICS_STATUS_NATIVE_FAILURE => Err(Status::NativeFailure),
+        raw::BF_PHYSICS_STATUS_CONFIGURATION_MISMATCH => Err(Status::ConfigurationMismatch),
         _ => Err(Status::ContractViolation),
     }
 }
@@ -605,3 +607,7 @@ fn raw_quat(value: Quat) -> raw::BFPhysicsQuat {
 pub(crate) fn safe_quat(value: raw::BFPhysicsQuat) -> Quat {
     Quat::from_xyzw(value.x, value.y, value.z, value.w)
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/ffi.rs"]
+mod tests;

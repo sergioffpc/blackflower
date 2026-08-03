@@ -392,6 +392,7 @@ const fn map_world_initialization(status: Status) -> Error {
         Status::InitializationFailed => Error::WorldInitialization,
         Status::OutOfMemory => Error::OutOfMemory,
         Status::NativeFailure => Error::NativeFailure,
+        Status::ConfigurationMismatch => Error::NativeConfigurationMismatch,
         Status::BodyCapacityExhausted
         | Status::BodyNotFound
         | Status::CharacterNotFound
@@ -410,6 +411,7 @@ const fn map_status(status: Status) -> Error {
         Status::ShapeCreationFailed => Error::ShapeCreationFailed,
         Status::OutOfMemory => Error::OutOfMemory,
         Status::NativeFailure => Error::NativeFailure,
+        Status::ConfigurationMismatch => Error::NativeConfigurationMismatch,
         Status::InvalidArgument | Status::InitializationFailed | Status::ContractViolation => {
             Error::NativeContract
         }
