@@ -8,5 +8,7 @@ fn main() -> Result<()> {
     ))
     .context("observability init failed")?;
     observability.report_health();
+    blackflower::run().context("client application failed")?;
+    observability.report_health();
     Ok(())
 }

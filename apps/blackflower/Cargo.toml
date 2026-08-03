@@ -14,6 +14,9 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 blackflower-observability.workspace = true
 
 anyhow.workspace = true
+image.workspace = true
+tracing.workspace = true
+winit.workspace = true
 
 [lints]
 workspace = true
