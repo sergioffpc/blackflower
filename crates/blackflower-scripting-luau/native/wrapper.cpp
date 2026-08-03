@@ -12,6 +12,7 @@
 namespace {
 
 constexpr size_t NATIVE_CODEGEN_BLOCK_SIZE = 4 * 1024 * 1024;
+constexpr size_t STRING_OPERATION_LIMIT_BYTES = 64 * 1024;
 
 struct RuntimeContext {
     size_t current_bytes;
@@ -46,6 +47,105 @@ void open_library(lua_State *state, const char *name, lua_CFunction function) {
     lua_pushcfunction(state, function, nullptr);
     lua_pushstring(state, name);
     lua_call(state, 1, 0);
+}
+
+int call_bounded_string_builtin(lua_State *state, bool is_repetition) {
+    const int argument_count = lua_gettop(state);
+    for (int index = 1; index <= argument_count; ++index) {
+        if (lua_type(state, index) == LUA_TSTRING
+            && static_cast<size_t>(lua_objlen(state, index))
+                > STRING_OPERATION_LIMIT_BYTES) {
+            luaL_error(state, "string argument exceeds sandbox limit");
+        }
+    }
+
+    if (is_repetition) {
+        size_t input_size = 0;
+        luaL_checklstring(state, 1, &input_size);
+        const int repetitions = luaL_checkinteger(state, 2);
+        if (repetitions > 0
+            && input_size
+                > STRING_OPERATION_LIMIT_BYTES
+                    / static_cast<size_t>(repetitions)) {
+            luaL_error(state, "string result exceeds sandbox limit");
+        }
+    }
+
+    lua_pushvalue(state, lua_upvalueindex(1));
+    lua_insert(state, 1);
+    lua_call(state, argument_count, LUA_MULTRET);
+
+    const int result_count = lua_gettop(state);
+    for (int index = 1; index <= result_count; ++index) {
+        if (lua_type(state, index) == LUA_TSTRING
+            && static_cast<size_t>(lua_objlen(state, index))
+                > STRING_OPERATION_LIMIT_BYTES) {
+            luaL_error(state, "string result exceeds sandbox limit");
+        }
+    }
+    return result_count;
+}
+
+int bounded_string_builtin(lua_State *state) {
+    return call_bounded_string_builtin(state, false);
+}
+
+int bounded_string_repetition(lua_State *state) {
+    return call_bounded_string_builtin(state, true);
+}
+
+void wrap_string_builtin(
+    lua_State *state,
+    const char *name,
+    lua_CFunction wrapper) {
+    lua_getfield(state, -1, name);
+    if (!lua_isfunction(state, -1)) {
+        luaL_error(state, "missing Luau string builtin");
+    }
+    lua_pushcclosure(state, wrapper, name, 1);
+    lua_setfield(state, -2, name);
+}
+
+void remove_string_builtin(lua_State *state, const char *name) {
+    lua_pushnil(state);
+    lua_setfield(state, -2, name);
+}
+
+void harden_string_library(lua_State *state) {
+    lua_getglobal(state, LUA_STRLIBNAME);
+    if (!lua_istable(state, -1)) {
+        luaL_error(state, "missing Luau string library");
+    }
+
+    const char *bounded_builtins[] = {
+        "byte",
+        "char",
+        "len",
+        "lower",
+        "reverse",
+        "sub",
+        "upper",
+        "split",
+    };
+    for (const char *name : bounded_builtins) {
+        wrap_string_builtin(state, name, bounded_string_builtin);
+    }
+    wrap_string_builtin(state, "rep", bounded_string_repetition);
+
+    const char *disabled_builtins[] = {
+        "find",
+        "format",
+        "gmatch",
+        "gsub",
+        "match",
+        "pack",
+        "packsize",
+        "unpack",
+    };
+    for (const char *name : disabled_builtins) {
+        remove_string_builtin(state, name);
+    }
+    lua_pop(state, 1);
 }
 
 RuntimeContext *runtime_context(lua_State *state) {
@@ -217,6 +317,9 @@ int initialize_runtime(lua_State *state) {
     for (const LibraryRegistration &registration : registrations) {
         if ((context->libraries & registration.mask) != 0) {
             open_library(state, registration.name, registration.open);
+            if (registration.mask == BF_SCRIPTING_LIBRARY_STRING) {
+                harden_string_library(state);
+            }
         }
     }
 

@@ -22,7 +22,11 @@ pub enum Library {
     Coroutine,
     /// Table construction and transformation helpers.
     Table,
-    /// String matching and transformation helpers.
+    /// Bounded string inspection and transformation helpers.
+    ///
+    /// Pattern matching, formatting, and binary packing are excluded because
+    /// Luau implements them as non-preemptible native calls. The remaining
+    /// operations reject string arguments or results larger than 64 KiB.
     String,
     /// Deterministically seeded mathematical helpers.
     Math,

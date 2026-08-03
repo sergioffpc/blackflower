@@ -185,6 +185,14 @@ reports current, peak, and limit values. Exhaustion is reported as
 `Error::ExecutionLimit` or `Error::OutOfMemory`, and the runtime remains usable
 for subsequent chunks.
 
+Fuel is not a wall-clock deadline and cannot interrupt a native Luau builtin
+already in progress. The sandbox therefore removes pattern matching,
+formatting, and binary packing from the `String` library, and caps the remaining
+string operations at 64 KiB per argument and result. `string.rep` checks its
+result size before allocating. Hostile or third-party scripts still require a
+killable process worker with a wall-clock deadline, scheduled outside the
+deterministic simulation tick; an in-process thread cannot be safely killed.
+
 The library policy is an allowlist. It can remove any of the safe standard
 libraries supported by the crate, but it can never enable `os`, `debug`,
 filesystem, networking, or module loading.

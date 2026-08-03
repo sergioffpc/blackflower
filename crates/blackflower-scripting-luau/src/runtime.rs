@@ -13,6 +13,8 @@ use crate::{
 ///
 /// `os`, `debug`, filesystem, networking, and module loading are not exposed.
 /// VM allocations and execution safepoints are bounded by [`RuntimeConfig`].
+/// Fuel is not a wall-clock deadline: hostile execution must be supervised by
+/// a killable worker outside the deterministic simulation tick.
 /// The VM is neither [`Send`] nor [`Sync`]; its owner must keep it on one
 /// execution thread.
 pub struct Runtime {
