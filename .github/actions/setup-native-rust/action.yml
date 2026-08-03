@@ -70,20 +70,6 @@ runs:
         }
         "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-    - name: Configure Ninja on Windows
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        $ninja = Get-Command ninja -ErrorAction SilentlyContinue
-        if (-not $ninja) {
-          throw "Ninja was not found on PATH"
-        }
-        & $ninja.Source --version
-        if ($LASTEXITCODE -ne 0) {
-          throw "Ninja failed to start with exit code $LASTEXITCODE"
-        }
-        "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
-
     - name: Reject unsupported IntelLLVM host
       if: >-
         inputs.install-intel-llvm == 'true' &&
@@ -179,6 +165,7 @@ runs:
         "CXX=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
         "CMAKE_C_COMPILER=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
         "CMAKE_CXX_COMPILER=$icx" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
         "BLACKFLOWER_NATIVE_COMPILER=IntelLLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
 
     - name: Install pinned ISPC on Unix x86-64
