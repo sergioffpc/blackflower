@@ -16,14 +16,16 @@ pub const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(10);
 const DATAGRAM_RECEIVE_BUFFER_BYTES: usize = 2 * 1_024 * 1_024;
 const DATAGRAM_SEND_BUFFER_BYTES: usize = 1_024 * 1_024;
 
-/// Required finite admission limits applied independently per source address.
+/// Required finite limits for global Retry and validated handshakes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdmissionLimits {
-    /// Maximum accepted incoming attempts in each rolling interval.
+    /// Capacity of the global stateless-Retry token bucket.
+    ///
+    /// The bucket starts full and refills this many tokens per [`Self::window`].
     pub attempts_per_window: NonZeroU32,
-    /// Rolling rate-limit interval.
+    /// Interval over which the global Retry bucket refills to capacity.
     pub window: Duration,
-    /// Maximum simultaneous handshakes from one source address.
+    /// Maximum simultaneous handshakes from one validated source address.
     pub pending_per_origin: NonZeroUsize,
 }
 
@@ -41,7 +43,7 @@ pub struct ServerEndpointConfig {
     pub bind_address: SocketAddr,
     /// Service-CA leaf certificate and key.
     pub tls: ServerTlsConfig,
-    /// Explicit per-origin admission limits.
+    /// Explicit global Retry and validated-origin admission limits.
     pub admission_limits: AdmissionLimits,
 }
 

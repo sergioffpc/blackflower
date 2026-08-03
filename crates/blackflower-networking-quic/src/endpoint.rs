@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -10,11 +10,12 @@ use bytes::Bytes;
 use crate::config::{AdmissionLimits, ClientEndpointConfig, ServerEndpointConfig};
 use crate::{QuicError, client_config, server_config, validate_alpn};
 
-/// Dedicated-server Quinn endpoint with mandatory Retry and per-origin limits.
+/// Dedicated-server Quinn endpoint with mandatory stateless Retry and bounded admission.
 #[derive(Debug)]
 pub struct QuicServer {
     endpoint: quinn::Endpoint,
-    origins: OriginLimiter,
+    retry_tokens: RetryTokenBucket,
+    validated_origins: ValidatedOriginLimiter,
     pending: tokio::task::JoinSet<(IpAddr, Result<quinn::Connection, quinn::ConnectionError>)>,
     retries_sent: u64,
 }
@@ -27,7 +28,8 @@ impl QuicServer {
         let endpoint = quinn::Endpoint::server(server, config.bind_address)?;
         Ok(Self {
             endpoint,
-            origins: OriginLimiter::new(config.admission_limits),
+            retry_tokens: RetryTokenBucket::new(config.admission_limits, Instant::now()),
+            validated_origins: ValidatedOriginLimiter::new(config.admission_limits),
             pending: tokio::task::JoinSet::new(),
             retries_sent: 0,
         })
@@ -61,7 +63,7 @@ impl QuicServer {
                     let (origin, connection) = completed
                         .ok_or(QuicError::EndpointClosed)?
                         .map_err(|_join| QuicError::TransportTask)?;
-                    self.origins.finish_pending(origin);
+                    self.validated_origins.finish_pending(origin);
                     let connection = connection?;
                     validate_connection(&connection)?;
                     return Ok(ServerConnection::new(connection));
@@ -75,17 +77,18 @@ impl QuicServer {
     }
 
     fn start_handshake(&mut self, incoming: quinn::Incoming) -> Result<(), QuicError> {
-        let origin = incoming.remote_address().ip();
         if !incoming.remote_address_validated() {
-            if !self.origins.record_attempt(origin, Instant::now()) {
-                incoming.refuse();
+            if !self.retry_tokens.try_take(Instant::now()) {
+                incoming.ignore();
                 return Ok(());
             }
             incoming.retry().map_err(|_error| QuicError::Retry)?;
             self.retries_sent = self.retries_sent.saturating_add(1);
             return Ok(());
         }
-        if !self.origins.begin_pending(origin) {
+
+        let origin = incoming.remote_address().ip();
+        if !self.validated_origins.begin_pending(origin) {
             incoming.refuse();
             return Ok(());
         }
@@ -313,41 +316,84 @@ fn validate_limits(limits: AdmissionLimits) -> Result<(), QuicError> {
     }
 }
 
+/// Constant-size global budget for stateless Retry responses.
 #[derive(Debug)]
-struct OriginLimiter {
-    limits: AdmissionLimits,
-    attempts: BTreeMap<IpAddr, VecDeque<Instant>>,
+struct RetryTokenBucket {
+    capacity: u32,
+    available: u32,
+    refill_window_nanos: u128,
+    refill_remainder: u128,
+    updated_at: Instant,
+}
+
+impl RetryTokenBucket {
+    fn new(limits: AdmissionLimits, now: Instant) -> Self {
+        let capacity = limits.attempts_per_window.get();
+        Self {
+            capacity,
+            available: capacity,
+            refill_window_nanos: limits.window.as_nanos(),
+            refill_remainder: 0,
+            updated_at: now,
+        }
+    }
+
+    fn try_take(&mut self, now: Instant) -> bool {
+        self.refill(now);
+        if self.available == 0 {
+            false
+        } else {
+            self.available -= 1;
+            true
+        }
+    }
+
+    fn refill(&mut self, now: Instant) {
+        let Some(elapsed) = now.checked_duration_since(self.updated_at) else {
+            return;
+        };
+        self.updated_at = now;
+
+        if self.available == self.capacity {
+            self.refill_remainder = 0;
+            return;
+        }
+
+        let numerator = elapsed
+            .as_nanos()
+            .saturating_mul(u128::from(self.capacity))
+            .saturating_add(self.refill_remainder);
+        let added = numerator / self.refill_window_nanos;
+        self.refill_remainder = numerator % self.refill_window_nanos;
+
+        let missing = self.capacity - self.available;
+        if added >= u128::from(missing) {
+            self.available = self.capacity;
+            self.refill_remainder = 0;
+        } else {
+            self.available += u32::try_from(added).unwrap_or(missing);
+        }
+    }
+}
+
+/// Per-origin state created only after QUIC has validated the source address.
+#[derive(Debug)]
+struct ValidatedOriginLimiter {
+    pending_per_origin: usize,
     pending: BTreeMap<IpAddr, usize>,
 }
 
-impl OriginLimiter {
+impl ValidatedOriginLimiter {
     fn new(limits: AdmissionLimits) -> Self {
         Self {
-            limits,
-            attempts: BTreeMap::new(),
+            pending_per_origin: limits.pending_per_origin.get(),
             pending: BTreeMap::new(),
         }
     }
 
-    fn record_attempt(&mut self, origin: IpAddr, now: Instant) -> bool {
-        for attempts in self.attempts.values_mut() {
-            prune_attempts(attempts, now, self.limits.window);
-        }
-        self.attempts
-            .retain(|_origin, attempts| !attempts.is_empty());
-        let attempts = self.attempts.entry(origin).or_default();
-        if attempts.len()
-            >= usize::try_from(self.limits.attempts_per_window.get()).unwrap_or(usize::MAX)
-        {
-            return false;
-        }
-        attempts.push_back(now);
-        true
-    }
-
     fn begin_pending(&mut self, origin: IpAddr) -> bool {
         let pending = self.pending.entry(origin).or_default();
-        if *pending >= self.limits.pending_per_origin.get() {
+        if *pending >= self.pending_per_origin {
             false
         } else {
             *pending += 1;
@@ -367,11 +413,6 @@ impl OriginLimiter {
     }
 }
 
-fn prune_attempts(attempts: &mut VecDeque<Instant>, now: Instant, window: Duration) {
-    while attempts.front().is_some_and(|then| {
-        now.checked_duration_since(*then)
-            .is_some_and(|elapsed| elapsed >= window)
-    }) {
-        let _expired = attempts.pop_front();
-    }
-}
+#[cfg(test)]
+#[path = "../tests/unit/endpoint.rs"]
+mod tests;

@@ -48,8 +48,10 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   client certificate.
 - **NET-TLS-002**: service leaf certificates SHOULD have a lifetime no longer
   than 24 hours. CA operation and leaf issuance remain deployment concerns.
-- **NET-ADMIT-001**: server construction MUST require finite per-origin attempt
-  and pending-handshake limits; an unlimited default is forbidden.
+- **NET-ADMIT-001**: server construction MUST require a finite global token
+  bucket for stateless Retry and a finite pending-handshake limit per validated
+  source address; an unlimited default is forbidden. The server MUST NOT retain
+  per-source state before QUIC address validation.
 
 ## Wire contract
 
