@@ -66,7 +66,7 @@ target_include_directories(
     "${BLAST_ROOT}/source/shared/NsFoundation/include"
     "${BLAST_ROOT}/source/shared/stress_solver"
 )
-if(APPLE)
+if(APPLE OR MSVC)
     target_include_directories(
         blackflower_blast
         BEFORE PRIVATE
