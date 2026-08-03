@@ -420,7 +420,7 @@ fn replace_exact(
     replacement: &str,
     contract_error: &str,
 ) -> anyhow::Result<()> {
-    let contents = fs::read_to_string(path)?;
+    let contents = read_normalized_text(path)?;
     if contents.matches(original).count() != 1 {
         bail!("{contract_error}");
     }
@@ -435,13 +435,17 @@ fn replace_all_checked(
     expected: usize,
     contract_error: &str,
 ) -> anyhow::Result<()> {
-    let contents = fs::read_to_string(path)?;
+    let contents = read_normalized_text(path)?;
     let occurrences = contents.matches(original).count();
     if occurrences != expected {
         bail!("{contract_error}: expected {expected}, found {occurrences}");
     }
     fs::write(path, contents.replace(original, replacement))?;
     Ok(())
+}
+
+fn read_normalized_text(path: &Path) -> anyhow::Result<String> {
+    Ok(fs::read_to_string(path)?.replace("\r\n", "\n"))
 }
 
 fn patch_steam_audio_linux_abi(source: &Path, operating_system: &str) -> anyhow::Result<()> {
@@ -745,6 +749,23 @@ mod tests {
 
         assert!(error.to_string().contains("onto itself"));
         assert_eq!(fs::read(library)?, archive_header);
+        Ok(())
+    }
+
+    #[test]
+    fn exact_source_patch_accepts_windows_line_endings() -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let source = temporary.path().join("source.cpp");
+        fs::write(&source, "before\r\ncontract\r\nafter\r\n")?;
+
+        replace_exact(
+            &source,
+            "before\ncontract",
+            "patched\ncontract",
+            "contract changed",
+        )?;
+
+        assert_eq!(fs::read_to_string(source)?, "patched\ncontract\nafter\n");
         Ok(())
     }
 }
