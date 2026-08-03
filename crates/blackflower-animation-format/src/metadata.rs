@@ -5,6 +5,7 @@ const LOOPING_FLAG: u16 = 1;
 const ADDITIVE_FLAG: u16 = 1 << 1;
 const KNOWN_FLAGS: u16 = LOOPING_FLAG | ADDITIVE_FLAG;
 const PREFIX_SIZE: usize = 16;
+const MIN_MARKER_SIZE: usize = 12;
 
 /// One named point on a normalized animation timeline.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +135,13 @@ impl ClipMetadata {
         let mut cursor = PREFIX_SIZE;
         let name = read_text(bytes, &mut cursor, name_length)?;
         consume_padding(bytes, &mut cursor)?;
+        let remaining = bytes
+            .len()
+            .checked_sub(cursor)
+            .ok_or(Error::InvalidClipMetadata)?;
+        if marker_count > remaining / MIN_MARKER_SIZE {
+            return Err(Error::InvalidClipMetadata);
+        }
         let mut markers = Vec::with_capacity(marker_count);
         for _ in 0..marker_count {
             let ratio = f32::from_bits(read_u32_at_cursor(bytes, &mut cursor)?);

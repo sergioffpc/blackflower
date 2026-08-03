@@ -356,3 +356,11 @@ fn canonical_codec_chunks_and_exact_applied_ack_share_digest() -> TestResult {
     assert_eq!(baselines.baseline(), Some(&snapshot));
     Ok(())
 }
+
+#[test]
+fn delta_rejects_an_operation_count_larger_than_the_remaining_bytes() {
+    let mut bytes = vec![0_u8; 24];
+    bytes[20..24].copy_from_slice(&65_536_u32.to_le_bytes());
+
+    assert!(SnapshotDelta::decode(&bytes).is_err());
+}

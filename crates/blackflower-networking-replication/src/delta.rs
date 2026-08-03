@@ -12,6 +12,7 @@ use crate::{
 
 /// Maximum decoded component operations in one incremental snapshot.
 pub const MAX_DELTA_OPERATIONS: usize = 65_536;
+const MIN_DELTA_OPERATION_BYTES: usize = 12;
 
 /// One canonical component-level replication operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +149,9 @@ impl SnapshotDelta {
             usize::try_from(decoder.u32()?).map_err(|_error| DeltaError::IntegerOutOfRange)?;
         if count > MAX_DELTA_OPERATIONS {
             return Err(DeltaError::TooManyOperations { actual: count });
+        }
+        if count > decoder.remaining() / MIN_DELTA_OPERATION_BYTES {
+            return Err(crate::SnapshotError::Truncated.into());
         }
         let mut operations = Vec::with_capacity(count);
         for _index in 0..count {

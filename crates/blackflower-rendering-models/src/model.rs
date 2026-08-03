@@ -8,6 +8,8 @@ use crate::Error;
 const MAGIC: &[u8; 8] = b"BFMODEL\0";
 const FORMAT_VERSION: u32 = 1;
 const NO_PARENT: u32 = u32::MAX;
+const MIN_NODE_BYTES: usize = 4 + 1 + 16 * 4;
+const MIN_ATTACHMENT_BYTES: usize = 4 + 1 + 4;
 
 /// Canonical column-major local transform matrix in Blackflower coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -207,6 +209,19 @@ fn decode(bytes: &[u8]) -> Result<(Vec<ModelNode>, Vec<ModelAttachment>), Error>
     }
     let node_count = reader.len("node")?;
     let attachment_count = reader.len("attachment")?;
+    let nodes = decode_nodes(&mut reader, node_count)?;
+    let attachments = decode_attachments(&mut reader, attachment_count)?;
+    if !reader.is_empty() {
+        return Err(Error::InvalidAsset(
+            "trailing bytes after BFMODEL payload".to_owned(),
+        ));
+    }
+    validate_model(&nodes, &attachments, Error::InvalidAsset)?;
+    Ok((nodes, attachments))
+}
+
+fn decode_nodes(reader: &mut Reader<'_>, node_count: usize) -> Result<Vec<ModelNode>, Error> {
+    reader.ensure_count_fits(node_count, MIN_NODE_BYTES, "node")?;
     let mut nodes = Vec::with_capacity(node_count);
     for _ in 0..node_count {
         let parent = match reader.u32()? {
@@ -221,6 +236,14 @@ fn decode(bytes: &[u8]) -> Result<(Vec<ModelNode>, Vec<ModelAttachment>), Error>
             transform,
         });
     }
+    Ok(nodes)
+}
+
+fn decode_attachments(
+    reader: &mut Reader<'_>,
+    attachment_count: usize,
+) -> Result<Vec<ModelAttachment>, Error> {
+    reader.ensure_count_fits(attachment_count, MIN_ATTACHMENT_BYTES, "attachment")?;
     let mut attachments = Vec::with_capacity(attachment_count);
     for _ in 0..attachment_count {
         let node = reader.u32()?;
@@ -238,13 +261,7 @@ fn decode(bytes: &[u8]) -> Result<(Vec<ModelNode>, Vec<ModelAttachment>), Error>
             .map_err(|error| Error::InvalidAsset(error.to_string()))?;
         attachments.push(ModelAttachment { node, asset, kind });
     }
-    if !reader.is_empty() {
-        return Err(Error::InvalidAsset(
-            "trailing bytes after BFMODEL payload".to_owned(),
-        ));
-    }
-    validate_model(&nodes, &attachments, Error::InvalidAsset)?;
-    Ok((nodes, attachments))
+    Ok(attachments)
 }
 
 fn validate_model(
@@ -379,6 +396,24 @@ impl<'a> Reader<'a> {
 
     const fn is_empty(&self) -> bool {
         self.offset == self.bytes.len()
+    }
+
+    fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn ensure_count_fits(
+        &self,
+        count: usize,
+        minimum_bytes: usize,
+        label: &str,
+    ) -> Result<(), Error> {
+        if count > self.remaining() / minimum_bytes {
+            return Err(Error::InvalidAsset(format!(
+                "{label} count exceeds the remaining model bytes"
+            )));
+        }
+        Ok(())
     }
 
     fn bytes(&mut self, amount: usize) -> Result<&'a [u8], Error> {

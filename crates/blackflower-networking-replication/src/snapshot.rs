@@ -718,6 +718,10 @@ impl<'a> Decoder<'a> {
         ]))
     }
 
+    pub(crate) fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.cursor)
+    }
+
     fn count_u16(&mut self, maximum: usize) -> Result<usize, SnapshotError> {
         let count = usize::from(self.u16()?);
         if count > maximum {
