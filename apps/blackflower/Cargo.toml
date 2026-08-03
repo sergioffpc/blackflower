@@ -11,12 +11,19 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
+blackflower-ecs.workspace = true
+blackflower-harness.workspace = true
+blackflower-networking.workspace = true
 blackflower-observability.workspace = true
+blackflower-world-presentation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
 image.workspace = true
 tracing.workspace = true
 winit.workspace = true
+
+[dev-dependencies]
+blackflower-networking-replication.workspace = true
 
 [lints]
 workspace = true

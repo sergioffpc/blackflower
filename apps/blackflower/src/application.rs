@@ -1,14 +1,17 @@
+use std::time::Instant;
+
 use anyhow::{Context as _, Error, Result};
 use image::ImageFormat;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{DeviceEvent, ElementState, MouseButton, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Icon, Window, WindowId};
 
 use crate::input::{InputContext, InputState};
-use crate::lifecycle::{ClientLifecycle, ResumeAction};
+use crate::lifecycle::{ClientLifecycle, ClientLifecycleState, ResumeAction};
+use crate::runtime::{ApplicationRuntime, FrameClock, PresentationRuntime};
 
 const WINDOW_TITLE: &str = "Blackflower";
 const INITIAL_WIDTH: f64 = 1_280.0;
@@ -40,16 +43,26 @@ pub(crate) struct ClientApplication {
     window: Option<NativeWindow>,
     window_icon: Icon,
     input: InputState,
+    runtime: Box<dyn ApplicationRuntime>,
+    frame_clock: FrameClock,
+    started: Instant,
     failure: Option<Error>,
 }
 
 impl ClientApplication {
     pub(crate) fn new() -> Result<Self> {
+        Self::with_runtime(Box::new(PresentationRuntime::new()?))
+    }
+
+    pub(crate) fn with_runtime(runtime: Box<dyn ApplicationRuntime>) -> Result<Self> {
         Ok(Self {
             lifecycle: ClientLifecycle::default(),
             window: None,
             window_icon: load_window_icon()?,
             input: InputState::default(),
+            runtime,
+            frame_clock: FrameClock::default(),
+            started: Instant::now(),
             failure: None,
         })
     }
@@ -85,6 +98,7 @@ impl ClientApplication {
         );
         self.window = Some(native);
         self.lifecycle.window_created();
+        self.frame_clock.resume(Instant::now());
         Ok(())
     }
 
@@ -161,6 +175,7 @@ impl ClientApplication {
     fn begin_shutdown(&mut self, event_loop: &ActiveEventLoop, reason: &'static str) {
         if self.lifecycle.request_stop() {
             self.input.suspend();
+            self.frame_clock.suspend();
             self.release_cursor();
             tracing::info!(
                 target: "blackflower_client",
@@ -209,6 +224,7 @@ impl ClientApplication {
         if let Some(native) = &self.window {
             self.input.set_focused(native.window.has_focus());
         }
+        self.frame_clock.resume(Instant::now());
         tracing::debug!(
             target: "blackflower_client",
             event_name = "client_resumed",
@@ -298,6 +314,11 @@ impl ClientApplication {
         if let Some(native) = &mut self.window {
             native.occluded = occluded;
         }
+        if occluded {
+            self.frame_clock.suspend();
+        } else {
+            self.frame_clock.resume(Instant::now());
+        }
         tracing::info!(
             target: "blackflower_client",
             event_name = "window_occlusion_changed",
@@ -317,8 +338,33 @@ impl ClientApplication {
             height = native.physical_size.height,
             scale_factor = native.scale_factor,
             occluded = native.occluded,
-            "redraw deferred until renderer integration",
+            presentation_frame = self.runtime.current_frame().get(),
+            "presentation frame ready; renderer submission remains external",
         );
+    }
+
+    fn advance_runtime(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        let can_present = self.window.as_ref().is_some_and(|native| !native.occluded)
+            && self.lifecycle.state() == ClientLifecycleState::Active;
+        if !can_present {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return Ok(());
+        }
+
+        let now = Instant::now();
+        let delta = self.frame_clock.delta(now)?;
+        if !self
+            .runtime
+            .frame(now.duration_since(self.started), delta)?
+        {
+            self.begin_shutdown(event_loop, "presentation_stopped");
+            return Ok(());
+        }
+        if let Some(native) = &self.window {
+            native.window.request_redraw();
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(FrameClock::next_deadline(now)));
+        Ok(())
     }
 }
 
@@ -333,17 +379,6 @@ impl ApplicationHandler for ClientApplication {
             ResumeAction::RetainWindow => self.resume_retained_window(),
             ResumeAction::Ignore => {}
         }
-    }
-
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.lifecycle.suspended();
-        self.input.suspend();
-        self.release_cursor();
-        tracing::info!(
-            target: "blackflower_client",
-            event_name = "client_suspended",
-            "client suspended",
-        );
     }
 
     fn window_event(
@@ -381,23 +416,42 @@ impl ApplicationHandler for ClientApplication {
         }
     }
 
-    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
-        tracing::warn!(
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(error) = self.advance_runtime(event_loop) {
+            self.fail(event_loop, error);
+        }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.lifecycle.suspended();
+        self.input.suspend();
+        self.frame_clock.suspend();
+        self.release_cursor();
+        tracing::info!(
             target: "blackflower_client",
-            event_name = "memory_warning",
-            "platform memory warning",
+            event_name = "client_suspended",
+            "client suspended",
         );
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.release_cursor();
         self.input.suspend();
+        self.frame_clock.suspend();
         self.window = None;
         self.lifecycle.exited();
         tracing::info!(
             target: "blackflower_client",
             event_name = "client_exited",
             "client exited",
+        );
+    }
+
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        tracing::warn!(
+            target: "blackflower_client",
+            event_name = "memory_warning",
+            "platform memory warning",
         );
     }
 }
