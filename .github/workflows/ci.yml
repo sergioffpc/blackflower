@@ -40,8 +40,21 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         env:
           BASE_OID: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
           HEAD_OID: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: .github/scripts/validate-commit-range.sh "$BASE_OID" "$HEAD_OID"
+          REF_NAME: ${{ github.ref }}
+        run: |
+          trusted_oid=
+          if { [ "$EVENT_NAME" = "pull_request" ] &&
+               [ "$BASE_REF" = "main" ]; } ||
+             { [ "$EVENT_NAME" = "push" ] &&
+               [ "$REF_NAME" = "refs/heads/main" ]; }
+          then
+            trusted_oid=refs/remotes/origin/develop
+          fi
+          .github/scripts/validate-commit-range.sh \
+            "$BASE_OID" "$HEAD_OID" "$trusted_oid"
 
       - name: Check Rust test layout
         run: scripts/check-test-layout.sh
