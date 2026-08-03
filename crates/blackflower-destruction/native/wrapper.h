@@ -25,7 +25,7 @@ extern "C" {
 #define BF_DESTRUCTION_FORCE 0
 #define BF_DESTRUCTION_ACCELERATION 1
 
-#define BF_DESTRUCTION_INVALID_INDEX UINT32_MAX
+#define BF_DESTRUCTION_INVALID_INDEX 0xFFFFFFFFU
 
 typedef struct BFDestructionAsset BFDestructionAsset;
 typedef struct BFDestructionFamily BFDestructionFamily;
