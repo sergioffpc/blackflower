@@ -74,7 +74,12 @@ if(APPLE OR MSVC)
     )
 endif()
 if(MSVC)
-    target_compile_options(blackflower_blast PRIVATE /EHsc)
+    target_compile_options(
+        blackflower_blast
+        PRIVATE
+        /EHsc
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/compat/blackflower_blast_compat.h"
+    )
 else()
     target_compile_options(blackflower_blast PRIVATE -Wno-unused-function)
 endif()

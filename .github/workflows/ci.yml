@@ -217,6 +217,7 @@ jobs:
           install-ispc: "true"
 
       - name: Build shared native vendors
+        shell: bash
         run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Run asset Clippy
@@ -262,6 +263,7 @@ jobs:
           install-ispc: "true"
 
       - name: Build shared native vendors
+        shell: bash
         run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Compile and link volume cooker
