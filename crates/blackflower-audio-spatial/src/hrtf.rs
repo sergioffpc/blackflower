@@ -102,7 +102,7 @@ impl Context {
     }
 
     /// Create Steam Audio's built-in HRTF for one audio configuration.
-    pub fn create_default_hrtf(&mut self, audio: AudioSettings) -> Result<Hrtf, Error> {
+    pub fn create_default_hrtf(&self, audio: AudioSettings) -> Result<Hrtf, Error> {
         let pointer = ffi::create_default_hrtf(self.inner.pointer, audio)
             .map_err(|status| Error::from_status("iplHRTFCreate", status))?;
         Ok(Hrtf {
@@ -115,7 +115,7 @@ impl Context {
     }
 
     /// Create a stateful binaural renderer for one point source.
-    pub fn create_binaural_effect(&mut self, hrtf: &Hrtf) -> Result<BinauralEffect, Error> {
+    pub fn create_binaural_effect(&self, hrtf: &Hrtf) -> Result<BinauralEffect, Error> {
         if !Arc::ptr_eq(&self.inner, &hrtf.inner.context) {
             return Err(Error::WrongContext);
         }
