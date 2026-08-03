@@ -171,7 +171,10 @@ fn emit_static_linking(libraries: &EmbreeLibraries) -> Result<(), Box<dyn Error>
             println!("cargo:rustc-link-lib=dylib=pthread");
         }
         "macos" => println!("cargo:rustc-link-lib=dylib=c++"),
-        "windows" => println!("cargo:rustc-link-lib=dylib=delayimp"),
+        "windows" => {
+            println!("cargo:rustc-link-lib=dylib=delayimp");
+            println!("cargo:rustc-link-lib=dylib=advapi32");
+        }
         _ => {}
     }
     Ok(())

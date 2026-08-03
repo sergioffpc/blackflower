@@ -25,11 +25,11 @@ pub(super) fn build(
     );
     config
         .build_target("install")
-        .define("BLACKFLOWER_OPENVDB_ROOT", &source)
-        .define("BLACKFLOWER_BOOST_ROOT", boost)
-        .define("BLACKFLOWER_BLOSC_ROOT", blosc)
-        .define("BLACKFLOWER_TBB_ROOT", tbb)
-        .define("BLACKFLOWER_ZLIB_ROOT", zlib);
+        .define_path("BLACKFLOWER_OPENVDB_ROOT", &source)
+        .define_path("BLACKFLOWER_BOOST_ROOT", boost)
+        .define_path("BLACKFLOWER_BLOSC_ROOT", blosc)
+        .define_path("BLACKFLOWER_TBB_ROOT", tbb)
+        .define_path("BLACKFLOWER_ZLIB_ROOT", zlib);
     let installed = config.build();
     write_vendor_manifest(&installed, configuration, Vendor::Openvdb, &source)
 }

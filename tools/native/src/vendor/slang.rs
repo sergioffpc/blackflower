@@ -21,7 +21,7 @@ pub(super) fn build(
     );
     config
         .build_target("blackflower_slang_install")
-        .define("BLACKFLOWER_SLANG_ROOT", &source);
+        .define_path("BLACKFLOWER_SLANG_ROOT", &source);
     let installed = config.build();
     write_vendor_manifest(&installed, configuration, Vendor::Slang, &source)
 }

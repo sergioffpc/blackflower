@@ -142,6 +142,28 @@ fn registration_and_world_identity_are_checked() -> TestResult {
 }
 
 #[test]
+fn independent_world_lifecycles_are_safe_across_threads() -> TestResult {
+    let workers = (0..8)
+        .map(|_| {
+            std::thread::spawn(|| -> Result<(), Error> {
+                for _iteration in 0..32 {
+                    let mut world = World::new()?;
+                    let _entity = world.spawn()?;
+                }
+                Ok(())
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for worker in workers {
+        worker
+            .join()
+            .map_err(|_panic| io::Error::other("world lifecycle worker panicked"))??;
+    }
+    Ok(())
+}
+
+#[test]
 fn query_projects_read_write_optional_sparse_and_pairs() -> TestResult {
     let mut world = World::new()?;
     let position = world.register_component::<Position>()?;
@@ -592,5 +614,24 @@ fn callback_context_drop_panics_are_contained() -> TestResult {
             Ok(())
         })?;
     drop(drop_world);
+    Ok(())
+}
+
+#[test]
+fn callback_context_can_drop_another_world_reentrantly() -> TestResult {
+    let nested_world = World::new()?;
+    let mut outer_world = World::new()?;
+    let position = outer_world.register_component::<Position>()?;
+    let entity = outer_world.spawn()?;
+    outer_world.insert(entity, position, Position { x: 0.0, y: 0.0 })?;
+    outer_world
+        .system("NestedWorldOwner", "Position")?
+        .project(Read::<Position>::field(0))?
+        .each(move |_context, _entity, _position| {
+            let _keep_nested_world_alive = &nested_world;
+            Ok(())
+        })?;
+
+    drop(outer_world);
     Ok(())
 }

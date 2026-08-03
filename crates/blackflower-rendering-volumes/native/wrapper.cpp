@@ -340,6 +340,20 @@ const nanovdb::GridData *find_grid(
     return handle->grids[grid_index];
 }
 
+nanovdb::CheckMode validation_mode(const nanovdb::GridData *grid)
+{
+    // NanoVDB 32.9 Full validation computes bounds from the first leaf,
+    // lower, and upper node pointers before checking whether those pointers
+    // exist. Empty grids legitimately have none of those nodes, which trips a
+    // debug assertion in util::PtrAdd on MSVC. Half mode still validates the
+    // grid, tree, root, and checksum; reserve Full mode for grids with nodes.
+    return grid->nodeCount<0>() == 0 &&
+            grid->nodeCount<1>() == 0 &&
+            grid->nodeCount<2>() == 0
+        ? nanovdb::CheckMode::Half
+        : nanovdb::CheckMode::Full;
+}
+
 BFRenderingVolumesNanoVdbVec3d to_native_vec(const nanovdb::Vec3d &value)
 {
     return {value[0], value[1], value[2]};
@@ -490,11 +504,16 @@ extern "C" std::int32_t bf_rendering_volumes_nanovdb_load(
             return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
         }
         for (const auto &handle : handles) {
-            if (!nanovdb::tools::validateGrids(
-                    handle,
-                    nanovdb::CheckMode::Full,
-                    false)) {
-                return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
+            for (std::uint32_t index = 0; index < handle.gridCount(); ++index) {
+                const nanovdb::GridData *grid = handle.gridData(index);
+                if (grid == nullptr ||
+                    !nanovdb::tools::validateGrid(
+                        handle,
+                        index,
+                        validation_mode(grid),
+                        false)) {
+                    return BF_RENDERING_VOLUMES_NANOVDB_STATUS_INVALID_ASSET;
+                }
             }
         }
 

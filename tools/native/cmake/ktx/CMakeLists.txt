@@ -12,7 +12,12 @@ set(KTX_FEATURE_DOC OFF CACHE BOOL "" FORCE)
 set(KTX_FEATURE_ETC_UNPACK OFF CACHE BOOL "" FORCE)
 set(KTX_FEATURE_GL_UPLOAD OFF CACHE BOOL "" FORCE)
 set(KTX_FEATURE_JNI OFF CACHE BOOL "" FORCE)
-set(KTX_FEATURE_KTX1 OFF CACHE BOOL "" FORCE)
+# KTX-Software's generic texture entry points retain references to the KTX1
+# implementation in the same COFF object as their KTX2 dispatch. MSVC links
+# that complete object from the static archive, so omitting KTX1 leaves an
+# unresolved ktxTexture1_constructFromStreamAndHeader symbol even when callers
+# only create KTX2 textures.
+set(KTX_FEATURE_KTX1 ON CACHE BOOL "" FORCE)
 set(KTX_FEATURE_KTX2 ON CACHE BOOL "" FORCE)
 set(KTX_FEATURE_PY OFF CACHE BOOL "" FORCE)
 set(KTX_FEATURE_TESTS OFF CACHE BOOL "" FORCE)

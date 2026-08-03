@@ -21,7 +21,7 @@ pub(super) fn build(
     );
     config
         .build_target("blackflower_ktx_install")
-        .define("BLACKFLOWER_KTX_ROOT", &source);
+        .define_path("BLACKFLOWER_KTX_ROOT", &source);
     let installed = config.build();
     write_vendor_manifest(&installed, configuration, Vendor::Ktx, &source)
 }

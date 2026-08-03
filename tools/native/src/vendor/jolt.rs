@@ -22,7 +22,7 @@ pub(super) fn build(
     config
         .profile("Distribution")
         .build_target("install")
-        .define("BLACKFLOWER_JOLT_ROOT", &source)
+        .define_path("BLACKFLOWER_JOLT_ROOT", &source)
         .define("CROSS_PLATFORM_DETERMINISTIC", "ON")
         .define("DEBUG_RENDERER_IN_DEBUG_AND_RELEASE", "OFF")
         .define("DEBUG_RENDERER_IN_DISTRIBUTION", "OFF")

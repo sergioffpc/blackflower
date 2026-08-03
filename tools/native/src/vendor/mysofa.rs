@@ -32,7 +32,7 @@ pub(super) fn build(
         .define("BUILD_TESTS", "OFF")
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("BUILD_STATIC_LIBS", "ON")
-        .define("ZLIB_ROOT", &zlib)
+        .define_path("ZLIB_ROOT", &zlib)
         .define("ZLIB_USE_STATIC_LIBS", "ON");
     let installed = config.build();
     blackflower_build::write_manifest(

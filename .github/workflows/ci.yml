@@ -217,6 +217,7 @@ jobs:
           install-ispc: "true"
 
       - name: Build shared native vendors
+        shell: bash
         run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Run asset Clippy
@@ -240,9 +241,9 @@ jobs:
       matrix:
         os:
           - macos-15
-          - windows-2025
+          - windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -262,6 +263,7 @@ jobs:
           install-ispc: "true"
 
       - name: Build shared native vendors
+        shell: bash
         run: .github/scripts/build-ci-native-vendors.sh assets
 
       - name: Compile and link volume cooker
@@ -383,12 +385,12 @@ jobs:
         os:
           - ubuntu-24.04
           - macos-15
-          - windows-2025
+          - windows-2022
         exclude:
           - package: blackflower-physics
-            os: windows-2025
+            os: windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
