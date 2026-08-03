@@ -41,6 +41,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-cooker-animation` | Host-only glTF-to-Ozz cooking and Blackflower container packaging |
 | `crates/blackflower-cooker-acoustics` | Host-only Steam Audio presentation and pure-Rust authoritative acoustic cooking |
 | `crates/blackflower-cooker-navigation` | Host-only Recast navmesh cooking |
+| `crates/blackflower-cooker-vfx` | Host-only validation and cooking of authored visual effects |
 | `crates/blackflower-cooker-volume` | Host-only OpenVDB-to-NanoVDB cooking |
 | `crates/blackflower-destruction` | NVIDIA Blast asset, family, fracture, split, and stress bindings |
 | `crates/blackflower-ecs` | Shared entity-component data and mechanisms |
@@ -54,11 +55,13 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
 | `crates/blackflower-rendering-fluids` | NVIDIA Flow context bridge for renderer-owned GPU resources and passes |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
+| `crates/blackflower-rendering-particles` | Presentation-only GPU particle simulation and rendering boundary |
 | `crates/blackflower-rendering-textures` | KTX2 texture cooking and capability-driven runtime transcoding |
 | `crates/blackflower-rendering-volumes` | VDB volume loading and CPU sampling |
 | `crates/blackflower-shader-compiler` | Statically linked Slang-to-SPIR-V compiler binding |
 | `crates/blackflower-scripting` | Backend-neutral policy scripting contracts |
 | `crates/blackflower-scripting-luau` | Sandboxed Luau compilation and execution |
+| `crates/blackflower-vfx` | Backend-neutral visual-effect assets and presentation cues |
 | `crates/blackflower-world-prediction` | Client prediction and reconciliation |
 | `crates/blackflower-world-presentation` | Client-only presentation systems |
 | `crates/blackflower-world-simulation` | Authoritative fixed-step simulation |
@@ -220,11 +223,14 @@ See the
 [destruction setup](crates/blackflower-destruction/README.md),
 [rendering fluids setup](crates/blackflower-rendering-fluids/README.md),
 [rendering models format](crates/blackflower-rendering-models/README.md),
+[rendering particles boundary](crates/blackflower-rendering-particles/README.md),
 [rendering volumes setup](crates/blackflower-rendering-volumes/README.md),
 [rendering textures setup](crates/blackflower-rendering-textures/README.md),
 [shader compiler setup](crates/blackflower-shader-compiler/README.md),
 [scripting contract](crates/blackflower-scripting/README.md), and
-[Luau scripting setup](crates/blackflower-scripting-luau/README.md) for details.
+[Luau scripting setup](crates/blackflower-scripting-luau/README.md),
+[VFX contract](crates/blackflower-vfx/README.md), and
+[VFX cooker boundary](crates/blackflower-cooker-vfx/README.md) for details.
 Steam Audio builds on supported x86-64 targets additionally require
 the pinned ISPC compiler documented by the spatial audio setup.
 
