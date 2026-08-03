@@ -375,11 +375,62 @@ pub(crate) struct FieldSpec {
     optional: bool,
 }
 
-#[derive(Debug)]
+impl FieldSpec {
+    const EMPTY: Self = Self {
+        index: -1,
+        component: 0,
+        size: 0,
+        alignment: 1,
+        access: Access::Read,
+        shape: Shape::Component,
+        optional: true,
+    };
+}
+
+#[derive(Debug, Clone, Copy)]
 struct ResolvedField {
     spec: FieldSpec,
     pointer: Option<NonNull<u8>>,
     pair: Option<(u64, u64)>,
+}
+
+impl ResolvedField {
+    const EMPTY: Self = Self {
+        spec: FieldSpec::EMPTY,
+        pointer: None,
+        pair: None,
+    };
+}
+
+const MAX_PROJECTED_FIELDS: usize = 8;
+
+#[derive(Debug, Clone, Copy)]
+enum FieldLocation {
+    Missing,
+    Shared(NonNull<u8>),
+    Dense(NonNull<u8>),
+    Sparse,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BatchField {
+    spec: FieldSpec,
+    location: FieldLocation,
+    pair: Option<(u64, u64)>,
+}
+
+impl BatchField {
+    const EMPTY: Self = Self {
+        spec: FieldSpec::EMPTY,
+        location: FieldLocation::Missing,
+        pair: None,
+    };
+}
+
+struct FieldBatch {
+    fields: [BatchField; MAX_PROJECTED_FIELDS],
+    resolved: [ResolvedField; MAX_PROJECTED_FIELDS],
+    len: usize,
 }
 
 /// Read projection for an ordinary component field.
@@ -765,37 +816,59 @@ impl_projection_tuple!(
     (H, 7)
 );
 
-fn resolve_fields(
-    iterator: IterPtr,
-    row: i32,
-    specs: &[FieldSpec],
-) -> Result<Vec<ResolvedField>, Error> {
-    let iter = unsafe { iterator.0.as_ref() };
-    let mut resolved = Vec::with_capacity(specs.len());
-    for spec in specs {
-        resolved.push(resolve_field(iterator, iter, row, *spec)?);
+impl FieldBatch {
+    fn resolve(
+        iterator: IterPtr,
+        iter: &raw::ecs_iter_t,
+        specs: &[FieldSpec],
+    ) -> Result<Self, Error> {
+        if let Some(spec) = specs.get(MAX_PROJECTED_FIELDS) {
+            return Err(Error::Projection(ProjectionError::FieldOutOfRange(
+                spec.index,
+            )));
+        }
+
+        let mut batch = Self {
+            fields: [BatchField::EMPTY; MAX_PROJECTED_FIELDS],
+            resolved: [ResolvedField::EMPTY; MAX_PROJECTED_FIELDS],
+            len: specs.len(),
+        };
+        for (field, spec) in batch.fields.iter_mut().zip(specs) {
+            *field = resolve_batch_field(iterator, iter, *spec)?;
+        }
+        batch.resolve_row(iterator, 0, 0)?;
+        validate_aliases(batch.resolved())?;
+        Ok(batch)
     }
-    validate_aliases(&resolved)?;
-    Ok(resolved)
+
+    fn resolve_row(&mut self, iterator: IterPtr, row: i32, row_index: usize) -> Result<(), Error> {
+        for index in 0..self.len {
+            self.resolved[index] = resolve_row_field(iterator, row, row_index, self.fields[index])?;
+        }
+        Ok(())
+    }
+
+    fn resolved(&self) -> &[ResolvedField] {
+        &self.resolved[..self.len]
+    }
 }
 
-fn resolve_field(
+fn resolve_batch_field(
     iterator: IterPtr,
     iter: &raw::ecs_iter_t,
-    row: i32,
     spec: FieldSpec,
-) -> Result<ResolvedField, Error> {
+) -> Result<BatchField, Error> {
     if spec.index < 0 || spec.index >= iter.field_count {
         return Err(Error::Projection(ProjectionError::FieldOutOfRange(
             spec.index,
         )));
     }
     if unsafe { raw::ecs_field_is_set(iterator.0.as_ptr(), spec.index) } {
-        resolve_present_field(iterator, iter, row, spec)
+        resolve_present_batch_field(iterator, iter, spec)
     } else if spec.optional {
-        Ok(ResolvedField {
+        Ok(BatchField {
             spec,
-            pointer: None,
+            location: FieldLocation::Missing,
             pair: None,
         })
     } else {
@@ -805,12 +878,11 @@ fn resolve_field(
     }
 }
 
-fn resolve_present_field(
+fn resolve_present_batch_field(
     iterator: IterPtr,
     iter: &raw::ecs_iter_t,
-    row: i32,
     spec: FieldSpec,
-) -> Result<ResolvedField, Error> {
+) -> Result<BatchField, Error> {
     validate_access(iterator, spec)?;
     let field_id = unsafe { raw::ecs_field_id(iterator.0.as_ptr(), spec.index) };
     let is_pair = unsafe { raw::ecs_id_is_pair(field_id) };
@@ -825,16 +897,11 @@ fn resolve_present_field(
         .ok_or(Error::Projection(ProjectionError::NullField(spec.index)))?;
     validate_field_type(iterator, spec, real_world, field_id, is_pair)?;
 
-    let pointer = field_pointer(iterator, iter, spec, row)?;
-    if pointer.as_ptr().addr() % spec.alignment != 0 {
-        return Err(Error::Projection(ProjectionError::AlignmentMismatch(
-            spec.index,
-        )));
-    }
+    let location = field_location(iterator, iter, spec)?;
 
-    Ok(ResolvedField {
+    Ok(BatchField {
         spec,
-        pointer: Some(pointer),
+        location,
         pair: is_pair.then(|| pair_parts(real_world, field_id)),
     })
 }
@@ -862,12 +929,11 @@ fn validate_field_type(
     Ok(())
 }
 
-fn field_pointer(
+fn field_location(
     iterator: IterPtr,
     iter: &raw::ecs_iter_t,
     spec: FieldSpec,
-    row: i32,
-) -> Result<NonNull<u8>, Error> {
+) -> Result<FieldLocation, Error> {
     let index = u32::try_from(spec.index)
         .map_err(|_error| Error::Projection(ProjectionError::FieldOutOfRange(spec.index)))?;
     let bit =
@@ -876,22 +942,67 @@ fn field_pointer(
             .ok_or(Error::Projection(ProjectionError::FieldOutOfRange(
                 spec.index,
             )))?;
-    let pointer = if iter.row_fields & bit != 0 {
-        unsafe { raw::ecs_field_at_w_size(iterator.0.as_ptr(), spec.size, spec.index, row) }
-            .cast::<u8>()
+    if iter.row_fields & bit != 0 {
+        return Ok(FieldLocation::Sparse);
+    }
+
+    let pointer = NonNull::new(
+        unsafe { raw::ecs_field_w_size(iterator.0.as_ptr(), spec.size, spec.index) }.cast::<u8>(),
+    )
+    .ok_or(Error::Projection(ProjectionError::NullField(spec.index)))?;
+    validate_alignment(pointer, spec)?;
+    if unsafe { raw::ecs_field_is_self(iterator.0.as_ptr(), spec.index) } {
+        Ok(FieldLocation::Dense(pointer))
     } else {
-        let base = unsafe { raw::ecs_field_w_size(iterator.0.as_ptr(), spec.size, spec.index) }
-            .cast::<u8>();
-        if unsafe { raw::ecs_field_is_self(iterator.0.as_ptr(), spec.index) } {
-            let row = usize::try_from(row).map_err(|_error| {
-                Error::Projection(ProjectionError::FieldOutOfRange(spec.index))
-            })?;
-            unsafe { base.add(row.saturating_mul(spec.size)) }
-        } else {
-            base
+        Ok(FieldLocation::Shared(pointer))
+    }
+}
+
+fn resolve_row_field(
+    iterator: IterPtr,
+    row: i32,
+    row_index: usize,
+    field: BatchField,
+) -> Result<ResolvedField, Error> {
+    let pointer = match field.location {
+        FieldLocation::Missing => None,
+        FieldLocation::Shared(pointer) => Some(pointer),
+        FieldLocation::Dense(base) => {
+            Some(unsafe { base.add(row_index.saturating_mul(field.spec.size)) })
+        }
+        FieldLocation::Sparse => {
+            let pointer = NonNull::new(
+                unsafe {
+                    raw::ecs_field_at_w_size(
+                        iterator.0.as_ptr(),
+                        field.spec.size,
+                        field.spec.index,
+                        row,
+                    )
+                }
+                .cast::<u8>(),
+            )
+            .ok_or(Error::Projection(ProjectionError::NullField(
+                field.spec.index,
+            )))?;
+            validate_alignment(pointer, field.spec)?;
+            Some(pointer)
         }
     };
-    NonNull::new(pointer).ok_or(Error::Projection(ProjectionError::NullField(spec.index)))
+    Ok(ResolvedField {
+        spec: field.spec,
+        pointer,
+        pair: field.pair,
+    })
+}
+
+fn validate_alignment(pointer: NonNull<u8>, spec: FieldSpec) -> Result<(), Error> {
+    if !pointer.as_ptr().addr().is_multiple_of(spec.alignment) {
+        return Err(Error::Projection(ProjectionError::AlignmentMismatch(
+            spec.index,
+        )));
+    }
+    Ok(())
 }
 
 fn validate_access(iterator: IterPtr, spec: FieldSpec) -> Result<(), Error> {
@@ -975,13 +1086,19 @@ where
             break;
         }
         let count = iterator.count;
+        if count <= 0 {
+            continue;
+        }
+        let mut fields = FieldBatch::resolve(iterator_ptr, &iterator, specs)?;
         for row in 0..count {
             let Ok(row_index) = usize::try_from(row) else {
                 return Err(Error::Projection(ProjectionError::FieldOutOfRange(-1)));
             };
+            if row != 0 {
+                fields.resolve_row(iterator_ptr, row, row_index)?;
+            }
             let entity = unsafe { *iterator.entities.add(row_index) };
-            let resolved = resolve_fields(iterator_ptr, row, specs)?;
-            let item = unsafe { P::materialize(&resolved, world_key) };
+            let item = unsafe { P::materialize(fields.resolved(), world_key) };
             callback(
                 EntityId {
                     raw: entity,
@@ -1365,15 +1482,55 @@ fn run_system_rows<P, F>(
     }
     let iter_ptr = IterPtr(iterator);
     let iter = unsafe { iterator.as_ref() };
+    if iter.count <= 0 {
+        return;
+    }
+    let mut fields = match FieldBatch::resolve(iter_ptr, iter, &context.specs) {
+        Ok(fields) => fields,
+        Err(error) => {
+            record_system_failure(context, error.to_string(), CallbackFailureKind::Projection);
+            return;
+        }
+    };
     for row in 0..iter.count {
         if context.failure.has_failed() {
             return;
         }
-        if let Err(failure) = run_system_row(iterator, iter_ptr, iter, row, context, &callback) {
+        let row_index = match usize::try_from(row) {
+            Ok(row_index) => row_index,
+            Err(error) => {
+                record_system_failure(context, error.to_string(), CallbackFailureKind::Internal);
+                return;
+            }
+        };
+        if row != 0
+            && let Err(error) = fields.resolve_row(iter_ptr, row, row_index)
+        {
+            record_system_failure(context, error.to_string(), CallbackFailureKind::Projection);
+            return;
+        }
+        if let Err(failure) = run_system_row(
+            iterator,
+            iter,
+            row_index,
+            fields.resolved(),
+            context,
+            &callback,
+        ) {
             context.failure.record(failure.error, failure.kind);
             return;
         }
     }
+}
+
+fn record_system_failure<P>(
+    context: &CallbackContext<P, impl Sized>,
+    message: String,
+    kind: CallbackFailureKind,
+) {
+    context
+        .failure
+        .record(RunError::new(context.system_name.clone(), message), kind);
 }
 
 struct SystemRowFailure {
@@ -1383,9 +1540,9 @@ struct SystemRowFailure {
 
 fn run_system_row<P, F>(
     iterator: NonNull<raw::ecs_iter_t>,
-    iter_ptr: IterPtr,
     iter: &raw::ecs_iter_t,
-    row: i32,
+    row_index: usize,
+    resolved: &[ResolvedField],
     context: &CallbackContext<P, impl Sized>,
     callback: &F,
 ) -> Result<(), SystemRowFailure>
@@ -1393,17 +1550,11 @@ where
     P: Projection,
     F: for<'a> Fn(NonNull<raw::ecs_iter_t>, EntityId, P::Item<'a>) -> SystemResult,
 {
-    let row_index = usize::try_from(row).map_err(|error| {
-        system_row_failure(context, error.to_string(), CallbackFailureKind::Internal)
-    })?;
     let entity = EntityId {
         raw: unsafe { *iter.entities.add(row_index) },
         world: context.world,
     };
-    let resolved = resolve_fields(iter_ptr, row, &context.specs).map_err(|error| {
-        system_row_failure(context, error.to_string(), CallbackFailureKind::Projection)
-    })?;
-    let item = unsafe { P::materialize(&resolved, context.world) };
+    let item = unsafe { P::materialize(resolved, context.world) };
     match catch_unwind(AssertUnwindSafe(|| callback(iterator, entity, item))) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => Err(system_row_failure(
