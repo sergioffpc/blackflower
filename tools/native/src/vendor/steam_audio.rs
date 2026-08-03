@@ -156,36 +156,36 @@ fn configure_steam_audio_dependencies(
 ) {
     let embree = &dependencies.embree;
     config
-        .define(
+        .define_path(
             "FlatBuffers_INCLUDE_DIR",
             dependencies.flatbuffers.join("include"),
         )
-        .define("FlatBuffers_EXECUTABLE", &dependencies.flatc)
-        .define("PFFFT_INCLUDE_DIR", dependencies.pffft.join("include"))
-        .define("PFFFT_LIBRARY", &dependencies.pffft_library)
-        .define("MySOFA_INCLUDE_DIR", dependencies.mysofa.join("include"))
-        .define("MySOFA_LIBRARY", &dependencies.mysofa_library)
-        .define("ZLIB_INCLUDE_DIR", dependencies.zlib.join("include"))
-        .define("ZLIB_LIBRARY", &dependencies.zlib_library)
-        .define("Embree_INCLUDE_DIR", &embree.include)
-        .define("Embree_lexers_LIBRARY", &embree.lexers)
-        .define("Embree_math_LIBRARY", &embree.math)
-        .define("Embree_simd_LIBRARY", &embree.simd)
-        .define("Embree_sys_LIBRARY", &embree.sys)
-        .define("Embree_tasking_LIBRARY", &embree.tasking)
-        .define("Embree_sse2_LIBRARY", &embree.sse2);
+        .define_path("FlatBuffers_EXECUTABLE", &dependencies.flatc)
+        .define_path("PFFFT_INCLUDE_DIR", dependencies.pffft.join("include"))
+        .define_path("PFFFT_LIBRARY", &dependencies.pffft_library)
+        .define_path("MySOFA_INCLUDE_DIR", dependencies.mysofa.join("include"))
+        .define_path("MySOFA_LIBRARY", &dependencies.mysofa_library)
+        .define_path("ZLIB_INCLUDE_DIR", dependencies.zlib.join("include"))
+        .define_path("ZLIB_LIBRARY", &dependencies.zlib_library)
+        .define_path("Embree_INCLUDE_DIR", &embree.include)
+        .define_path("Embree_lexers_LIBRARY", &embree.lexers)
+        .define_path("Embree_math_LIBRARY", &embree.math)
+        .define_path("Embree_simd_LIBRARY", &embree.simd)
+        .define_path("Embree_sys_LIBRARY", &embree.sys)
+        .define_path("Embree_tasking_LIBRARY", &embree.tasking)
+        .define_path("Embree_sse2_LIBRARY", &embree.sse2);
     for (name, library) in [
         ("Embree_sse4_LIBRARY", &embree.sse4),
         ("Embree_avx_LIBRARY", &embree.avx),
         ("Embree_avx2_LIBRARY", &embree.avx2),
     ] {
         if let Some(library) = library {
-            config.define(name, library);
+            config.define_path(name, library);
         }
     }
     if let Some(executable) = &dependencies.ispc {
         config
-            .define("ISPC_EXECUTABLE", executable)
+            .define_path("ISPC_EXECUTABLE", executable)
             .define("ISPC_VERSION", ISPC_VERSION);
     }
 }

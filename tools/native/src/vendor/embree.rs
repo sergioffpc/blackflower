@@ -66,7 +66,7 @@ pub(super) fn build(
         .define("EMBREE_TASKING_SYSTEM", "INTERNAL")
         .define("EMBREE_LIBRARY_NAME", "embree");
     if let Some(executable) = &ispc {
-        config.define("EMBREE_ISPC_EXECUTABLE", executable);
+        config.define_path("EMBREE_ISPC_EXECUTABLE", executable);
     }
     if architecture == "aarch64" {
         config.define("EMBREE_MAX_ISA", "NONE");

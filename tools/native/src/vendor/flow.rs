@@ -24,7 +24,7 @@ pub(super) fn build(
     );
     config
         .build_target("install")
-        .define("BLACKFLOWER_PHYSX_ROOT", &source);
+        .define_path("BLACKFLOWER_PHYSX_ROOT", &source);
     let installed = config.build();
     write_vendor_manifest(&installed, configuration, Vendor::Flow, &source)
 }

@@ -22,8 +22,8 @@ pub(super) fn build(
     );
     config
         .build_target("install")
-        .define("BLACKFLOWER_FLECS_ROOT", &source)
-        .define("BLACKFLOWER_FLECS_CONFIG_DIR", config_dir);
+        .define_path("BLACKFLOWER_FLECS_ROOT", &source)
+        .define_path("BLACKFLOWER_FLECS_CONFIG_DIR", config_dir);
     let installed = config.build();
     write_vendor_manifest(&installed, configuration, Vendor::Flecs, &source)
 }
