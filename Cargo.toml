@@ -18,6 +18,7 @@ members = [
     "crates/blackflower-cooker-animation",
     "crates/blackflower-cooker-acoustics",
     "crates/blackflower-cooker-navigation",
+    "crates/blackflower-cooker-vfx",
     "crates/blackflower-cooker-volume",
     "crates/blackflower-destruction",
     "crates/blackflower-ecs",
@@ -33,11 +34,13 @@ members = [
     "crates/blackflower-rendering",
     "crates/blackflower-rendering-fluids",
     "crates/blackflower-rendering-models",
+    "crates/blackflower-rendering-particles",
     "crates/blackflower-rendering-textures",
     "crates/blackflower-rendering-volumes",
     "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
     "crates/blackflower-scripting-luau",
+    "crates/blackflower-vfx",
     "crates/blackflower-world-prediction",
     "crates/blackflower-world-presentation",
     "crates/blackflower-world-simulation",
@@ -68,6 +71,7 @@ blackflower-audio-voice = { path = "crates/blackflower-audio-voice" }
 blackflower-cooker-animation = { path = "crates/blackflower-cooker-animation" }
 blackflower-cooker-acoustics = { path = "crates/blackflower-cooker-acoustics" }
 blackflower-cooker-navigation = { path = "crates/blackflower-cooker-navigation" }
+blackflower-cooker-vfx = { path = "crates/blackflower-cooker-vfx" }
 blackflower-cooker-volume = { path = "crates/blackflower-cooker-volume" }
 blackflower-destruction = { path = "crates/blackflower-destruction" }
 blackflower-ecs = { path = "crates/blackflower-ecs" }
@@ -83,12 +87,14 @@ blackflower-physics = { path = "crates/blackflower-physics" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
 blackflower-rendering-fluids = { path = "crates/blackflower-rendering-fluids" }
 blackflower-rendering-models = { path = "crates/blackflower-rendering-models" }
+blackflower-rendering-particles = { path = "crates/blackflower-rendering-particles" }
 blackflower-rendering-textures = { path = "crates/blackflower-rendering-textures" }
 blackflower-rendering-volumes = { path = "crates/blackflower-rendering-volumes" }
 blackflower-shader-compiler = { path = "crates/blackflower-shader-compiler" }
 blackflower-scripting = { path = "crates/blackflower-scripting" }
 blackflower-scripting-luau = { path = "crates/blackflower-scripting-luau" }
 blackflower-spatial-query = { path = "crates/blackflower-spatial-query" }
+blackflower-vfx = { path = "crates/blackflower-vfx" }
 blackflower-world-prediction = { path = "crates/blackflower-world-prediction" }
 blackflower-world-presentation = { path = "crates/blackflower-world-presentation" }
 blackflower-world-simulation = { path = "crates/blackflower-world-simulation" }
