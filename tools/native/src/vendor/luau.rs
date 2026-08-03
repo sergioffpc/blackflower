@@ -21,7 +21,7 @@ pub(super) fn build(
     );
     config
         .build_target("blackflower_luau_install")
-        .define("BLACKFLOWER_LUAU_ROOT", &source)
+        .define_path("BLACKFLOWER_LUAU_ROOT", &source)
         .define("LUAU_WERROR", "OFF")
         .define(
             "LUAU_STATIC_CRT",

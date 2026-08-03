@@ -1,4 +1,33 @@
 use super::*;
+use std::ffi::OsString;
+
+pub(super) trait CmakeConfigExt {
+    fn define_path(&mut self, name: &str, path: impl AsRef<Path>) -> &mut Self;
+}
+
+impl CmakeConfigExt for cmake::Config {
+    fn define_path(&mut self, name: &str, path: impl AsRef<Path>) -> &mut Self {
+        self.define(name, cmake_path(path.as_ref()))
+    }
+}
+
+fn cmake_path(path: &Path) -> OsString {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let normalized = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| if unit == 92 { 47 } else { unit })
+            .collect::<Vec<_>>();
+        OsString::from_wide(&normalized)
+    }
+    #[cfg(not(windows))]
+    {
+        path.as_os_str().to_owned()
+    }
+}
 
 pub(super) fn native_parallelism() -> Option<String> {
     env::var("CMAKE_BUILD_PARALLEL_LEVEL")

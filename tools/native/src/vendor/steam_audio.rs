@@ -156,36 +156,36 @@ fn configure_steam_audio_dependencies(
 ) {
     let embree = &dependencies.embree;
     config
-        .define(
+        .define_path(
             "FlatBuffers_INCLUDE_DIR",
             dependencies.flatbuffers.join("include"),
         )
-        .define("FlatBuffers_EXECUTABLE", &dependencies.flatc)
-        .define("PFFFT_INCLUDE_DIR", dependencies.pffft.join("include"))
-        .define("PFFFT_LIBRARY", &dependencies.pffft_library)
-        .define("MySOFA_INCLUDE_DIR", dependencies.mysofa.join("include"))
-        .define("MySOFA_LIBRARY", &dependencies.mysofa_library)
-        .define("ZLIB_INCLUDE_DIR", dependencies.zlib.join("include"))
-        .define("ZLIB_LIBRARY", &dependencies.zlib_library)
-        .define("Embree_INCLUDE_DIR", &embree.include)
-        .define("Embree_lexers_LIBRARY", &embree.lexers)
-        .define("Embree_math_LIBRARY", &embree.math)
-        .define("Embree_simd_LIBRARY", &embree.simd)
-        .define("Embree_sys_LIBRARY", &embree.sys)
-        .define("Embree_tasking_LIBRARY", &embree.tasking)
-        .define("Embree_sse2_LIBRARY", &embree.sse2);
+        .define_path("FlatBuffers_EXECUTABLE", &dependencies.flatc)
+        .define_path("PFFFT_INCLUDE_DIR", dependencies.pffft.join("include"))
+        .define_path("PFFFT_LIBRARY", &dependencies.pffft_library)
+        .define_path("MySOFA_INCLUDE_DIR", dependencies.mysofa.join("include"))
+        .define_path("MySOFA_LIBRARY", &dependencies.mysofa_library)
+        .define_path("ZLIB_INCLUDE_DIR", dependencies.zlib.join("include"))
+        .define_path("ZLIB_LIBRARY", &dependencies.zlib_library)
+        .define_path("Embree_INCLUDE_DIR", &embree.include)
+        .define_path("Embree_lexers_LIBRARY", &embree.lexers)
+        .define_path("Embree_math_LIBRARY", &embree.math)
+        .define_path("Embree_simd_LIBRARY", &embree.simd)
+        .define_path("Embree_sys_LIBRARY", &embree.sys)
+        .define_path("Embree_tasking_LIBRARY", &embree.tasking)
+        .define_path("Embree_sse2_LIBRARY", &embree.sse2);
     for (name, library) in [
         ("Embree_sse4_LIBRARY", &embree.sse4),
         ("Embree_avx_LIBRARY", &embree.avx),
         ("Embree_avx2_LIBRARY", &embree.avx2),
     ] {
         if let Some(library) = library {
-            config.define(name, library);
+            config.define_path(name, library);
         }
     }
     if let Some(executable) = &dependencies.ispc {
         config
-            .define("ISPC_EXECUTABLE", executable)
+            .define_path("ISPC_EXECUTABLE", executable)
             .define("ISPC_VERSION", ISPC_VERSION);
     }
 }
@@ -420,7 +420,7 @@ fn replace_exact(
     replacement: &str,
     contract_error: &str,
 ) -> anyhow::Result<()> {
-    let contents = fs::read_to_string(path)?;
+    let contents = read_normalized_text(path)?;
     if contents.matches(original).count() != 1 {
         bail!("{contract_error}");
     }
@@ -435,13 +435,17 @@ fn replace_all_checked(
     expected: usize,
     contract_error: &str,
 ) -> anyhow::Result<()> {
-    let contents = fs::read_to_string(path)?;
+    let contents = read_normalized_text(path)?;
     let occurrences = contents.matches(original).count();
     if occurrences != expected {
         bail!("{contract_error}: expected {expected}, found {occurrences}");
     }
     fs::write(path, contents.replace(original, replacement))?;
     Ok(())
+}
+
+fn read_normalized_text(path: &Path) -> anyhow::Result<String> {
+    Ok(fs::read_to_string(path)?.replace("\r\n", "\n"))
 }
 
 fn patch_steam_audio_linux_abi(source: &Path, operating_system: &str) -> anyhow::Result<()> {
@@ -745,6 +749,23 @@ mod tests {
 
         assert!(error.to_string().contains("onto itself"));
         assert_eq!(fs::read(library)?, archive_header);
+        Ok(())
+    }
+
+    #[test]
+    fn exact_source_patch_accepts_windows_line_endings() -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let source = temporary.path().join("source.cpp");
+        fs::write(&source, "before\r\ncontract\r\nafter\r\n")?;
+
+        replace_exact(
+            &source,
+            "before\ncontract",
+            "patched\ncontract",
+            "contract changed",
+        )?;
+
+        assert_eq!(fs::read_to_string(source)?, "patched\ncontract\nafter\n");
         Ok(())
     }
 }

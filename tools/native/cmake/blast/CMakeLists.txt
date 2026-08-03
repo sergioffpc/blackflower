@@ -66,7 +66,7 @@ target_include_directories(
     "${BLAST_ROOT}/source/shared/NsFoundation/include"
     "${BLAST_ROOT}/source/shared/stress_solver"
 )
-if(APPLE)
+if(APPLE OR MSVC)
     target_include_directories(
         blackflower_blast
         BEFORE PRIVATE
@@ -74,7 +74,12 @@ if(APPLE)
     )
 endif()
 if(MSVC)
-    target_compile_options(blackflower_blast PRIVATE /EHsc)
+    target_compile_options(
+        blackflower_blast
+        PRIVATE
+        /EHsc
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/compat/blackflower_blast_compat.h"
+    )
 else()
     target_compile_options(blackflower_blast PRIVATE -Wno-unused-function)
 endif()
