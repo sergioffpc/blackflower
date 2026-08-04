@@ -14,6 +14,19 @@ simulation. The project is organized around an authoritative server, a
 deterministic fixed-step simulation, and a client that owns prediction and
 presentation.
 
+## Contents
+
+- [Engine conventions](#engine-conventions)
+- [Workspace](#workspace)
+- [Running the applications](#running-the-applications)
+- [Cooking assets](#cooking-assets)
+- [Engineering principles](#engineering-principles)
+- [Development setup](#development-setup)
+- [Release builds](#release-builds)
+- [Commit messages](#commit-messages)
+- [Security](#security)
+- [License](#license)
+
 ## Engine conventions
 
 Blackflower engine space is right-handed: `+X` points right, `+Y` points up,
