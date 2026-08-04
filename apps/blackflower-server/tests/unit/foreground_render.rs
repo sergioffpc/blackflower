@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 
 use blackflower_observability::{ForegroundLogControl, ForegroundLogLevel};
@@ -61,6 +63,7 @@ fn test_app() -> Result<App, Box<dyn Error>> {
         log_control: ForegroundLogControl::new(ForegroundLogLevel::Info),
         initial_view_level: ForegroundLogLevel::Info,
         initial_log_regex: None,
+        shutdown_requested: Arc::new(AtomicBool::new(false)),
     })?)
 }
 

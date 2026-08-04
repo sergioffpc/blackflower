@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
@@ -126,6 +128,7 @@ pub(crate) struct App {
     pub(crate) histories: Histories,
     pub(crate) show_help: bool,
     poller: MetricsPoller,
+    shutdown_requested: Arc<AtomicBool>,
     should_quit: bool,
 }
 
@@ -151,12 +154,13 @@ impl App {
             histories: Histories::default(),
             show_help: false,
             poller,
+            shutdown_requested: config.shutdown_requested,
             should_quit: false,
         })
     }
 
     pub(crate) fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !self.should_quit {
+        while !self.should_quit && !self.shutdown_requested.load(Ordering::Acquire) {
             self.drain_inputs();
             terminal.draw(|frame| render::draw(frame, self))?;
             if event::poll(DRAW_INTERVAL)? {

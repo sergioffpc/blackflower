@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw Slang calls and native pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Slang FFI boundary"
-)]
-
 use std::ffi::CStr;
 use std::slice;
 
@@ -34,6 +28,11 @@ use crate::compile::CompileOptions;
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
 )]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Slang wrapper headers"
+)]
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/slang_bindings.rs"));
 }
@@ -51,6 +50,8 @@ pub(crate) fn compile(
     };
     let mut spirv = OwnedBlob::default();
     let mut diagnostics = OwnedBlob::default();
+    // SAFETY: all string pointers remain valid for their explicit byte lengths
+    // during the call, and the two distinct output records are writable.
     let status = unsafe {
         raw::bf_shader_compiler_compile_spirv(
             source_name.as_ptr(),
@@ -72,10 +73,13 @@ pub(crate) fn compile(
 }
 
 pub(crate) fn slang_version() -> &'static str {
+    // SAFETY: the wrapper returns either null or a process-lifetime Slang version string.
     let pointer = unsafe { raw::bf_shader_compiler_slang_version() };
     if pointer.is_null() {
         return "unknown";
     }
+    // SAFETY: the non-null pointer above addresses the wrapper's NUL-terminated
+    // process-lifetime version string.
     let value = unsafe { CStr::from_ptr(pointer) };
     value.to_str().unwrap_or("unknown")
 }
@@ -109,6 +113,8 @@ impl OwnedBlob {
         if self.0.data.is_null() || self.0.size == 0 {
             return &[];
         }
+        // SAFETY: a successful native blob owns `size` readable bytes and keeps
+        // them alive until this `OwnedBlob` is dropped.
         unsafe { slice::from_raw_parts(self.0.data, self.0.size) }
     }
 
@@ -122,6 +128,8 @@ impl Drop for OwnedBlob {
         if self.0.data.is_null() {
             return;
         }
+        // SAFETY: the blob pointer was allocated by the wrapper, is uniquely
+        // owned by this value, and is released exactly once here.
         unsafe {
             raw::bf_shader_compiler_blob_free(self.0.data.cast());
         }

@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw NanoVDB calls and pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed NanoVDB FFI boundary"
-)]
-
 use std::ptr::NonNull;
 
 use glam::{DVec3, IVec3};
@@ -31,6 +25,11 @@ use crate::types::{Bounds3, FloatVoxel, GridClass, GridMetadata, GridType};
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned NanoVDB wrapper headers"
 )]
 pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/nanovdb_bindings.rs"));
@@ -59,17 +58,21 @@ unsafe impl Send for HandlePtr {}
 unsafe impl Sync for HandlePtr {}
 
 pub(crate) fn openvdb_version() -> (u32, u32, u32) {
+    // SAFETY: this wrapper query takes no pointers and returns a value record.
     let version = unsafe { raw::bf_rendering_volumes_openvdb_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn vdb_version() -> (u32, u32, u32) {
+    // SAFETY: this wrapper query takes no pointers and returns a value record.
     let version = unsafe { raw::bf_rendering_volumes_nanovdb_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn load(bytes: &[u8]) -> Result<HandlePtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `bytes` is readable for its supplied length and `pointer` is a
+    // valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::bf_rendering_volumes_nanovdb_load(bytes.as_ptr(), bytes.len(), &raw mut pointer)
     };
@@ -80,15 +83,20 @@ pub(crate) fn load(bytes: &[u8]) -> Result<HandlePtr, Status> {
 }
 
 pub(crate) fn destroy(handle: HandlePtr) {
+    // SAFETY: ownership of this live handle is transferred to `destroy`, which
+    // calls the matching wrapper destructor exactly once.
     unsafe { raw::bf_rendering_volumes_nanovdb_destroy(handle.0.as_ptr()) };
 }
 
 pub(crate) fn grid_count(handle: HandlePtr) -> u32 {
+    // SAFETY: `HandlePtr` can only contain a live, non-null native handle.
     unsafe { raw::bf_rendering_volumes_nanovdb_grid_count(handle.0.as_ptr()) }
 }
 
 pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadata, Status> {
     let mut raw_info = raw::BFRenderingVolumesNanoVdbGridInfo::default();
+    // SAFETY: the handle is live and `raw_info` is uniquely writable; the native
+    // wrapper validates `index` before filling the record.
     let status = unsafe {
         raw::bf_rendering_volumes_nanovdb_grid_info(handle.0.as_ptr(), index, &raw mut raw_info)
     };
@@ -96,6 +104,8 @@ pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadat
 
     let mut name_pointer = std::ptr::null();
     let mut name_length = 0;
+    // SAFETY: the handle is live and both output slots are uniquely writable;
+    // the wrapper validates `index` and borrows name storage from the handle.
     let status = unsafe {
         raw::bf_rendering_volumes_nanovdb_grid_name(
             handle.0.as_ptr(),
@@ -105,6 +115,8 @@ pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadat
         )
     };
     check(status)?;
+    // SAFETY: after a successful call the wrapper guarantees `name_pointer`
+    // addresses `name_length` bytes owned by the still-live handle.
     let name_bytes = unsafe { std::slice::from_raw_parts(name_pointer.cast::<u8>(), name_length) };
     let name = std::str::from_utf8(name_bytes)
         .map_err(|_error| Status::InvalidAsset)?
@@ -164,6 +176,8 @@ pub(crate) fn float_voxel(
 ) -> Result<FloatVoxel, Status> {
     let mut value = 0.0;
     let mut active = 0;
+    // SAFETY: the handle is live, the wrapper validates `index`, and both scalar
+    // output slots are uniquely writable.
     let status = unsafe {
         raw::bf_rendering_volumes_nanovdb_float_voxel(
             handle.0.as_ptr(),
@@ -187,6 +201,8 @@ pub(crate) fn sample_float_world(
     position: DVec3,
 ) -> Result<f32, Status> {
     let mut value = 0.0;
+    // SAFETY: the handle is live, the wrapper validates `index`, and `value` is
+    // a uniquely writable scalar output.
     let status = unsafe {
         raw::bf_rendering_volumes_nanovdb_sample_float_world(
             handle.0.as_ptr(),
@@ -211,6 +227,8 @@ fn transform(
     position: DVec3,
 ) -> Result<DVec3, Status> {
     let mut output = raw::BFRenderingVolumesNanoVdbVec3d::default();
+    // SAFETY: callers pass one of the two pinned wrapper transform functions, a
+    // live handle, and a uniquely writable output record; native code validates `index`.
     let status = unsafe { function(handle.0.as_ptr(), index, raw_vec(position), &raw mut output) };
     check(status)?;
     Ok(safe_vec(output))

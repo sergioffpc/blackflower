@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw Jolt calls and pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Jolt FFI boundary"
-)]
-
 use std::ptr::NonNull;
 
 use glam::{Quat, Vec3A};
@@ -33,6 +27,11 @@ use crate::types::BodySettings;
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Jolt wrapper headers"
 )]
 pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/jolt_bindings.rs"));
@@ -66,6 +65,8 @@ impl ShapePtr {
 
 impl Drop for ShapePtr {
     fn drop(&mut self) {
+        // SAFETY: this pointer is uniquely owned by `ShapePtr` and is released
+        // exactly once through the wrapper's matching destructor.
         unsafe { raw::bf_physics_shape_destroy(self.0.as_ptr()) };
     }
 }
@@ -86,6 +87,7 @@ pub(crate) struct RawContactEvent {
 pub(crate) struct RawRayHit(pub(crate) raw::BFPhysicsRayHit);
 
 pub(crate) fn jolt_version() -> (u32, u32, u32) {
+    // SAFETY: this wrapper query takes no pointers and returns a value record.
     let version = unsafe { raw::bf_physics_jolt_version() };
     (version.major, version.minor, version.patch)
 }
@@ -99,6 +101,8 @@ pub(crate) fn create_world(config: WorldConfig) -> Result<WorldPtr, Status> {
         worker_threads: config.worker_threads,
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `config` is fully initialized and `pointer` is a valid, uniquely
+    // writable out-parameter.
     let status = unsafe { raw::bf_physics_world_create(&raw const config, &raw mut pointer) };
     check(status)?;
     NonNull::new(pointer)
@@ -107,6 +111,8 @@ pub(crate) fn create_world(config: WorldConfig) -> Result<WorldPtr, Status> {
 }
 
 pub(crate) fn destroy_world(world: WorldPtr) {
+    // SAFETY: ownership of this live world is transferred here after all
+    // dependent bodies and characters have been removed.
     unsafe { raw::bf_physics_world_destroy(world.0.as_ptr()) };
 }
 
@@ -119,6 +125,8 @@ pub(crate) fn create_body(world: WorldPtr, settings: &BodySettings) -> Result<u3
     };
     let shape = create_shape(&settings.shape)?;
     let mut body = u32::MAX;
+    // SAFETY: the world and temporary shape are live, `raw_settings` remains
+    // readable, and `body` is a uniquely writable output slot.
     let status = unsafe {
         raw::bf_physics_world_create_body(
             world.0.as_ptr(),
@@ -150,12 +158,16 @@ fn create_shape(shape: &Shape) -> Result<ShapePtr, Status> {
 
 fn create_sphere(radius: f32) -> Result<ShapePtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the wrapper validates `radius` and `pointer` is a valid, uniquely
+    // writable out-parameter.
     let status = unsafe { raw::bf_physics_shape_create_sphere(radius, &raw mut pointer) };
     shape_result(status, pointer)
 }
 
 fn create_box(half_extent: Vec3A) -> Result<ShapePtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the wrapper validates the by-value extent and `pointer` is a
+    // valid, uniquely writable out-parameter.
     let status =
         unsafe { raw::bf_physics_shape_create_box(raw_vec(half_extent), &raw mut pointer) };
     shape_result(status, pointer)
@@ -163,6 +175,8 @@ fn create_box(half_extent: Vec3A) -> Result<ShapePtr, Status> {
 
 fn create_capsule(half_height: f32, radius: f32) -> Result<ShapePtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the wrapper validates both scalar dimensions and `pointer` is a
+    // valid, uniquely writable out-parameter.
     let status =
         unsafe { raw::bf_physics_shape_create_capsule(half_height, radius, &raw mut pointer) };
     shape_result(status, pointer)
@@ -172,6 +186,8 @@ fn create_convex_hull(points: &[Vec3A]) -> Result<ShapePtr, Status> {
     let raw_points = points.iter().copied().map(raw_vec).collect::<Vec<_>>();
     let count = u32::try_from(raw_points.len()).map_err(|_error| Status::ContractViolation)?;
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `raw_points` remains readable for `count` entries and `pointer` is
+    // a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::bf_physics_shape_create_convex_hull(raw_points.as_ptr(), count, &raw mut pointer)
     };
@@ -190,6 +206,8 @@ fn create_compound(children: &[CompoundShapeChild]) -> Result<ShapePtr, Status> 
         .collect::<Vec<_>>();
     let count = u32::try_from(raw_children.len()).map_err(|_error| Status::ContractViolation)?;
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the child shape handles and `raw_children` remain alive and
+    // readable for `count` entries, and `pointer` is uniquely writable.
     let status = unsafe {
         raw::bf_physics_shape_create_compound(raw_children.as_ptr(), count, &raw mut pointer)
     };
@@ -222,6 +240,8 @@ fn create_triangle_mesh_from_raw(
     let triangle_count =
         u32::try_from(triangles.len()).map_err(|_error| Status::ContractViolation)?;
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: both native arrays remain readable for their checked counts and
+    // `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::bf_physics_shape_create_triangle_mesh(
             vertices.as_ptr(),
@@ -250,12 +270,15 @@ fn shape_result(status: i32, pointer: *mut raw::BFPhysicsShape) -> Result<ShapeP
 }
 
 pub(crate) fn destroy_body(world: WorldPtr, body: u32) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the opaque body id.
     let status = unsafe { raw::bf_physics_world_destroy_body(world.0.as_ptr(), body) };
     check(status)
 }
 
 pub(crate) fn body_exists(world: WorldPtr, body: u32) -> Result<bool, Status> {
     let mut exists = 0;
+    // SAFETY: the world is live, the wrapper accepts any body id for this query,
+    // and `exists` is a uniquely writable scalar output.
     let status =
         unsafe { raw::bf_physics_world_body_exists(world.0.as_ptr(), body, &raw mut exists) };
     check(status)?;
@@ -264,6 +287,8 @@ pub(crate) fn body_exists(world: WorldPtr, body: u32) -> Result<bool, Status> {
 
 pub(crate) fn body_is_active(world: WorldPtr, body: u32) -> Result<bool, Status> {
     let mut active = 0;
+    // SAFETY: the world is live, the wrapper validates `body`, and `active` is
+    // a uniquely writable scalar output.
     let status =
         unsafe { raw::bf_physics_world_body_is_active(world.0.as_ptr(), body, &raw mut active) };
     check(status)?;
@@ -272,6 +297,8 @@ pub(crate) fn body_is_active(world: WorldPtr, body: u32) -> Result<bool, Status>
 
 pub(crate) fn body_position(world: WorldPtr, body: u32) -> Result<Vec3A, Status> {
     let mut position = raw::BFPhysicsVec3::default();
+    // SAFETY: the world is live, the wrapper validates `body`, and `position`
+    // is a uniquely writable output record.
     let status =
         unsafe { raw::bf_physics_world_body_position(world.0.as_ptr(), body, &raw mut position) };
     check(status)?;
@@ -280,6 +307,8 @@ pub(crate) fn body_position(world: WorldPtr, body: u32) -> Result<Vec3A, Status>
 
 pub(crate) fn body_rotation(world: WorldPtr, body: u32) -> Result<Quat, Status> {
     let mut rotation = raw::BFPhysicsQuat::default();
+    // SAFETY: the world is live, the wrapper validates `body`, and `rotation`
+    // is a uniquely writable output record.
     let status =
         unsafe { raw::bf_physics_world_body_rotation(world.0.as_ptr(), body, &raw mut rotation) };
     check(status)?;
@@ -287,6 +316,8 @@ pub(crate) fn body_rotation(world: WorldPtr, body: u32) -> Result<Quat, Status> 
 }
 
 pub(crate) fn set_body_rotation(world: WorldPtr, body: u32, rotation: Quat) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id and
+    // by-value quaternion before mutation.
     let status = unsafe {
         raw::bf_physics_world_set_body_rotation(world.0.as_ptr(), body, raw_quat(rotation))
     };
@@ -295,6 +326,8 @@ pub(crate) fn set_body_rotation(world: WorldPtr, body: u32, rotation: Quat) -> R
 
 pub(crate) fn body_linear_velocity(world: WorldPtr, body: u32) -> Result<Vec3A, Status> {
     let mut velocity = raw::BFPhysicsVec3::default();
+    // SAFETY: the world is live, the wrapper validates `body`, and `velocity`
+    // is a uniquely writable output record.
     let status = unsafe {
         raw::bf_physics_world_body_linear_velocity(world.0.as_ptr(), body, &raw mut velocity)
     };
@@ -307,6 +340,8 @@ pub(crate) fn set_body_linear_velocity(
     body: u32,
     velocity: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id and
+    // by-value velocity before mutation.
     let status = unsafe {
         raw::bf_physics_world_set_body_linear_velocity(world.0.as_ptr(), body, raw_vec(velocity))
     };
@@ -315,6 +350,8 @@ pub(crate) fn set_body_linear_velocity(
 
 pub(crate) fn body_angular_velocity(world: WorldPtr, body: u32) -> Result<Vec3A, Status> {
     let mut velocity = raw::BFPhysicsVec3::default();
+    // SAFETY: the world is live, the wrapper validates `body`, and `velocity`
+    // is a uniquely writable output record.
     let status = unsafe {
         raw::bf_physics_world_body_angular_velocity(world.0.as_ptr(), body, &raw mut velocity)
     };
@@ -327,6 +364,8 @@ pub(crate) fn set_body_angular_velocity(
     body: u32,
     velocity: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id and
+    // by-value angular velocity before mutation.
     let status = unsafe {
         raw::bf_physics_world_set_body_angular_velocity(world.0.as_ptr(), body, raw_vec(velocity))
     };
@@ -334,6 +373,8 @@ pub(crate) fn set_body_angular_velocity(
 }
 
 pub(crate) fn add_body_force(world: WorldPtr, body: u32, force: Vec3A) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value force.
     let status =
         unsafe { raw::bf_physics_world_add_body_force(world.0.as_ptr(), body, raw_vec(force)) };
     check(status)
@@ -345,6 +386,8 @@ pub(crate) fn add_body_force_at_point(
     force: Vec3A,
     point: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value force at the by-value point.
     let status = unsafe {
         raw::bf_physics_world_add_body_force_at_point(
             world.0.as_ptr(),
@@ -357,12 +400,16 @@ pub(crate) fn add_body_force_at_point(
 }
 
 pub(crate) fn add_body_torque(world: WorldPtr, body: u32, torque: Vec3A) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value torque.
     let status =
         unsafe { raw::bf_physics_world_add_body_torque(world.0.as_ptr(), body, raw_vec(torque)) };
     check(status)
 }
 
 pub(crate) fn add_body_impulse(world: WorldPtr, body: u32, impulse: Vec3A) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value impulse.
     let status =
         unsafe { raw::bf_physics_world_add_body_impulse(world.0.as_ptr(), body, raw_vec(impulse)) };
     check(status)
@@ -374,6 +421,8 @@ pub(crate) fn add_body_impulse_at_point(
     impulse: Vec3A,
     point: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value impulse at the by-value point.
     let status = unsafe {
         raw::bf_physics_world_add_body_impulse_at_point(
             world.0.as_ptr(),
@@ -390,6 +439,8 @@ pub(crate) fn add_body_angular_impulse(
     body: u32,
     impulse: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the body id before
+    // applying the by-value angular impulse.
     let status = unsafe {
         raw::bf_physics_world_add_body_angular_impulse(world.0.as_ptr(), body, raw_vec(impulse))
     };
@@ -412,6 +463,8 @@ pub(crate) fn create_character(
         active: u8::from(settings.active),
     };
     let mut character = u32::MAX;
+    // SAFETY: the world is live, `settings` remains readable, and `character`
+    // is a uniquely writable output slot.
     let status = unsafe {
         raw::bf_physics_world_create_character(
             world.0.as_ptr(),
@@ -424,6 +477,7 @@ pub(crate) fn create_character(
 }
 
 pub(crate) fn destroy_character(world: WorldPtr, character: u32) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the character id.
     let status = unsafe { raw::bf_physics_world_destroy_character(world.0.as_ptr(), character) };
     check(status)
 }
@@ -433,6 +487,8 @@ pub(crate) fn set_character_linear_velocity(
     character: u32,
     velocity: Vec3A,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the character id and
+    // by-value velocity before mutation.
     let status = unsafe {
         raw::bf_physics_world_set_character_linear_velocity(
             world.0.as_ptr(),
@@ -448,6 +504,8 @@ pub(crate) fn refresh_character_ground_state(
     character: u32,
     max_separation_distance: f32,
 ) -> Result<(), Status> {
+    // SAFETY: the world is live and the wrapper validates the character id and
+    // separation distance before refreshing state.
     let status = unsafe {
         raw::bf_physics_world_refresh_character_ground_state(
             world.0.as_ptr(),
@@ -463,6 +521,8 @@ pub(crate) fn character_state(
     character: u32,
 ) -> Result<raw::BFPhysicsCharacterState, Status> {
     let mut state = raw::BFPhysicsCharacterState::default();
+    // SAFETY: the world is live, the wrapper validates `character`, and `state`
+    // is a uniquely writable output record.
     let status = unsafe {
         raw::bf_physics_world_character_state(world.0.as_ptr(), character, &raw mut state)
     };
@@ -472,6 +532,7 @@ pub(crate) fn character_state(
 
 pub(crate) fn contact_events(world: WorldPtr) -> Result<Vec<RawContactEvent>, Status> {
     let mut count = 0;
+    // SAFETY: the world is live and `count` is a uniquely writable output slot.
     let status =
         unsafe { raw::bf_physics_world_contact_event_count(world.0.as_ptr(), &raw mut count) };
     check(status)?;
@@ -485,6 +546,8 @@ pub(crate) fn contact_events(world: WorldPtr) -> Result<Vec<RawContactEvent>, St
 
 fn contact_event(world: WorldPtr, event_index: u32) -> Result<RawContactEvent, Status> {
     let mut event = raw::BFPhysicsContactEvent::default();
+    // SAFETY: the world is live, the wrapper validates `event_index`, and
+    // `event` is a uniquely writable output record.
     let status = unsafe {
         raw::bf_physics_world_contact_event(world.0.as_ptr(), event_index, &raw mut event)
     };
@@ -505,6 +568,8 @@ pub(crate) fn cast_ray(
 ) -> Result<Option<RawRayHit>, Status> {
     let mut has_hit = 0;
     let mut hit = raw::BFPhysicsRayHit::default();
+    // SAFETY: the world is live and both output slots are uniquely writable;
+    // the wrapper receives only by-value ray vectors.
     let status = unsafe {
         raw::bf_physics_world_cast_ray(
             world.0.as_ptr(),
@@ -528,6 +593,8 @@ fn contact_point(
     point_index: u32,
 ) -> Result<raw::BFPhysicsContactPoint, Status> {
     let mut point = raw::BFPhysicsContactPoint::default();
+    // SAFETY: the world is live, the wrapper validates both indices, and
+    // `point` is a uniquely writable output record.
     let status = unsafe {
         raw::bf_physics_world_contact_point(
             world.0.as_ptr(),
@@ -541,6 +608,7 @@ fn contact_point(
 }
 
 pub(crate) fn optimize_broad_phase(world: WorldPtr) -> Result<(), Status> {
+    // SAFETY: the world is live and the safe owner serializes world mutation.
     let status = unsafe { raw::bf_physics_world_optimize_broad_phase(world.0.as_ptr()) };
     check(status)
 }
@@ -551,6 +619,8 @@ pub(crate) fn update(
     collision_steps: i32,
 ) -> Result<u32, Status> {
     let mut update_errors = 0;
+    // SAFETY: the world is live, the safe owner serializes update, and
+    // `update_errors` is a uniquely writable scalar output.
     let status = unsafe {
         raw::bf_physics_world_update(
             world.0.as_ptr(),

@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "raw Recast cooker calls are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed cooker FFI boundary"
-)]
-
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
 
@@ -38,6 +32,11 @@ use crate::geometry::{Geometry, NativeAreas};
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Recast cooker wrapper headers"
 )]
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/navigation_cooker_bindings.rs"));
@@ -95,6 +94,9 @@ pub(crate) fn cook(
     };
     let mut output = raw::BFNavigationCookOutput::default();
     let mut error = [0_i8; 512];
+    // SAFETY: every input pointer is derived from a slice that remains alive for
+    // the call, its count was checked to fit the native width, and both output
+    // buffers are writable for the lengths supplied to the wrapper.
     let status = unsafe {
         raw::bf_navigation_cooker_build(
             &raw const settings,
@@ -125,6 +127,8 @@ fn pointer_or_null<T>(values: &[T]) -> *const T {
 }
 
 fn error_message(bytes: &[i8]) -> String {
+    // SAFETY: callers pass the zero-initialized fixed error buffer whose final
+    // byte remains a terminator under the native wrapper's bounded-write contract.
     unsafe { std::ffi::CStr::from_ptr(bytes.as_ptr()) }
         .to_string_lossy()
         .into_owned()
@@ -156,6 +160,8 @@ impl Output {
             .map_err(|_error| Error::Native("tile count does not fit usize".to_owned()))?;
         let pointer = NonNull::new(self.0.tiles)
             .ok_or_else(|| Error::Native("native cooker returned no tile table".to_owned()))?;
+        // SAFETY: a successful native cook owns a table of `tile_count` entries
+        // until `Output::drop`; `pointer` was checked non-null above.
         let source = unsafe { std::slice::from_raw_parts(pointer.as_ptr(), count) };
         let mut tiles = Vec::with_capacity(count);
         for tile in source {
@@ -163,6 +169,8 @@ impl Output {
                 .map_err(|_error| Error::Native("tile length does not fit usize".to_owned()))?;
             let data = NonNull::new(tile.data)
                 .ok_or_else(|| Error::Native("native cooker returned a null tile".to_owned()))?;
+            // SAFETY: each successful output tile owns `data_size` readable bytes
+            // until the enclosing output is freed after this copy.
             let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr(), length) };
             tiles.push(
                 NavigationTile::new(tile.x, tile.y, tile.layer, Bytes::copy_from_slice(bytes))
@@ -175,6 +183,8 @@ impl Output {
 
 impl Drop for Output {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the unique output record returned by the cooker and
+        // is freed exactly once here; the wrapper accepts zero/default outputs.
         unsafe { raw::bf_navigation_cooker_free(&raw mut self.0) };
     }
 }

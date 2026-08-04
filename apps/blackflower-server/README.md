@@ -11,7 +11,8 @@ shutdown, and an optional foreground diagnostics dashboard.
 - Initialize structured logging, Prometheus metrics, host metrics, and health
   reporting.
 - Expose Prometheus metrics on `127.0.0.1:9000/metrics` by default.
-- Shut down the simulation thread cleanly after `Ctrl-C` or foreground UI exit.
+- Shut down the simulation thread cleanly after `SIGINT`, Unix `SIGTERM`, or
+  foreground UI exit.
 - Provide reusable server-side QUIC, admission, replication, scheduling, input,
   resynchronization, and voice-session composition in the library crate.
 
@@ -35,8 +36,8 @@ Start the server from the repository root:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
-The process runs until `Ctrl-C`, then joins the simulation thread and reports
-the number of completed ticks.
+The process runs until `SIGINT` (`Ctrl-C`) or, on Unix, `SIGTERM`; it then joins
+the simulation thread and reports the number of completed ticks.
 
 ### Foreground dashboard
 

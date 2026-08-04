@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw KTX-Software calls and pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed KTX-Software FFI boundary"
-)]
-
 use std::ffi::CStr;
 use std::slice;
 
@@ -35,6 +29,11 @@ use crate::texture::{
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned KTX-Software headers"
 )]
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/ktx_bindings.rs"));
@@ -68,6 +67,8 @@ pub(crate) fn encode(
         uastc_rdo: u8::from(options.uastc_rdo),
     };
     let mut output = OwnedBlob::default();
+    // SAFETY: the level table and every referenced mip remain alive for the
+    // call, their lengths are explicit, and `output` is uniquely writable.
     let status = unsafe {
         raw::bf_texture_encode(
             native_levels.as_ptr(),
@@ -82,6 +83,8 @@ pub(crate) fn encode(
 
 pub(crate) fn inspect(bytes: &[u8]) -> Result<NativeInfo, Error> {
     let mut info = raw::BFTextureInfo::default();
+    // SAFETY: `bytes` is readable for its supplied length and `info` is a valid
+    // writable output record for the duration of the call.
     let status = unsafe { raw::bf_texture_inspect(bytes.as_ptr(), bytes.len(), &raw mut info) };
     status_result(status)?;
     Ok(NativeInfo {
@@ -94,6 +97,8 @@ pub(crate) fn inspect(bytes: &[u8]) -> Result<NativeInfo, Error> {
 
 pub(crate) fn transcode(bytes: &[u8], format: TextureFormat) -> Result<TranscodedTexture, Error> {
     let mut native = raw::BFTranscodedTexture::default();
+    // SAFETY: the encoded input is readable for its supplied length and the
+    // uniquely owned native output record is writable.
     let status = unsafe {
         raw::bf_texture_transcode(bytes.as_ptr(), bytes.len(), format.raw(), &raw mut native)
     };
@@ -126,10 +131,13 @@ pub(crate) fn transcode(bytes: &[u8], format: TextureFormat) -> Result<Transcode
 }
 
 pub(crate) fn ktx_version() -> &'static str {
+    // SAFETY: the wrapper returns either null or a process-lifetime KTX version string.
     let pointer = unsafe { raw::bf_texture_ktx_version() };
     if pointer.is_null() {
         return "unknown";
     }
+    // SAFETY: the non-null pointer above addresses the wrapper's NUL-terminated
+    // process-lifetime version string.
     unsafe { CStr::from_ptr(pointer) }
         .to_str()
         .unwrap_or("unknown")
@@ -139,10 +147,14 @@ fn status_result(status: i32) -> Result<(), Error> {
     if status == raw::BF_TEXTURE_STATUS_OK.cast_signed() {
         return Ok(());
     }
+    // SAFETY: the wrapper accepts every status value and returns either null or
+    // a process-lifetime diagnostic string.
     let pointer = unsafe { raw::bf_texture_status_message(status) };
     let detail = if pointer.is_null() {
         format!("native status {status}")
     } else {
+        // SAFETY: the non-null pointer above addresses a NUL-terminated
+        // process-lifetime diagnostic string owned by the wrapper.
         unsafe { CStr::from_ptr(pointer) }
             .to_string_lossy()
             .into_owned()
@@ -168,6 +180,8 @@ impl OwnedBlob {
         if self.0.data.is_null() || self.0.size == 0 {
             return &[];
         }
+        // SAFETY: a successful native blob owns `size` readable bytes until
+        // this `OwnedBlob` releases it.
         unsafe { slice::from_raw_parts(self.0.data, self.0.size) }
     }
 }
@@ -177,6 +191,8 @@ impl Drop for OwnedBlob {
         if self.0.data.is_null() {
             return;
         }
+        // SAFETY: the blob pointer was allocated by the wrapper, is uniquely
+        // owned by this value, and is released exactly once here.
         unsafe {
             raw::bf_texture_blob_free(self.0.data.cast());
         }

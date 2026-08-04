@@ -4,11 +4,6 @@
     reason = "all raw Flecs calls and pointer materialization are isolated in this private module"
 )]
 #![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Flecs FFI boundary"
-)]
-#![allow(
     private_interfaces,
     reason = "sealed projection implementation details are intentionally not nameable by users"
 )]
@@ -47,6 +42,11 @@ use crate::telemetry::{self, CallbackFailureKind};
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
 )]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Flecs headers"
+)]
 pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/flecs_bindings.rs"));
 }
@@ -67,18 +67,25 @@ static WORLD_LIFECYCLE: ReentrantMutex<()> = const_reentrant_mutex(());
 
 pub(crate) fn create_world() -> Option<WorldPtr> {
     let _lifecycle = WORLD_LIFECYCLE.lock();
+    // SAFETY: the process-wide lifecycle lock serializes Flecs global
+    // initialization and the returned pointer is immediately checked for null.
     NonNull::new(unsafe { raw::ecs_init() }).map(WorldPtr)
 }
 
 pub(crate) fn destroy_world(world: WorldPtr, workers_started: bool) {
     let _lifecycle = WORLD_LIFECYCLE.lock();
     if workers_started {
+        // SAFETY: the world is live, lifecycle access is serialized, and zero is
+        // Flecs's documented request to stop all worker stages before finalization.
         unsafe { raw::ecs_set_threads(world.0.as_ptr(), 0) };
     }
+    // SAFETY: ownership of this live world is transferred here under the global
+    // lifecycle lock after workers have stopped.
     let _status = unsafe { raw::ecs_fini(world.0.as_ptr()) };
 }
 
 pub(crate) fn set_threads(world: WorldPtr, count: i32) {
+    // SAFETY: the world is live and the safe owner serializes worker reconfiguration.
     unsafe { raw::ecs_set_threads(world.0.as_ptr(), count) };
 }
 
@@ -87,6 +94,8 @@ pub(crate) fn create_entity(world: WorldPtr, name: Option<&CStr>) -> Option<u64>
     if let Some(name) = name {
         descriptor.name = name.as_ptr();
     }
+    // SAFETY: the world is live and `descriptor` plus its optional NUL-terminated
+    // name remain readable for the synchronous initialization call.
     NonNullId::new(unsafe { raw::ecs_entity_init(world.0.as_ptr(), &raw const descriptor) })
         .map(NonNullId::get)
 }
@@ -99,55 +108,74 @@ pub(crate) fn register_component<T: Component>(world: WorldPtr, entity: u64) -> 
     descriptor.type_.size = i32::try_from(mem::size_of::<T>()).ok()?;
     descriptor.type_.alignment = i32::try_from(mem::align_of::<T>()).ok()?;
 
+    // SAFETY: the world is live and the descriptor carries the exact Rust
+    // component layout required by the `Component` contract.
     NonNullId::new(unsafe { raw::ecs_component_init(world.0.as_ptr(), &raw const descriptor) })
         .map(NonNullId::get)
 }
 
 pub(crate) fn is_alive(world: WorldPtr, entity: u64) -> bool {
+    // SAFETY: the world is live and Flecs accepts any entity id for this query.
     unsafe { raw::ecs_is_alive(world.0.as_ptr(), entity) }
 }
 
 pub(crate) fn lookup(world: WorldPtr, name: &CStr) -> u64 {
+    // SAFETY: the world is live and `name` is NUL-terminated for the call.
     unsafe { raw::ecs_lookup(world.0.as_ptr(), name.as_ptr()) }
 }
 
 pub(crate) fn delete_entity(world: WorldPtr, entity: u64) {
+    // SAFETY: the world is live and the safe owner serializes structural mutation.
     unsafe { raw::ecs_delete(world.0.as_ptr(), entity) };
 }
 
 pub(crate) fn add_id(world: WorldPtr, entity: u64, id: u64) {
+    // SAFETY: the world is live and the safe owner serializes structural mutation.
     unsafe { raw::ecs_add_id(world.0.as_ptr(), entity, id) };
 }
 
 pub(crate) fn remove_id(world: WorldPtr, entity: u64, id: u64) {
+    // SAFETY: the world is live and the safe owner serializes structural mutation.
     unsafe { raw::ecs_remove_id(world.0.as_ptr(), entity, id) };
 }
 
 pub(crate) fn has_id(world: WorldPtr, entity: u64, id: u64) -> bool {
+    // SAFETY: the world is live and Flecs accepts typed ids for this query.
     unsafe { raw::ecs_has_id(world.0.as_ptr(), entity, id) }
 }
 
 pub(crate) fn make_pair(first: u64, second: u64) -> u64 {
+    // SAFETY: Flecs accepts the two entity ids by value and returns an encoded id.
     unsafe { raw::ecs_make_pair(first, second) }
 }
 
 pub(crate) fn mark_sparse(world: WorldPtr, component: u64) {
+    // SAFETY: Flecs initializes this builtin id before any world is returned and
+    // treats it as immutable process-wide metadata thereafter.
     let sparse = unsafe { raw::EcsSparse };
     add_id(world, component, sparse);
 }
 
 pub(crate) fn mark_inheritable(world: WorldPtr, component: u64) {
+    // SAFETY: Flecs initializes this builtin id before world creation and does
+    // not mutate it during normal runtime operation.
     let on_instantiate = unsafe { raw::EcsOnInstantiate };
+    // SAFETY: Flecs initializes this builtin id before world creation and does
+    // not mutate it during normal runtime operation.
     let inherit = unsafe { raw::EcsInherit };
     add_id(world, component, make_pair(on_instantiate, inherit));
 }
 
 pub(crate) fn add_is_a(world: WorldPtr, entity: u64, base: u64) {
+    // SAFETY: Flecs initializes this builtin id before world creation and does
+    // not mutate it during normal runtime operation.
     let is_a = unsafe { raw::EcsIsA };
     add_id(world, entity, make_pair(is_a, base));
 }
 
 pub(crate) fn set_component<T: Component>(world: WorldPtr, entity: u64, id: u64, value: &T) {
+    // SAFETY: `id` was registered with the exact layout of `T`, `value` remains
+    // readable for that size, and the safe owner serializes world mutation.
     unsafe {
         raw::ecs_set_id(
             world.0.as_ptr(),
@@ -160,10 +188,14 @@ pub(crate) fn set_component<T: Component>(world: WorldPtr, entity: u64, id: u64,
 }
 
 pub(crate) fn get_component<T: Component>(world: WorldPtr, entity: u64, id: u64) -> Option<T> {
+    // SAFETY: the world is live and `id` is registered with the exact layout of
+    // `T`; Flecs returns null when the entity lacks the component.
     let pointer = unsafe { raw::ecs_get_id(world.0.as_ptr(), entity, id) }.cast::<T>();
     if pointer.is_null() {
         None
     } else {
+        // SAFETY: the non-null Flecs pointer addresses an initialized `T`; `T`
+        // is `Copy`, so reading does not move ownership out of ECS storage.
         Some(unsafe { pointer.read() })
     }
 }
@@ -177,12 +209,20 @@ pub(crate) fn with_component_mut<T, R>(
 where
     T: Component,
 {
+    // SAFETY: the world is live and `id` is registered with the exact layout of
+    // `T`; Flecs returns null when mutable storage is unavailable.
     let pointer = unsafe { raw::ecs_get_mut_id(world.0.as_ptr(), entity, id) }.cast::<T>();
     if pointer.is_null() {
         return None;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| callback(unsafe { &mut *pointer })));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: the safe API holds exclusive world access and Flecs returned
+        // unique component storage for the duration of this callback.
+        callback(unsafe { &mut *pointer })
+    }));
+    // SAFETY: the world and component storage remain live after the callback;
+    // this marks the exact id returned by `ecs_get_mut_id` as modified.
     unsafe { raw::ecs_modified_id(world.0.as_ptr(), entity, id) };
     match result {
         Ok(value) => Some(value),
@@ -191,6 +231,8 @@ where
 }
 
 pub(crate) fn builtin_phase(world: WorldKey, phase: BuiltinPhase) -> PhaseId {
+    // SAFETY: Flecs initializes all builtin phase ids before returning a world
+    // and treats them as immutable process-wide metadata thereafter.
     let raw = unsafe {
         match phase {
             BuiltinPhase::OnStart => raw::EcsOnStart,
@@ -210,10 +252,16 @@ pub(crate) fn builtin_phase(world: WorldKey, phase: BuiltinPhase) -> PhaseId {
 }
 
 pub(crate) fn configure_phase(world: WorldPtr, entity: u64, after: Option<u64>) {
+    // SAFETY: the world is live, `entity` was just created as a phase, and Flecs
+    // initializes the builtin id before returning the world.
     unsafe { raw::ecs_add_id(world.0.as_ptr(), entity, raw::EcsPhase) };
     if let Some(after) = after {
+        // SAFETY: Flecs initializes this builtin id before world creation and
+        // treats it as immutable runtime metadata.
         let depends_on = unsafe { raw::EcsDependsOn };
+        // SAFETY: both ids are valid phase metadata encoded by Flecs.
         let pair = unsafe { raw::ecs_make_pair(depends_on, after) };
+        // SAFETY: the world is live and phase graph mutation is serialized.
         unsafe { raw::ecs_add_id(world.0.as_ptr(), entity, pair) };
     }
 }
@@ -223,11 +271,15 @@ pub(crate) fn create_query(world: WorldPtr, expression: &CStr) -> Option<QueryPt
         expr: expression.as_ptr(),
         ..raw::ecs_query_desc_t::default()
     };
+    // SAFETY: the world is live, the expression is NUL-terminated, and the
+    // descriptor remains readable during synchronous query initialization.
     NonNull::new(unsafe { raw::ecs_query_init(world.0.as_ptr(), &raw const descriptor) })
         .map(QueryPtr)
 }
 
 pub(crate) fn destroy_query(query: QueryPtr) {
+    // SAFETY: ownership of this live query is transferred here after iteration
+    // has ended and it is finalized exactly once.
     unsafe { raw::ecs_query_fini(query.0.as_ptr()) };
 }
 
@@ -239,19 +291,26 @@ pub(crate) fn create_pipeline(world: WorldPtr, entity: u64, expression: &CStr) -
             ..raw::ecs_query_desc_t::default()
         },
     };
+    // SAFETY: the world is live, the expression is NUL-terminated, and the
+    // descriptor remains readable during synchronous pipeline initialization.
     NonNullId::new(unsafe { raw::ecs_pipeline_init(world.0.as_ptr(), &raw const descriptor) })
         .map(NonNullId::get)
 }
 
 pub(crate) fn set_pipeline(world: WorldPtr, pipeline: u64) {
+    // SAFETY: the world is live and `pipeline` was created in that world.
     unsafe { raw::ecs_set_pipeline(world.0.as_ptr(), pipeline) };
 }
 
 pub(crate) fn progress(world: WorldPtr, delta: TickDelta) -> bool {
+    // SAFETY: the world is live, exclusively owned by the simulation thread,
+    // and `delta` is a validated fixed-step duration.
     unsafe { raw::ecs_progress(world.0.as_ptr(), delta.seconds()) }
 }
 
 pub(crate) fn run_pipeline(world: WorldPtr, pipeline: u64, delta: TickDelta) {
+    // SAFETY: the world is live and exclusively owned, `pipeline` belongs to it,
+    // and `delta` is a validated fixed-step duration.
     unsafe { raw::ecs_run_pipeline(world.0.as_ptr(), pipeline, delta.seconds()) };
 }
 
@@ -298,6 +357,8 @@ pub(crate) struct WorldStatsSample {
 
 #[cfg(feature = "metrics")]
 pub(crate) fn sample_world_stats(world: WorldPtr, state: &mut WorldStatsState) -> WorldStatsSample {
+    // SAFETY: the world is live and `state.stats` is a valid, uniquely writable
+    // persistent stats record required by Flecs's sampling API.
     unsafe { raw::ecs_world_stats_get(world.0.as_ptr(), state.stats.as_mut()) };
     let index = usize::try_from(state.stats.t)
         .ok()
@@ -331,11 +392,15 @@ pub(crate) fn sample_world_stats(world: WorldPtr, state: &mut WorldStatsState) -
 
 #[cfg(feature = "metrics")]
 fn metric_gauge(metric: &raw::ecs_metric_t, index: usize) -> f64 {
+    // SAFETY: `index` is checked against `ECS_STAT_WINDOW` and the metric tag
+    // selects the gauge union field supplied by this caller.
     f64::from(unsafe { metric.gauge.avg[index] })
 }
 
 #[cfg(feature = "metrics")]
 fn metric_counter_rate(metric: &raw::ecs_metric_t, index: usize) -> f64 {
+    // SAFETY: `index` is checked against `ECS_STAT_WINDOW` and the metric tag
+    // selects the counter union field supplied by this caller.
     f64::from(unsafe { metric.counter.rate.avg[index] })
 }
 
@@ -644,13 +709,25 @@ macro_rules! impl_plain_field {
 }
 
 impl_plain_field!(Read, Access::Read, &'a T, |resolved: &'a ResolvedField| {
-    unsafe { &*required_pointer::<T>(resolved) }
+    // SAFETY: projection validation established a present, aligned field with
+    // the exact layout of `T` for this row.
+    let pointer = unsafe { required_pointer::<T>(resolved) };
+    // SAFETY: read projections may alias only other reads, as checked once for
+    // the resolved batch before materialization.
+    unsafe { &*pointer }
 });
 impl_plain_field!(
     Write,
     Access::Write,
     &'a mut T,
-    |resolved: &'a ResolvedField| { unsafe { &mut *required_pointer::<T>(resolved) } }
+    |resolved: &'a ResolvedField| {
+        // SAFETY: projection validation established a present, aligned field
+        // with the exact layout of `T` for this row.
+        let pointer = unsafe { required_pointer::<T>(resolved) };
+        // SAFETY: alias validation guarantees this mutable projection is unique
+        // for the duration of row materialization.
+        unsafe { &mut *pointer }
+    }
 );
 
 impl<T: Component> sealed::Sealed for PairRead<T> {}
@@ -670,14 +747,21 @@ impl<T: Component> FieldProjection for PairRead<T> {
     }
 
     unsafe fn value<'a>(resolved: &'a ResolvedField, world: WorldKey) -> Self::Value<'a> {
+        // SAFETY: pair-shape validation populated the pair metadata for this
+        // required field before materialization.
         let (relation, target) = unsafe { required_pair(resolved) };
+        // SAFETY: component layout, alignment, presence, and row selection were
+        // validated before this projection was materialized.
+        let pointer = unsafe { required_pointer::<T>(resolved) };
+        // SAFETY: alias validation permits shared access for this read projection.
+        let value = unsafe { &*pointer };
         PairRef {
             relation: EntityId {
                 raw: relation,
                 world,
             },
             target: EntityId { raw: target, world },
-            value: unsafe { &*required_pointer::<T>(resolved) },
+            value,
         }
     }
 }
@@ -699,20 +783,29 @@ impl<T: Component> FieldProjection for PairWrite<T> {
     }
 
     unsafe fn value<'a>(resolved: &'a ResolvedField, world: WorldKey) -> Self::Value<'a> {
+        // SAFETY: pair-shape validation populated the pair metadata for this
+        // required field before materialization.
         let (relation, target) = unsafe { required_pair(resolved) };
+        // SAFETY: component layout, alignment, presence, and row selection were
+        // validated before this projection was materialized.
+        let pointer = unsafe { required_pointer::<T>(resolved) };
+        // SAFETY: alias validation guarantees unique access for this write projection.
+        let value = unsafe { &mut *pointer };
         PairMut {
             relation: EntityId {
                 raw: relation,
                 world,
             },
             target: EntityId { raw: target, world },
-            value: unsafe { &mut *required_pointer::<T>(resolved) },
+            value,
         }
     }
 }
 
 unsafe fn required_pointer<T>(resolved: &ResolvedField) -> *mut T {
     let Some(pointer) = resolved.pointer else {
+        // SAFETY: callers may invoke this helper only for a required/present
+        // projection; reaching this branch violates that internal invariant.
         unsafe { std::hint::unreachable_unchecked() }
     };
     pointer.as_ptr().cast::<T>()
@@ -720,6 +813,8 @@ unsafe fn required_pointer<T>(resolved: &ResolvedField) -> *mut T {
 
 unsafe fn required_pair(resolved: &ResolvedField) -> (u64, u64) {
     let Some(pair) = resolved.pair else {
+        // SAFETY: callers may invoke this helper only after pair-shape
+        // validation populated the metadata.
         unsafe { std::hint::unreachable_unchecked() }
     };
     pair
@@ -742,9 +837,11 @@ impl<F: FieldProjection> FieldProjection for Optional<F> {
     }
 
     unsafe fn value<'a>(resolved: &'a ResolvedField, world: WorldKey) -> Self::Value<'a> {
-        resolved
-            .pointer
-            .map(|_| unsafe { F::value(resolved, world) })
+        resolved.pointer.map(|_| {
+            // SAFETY: a present optional field passed the same layout,
+            // access, alias, and row validation as a required projection.
+            unsafe { F::value(resolved, world) }
+        })
     }
 }
 
@@ -863,6 +960,7 @@ fn resolve_batch_field(
             spec.index,
         )));
     }
+    // SAFETY: `spec.index` was checked against this live iterator's field count.
     if unsafe { raw::ecs_field_is_set(iterator.0.as_ptr(), spec.index) } {
         resolve_present_batch_field(iterator, iter, spec)
     } else if spec.optional {
@@ -884,7 +982,9 @@ fn resolve_present_batch_field(
     spec: FieldSpec,
 ) -> Result<BatchField, Error> {
     validate_access(iterator, spec)?;
+    // SAFETY: `spec.index` was checked against this live iterator's field count.
     let field_id = unsafe { raw::ecs_field_id(iterator.0.as_ptr(), spec.index) };
+    // SAFETY: `field_id` was returned by Flecs for the current iterator field.
     let is_pair = unsafe { raw::ecs_id_is_pair(field_id) };
     if is_pair != (spec.shape == Shape::Pair) {
         return Err(Error::Projection(ProjectionError::UnexpectedPair(
@@ -914,6 +1014,8 @@ fn validate_field_type(
     is_pair: bool,
 ) -> Result<(), Error> {
     let actual_type = if is_pair {
+        // SAFETY: `real_world` is the iterator's live world and `field_id` was
+        // returned by Flecs and confirmed to encode a pair.
         unsafe { raw::ecs_get_typeid(real_world.as_ptr(), field_id) }
     } else {
         field_id
@@ -923,6 +1025,7 @@ fn validate_field_type(
             spec.index,
         )));
     }
+    // SAFETY: `spec.index` was checked against this live iterator's field count.
     if unsafe { raw::ecs_field_size(iterator.0.as_ptr(), spec.index) } != spec.size {
         return Err(Error::Projection(ProjectionError::SizeMismatch(spec.index)));
     }
@@ -947,10 +1050,13 @@ fn field_location(
     }
 
     let pointer = NonNull::new(
+        // SAFETY: the iterator is positioned on a live table and the field index
+        // and exact registered component size were validated above.
         unsafe { raw::ecs_field_w_size(iterator.0.as_ptr(), spec.size, spec.index) }.cast::<u8>(),
     )
     .ok_or(Error::Projection(ProjectionError::NullField(spec.index)))?;
     validate_alignment(pointer, spec)?;
+    // SAFETY: `spec.index` was checked against this live iterator's field count.
     if unsafe { raw::ecs_field_is_self(iterator.0.as_ptr(), spec.index) } {
         Ok(FieldLocation::Dense(pointer))
     } else {
@@ -968,10 +1074,14 @@ fn resolve_row_field(
         FieldLocation::Missing => None,
         FieldLocation::Shared(pointer) => Some(pointer),
         FieldLocation::Dense(base) => {
+            // SAFETY: `row_index` is below the iterator row count, `base` points
+            // to the first dense element, and overflow is conservatively saturated.
             Some(unsafe { base.add(row_index.saturating_mul(field.spec.size)) })
         }
         FieldLocation::Sparse => {
             let pointer = NonNull::new(
+                // SAFETY: the iterator is positioned on this row and field; its
+                // index and exact component size were validated for the batch.
                 unsafe {
                     raw::ecs_field_at_w_size(
                         iterator.0.as_ptr(),
@@ -1008,14 +1118,17 @@ fn validate_alignment(pointer: NonNull<u8>, spec: FieldSpec) -> Result<(), Error
 fn validate_access(iterator: IterPtr, spec: FieldSpec) -> Result<(), Error> {
     match spec.access {
         Access::Read => {
+            // SAFETY: `spec.index` was checked against this live iterator's field count.
             if unsafe { raw::ecs_field_is_writeonly(iterator.0.as_ptr(), spec.index) } {
                 return Err(Error::Projection(ProjectionError::WriteOnly(spec.index)));
             }
         }
         Access::Write => {
+            // SAFETY: `spec.index` was checked against this live iterator's field count.
             if unsafe { raw::ecs_field_is_readonly(iterator.0.as_ptr(), spec.index) } {
                 return Err(Error::Projection(ProjectionError::ReadOnly(spec.index)));
             }
+            // SAFETY: `spec.index` was checked against this live iterator's field count.
             if !unsafe { raw::ecs_field_is_self(iterator.0.as_ptr(), spec.index) } {
                 return Err(Error::Projection(ProjectionError::SharedWrite(spec.index)));
             }
@@ -1029,7 +1142,9 @@ fn pair_parts(world: NonNull<raw::ecs_world_t>, pair: u64) -> (u64, u64) {
     let first = component_bits >> 32;
     let second = component_bits & u64::from(u32::MAX);
     (
+        // SAFETY: `world` is live and Flecs accepts the decoded pair element id.
         unsafe { raw::ecs_get_alive(world.as_ptr(), first) },
+        // SAFETY: `world` is live and Flecs accepts the decoded pair element id.
         unsafe { raw::ecs_get_alive(world.as_ptr(), second) },
     )
 }
@@ -1073,6 +1188,8 @@ where
     P: Projection,
     F: for<'a> FnMut(EntityId, P::Item<'a>) -> Result<(), Error>,
 {
+    // SAFETY: both world and query are live and belong together; the returned
+    // iterator value is owned by this stack frame until finalized/exhausted.
     let mut iterator = unsafe { raw::ecs_query_iter(world.0.as_ptr(), query.0.as_ptr()) };
     let iterator_ptr = IterPtr(NonNull::from(&mut iterator));
     let mut guard = IteratorGuard {
@@ -1081,6 +1198,8 @@ where
     };
 
     loop {
+        // SAFETY: `iterator_ptr` points to the live iterator value above and is
+        // advanced only serially by this loop.
         if !unsafe { raw::ecs_query_next(iterator_ptr.0.as_ptr()) } {
             guard.exhausted = true;
             break;
@@ -1097,7 +1216,13 @@ where
             if row != 0 {
                 fields.resolve_row(iterator_ptr, row, row_index)?;
             }
-            let entity = unsafe { *iterator.entities.add(row_index) };
+            // SAFETY: `row_index` is below the positive iterator count and Flecs
+            // provides an entity array of that length.
+            let entity_pointer = unsafe { iterator.entities.add(row_index) };
+            // SAFETY: `entity_pointer` identifies the initialized entity id for this row.
+            let entity = unsafe { *entity_pointer };
+            // SAFETY: all field layout/access/alias invariants were validated for
+            // this row and remain live only for the callback invocation.
             let item = unsafe { P::materialize(fields.resolved(), world_key) };
             callback(
                 EntityId {
@@ -1119,6 +1244,8 @@ struct IteratorGuard {
 impl Drop for IteratorGuard {
     fn drop(&mut self) {
         if !self.exhausted {
+            // SAFETY: the guard uniquely owns a non-exhausted live iterator and
+            // finalizes it exactly once on early exit.
             unsafe { raw::ecs_iter_fini(self.iterator.0.as_ptr()) };
         }
     }
@@ -1320,8 +1447,12 @@ where
         callback_ctx_free: Some(drop_callback_context::<P, F>),
         ..raw::ecs_system_desc_t::default()
     };
+    // SAFETY: the world is live, descriptor strings and callback metadata remain
+    // valid for initialization, and ownership of `context_pointer` transfers on success.
     let system = unsafe { raw::ecs_system_init(world.0.as_ptr(), &raw const descriptor) };
     if system == 0 {
+        // SAFETY: initialization failed before Flecs took ownership, so this is
+        // still the unique pointer returned by `Box::into_raw` above.
         unsafe {
             drop(Box::from_raw(
                 context_pointer.cast::<CallbackContext<P, F>>(),
@@ -1364,8 +1495,12 @@ where
         multi_threaded: true,
         ..raw::ecs_system_desc_t::default()
     };
+    // SAFETY: the world is live, descriptor strings and callback metadata remain
+    // valid for initialization, and ownership of `context_pointer` transfers on success.
     let system = unsafe { raw::ecs_system_init(world.0.as_ptr(), &raw const descriptor) };
     if system == 0 {
+        // SAFETY: initialization failed before Flecs took ownership, so this is
+        // still the unique pointer returned by `Box::into_raw` above.
         unsafe {
             drop(Box::from_raw(
                 context_pointer.cast::<CallbackContext<P, F>>(),
@@ -1379,6 +1514,8 @@ where
 
 unsafe extern "C" fn drop_callback_context<P, F>(context: *mut c_void) {
     if !context.is_null() {
+        // SAFETY: Flecs invokes this callback exactly once with the pointer whose
+        // ownership transferred after successful system initialization.
         let context = unsafe { Box::from_raw(context.cast::<CallbackContext<P, F>>()) };
         let failure = Arc::clone(&context.failure);
         let system_name = context.system_name.clone();
@@ -1406,6 +1543,7 @@ where
     let Some(iterator) = NonNull::new(iterator) else {
         return;
     };
+    // SAFETY: Flecs supplies a live iterator for the synchronous callback.
     let context_pointer = unsafe { iterator.as_ref().callback_ctx };
     let Some(context) = context_pointer.cast::<CallbackContext<P, F>>().as_ref() else {
         return;
@@ -1415,6 +1553,8 @@ where
         "blackflower_ecs::system_callback",
         context.system_name.as_str()
     );
+    // SAFETY: Flecs supplies a live iterator whose world field is valid for the
+    // duration of this synchronous callback.
     let Some(stage) = NonNull::new(unsafe { iterator.as_ref().world }) else {
         context.failure.record(
             RunError::new(
@@ -1426,6 +1566,7 @@ where
         return;
     };
     run_system_rows::<P, _>(iterator, context, |iter, entity, item| {
+        // SAFETY: `iter` is the same live callback iterator supplied by Flecs.
         let delta = TickDelta::from_flecs(unsafe { iter.as_ref().delta_time });
         let commands = Commands {
             stage: WorldPtr(stage),
@@ -1445,6 +1586,7 @@ where
     let Some(iterator) = NonNull::new(iterator) else {
         return;
     };
+    // SAFETY: Flecs supplies a live iterator for the synchronous callback.
     let context_pointer = unsafe { iterator.as_ref().callback_ctx };
     let Some(context) = context_pointer.cast::<CallbackContext<P, F>>().as_ref() else {
         return;
@@ -1455,7 +1597,9 @@ where
         context.system_name.as_str()
     );
     run_system_rows::<P, _>(iterator, context, |iter, entity, item| {
+        // SAFETY: `iter` is the same live callback iterator supplied by Flecs.
         let iter_ref = unsafe { iter.as_ref() };
+        // SAFETY: `iter_ref.world` is the live Flecs stage for this worker callback.
         let worker = unsafe { raw::ecs_stage_get_id(iter_ref.world) };
         let worker_index = u32::try_from(worker).unwrap_or_default();
         (context.callback)(
@@ -1481,6 +1625,7 @@ fn run_system_rows<P, F>(
         return;
     }
     let iter_ptr = IterPtr(iterator);
+    // SAFETY: `iterator` is live for the duration of the synchronous Flecs callback.
     let iter = unsafe { iterator.as_ref() };
     if iter.count <= 0 {
         return;
@@ -1550,10 +1695,17 @@ where
     P: Projection,
     F: for<'a> Fn(NonNull<raw::ecs_iter_t>, EntityId, P::Item<'a>) -> SystemResult,
 {
+    // SAFETY: `row_index` is below `iter.count` and Flecs supplies an entity
+    // array with one initialized id per row.
+    let entity_pointer = unsafe { iter.entities.add(row_index) };
+    // SAFETY: `entity_pointer` identifies the initialized id for this row.
+    let entity_raw = unsafe { *entity_pointer };
     let entity = EntityId {
-        raw: unsafe { *iter.entities.add(row_index) },
+        raw: entity_raw,
         world: context.world,
     };
+    // SAFETY: the field batch validated layout, access, and aliasing for this row
+    // and the resulting borrows do not escape the synchronous callback.
     let item = unsafe { P::materialize(resolved, context.world) };
     match catch_unwind(AssertUnwindSafe(|| callback(iterator, entity, item))) {
         Ok(Ok(())) => Ok(()),

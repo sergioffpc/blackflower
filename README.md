@@ -112,7 +112,8 @@ cargo run --package blackflower-server --locked -- \
 ```
 
 Use `1`-`6` or `Tab` to change panels, `?` for the complete key map, and `q` or
-`Ctrl-C` for orderly terminal restoration and shutdown. See the
+`Ctrl-C` for orderly terminal restoration and shutdown. Unix `SIGTERM` follows
+the same orderly shutdown path. See the
 [observability policy](docs/observability.md#foreground-diagnostics) for the
 data and isolation contract.
 

@@ -1,5 +1,7 @@
 use std::io::IsTerminal as _;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result, bail};
 use blackflower_observability::{
@@ -78,15 +80,13 @@ async fn run_application(
     observability: &mut ObservabilityGuard,
 ) -> Result<()> {
     if arguments.foreground {
-        run_foreground(arguments, config, metrics_address, observability)
+        run_foreground(arguments, config, metrics_address, observability).await
     } else {
-        tokio::signal::ctrl_c()
-            .await
-            .context("failed to wait for shutdown signal")
+        shutdown_signal().await
     }
 }
 
-fn run_foreground(
+async fn run_foreground(
     arguments: &Arguments,
     config: &ObservabilityConfig,
     metrics_address: Option<std::net::SocketAddr>,
@@ -96,7 +96,9 @@ fn run_foreground(
     let (log_receiver, log_control) = observability
         .take_foreground_logs()
         .context("foreground log capture is disabled")?;
-    foreground::run(ForegroundConfig {
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    let foreground_shutdown = Arc::clone(&shutdown_requested);
+    let foreground_config = ForegroundConfig {
         service_name: config.service_name(),
         service_version: env!("CARGO_PKG_VERSION"),
         metrics_address,
@@ -104,8 +106,48 @@ fn run_foreground(
         log_control,
         initial_view_level: arguments.log_level,
         initial_log_regex: arguments.log_regex.clone(),
-    })
-    .context("foreground mode failed")
+        shutdown_requested: foreground_shutdown,
+    };
+    let mut foreground_task =
+        tokio::task::spawn_blocking(move || foreground::run(foreground_config));
+
+    tokio::select! {
+        result = &mut foreground_task => result
+            .context("foreground task panicked")?
+            .context("foreground mode failed"),
+        signal_result = shutdown_signal() => {
+            shutdown_requested.store(true, Ordering::Release);
+            let foreground_result = foreground_task
+                .await
+                .context("foreground task panicked")?;
+            signal_result?;
+            foreground_result.context("foreground mode failed")
+        }
+    }
+}
+
+async fn shutdown_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .context("failed to install SIGTERM handler")?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                result.context("failed to wait for SIGINT")
+            }
+            signal = terminate.recv() => {
+                signal.context("SIGTERM signal stream closed")
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .context("failed to wait for shutdown signal")
+    }
 }
 
 fn parse_log_level(value: &str) -> Result<ForegroundLogLevel, String> {

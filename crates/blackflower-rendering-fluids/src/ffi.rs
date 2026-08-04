@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw Flow calls, callbacks, and native pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Flow FFI boundary"
-)]
-
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_void};
 use std::marker::PhantomData;
@@ -40,6 +34,11 @@ use crate::{
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Flow wrapper headers"
 )]
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/flow_bindings.rs"));
@@ -84,9 +83,13 @@ impl<B: Backend> NativeContext<B> {
         });
         let callbacks = callbacks::<B>((&mut *state as *mut State<B>).cast());
         let mut pointer = std::ptr::null_mut();
+        // SAFETY: callbacks remain valid for the context lifetime, their userdata
+        // points to the stable boxed state, and `pointer` is uniquely writable.
         check(unsafe { raw::bf_flow_context_create(&callbacks, &mut pointer) })?;
         let pointer = NonNull::new(pointer).ok_or(Error::NativeContract)?;
         if let Err(error) = state.take_error() {
+            // SAFETY: the newly created context is uniquely owned and no callback
+            // can run after its matching destructor returns.
             unsafe { raw::bf_flow_context_destroy(pointer.as_ptr()) };
             return Err(error);
         }
@@ -99,6 +102,8 @@ impl<B: Backend> NativeContext<B> {
 
     pub(crate) fn set_min_resource_lifetime(&mut self, frames: u64) -> Result<(), Error> {
         self.state.reset_error();
+        // SAFETY: the context is live and exclusively borrowed; the wrapper
+        // accepts the lifetime as a by-value frame count.
         check(unsafe {
             raw::bf_flow_context_set_min_resource_lifetime(self.pointer.as_ptr(), frames)
         })?;
@@ -107,6 +112,8 @@ impl<B: Backend> NativeContext<B> {
 
     pub(crate) fn flush(&mut self) -> Result<(), Error> {
         self.state.reset_error();
+        // SAFETY: the context is live and exclusively borrowed while the
+        // synchronous flush may invoke its registered callbacks.
         let status = unsafe { raw::bf_flow_context_flush(self.pointer.as_ptr()) };
         self.state.take_error()?;
         check(status)
@@ -114,6 +121,8 @@ impl<B: Backend> NativeContext<B> {
 
     pub(crate) fn validate_upload(&mut self, size_in_bytes: u64) -> Result<(), Error> {
         self.state.reset_error();
+        // SAFETY: the context is live and exclusively borrowed while the
+        // synchronous validation may invoke its registered callbacks.
         let status =
             unsafe { raw::bf_flow_context_validate_upload(self.pointer.as_ptr(), size_in_bytes) };
         self.state.take_error()?;
@@ -131,15 +140,20 @@ impl<B: Backend> NativeContext<B> {
 
 impl<B: Backend> Drop for NativeContext<B> {
     fn drop(&mut self) {
+        // SAFETY: this context is uniquely owned, all callbacks are synchronous,
+        // and the boxed callback state outlives the matching destructor call.
         unsafe { raw::bf_flow_context_destroy(self.pointer.as_ptr()) };
     }
 }
 
 pub(crate) fn flow_version() -> &'static str {
+    // SAFETY: the wrapper returns either null or a process-lifetime version string.
     let pointer = unsafe { raw::bf_flow_version() };
     if pointer.is_null() {
         return "unknown";
     }
+    // SAFETY: the non-null pointer above addresses the wrapper's NUL-terminated
+    // process-lifetime version string.
     unsafe { CStr::from_ptr(pointer) }
         .to_str()
         .unwrap_or("unknown")
@@ -178,6 +192,8 @@ fn invoke<B: Backend, T>(
     fallback: T,
     operation: impl FnOnce(&mut State<B>) -> Result<T, BackendError>,
 ) -> T {
+    // SAFETY: every registered callback receives the stable userdata pointer
+    // created from the live boxed `State<B>` and callbacks are serialized by Flow.
     let state = unsafe { state_mut::<B>(userdata) };
     match catch_unwind(AssertUnwindSafe(|| operation(state))) {
         Ok(Ok(value)) => value,
@@ -560,6 +576,8 @@ fn label<'a>(pointer: *const std::ffi::c_char) -> Option<&'a str> {
     if pointer.is_null() {
         None
     } else {
+        // SAFETY: Flow callback descriptors supply either null or a valid
+        // NUL-terminated label for the duration of the callback.
         unsafe { CStr::from_ptr(pointer) }.to_str().ok()
     }
 }
