@@ -47,17 +47,9 @@ Run the interactive metrics and logs dashboard in a terminal:
 cargo run --package blackflower-server --locked -- --foreground
 ```
 
-Set the initial capture/view level and structured-log regex when needed:
-
-```bash
-cargo run --package blackflower-server --locked -- \
-  --foreground \
-  --log-level debug \
-  --log-regex 'network|deadline'
-```
-
-`--log-level` accepts `off`, `error`, `warn`, `info`, `debug`, or `trace`.
-Foreground mode requires interactive standard input and output.
+Log capture and view levels start at `INFO`, with no regex, and are configured
+inside the Logs panel. Foreground mode requires interactive standard input and
+output.
 
 The dashboard exposes Overview, Logs, Simulation, Network, World, and Host
 pages. Its primary controls are:

@@ -184,18 +184,25 @@ pub struct ObservabilityGuard {
     service_version: &'static str,
     prometheus_listener_active: bool,
     host_metrics_active: bool,
-    dropped_log_lines: ErrorCounter,
     foreground_log_receiver: Option<std::sync::mpsc::Receiver<ForegroundLogEvent>>,
     foreground_log_control: Option<ForegroundLogControl>,
     _host_metrics_collector: Option<HostMetricsCollector>,
-    _writer_guard: WorkerGuard,
+    formatted_log_output: Option<FormattedLogOutput>,
 }
 
 impl ObservabilityGuard {
     /// Return the number of log records dropped because the queue was full.
     #[must_use]
     pub fn dropped_log_lines(&self) -> usize {
-        self.dropped_log_lines.dropped_lines()
+        self.formatted_log_output
+            .as_ref()
+            .map_or(0, |output| output.dropped_log_lines.dropped_lines())
+    }
+
+    /// Report whether formatted process logs can write to the terminal.
+    #[must_use]
+    pub const fn formatted_log_output_active(&self) -> bool {
+        self.formatted_log_output.is_some()
     }
 
     /// Report whether this process installed its Prometheus listener.
@@ -258,13 +265,11 @@ impl Drop for ObservabilityGuard {
 /// `profile-with-tracy` feature maps `profiling` scopes to tracing spans and
 /// installs a `tracing-tracy` layer.
 pub fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard, InitError> {
-    let (writer, writer_guard) = NonBlockingBuilder::default()
-        .buffered_lines_limit(config.log_buffer_lines)
-        .lossy(true)
-        .thread_name("blackflower-log-writer")
-        .finish(std::io::stderr());
-    let dropped_log_lines = writer.error_counter();
-    let foreground_logs = install_tracing(config, writer)?;
+    let formatted_log_output = create_formatted_log_output(config);
+    let formatted_writer = formatted_log_output
+        .as_ref()
+        .map(|output| output.writer.clone());
+    let foreground_logs = install_tracing(config, formatted_writer)?;
 
     let prometheus_listener_active = match install_metrics(config.metrics_bind_address) {
         Ok(active) => active,
@@ -304,10 +309,32 @@ pub fn init(config: &ObservabilityConfig) -> Result<ObservabilityGuard, InitErro
         service_version: config.service_version,
         prometheus_listener_active,
         host_metrics_active,
-        dropped_log_lines,
         foreground_log_receiver,
         foreground_log_control,
         _host_metrics_collector: host_metrics_collector,
+        formatted_log_output,
+    })
+}
+
+struct FormattedLogOutput {
+    writer: NonBlocking,
+    dropped_log_lines: ErrorCounter,
+    _writer_guard: WorkerGuard,
+}
+
+fn create_formatted_log_output(config: &ObservabilityConfig) -> Option<FormattedLogOutput> {
+    if config.foreground_logs_enabled() {
+        return None;
+    }
+    let (writer, writer_guard) = NonBlockingBuilder::default()
+        .buffered_lines_limit(config.log_buffer_lines)
+        .lossy(true)
+        .thread_name("blackflower-log-writer")
+        .finish(std::io::stderr());
+    let dropped_log_lines = writer.error_counter();
+    Some(FormattedLogOutput {
+        writer,
+        dropped_log_lines,
         _writer_guard: writer_guard,
     })
 }
@@ -338,32 +365,32 @@ fn install_metrics(
 
 fn install_tracing(
     config: &ObservabilityConfig,
-    writer: NonBlocking,
+    writer: Option<NonBlocking>,
 ) -> Result<Option<foreground_logs::ForegroundLogs>, InitError> {
-    let filter = if config.foreground_logs_enabled() {
-        EnvFilter::new("off")
-    } else {
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_error| EnvFilter::new(config.default_log_filter))
-    };
-    let fmt_layer: Box<dyn Layer<Registry> + Send + Sync> = match config.log_format {
-        LogFormat::Compact => tracing_subscriber::fmt::layer()
-            .compact()
-            .with_ansi(true)
-            .with_writer(writer)
-            .boxed(),
-        LogFormat::Pretty => tracing_subscriber::fmt::layer()
-            .pretty()
-            .with_ansi(true)
-            .with_writer(writer)
-            .boxed(),
-    };
+    let fmt_layer: Option<Box<dyn Layer<Registry> + Send + Sync>> = writer.map(|writer| {
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_error| EnvFilter::new(config.default_log_filter));
+        match config.log_format {
+            LogFormat::Compact => tracing_subscriber::fmt::layer()
+                .compact()
+                .with_ansi(true)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed(),
+            LogFormat::Pretty => tracing_subscriber::fmt::layer()
+                .pretty()
+                .with_ansi(true)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed(),
+        }
+    });
     let (foreground_layer, foreground_logs) = config
         .foreground_log_capacity
         .map(|capacity| foreground_logs::channel(capacity, config.foreground_log_level))
         .map_or((None, None), |(layer, logs)| (Some(layer), Some(logs)));
     let subscriber = tracing_subscriber::registry()
-        .with(fmt_layer.with_filter(filter))
+        .with(fmt_layer)
         .with(foreground_layer);
     #[cfg(feature = "profile-with-tracy")]
     let subscriber = subscriber

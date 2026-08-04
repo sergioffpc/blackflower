@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 
-use blackflower_observability::{ForegroundLogControl, ForegroundLogEvent, ForegroundLogLevel};
+use blackflower_observability::{ForegroundLogControl, ForegroundLogEvent};
 
 pub use app::ForegroundError;
 
@@ -50,10 +50,6 @@ pub struct ForegroundConfig {
     pub log_receiver: Receiver<ForegroundLogEvent>,
     /// Dynamic foreground capture control.
     pub log_control: ForegroundLogControl,
-    /// Initial level applied to the log view.
-    pub initial_view_level: ForegroundLogLevel,
-    /// Optional initial regex applied to target, message, and fields.
-    pub initial_log_regex: Option<String>,
     /// Current client composition visible to the operator.
     pub capabilities: ClientCapabilities,
     /// Shutdown request shared with the native application loop.

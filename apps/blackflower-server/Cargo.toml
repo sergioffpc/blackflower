@@ -22,7 +22,6 @@ blackflower-world-simulation = { workspace = true, features = ["observability"] 
 anyhow.workspace = true
 clap.workspace = true
 ratatui.workspace = true
-regex.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true

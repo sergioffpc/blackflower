@@ -131,15 +131,9 @@ Each dashboard reads the same Prometheus exposition as an external collector.
 The default loopback ports are `9000` for the server, `9001` for an agent, and
 `9002` for the player client. The server provides Overview, Logs, Simulation,
 Network, World, and Host panels without requiring Prometheus, Grafana, or a
-separate host-exporter process. Set the initial structured log capture level and
-optional regex with:
-
-```sh
-cargo run --package blackflower-server --locked -- \
-    --foreground \
-    --log-level debug \
-    --log-regex 'network|deadline'
-```
+separate host-exporter process. Log capture and view levels start at `INFO`,
+with no regex. Configure them directly on the Logs panel with `L`, `l`, `/`,
+and `Escape`.
 
 Use `1`-`6` or `Tab` to change panels, `?` for the complete key map, and `q` or
 `Ctrl-C` for orderly terminal restoration and shutdown. Unix `SIGTERM` follows

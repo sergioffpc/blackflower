@@ -18,6 +18,11 @@ check_format() {
     cargo fmt --all -- --check
 }
 
+check_module_layout() {
+    printf 'Checking Rust module layout...\n'
+    "$script_directory/check-rust-module-layout.sh"
+}
+
 check_test_layout() {
     printf 'Checking Rust test layout...\n'
     "$script_directory/check-test-layout.sh"
@@ -45,6 +50,7 @@ run_tests() {
 case "$mode" in
     all)
         build_native_vendors
+        check_module_layout
         check_test_layout
         check_simulation_policy
         check_format
@@ -52,6 +58,7 @@ case "$mode" in
         run_tests
         ;;
     format)
+        check_module_layout
         check_test_layout
         check_simulation_policy
         check_format

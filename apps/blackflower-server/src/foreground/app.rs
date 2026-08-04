@@ -21,9 +21,6 @@ pub enum ForegroundError {
     /// The metrics polling worker could not be started.
     #[error("failed to start foreground metrics poller")]
     MetricsPoller(#[source] io::Error),
-    /// The initial log regex is invalid.
-    #[error("invalid foreground log regex")]
-    LogRegex(#[source] regex::Error),
     /// The terminal backend failed.
     #[error("foreground terminal failed")]
     Terminal(#[source] io::Error),
@@ -136,13 +133,7 @@ impl App {
     pub(crate) fn new(config: ForegroundConfig) -> Result<Self, ForegroundError> {
         let poller =
             MetricsPoller::start(config.metrics_address).map_err(ForegroundError::MetricsPoller)?;
-        let logs = LogState::new(
-            config.log_receiver,
-            config.log_control,
-            config.initial_view_level,
-            config.initial_log_regex.as_deref(),
-        )
-        .map_err(ForegroundError::LogRegex)?;
+        let logs = LogState::new(config.log_receiver, config.log_control);
         Ok(Self {
             service_name: config.service_name,
             service_version: config.service_version,

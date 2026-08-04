@@ -58,8 +58,6 @@ fn test_app() -> Result<App, Box<dyn Error>> {
         metrics_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         log_receiver,
         log_control: ForegroundLogControl::new(ForegroundLogLevel::Info),
-        initial_view_level: ForegroundLogLevel::Info,
-        initial_log_regex: None,
         capabilities: ClientCapabilities::shell(),
         shutdown_requested: Arc::new(AtomicBool::new(false)),
     })?)

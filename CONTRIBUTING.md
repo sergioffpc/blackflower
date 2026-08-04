@@ -24,6 +24,11 @@ the complete workspace test suite with the lockfile enforced.
 Any lint suppression must be narrow and include a reason. Do not weaken a
 workspace-wide lint to accommodate one call site.
 
+All maintained Rust packages use edition 2024 and its module file layout. Put a
+module in `src/foo.rs` and its children in `src/foo/`; do not create `mod.rs`.
+The module-layout check enforces this rule locally and in CI. Vendored and
+generated sources are outside this policy.
+
 ## Spatial conventions
 
 Engine, world, model, physics, navigation, and presentation code must follow

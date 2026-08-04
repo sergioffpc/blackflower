@@ -31,31 +31,21 @@ struct BufferedLogEvent {
 }
 
 impl LogState {
-    pub fn new(
-        receiver: Receiver<ForegroundLogEvent>,
-        control: ForegroundLogControl,
-        view_level: ForegroundLogLevel,
-        initial_filter: Option<&str>,
-    ) -> Result<Self, regex::Error> {
-        let filter_source = initial_filter.unwrap_or_default().to_owned();
-        let filter = if filter_source.is_empty() {
-            None
-        } else {
-            Some(Regex::new(&filter_source)?)
-        };
-        Ok(Self {
+    pub fn new(receiver: Receiver<ForegroundLogEvent>, control: ForegroundLogControl) -> Self {
+        let view_level = control.level();
+        Self {
             receiver,
             control,
             events: VecDeque::with_capacity(MAX_LOG_EVENTS),
             view_level,
-            filter_source,
-            filter,
+            filter_source: String::new(),
+            filter: None,
             filter_editor: None,
             follow: true,
             paused: false,
             scroll_from_bottom: 0,
             disconnected: false,
-        })
+        }
     }
 
     pub fn drain(&mut self) {

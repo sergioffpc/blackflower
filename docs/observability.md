@@ -121,16 +121,17 @@ sibling extension of `blackflower-observability`. The core observability crate
 therefore remains independent of Ratatui and executable-specific page models;
 each executable owns the mapping from its metric families to its panels.
 
-Foreground logging is a second bounded, lossy output of the process tracing
-subscriber. Formatted terminal logging is suppressed while the alternate
-screen is active so it cannot corrupt the UI. `--log-level` sets both the
-initial capture and view thresholds. On the Logs panel, `l` changes only the
-view threshold, `L` changes capture, `/` compiles a regex over target, message,
-and structured fields, `p` pauses/resumes following, `End` resumes following,
-and `c` clears the local 10,000-event buffer. Regexes are compiled only when
-edited, not for each record. Release builds statically disable `DEBUG` and
-`TRACE` through the workspace tracing configuration even if a foreground
-threshold requests them.
+Foreground logging is a bounded, lossy output of the process tracing
+subscriber. Foreground configuration does not create the formatted log writer
+or install its layer, so process logs cannot write to stdout or stderr before,
+during, or after the alternate screen. Capture and view thresholds start at
+`INFO`, with no regex, and are configured only inside the Logs panel: `l`
+changes the view threshold, `L` changes capture, `/` compiles a regex over
+target, message, and structured fields, and `Escape` clears it. `p`
+pauses/resumes following, `End` resumes following, and `c` clears the local
+10,000-event buffer. Regexes are compiled only when edited, not for each record.
+Release builds statically disable `DEBUG` and `TRACE` through the workspace
+tracing configuration even if a foreground threshold requests them.
 
 The capture producer never waits for the UI. Full-queue records are discarded
 and counted by

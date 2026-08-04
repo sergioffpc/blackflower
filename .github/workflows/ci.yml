@@ -59,6 +59,9 @@ jobs:
       - name: Check Rust test layout
         run: scripts/check-test-layout.sh
 
+      - name: Check Rust module layout
+        run: scripts/check-rust-module-layout.sh
+
       - name: Initialize runtime submodules
         run: .github/scripts/init-ci-submodules.sh runtime
 
