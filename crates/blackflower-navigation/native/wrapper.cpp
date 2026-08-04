@@ -60,6 +60,17 @@ bool append_aligned_size(size_t count, size_t element_size, size_t &total) {
     return true;
 }
 
+bool finite_vector(const float *value) {
+    return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+}
+
+template<typename T>
+T read_element(const uint8_t *data, size_t offset, size_t index) {
+    T value {};
+    std::memcpy(&value, data + offset + index * sizeof(T), sizeof(T));
+    return value;
+}
+
 bool valid_tile_data(const uint8_t *data, size_t data_size) {
     if (data == nullptr || data_size < sizeof(dtMeshHeader)
         || data_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
@@ -75,29 +86,156 @@ bool valid_tile_data(const uint8_t *data, size_t data_size) {
         return false;
     }
 
+    if (header.offMeshBase < 0 || header.offMeshBase > header.polyCount
+        || header.offMeshConCount != header.polyCount - header.offMeshBase
+        || header.detailMeshCount != header.offMeshBase
+        || !std::isfinite(header.walkableHeight) || header.walkableHeight < 0.0F
+        || !std::isfinite(header.walkableRadius) || header.walkableRadius < 0.0F
+        || !std::isfinite(header.walkableClimb) || header.walkableClimb < 0.0F
+        || !finite_vector(header.bmin) || !finite_vector(header.bmax)
+        || header.bmin[0] > header.bmax[0] || header.bmin[1] > header.bmax[1]
+        || header.bmin[2] > header.bmax[2] || !std::isfinite(header.bvQuantFactor)
+        || header.bvQuantFactor < 0.0F) {
+        return false;
+    }
+
     size_t required = 0;
-    return append_aligned_size(1, sizeof(dtMeshHeader), required)
-        && append_aligned_size(static_cast<size_t>(header.vertCount), sizeof(float) * 3, required)
-        && append_aligned_size(static_cast<size_t>(header.polyCount), sizeof(dtPoly), required)
-        && append_aligned_size(static_cast<size_t>(header.maxLinkCount), sizeof(dtLink), required)
-        && append_aligned_size(
-            static_cast<size_t>(header.detailMeshCount),
-            sizeof(dtPolyDetail),
-            required)
-        && append_aligned_size(
-            static_cast<size_t>(header.detailVertCount),
-            sizeof(float) * 3,
-            required)
-        && append_aligned_size(
-            static_cast<size_t>(header.detailTriCount),
-            sizeof(unsigned char) * 4,
-            required)
-        && append_aligned_size(static_cast<size_t>(header.bvNodeCount), sizeof(dtBVNode), required)
-        && append_aligned_size(
-            static_cast<size_t>(header.offMeshConCount),
-            sizeof(dtOffMeshConnection),
-            required)
-        && required <= data_size;
+    if (!append_aligned_size(1, sizeof(dtMeshHeader), required)) {
+        return false;
+    }
+    const size_t vertices_offset = required;
+    if (!append_aligned_size(static_cast<size_t>(header.vertCount), sizeof(float) * 3, required)) {
+        return false;
+    }
+    const size_t polygons_offset = required;
+    if (!append_aligned_size(static_cast<size_t>(header.polyCount), sizeof(dtPoly), required)
+        || !append_aligned_size(static_cast<size_t>(header.maxLinkCount), sizeof(dtLink), required)) {
+        return false;
+    }
+    const size_t detail_meshes_offset = required;
+    if (!append_aligned_size(
+            static_cast<size_t>(header.detailMeshCount), sizeof(dtPolyDetail), required)) {
+        return false;
+    }
+    const size_t detail_vertices_offset = required;
+    if (!append_aligned_size(
+            static_cast<size_t>(header.detailVertCount), sizeof(float) * 3, required)) {
+        return false;
+    }
+    const size_t detail_triangles_offset = required;
+    if (!append_aligned_size(
+            static_cast<size_t>(header.detailTriCount), sizeof(unsigned char) * 4, required)) {
+        return false;
+    }
+    const size_t bv_tree_offset = required;
+    if (!append_aligned_size(static_cast<size_t>(header.bvNodeCount), sizeof(dtBVNode), required)) {
+        return false;
+    }
+    const size_t off_mesh_connections_offset = required;
+    if (!append_aligned_size(
+            static_cast<size_t>(header.offMeshConCount), sizeof(dtOffMeshConnection), required)
+        || required != data_size) {
+        return false;
+    }
+
+    for (int vertex = 0; vertex < header.vertCount; ++vertex) {
+        float value[3] {};
+        std::memcpy(
+            value,
+            data + vertices_offset + static_cast<size_t>(vertex) * sizeof(value),
+            sizeof(value));
+        if (!finite_vector(value)) {
+            return false;
+        }
+    }
+    for (int vertex = 0; vertex < header.detailVertCount; ++vertex) {
+        float value[3] {};
+        std::memcpy(
+            value,
+            data + detail_vertices_offset + static_cast<size_t>(vertex) * sizeof(value),
+            sizeof(value));
+        if (!finite_vector(value)) {
+            return false;
+        }
+    }
+
+    for (int polygon_index = 0; polygon_index < header.polyCount; ++polygon_index) {
+        const dtPoly polygon = read_element<dtPoly>(
+            data, polygons_offset, static_cast<size_t>(polygon_index));
+        const bool off_mesh = polygon_index >= header.offMeshBase;
+        const unsigned char expected_type = off_mesh
+            ? DT_POLYTYPE_OFFMESH_CONNECTION
+            : DT_POLYTYPE_GROUND;
+        if (polygon.getType() != expected_type
+            || (off_mesh && polygon.vertCount != 2)
+            || (!off_mesh && (polygon.vertCount < 3 || polygon.vertCount > DT_VERTS_PER_POLYGON))) {
+            return false;
+        }
+        for (unsigned char vertex = 0; vertex < polygon.vertCount; ++vertex) {
+            if (polygon.verts[vertex] >= header.vertCount) {
+                return false;
+            }
+            const unsigned short neighbour = polygon.neis[vertex];
+            if (neighbour != 0 && (neighbour & DT_EXT_LINK) == 0
+                && static_cast<int>(neighbour) > header.polyCount) {
+                return false;
+            }
+        }
+    }
+
+    for (int detail_index = 0; detail_index < header.detailMeshCount; ++detail_index) {
+        const dtPolyDetail detail = read_element<dtPolyDetail>(
+            data, detail_meshes_offset, static_cast<size_t>(detail_index));
+        if (detail.vertBase > static_cast<unsigned int>(header.detailVertCount)
+            || detail.vertCount
+                > static_cast<unsigned int>(header.detailVertCount) - detail.vertBase
+            || detail.triBase > static_cast<unsigned int>(header.detailTriCount)
+            || detail.triCount
+                > static_cast<unsigned int>(header.detailTriCount) - detail.triBase) {
+            return false;
+        }
+        const dtPoly polygon = read_element<dtPoly>(
+            data, polygons_offset, static_cast<size_t>(detail_index));
+        const unsigned int detail_vertex_count = polygon.vertCount + detail.vertCount;
+        for (unsigned int triangle = 0; triangle < detail.triCount; ++triangle) {
+            unsigned char indices[4] {};
+            std::memcpy(
+                indices,
+                data + detail_triangles_offset
+                    + static_cast<size_t>(detail.triBase + triangle) * sizeof(indices),
+                sizeof(indices));
+            if (indices[0] >= detail_vertex_count || indices[1] >= detail_vertex_count
+                || indices[2] >= detail_vertex_count) {
+                return false;
+            }
+        }
+    }
+
+    for (int node_index = 0; node_index < header.bvNodeCount; ++node_index) {
+        const dtBVNode node = read_element<dtBVNode>(
+            data, bv_tree_offset, static_cast<size_t>(node_index));
+        if (node.bmin[0] > node.bmax[0] || node.bmin[1] > node.bmax[1]
+            || node.bmin[2] > node.bmax[2]
+            || (node.i >= 0 && node.i >= header.offMeshBase)
+            || (node.i < 0
+                && (node.i == std::numeric_limits<int>::min()
+                    || -node.i > header.bvNodeCount - node_index))) {
+            return false;
+        }
+    }
+
+    for (int connection_index = 0; connection_index < header.offMeshConCount; ++connection_index) {
+        const dtOffMeshConnection connection = read_element<dtOffMeshConnection>(
+            data, off_mesh_connections_offset, static_cast<size_t>(connection_index));
+        if (connection.poly < header.offMeshBase || connection.poly >= header.polyCount
+            || !finite_vector(&connection.pos[0]) || !finite_vector(&connection.pos[3])
+            || !std::isfinite(connection.rad) || connection.rad < 0.0F
+            || (connection.flags & ~DT_OFFMESH_CON_BIDIR) != 0
+            || (connection.side != 0xff && connection.side > 7)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 unsigned char *copy_tile_data(const uint8_t *data, size_t data_size) {

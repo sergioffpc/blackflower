@@ -9,7 +9,7 @@ publish.workspace = true
 [dependencies]
 blackflower-acoustics.workspace = true
 blackflower-audio-media.workspace = true
-blackflower-audio-spatial.workspace = true
+blackflower-audio-spatial = { workspace = true, features = ["cooking"] }
 blackflower-gltf-metadata.workspace = true
 
 blake3.workspace = true

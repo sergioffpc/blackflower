@@ -128,14 +128,24 @@ impl core::fmt::Debug for AssetPackage {
 }
 
 impl AssetPackage {
-    /// Opens and validates one package without eagerly reading its asset objects.
+    /// Opens one signed package without a deployment-pinned identity.
+    ///
+    /// This development/audit route is absent from ordinary runtime builds.
     ///
     /// # Errors
     ///
     /// Returns an error when the filename, SquashFS structure, fixed archive
     /// settings, embedded catalog, or catalog-to-object mapping is invalid.
+    #[cfg(feature = "unversioned-loading")]
     pub fn open(path: impl AsRef<Path>, trust_store: &AssetTrustStore) -> Result<Self, Error> {
-        let path = path.as_ref().to_path_buf();
+        Self::open_unversioned(path.as_ref(), trust_store)
+    }
+
+    pub(crate) fn open_unversioned(
+        path: &Path,
+        trust_store: &AssetTrustStore,
+    ) -> Result<Self, Error> {
+        let path = path.to_path_buf();
         let name = package_name_from_path(&path)?;
         let mut file = File::open(&path).map_err(|source| io_error(&path, source))?;
         let verified = verify_package_signature(&path, &mut file, trust_store)?;
@@ -167,17 +177,27 @@ impl AssetPackage {
         })
     }
 
-    /// Opens a package and checks its exact byte identity.
+    /// Opens a package and checks its authorized name and exact byte identity.
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`Self::open`] or a hash mismatch.
+    /// Returns an error for an invalid package, name mismatch, or hash mismatch.
     pub fn open_verified(
         path: impl AsRef<Path>,
+        expected_name: &PackageName,
         expected: PackageHash,
         trust_store: &AssetTrustStore,
     ) -> Result<Self, Error> {
-        let package = Self::open(path, trust_store)?;
+        let path = path.as_ref();
+        let actual_name = package_name_from_path(path)?;
+        if &actual_name != expected_name {
+            return Err(Error::PackageNameMismatch {
+                path: path.to_path_buf(),
+                expected: expected_name.clone(),
+                actual: actual_name,
+            });
+        }
+        let package = Self::open_unversioned(path, trust_store)?;
         if package.hash != expected {
             return Err(Error::PackageHashMismatch {
                 path: package.path.clone(),

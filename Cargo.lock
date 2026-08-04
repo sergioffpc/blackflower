@@ -454,6 +454,7 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "blackflower-acoustics",
+ "blackflower-assets",
  "blackflower-build",
  "blake3",
  "glam",

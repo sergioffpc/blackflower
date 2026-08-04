@@ -209,6 +209,44 @@ pub fn validate_vendor_source_revision(
     Ok(())
 }
 
+/// Records one vendor-specific build contract in the prepared artifact manifest.
+pub fn write_vendor_manifest_field(
+    vendor_directory: &Path,
+    key: &str,
+    value: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if key.is_empty() || key.contains(['=', '\n', '\r']) || value.contains(['\n', '\r']) {
+        return Err("native vendor manifest field is invalid".into());
+    }
+    let manifest = vendor_directory.join(MANIFEST_FILE);
+    let mut contents = fs::read_to_string(&manifest)?;
+    writeln!(contents, "{key}={value}")?;
+    fs::write(manifest, contents)?;
+    Ok(())
+}
+
+/// Requires one vendor-specific build contract from the prepared artifact.
+pub fn validate_vendor_manifest_field(
+    vendor_directory: &Path,
+    key: &str,
+    expected: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let manifest = vendor_directory.join(MANIFEST_FILE);
+    let contents = fs::read_to_string(&manifest)?;
+    let actual = contents
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .find_map(|(candidate, value)| (candidate == key).then_some(value));
+    if actual != Some(expected) {
+        return Err(format!(
+            "native vendor manifest {} has incompatible {key}; rebuild the vendor",
+            manifest.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn run_git(source: &Path, arguments: &[&str]) -> Result<String, Box<dyn Error + Send + Sync>> {
     let output = Command::new("git")
         .arg("-C")

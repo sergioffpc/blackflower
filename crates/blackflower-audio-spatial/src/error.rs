@@ -86,6 +86,20 @@ pub enum Error {
         /// Validation failure.
         reason: &'static str,
     },
+    /// Authenticated content has a runtime kind other than a Steam Audio scene.
+    #[error("authenticated asset is {actual:?}, not an acoustic scene")]
+    InvalidAcousticSceneAssetKind {
+        /// Authenticated catalog kind supplied by the asset package.
+        actual: blackflower_assets::AssetKind,
+    },
+    /// An acoustic scene was cooked for another Steam Audio ABI or recipe.
+    #[error("Steam Audio scene toolchain mismatch: expected `{expected}`, found `{actual}`")]
+    IncompatibleAcousticSceneToolchain {
+        /// Exact toolchain identity linked into this runtime.
+        expected: String,
+        /// Toolchain identity authenticated by the package catalog.
+        actual: String,
+    },
     /// Probe placement or bake quality settings are invalid.
     #[error("invalid acoustic probe or bake settings")]
     InvalidProbeSettings,

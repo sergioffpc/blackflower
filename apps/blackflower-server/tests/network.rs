@@ -244,6 +244,8 @@ fn server_config(fixture: ServiceFixture) -> TestResult<ServerEndpointConfig> {
             attempts_per_window: NonZeroU32::new(32).ok_or("invalid attempts")?,
             window: Duration::from_secs(1),
             pending_per_origin: NonZeroUsize::new(4).ok_or("invalid pending")?,
+            pending_global: NonZeroUsize::new(16).ok_or("invalid global pending")?,
+            connections_global: NonZeroUsize::new(16).ok_or("invalid connections")?,
         },
     })
 }

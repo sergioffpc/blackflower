@@ -1765,6 +1765,49 @@ fn renaming_a_package_changes_the_asset_set_hash() -> anyhow::Result<()> {
 }
 
 #[test]
+fn deployment_pinned_asset_set_rejects_rename_and_signed_rollback() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.asset("fixtures/example", "shared", "example.bin", b"first")?;
+    let first = fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+    let old_package = fs::read(&first.path)?;
+
+    fixture.asset("fixtures/example", "shared", "example.bin", b"current")?;
+    let current = fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+    let current_package = fs::read(&current.path)?;
+    let trust_store = fixture.trust_store()?;
+    let expected = fixture.open_store()?.asset_set_hash();
+    let _verified = AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store)?;
+    assert!(matches!(
+        AssetPackage::open_verified(
+            &current.path,
+            &PackageName::from_str("pak100")?,
+            current.package_hash,
+            &trust_store,
+        ),
+        Err(Error::PackageNameMismatch { .. })
+    ));
+
+    fs::write(&current.path, old_package)?;
+    assert!(matches!(
+        AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store),
+        Err(Error::AssetSetHashMismatch { .. })
+    ));
+
+    fs::write(&current.path, current_package)?;
+    let renamed = fixture.package_dir().join("pak100.squashfs");
+    fs::rename(&current.path, renamed)?;
+    assert!(matches!(
+        AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store),
+        Err(Error::AssetSetHashMismatch { .. })
+    ));
+    Ok(())
+}
+
+#[test]
 fn content_and_composition_change_the_asset_set_hash() -> anyhow::Result<()> {
     let fixture = Fixture::new()?;
     fixture.asset("fixtures/example", "shared", "example.bin", b"first")?;

@@ -230,6 +230,8 @@ fn server_config(fixture: ServiceFixture) -> Result<ServerEndpointConfig, Box<dy
             attempts_per_window: NonZeroU32::new(32).ok_or("invalid attempt limit")?,
             window: Duration::from_secs(1),
             pending_per_origin: NonZeroUsize::new(4).ok_or("invalid pending limit")?,
+            pending_global: NonZeroUsize::new(16).ok_or("invalid global pending limit")?,
+            connections_global: NonZeroUsize::new(16).ok_or("invalid connection limit")?,
         },
     })
 }

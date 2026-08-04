@@ -31,6 +31,7 @@ use crate::{
 )]
 #[allow(
     clippy::all,
+    clippy::allow_attributes_without_reason,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::ptr_offset_with_cast,

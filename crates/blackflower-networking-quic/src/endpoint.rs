@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use blackflower_networking::{MINIMUM_QUIC_DATAGRAM_BYTES, decode_datagram};
@@ -16,6 +16,7 @@ pub struct QuicServer {
     endpoint: quinn::Endpoint,
     retry_tokens: RetryTokenBucket,
     validated_origins: ValidatedOriginLimiter,
+    connections: Arc<EstablishedConnectionCapacity>,
     pending: tokio::task::JoinSet<(IpAddr, Result<quinn::Connection, quinn::ConnectionError>)>,
     retries_sent: u64,
 }
@@ -30,6 +31,9 @@ impl QuicServer {
             endpoint,
             retry_tokens: RetryTokenBucket::new(config.admission_limits, Instant::now()),
             validated_origins: ValidatedOriginLimiter::new(config.admission_limits),
+            connections: Arc::new(EstablishedConnectionCapacity::new(
+                config.admission_limits.connections_global.get(),
+            )),
             pending: tokio::task::JoinSet::new(),
             retries_sent: 0,
         })
@@ -66,7 +70,11 @@ impl QuicServer {
                     self.validated_origins.finish_pending(origin);
                     let connection = connection?;
                     validate_connection(&connection)?;
-                    return Ok(ServerConnection::new(connection));
+                    let Some(permit) = self.connections.try_acquire() else {
+                        connection.close(quinn::VarInt::from_u32(0), b"connection capacity");
+                        continue;
+                    };
+                    return Ok(ServerConnection::new(connection, permit));
                 }
                 incoming = self.endpoint.accept() => {
                     let incoming = incoming.ok_or(QuicError::EndpointClosed)?;
@@ -88,7 +96,7 @@ impl QuicServer {
         }
 
         let origin = incoming.remote_address().ip();
-        if !self.validated_origins.begin_pending(origin) {
+        if !self.connections.has_capacity() || !self.validated_origins.begin_pending(origin) {
             incoming.refuse();
             return Ok(());
         }
@@ -159,14 +167,16 @@ pub struct ServerConnection {
     pub(crate) inner: quinn::Connection,
     pub(crate) control_claimed: Arc<AtomicBool>,
     pub(crate) bootstrap_active: Arc<AtomicBool>,
+    _capacity: Arc<EstablishedConnectionPermit>,
 }
 
 impl ServerConnection {
-    fn new(inner: quinn::Connection) -> Self {
+    fn new(inner: quinn::Connection, capacity: Arc<EstablishedConnectionPermit>) -> Self {
         Self {
             inner,
             control_claimed: Arc::new(AtomicBool::new(false)),
             bootstrap_active: Arc::new(AtomicBool::new(false)),
+            _capacity: capacity,
         }
     }
 
@@ -311,6 +321,10 @@ fn udp_bytes(connection: &quinn::Connection) -> UdpByteStats {
 fn validate_limits(limits: AdmissionLimits) -> Result<(), QuicError> {
     if limits.window.is_zero() {
         Err(QuicError::Configuration("admission window is zero"))
+    } else if limits.pending_per_origin > limits.pending_global {
+        Err(QuicError::Configuration(
+            "per-origin handshake limit exceeds global handshake limit",
+        ))
     } else {
         Ok(())
     }
@@ -380,6 +394,8 @@ impl RetryTokenBucket {
 #[derive(Debug)]
 struct ValidatedOriginLimiter {
     pending_per_origin: usize,
+    pending_global: usize,
+    pending_total: usize,
     pending: BTreeMap<IpAddr, usize>,
 }
 
@@ -387,16 +403,22 @@ impl ValidatedOriginLimiter {
     fn new(limits: AdmissionLimits) -> Self {
         Self {
             pending_per_origin: limits.pending_per_origin.get(),
+            pending_global: limits.pending_global.get(),
+            pending_total: 0,
             pending: BTreeMap::new(),
         }
     }
 
     fn begin_pending(&mut self, origin: IpAddr) -> bool {
+        if self.pending_total >= self.pending_global {
+            return false;
+        }
         let pending = self.pending.entry(origin).or_default();
         if *pending >= self.pending_per_origin {
             false
         } else {
             *pending += 1;
+            self.pending_total += 1;
             true
         }
     }
@@ -405,11 +427,54 @@ impl ValidatedOriginLimiter {
         let mut remove = false;
         if let Some(pending) = self.pending.get_mut(&origin) {
             *pending = pending.saturating_sub(1);
+            self.pending_total = self.pending_total.saturating_sub(1);
             remove = *pending == 0;
         }
         if remove {
             let _empty = self.pending.remove(&origin);
         }
+    }
+}
+
+/// Endpoint-wide established-connection counter shared with connection handles.
+#[derive(Debug)]
+struct EstablishedConnectionCapacity {
+    limit: usize,
+    active: AtomicUsize,
+}
+
+impl EstablishedConnectionCapacity {
+    const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            active: AtomicUsize::new(0),
+        }
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.active.load(Ordering::Acquire) < self.limit
+    }
+
+    fn try_acquire(self: &Arc<Self>) -> Option<Arc<EstablishedConnectionPermit>> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < self.limit).then_some(active + 1)
+            })
+            .ok()?;
+        Some(Arc::new(EstablishedConnectionPermit {
+            capacity: Arc::clone(self),
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct EstablishedConnectionPermit {
+    capacity: Arc<EstablishedConnectionCapacity>,
+}
+
+impl Drop for EstablishedConnectionPermit {
+    fn drop(&mut self) {
+        self.capacity.active.fetch_sub(1, Ordering::AcqRel);
     }
 }
 

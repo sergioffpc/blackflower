@@ -4,6 +4,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 const LUAU_VERSION: &str = "0.731.0";
+const LUA_USE_LONGJMP: &str = "1";
+const LUA_IDSIZE: &str = "256";
+const LUA_VECTOR_SIZE: &str = "3";
+const LUA_VECTOR_DOUBLE: &str = "0";
 const NATIVE_BUILD: &str = "native/CMakeLists.txt";
 const WRAPPER_HEADER: &str = "native/wrapper.h";
 const WRAPPER_SOURCE: &str = "native/wrapper.cpp";
@@ -20,12 +24,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         blackflower_build::locate_from_cargo_build_script(&manifest_dir, "luau", LUAU_VERSION)
             .map_err(blackflower_build_error)?;
     let luau_source = workspace_root.join("vendor/luau");
+    blackflower_build::validate_vendor_source_revision(&luau, &luau_source)
+        .map_err(blackflower_build_error)?;
+    blackflower_build::validate_vendor_manifest_field(&luau, "luau_abi", &abi_contract())
+        .map_err(blackflower_build_error)?;
     let libraries = load_luau_libraries(&luau, &configuration)?;
 
     let install_dir = compile_wrapper(&configuration, &luau_source, &libraries);
     generate_bindings(&luau_source)?;
     link_native(&install_dir, &libraries)?;
     Ok(())
+}
+
+fn abi_contract() -> String {
+    format!(
+        "longjmp={LUA_USE_LONGJMP};idsize={LUA_IDSIZE};vector_size={LUA_VECTOR_SIZE};vector_double={LUA_VECTOR_DOUBLE}"
+    )
 }
 
 struct LuauLibraries {
@@ -83,6 +97,11 @@ fn compile_wrapper(
         .define("BLACKFLOWER_LUAU_CODEGEN_LIBRARY", &libraries.codegen)
         .define("BLACKFLOWER_LUAU_VM_LIBRARY", &libraries.vm)
         .define("BLACKFLOWER_LUAU_COMMON_LIBRARY", &libraries.common);
+    config
+        .define("BLACKFLOWER_LUA_USE_LONGJMP", LUA_USE_LONGJMP)
+        .define("BLACKFLOWER_LUA_IDSIZE", LUA_IDSIZE)
+        .define("BLACKFLOWER_LUA_VECTOR_SIZE", LUA_VECTOR_SIZE)
+        .define("BLACKFLOWER_LUA_VECTOR_DOUBLE", LUA_VECTOR_DOUBLE);
     config.build()
 }
 
@@ -90,14 +109,17 @@ fn generate_bindings(luau_source: &Path) -> Result<(), Box<dyn Error>> {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is not set")?);
     let builder = bindgen::Builder::default()
         .header(WRAPPER_HEADER)
-        .clang_arg("-DLUA_USE_LONGJMP=1")
+        .clang_arg(format!("-DLUA_USE_LONGJMP={LUA_USE_LONGJMP}"))
+        .clang_arg(format!("-DLUA_IDSIZE={LUA_IDSIZE}"))
+        .clang_arg(format!("-DLUA_VECTOR_SIZE={LUA_VECTOR_SIZE}"))
+        .clang_arg(format!("-DLUA_VECTOR_DOUBLE={LUA_VECTOR_DOUBLE}"))
         .clang_arg(format!("-I{}", luau_source.join("VM/include").display()))
         .allowlist_function("^(bf_scripting_|lua_|luaL_|luau_).*")
         .allowlist_type("^(BFScripting|lua_).*")
         .allowlist_var("^(BF_SCRIPTING_|LUA_).*")
         .derive_default(true)
         .generate_comments(false)
-        .layout_tests(false)
+        .layout_tests(true)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
     let generation = catch_unwind(AssertUnwindSafe(|| builder.generate())).map_err(|_payload| {
         "failed to load libclang for Luau bindings; install libclang and set \

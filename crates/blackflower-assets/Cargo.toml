@@ -8,7 +8,9 @@ publish.workspace = true
 
 [features]
 default = []
-hot-reload = ["dep:notify-debouncer-mini"]
+hot-reload = ["unversioned-loading", "dep:notify-debouncer-mini"]
+# Development/audit loading without a deployment-pinned AssetSetHash.
+unversioned-loading = []
 signing = [
     "ed25519-dalek/pem",
     "ed25519-dalek/pkcs8",

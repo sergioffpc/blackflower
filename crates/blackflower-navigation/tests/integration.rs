@@ -34,6 +34,22 @@ fn invalid_tile_data_is_rejected() {
 }
 
 #[test]
+fn tile_internal_indices_are_validated_before_native_loading()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut corrupt = fixture::QUAD_NAVMESH_TILE.to_vec();
+    let header_bytes = 100;
+    let vertex_count = u32::from_le_bytes(corrupt[28..32].try_into()?);
+    let first_polygon = header_bytes + usize::try_from(vertex_count)? * 12;
+    corrupt[first_polygon + 4..first_polygon + 6].copy_from_slice(&u16::MAX.to_le_bytes());
+
+    assert!(matches!(
+        NavMesh::from_tile_data(&corrupt),
+        Err(Error::InvalidNavMeshData),
+    ));
+    Ok(())
+}
+
+#[test]
 fn tiled_parameters_are_validated() {
     assert_eq!(
         NavMeshParams::new(

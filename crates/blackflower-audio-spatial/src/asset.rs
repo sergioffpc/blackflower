@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use blackflower_assets::{AssetKind, AuthenticatedAsset};
 use glam::Vec3A;
 
 use crate::{Error, STEAM_AUDIO_VERSION};
@@ -21,6 +22,47 @@ pub struct AcousticScene {
     vertex_count: u32,
     triangle_count: u32,
     material_count: u32,
+}
+
+/// Steam Audio scene whose bytes and cooker identity came from a signed package.
+#[derive(Debug, Clone)]
+pub struct AuthenticatedAcousticScene {
+    scene: AcousticScene,
+}
+
+impl AuthenticatedAcousticScene {
+    /// Validate an authenticated asset before allowing its opaque payload into
+    /// Steam Audio's native deserializer.
+    pub fn from_authenticated_asset(asset: AuthenticatedAsset) -> Result<Self, Error> {
+        validate_authenticated_scene_contract(
+            asset.record().kind,
+            &asset.toolchain().steam_audio_acoustics,
+        )?;
+        Ok(Self {
+            scene: AcousticScene::from_bytes(asset.bytes())?,
+        })
+    }
+
+    pub(crate) fn serialized(&self) -> &[u8] {
+        self.scene.serialized()
+    }
+}
+
+fn validate_authenticated_scene_contract(
+    kind: AssetKind,
+    actual_toolchain: &str,
+) -> Result<(), Error> {
+    if kind != AssetKind::AcousticScene {
+        return Err(Error::InvalidAcousticSceneAssetKind { actual: kind });
+    }
+    let expected = crate::steam_audio_acoustics_identity();
+    if actual_toolchain != expected {
+        return Err(Error::IncompatibleAcousticSceneToolchain {
+            expected,
+            actual: actual_toolchain.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 impl AcousticScene {

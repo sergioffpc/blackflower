@@ -12,12 +12,12 @@ use blackflower_audio_spatial::{
 pub use error::Error;
 
 /// Versioned semantic recipe for static acoustic cooking.
-pub const COOKER_RECIPE: &str = "blackflower-static-acoustics-v1";
+pub const COOKER_RECIPE: &str = blackflower_audio_spatial::STATIC_ACOUSTICS_COOKER_RECIPE;
 /// Versioned semantic recipe for authoritative acoustic cooking.
 pub const AUTHORITATIVE_COOKER_RECIPE: &str =
     "blackflower-authoritative-acoustics-v1;mm;q0.16;20ms";
 /// Pinned Steam Audio source revision.
-pub const STEAM_AUDIO_REVISION: &str = "0da18255cca520771f363ee01f100572b39a308e";
+pub const STEAM_AUDIO_REVISION: &str = blackflower_audio_spatial::STEAM_AUDIO_REVISION;
 
 /// Explicit material mapping referenced from glTF schema-1 extras.
 #[derive(Debug, Clone)]
@@ -535,7 +535,7 @@ pub fn cook_probe_batch(
 ) -> Result<CookedProbeBatch, Error> {
     let volume = geometry::import_probe_volume(path, volume_id)?;
     let mut context = Context::new()?;
-    let scene = context.load_acoustic_scene(scene_asset)?;
+    let scene = context.load_cooked_acoustic_scene(scene_asset)?;
     let asset = context.bake_uniform_floor_probe_batch(
         &scene,
         volume.zone,

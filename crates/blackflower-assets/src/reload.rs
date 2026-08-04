@@ -199,6 +199,7 @@ impl AssetStoreManager {
     /// # Errors
     ///
     /// Returns the same validation errors as [`AssetStore::open_dir`].
+    #[cfg(feature = "unversioned-loading")]
     pub fn open_dir(path: impl AsRef<Path>, trust_store: AssetTrustStore) -> Result<Self, Error> {
         let directory = canonical_directory(path.as_ref())?;
         let store = AssetStore::open_dir(&directory, &trust_store)?;
@@ -242,6 +243,7 @@ impl AssetStoreManager {
     ///
     /// Returns package validation errors, a cross-generation kind or audience
     /// reclassification, or generation exhaustion.
+    #[cfg(feature = "unversioned-loading")]
     pub fn reload(&self) -> Result<AssetReload, Error> {
         let _reload = mutex_lock(&self.reload_guard);
         let candidate = AssetStore::open_dir(&self.directory, &self.trust_store)?;
@@ -252,8 +254,8 @@ impl AssetStoreManager {
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`Self::reload`] or an asset-set hash
-    /// mismatch.
+    /// Returns package validation errors, cross-generation contract errors, or
+    /// an asset-set hash mismatch.
     pub fn reload_verified(&self, expected: AssetSetHash) -> Result<AssetReload, Error> {
         let _reload = mutex_lock(&self.reload_guard);
         let candidate =

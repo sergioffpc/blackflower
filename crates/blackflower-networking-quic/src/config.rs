@@ -27,6 +27,11 @@ pub struct AdmissionLimits {
     pub window: Duration,
     /// Maximum simultaneous handshakes from one validated source address.
     pub pending_per_origin: NonZeroUsize,
+    /// Maximum simultaneous address-validated handshakes across the endpoint,
+    /// enforced before allocating any new per-origin state.
+    pub pending_global: NonZeroUsize,
+    /// Maximum simultaneous established connections owned by the endpoint.
+    pub connections_global: NonZeroUsize,
 }
 
 /// Consumed server TLS material; client certificates are never requested.
@@ -43,7 +48,7 @@ pub struct ServerEndpointConfig {
     pub bind_address: SocketAddr,
     /// Service-CA leaf certificate and key.
     pub tls: ServerTlsConfig,
-    /// Explicit global Retry and validated-origin admission limits.
+    /// Explicit Retry, handshake, and established-connection admission limits.
     pub admission_limits: AdmissionLimits,
 }
 

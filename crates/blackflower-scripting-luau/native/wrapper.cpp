@@ -9,6 +9,11 @@
 #include <new>
 #include <string>
 
+static_assert(LUA_USE_LONGJMP == 1, "Luau VM and wrapper must use longjmp errors");
+static_assert(LUA_IDSIZE == 256, "Luau debug record layout must be pinned");
+static_assert(LUA_VECTOR_SIZE == 3, "Luau vector layout must be pinned");
+static_assert(LUA_VECTOR_DOUBLE == 0, "Luau vector scalar layout must be pinned");
+
 namespace {
 
 constexpr size_t NATIVE_CODEGEN_BLOCK_SIZE = 4 * 1024 * 1024;

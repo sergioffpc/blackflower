@@ -14,6 +14,13 @@ that 32-byte digest. The executable supplies the trusted public keys through
 packages, unknown keys, altered payloads, and invalid signatures fail before
 the embedded catalog is accepted.
 
+Production loading additionally requires an exact deployment `AssetSetHash`.
+That identity covers every ordered package filename and complete package hash,
+so renamed packages and older still-valid signed packages are rejected by
+`AssetStore::open_dir_verified`. Loading without this freshness/name binding
+is compiled only with the explicit `unversioned-loading` development feature;
+`hot-reload` enables it and is therefore development-only.
+
 The runtime loads package metadata and catalogs at startup. Asset bytes remain
 inside SquashFS and are decompressed on demand. Each reader verifies the
 catalogued byte length and BLAKE3 content hash when it reaches the end of the
@@ -93,7 +100,8 @@ there are no callbacks into simulation or presentation systems.
 Presentation changes can be adopted at a frame boundary. Simulation changes
 should be adopted only at a deterministic tick, level, or session boundary.
 Shared changes use the stricter boundary of their consumers. Production
-executables can omit the feature entirely.
+executables must omit the feature and publish updates through a new
+deployment-pinned `AssetSetHash`.
 
 ```rust,no_run
 # #[cfg(feature = "hot-reload")]
@@ -137,14 +145,15 @@ if let AssetWatchEvent::Reloaded(reload) = watcher.events().recv()? {
 ## Runtime example
 
 ```rust,no_run
-use blackflower_assets::{AssetId, AssetStore, AssetTrustStore};
+use blackflower_assets::{AssetId, AssetSetHash, AssetStore, AssetTrustStore};
 use std::str::FromStr;
 
-# fn example(release_asset_public_key: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
+# fn example(release_asset_public_key: [u8; 32], deployment_set_hash: &str) -> Result<(), Box<dyn std::error::Error>> {
 let trusted_keys =
     AssetTrustStore::from_public_keys([release_asset_public_key])?;
-let store = AssetStore::open_dir(
+let store = AssetStore::open_dir_verified(
     "target/assets/packages/release",
+    AssetSetHash::from_str(deployment_set_hash)?,
     &trusted_keys,
 )?;
 let id = AssetId::from_str("fixtures/example")?;
