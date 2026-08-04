@@ -5,11 +5,12 @@ frontend and headless bots. Both submit source-neutral canonical controls and
 consume the same reconstructed snapshots, prediction state, and client-facing
 events.
 
-`ClientHarness` owns the application session above QUIC, admission and resume
-transitions, full bootstrap and incremental snapshot reconstruction, applied
-snapshot acknowledgements, control/command identities, input redundancy,
-prediction coordination, reconciliation, and hard-resync requests. It never
-collects devices, renders presentation, or makes bot decisions.
+`ClientHarness` owns the application session above QUIC, protocol negotiation,
+server-selected map/content readiness, resume transitions, full bootstrap and
+incremental snapshot reconstruction, applied snapshot acknowledgements,
+control/command identities, input redundancy, prediction coordination,
+reconciliation, and hard-resync requests. It never collects devices, renders
+presentation, or makes bot decisions.
 
 `PredictionSession` reuses `blackflower-world-prediction` histories and
 reconciliation. Gameplay supplies a `PredictionCodec` for canonical component

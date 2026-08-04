@@ -2,19 +2,21 @@ use std::collections::VecDeque;
 use std::error::Error as StdError;
 use std::io;
 use std::num::NonZeroU64;
+use std::str::FromStr as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use blackflower_harness::{
-    ClientHarness, ClientHarnessConfig, ClientPrediction, ClientTransport, ClientTransportEvent,
-    CommandSubmission, ControlBinding, ControlSubmission, PredictionCodec, PredictionDriver,
-    PredictionPass, PredictionSession, PredictionStateComparison, PredictionUpdate,
+    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction, ClientTransport,
+    ClientTransportEvent, CommandSubmission, ControlBinding, ControlSubmission, PredictionCodec,
+    PredictionDriver, PredictionPass, PredictionSession, PredictionStateComparison,
+    PredictionUpdate,
 };
 use blackflower_networking::{
     AdmissionClaims, BootstrapId, CommandDisposition, CommandTimingClass, CompatibilityContract,
-    ConnectionEpoch, DatagramHeader, FlowId, FlowSequence, MatchId, PlayerId, ProtocolRevision,
-    RequiredContentSetId, SessionControlMessage, SessionId, SimulationCompatibilityId,
-    SimulationTick, StateBootstrapHeader, decode_control_message, decode_datagram,
+    ConnectionEpoch, ContentManifest, ContentRejectReason, DatagramHeader, FlowId, FlowSequence,
+    MapId, MatchId, PlayerId, ProtocolRevision, RequiredContentSetId, SessionControlMessage,
+    SessionId, SimulationTick, StateBootstrapHeader, decode_control_message, decode_datagram,
     decode_input_datagram, encode_control_message, encode_datagram, encode_snapshot_chunk,
 };
 use blackflower_networking_replication::{
@@ -258,6 +260,38 @@ fn changing_control_binding_starts_a_fresh_redundancy_timeline() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn incompatible_server_map_content_is_rejected_before_bootstrap() -> TestResult {
+    let transport = FakeTransport::default();
+    let control = transport.clone();
+    let contract = compatibility();
+    let mut harness = ClientHarness::new(
+        transport,
+        FakePrediction::default(),
+        ClientHarnessConfig {
+            compatibility: contract,
+            installed_content_set_id: RequiredContentSetId::from_bytes([7; 32]),
+        },
+    )?;
+    accept_admission(&control, contract)?;
+
+    harness.update(Duration::ZERO, SimulationTick::new(0))?;
+
+    assert_eq!(
+        decode_control_message(&control.sent_control(1)?)?,
+        SessionControlMessage::ContentRejected(ContentRejectReason::AssetSetMismatch)
+    );
+    assert_eq!(
+        harness.view().session_state(),
+        blackflower_networking::SessionState::Closing
+    );
+    assert!(matches!(
+        harness.pop_event(),
+        Some(ClientEvent::ContentRejected { .. })
+    ));
+    Ok(())
+}
+
 type TestHarness = ClientHarness<FakeTransport, FakePrediction>;
 
 fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>> {
@@ -269,8 +303,7 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         FakePrediction::default(),
         ClientHarnessConfig {
             compatibility: contract,
-            connection_epoch: ConnectionEpoch::new(1),
-            admission_ticket: vec![9, 8, 7],
+            installed_content_set_id: content()?.required_content_set_id,
         },
     )?;
     assert!(matches!(
@@ -278,9 +311,7 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         SessionControlMessage::AdmissionRequest { .. }
     ));
 
-    control.push(ClientTransportEvent::SessionControl(
-        encode_control_message(&SessionControlMessage::AdmissionAccepted(claims(contract)))?,
-    ))?;
+    accept_admission(&control, contract)?;
     let snapshot = counter_snapshot(100, 5)?;
     let body = snapshot.encode()?;
     let digest = snapshot.digest(ProtocolRevision::V1)?;
@@ -306,12 +337,34 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         })?,
     ))?;
     harness.update(Duration::ZERO, SimulationTick::new(100))?;
+    assert_content_ready(&control)?;
     harness.update(Duration::from_millis(100), SimulationTick::new(124))?;
     assert_eq!(
         harness.view().session_state(),
         blackflower_networking::SessionState::Active
     );
     Ok((harness, control))
+}
+
+fn assert_content_ready(transport: &FakeTransport) -> TestResult {
+    assert_eq!(
+        decode_control_message(&transport.sent_control(1)?)?,
+        SessionControlMessage::ContentReady(content()?)
+    );
+    Ok(())
+}
+
+fn accept_admission(transport: &FakeTransport, contract: CompatibilityContract) -> TestResult {
+    transport.push(ClientTransportEvent::SessionControl(
+        encode_control_message(&SessionControlMessage::AdmissionAccepted {
+            claims: claims(contract),
+            connection_epoch: ConnectionEpoch::new(1),
+        })?,
+    ))?;
+    transport.push(ClientTransportEvent::SessionControl(
+        encode_control_message(&SessionControlMessage::ContentManifest(content()?))?,
+    ))?;
+    Ok(())
 }
 
 fn push_command_disposition(
@@ -338,9 +391,14 @@ fn default_control_binding() -> ControlBinding {
 fn compatibility() -> CompatibilityContract {
     CompatibilityContract {
         protocol_revision: ProtocolRevision::V1,
-        simulation_compatibility_id: SimulationCompatibilityId::from_bytes([1; 32]),
-        required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
     }
+}
+
+fn content() -> Result<ContentManifest, Box<dyn StdError>> {
+    Ok(ContentManifest {
+        map_id: MapId::from_str("maps/test")?,
+        required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
+    })
 }
 
 fn claims(contract: CompatibilityContract) -> AdmissionClaims {
@@ -349,8 +407,6 @@ fn claims(contract: CompatibilityContract) -> AdmissionClaims {
         player_id: PlayerId::from_bytes([4; 16]),
         match_id: MatchId::from_bytes([5; 16]),
         protocol_revision: contract.protocol_revision,
-        simulation_compatibility_id: contract.simulation_compatibility_id,
-        required_content_set_id: contract.required_content_set_id,
     }
 }
 
@@ -413,6 +469,10 @@ impl ClientTransport for FakeTransport {
             .lock()
             .map_err(|_error| io::Error::other("fake transport lock poisoned"))?
             .latest_input = Some(datagram);
+        Ok(())
+    }
+
+    fn send_time_sync(&mut self, _datagram: Vec<u8>) -> Result<(), Self::Error> {
         Ok(())
     }
 

@@ -9,7 +9,7 @@ use blackflower_networking::{
     decode_control_message, encode_control_message, encode_datagram,
 };
 use blackflower_networking_quic::{
-    AdmissionLimits, BootstrapTransfer, ClientConnection, ClientEndpointConfig, ClientTrustRoots,
+    AdmissionLimits, BootstrapTransfer, ClientConnection, ClientEndpointConfig, ClientTrustRoot,
     NetworkEvent, QuicClient, QuicServer, ServerConnection, ServerEndpointConfig, ServerTlsConfig,
 };
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
@@ -31,7 +31,6 @@ async fn retry_control_datagram_and_bootstrap_follow_v1_roles() -> TestResult {
         server_address,
         "blackflower.test",
         current_root,
-        None,
     ))?;
     let client_connection = client.connect().await?;
     let (server, server_connection) = server_task.await??;
@@ -69,7 +68,7 @@ async fn assert_session_control(
     let mut client_control = client_control?;
     let mut server_control = server_control?;
     let request = SessionControlMessage::AdmissionRequest {
-        ticket: b"one-use-ticket".to_vec(),
+        protocol_revision: ProtocolRevision::V1,
     };
     client_control
         .send(&encode_control_message(&request)?)
@@ -100,20 +99,13 @@ async fn assert_bootstrap(client: &ClientConnection, server: &ServerConnection) 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn current_and_next_service_roots_overlap_without_mtls_or_zero_rtt() -> TestResult {
-    let current = service_fixture("unused.test")?;
-    let next = service_fixture("blackflower.test")?;
-    let current_root = current.root;
-    let next_root = next.root.clone();
-    let mut server = QuicServer::bind(server_config(next)?)?;
+async fn service_root_connects_without_mtls_or_zero_rtt() -> TestResult {
+    let fixture = service_fixture("blackflower.test")?;
+    let current_root = fixture.root.clone();
+    let mut server = QuicServer::bind(server_config(fixture)?)?;
     let address = server.local_addr()?;
     let server_task = tokio::spawn(async move { server.accept().await });
-    let client = QuicClient::bind(client_config(
-        address,
-        "blackflower.test",
-        current_root,
-        Some(next_root),
-    ))?;
+    let client = QuicClient::bind(client_config(address, "blackflower.test", current_root))?;
     let client_connection = client.connect().await?;
     let server_connection = server_task.await??;
     assert!(client_connection.rtt() < Duration::from_secs(1));
@@ -129,12 +121,7 @@ async fn nat_rebinding_emits_a_validated_path_change_and_preserves_datagrams() -
     let mut server = QuicServer::bind(server_config(fixture)?)?;
     let address = server.local_addr()?;
     let server_task = tokio::spawn(async move { server.accept().await });
-    let client = QuicClient::bind(client_config(
-        address,
-        "blackflower.test",
-        current_root,
-        None,
-    ))?;
+    let client = QuicClient::bind(client_config(address, "blackflower.test", current_root))?;
     let client_connection = client.connect().await?;
     let sender = client_connection.clone();
     let server_connection = server_task.await??;
@@ -185,12 +172,7 @@ async fn an_untrusted_service_ca_is_rejected() -> TestResult {
     let mut server = QuicServer::bind(server_config(untrusted)?)?;
     let address = server.local_addr()?;
     let server_task = tokio::spawn(async move { server.accept().await });
-    let client = QuicClient::bind(client_config(
-        address,
-        "blackflower.test",
-        trusted.root,
-        None,
-    ))?;
+    let client = QuicClient::bind(client_config(address, "blackflower.test", trusted.root))?;
     assert!(client.connect().await.is_err());
     server_task.abort();
     Ok(())
@@ -240,12 +222,11 @@ fn client_config(
     server_address: SocketAddr,
     server_name: &str,
     current: CertificateDer<'static>,
-    next: Option<CertificateDer<'static>>,
 ) -> ClientEndpointConfig {
     ClientEndpointConfig {
         bind_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
         server_address,
         server_name: server_name.to_owned(),
-        trust_roots: ClientTrustRoots { current, next },
+        trust_root: ClientTrustRoot { current },
     }
 }

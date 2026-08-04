@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 
 use blackflower_networking::{
     AdmissionRejectReason, CommandDisposition, CommandId, CommandTimingClass,
-    CompatibilityContract, ConnectionEpoch, SessionState, SimulationTick,
+    CompatibilityContract, ContentManifest, RequiredContentSetId, SessionState, SimulationTick,
 };
 use blackflower_networking_replication::Snapshot;
 use bytes::Bytes;
@@ -13,12 +13,10 @@ use crate::{PredictionUpdate, SnapshotWindow};
 /// Immutable construction parameters shared by human and headless clients.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientHarnessConfig {
-    /// Exact protocol, simulation, and cooked-content contract.
+    /// Exact application protocol contract compiled into this client.
     pub compatibility: CompatibilityContract,
-    /// Generation of the already established transport connection.
-    pub connection_epoch: ConnectionEpoch,
-    /// Short-lived one-use admission ticket.
-    pub admission_ticket: Vec<u8>,
+    /// Exact signed package-set identity installed locally.
+    pub installed_content_set_id: RequiredContentSetId,
 }
 
 /// Current server-authorized object controlled by this client session.
@@ -61,6 +59,15 @@ pub struct CommandSubmission {
 pub enum ClientEvent {
     /// Admission was rejected without activating the client.
     AdmissionRejected(AdmissionRejectReason),
+    /// The server-selected map is compatible with the installed signed assets.
+    ContentReady(ContentManifest),
+    /// The server-selected map requires a different signed package set.
+    ContentRejected {
+        /// Server-owned map and package-set requirement.
+        required: ContentManifest,
+        /// Exact signed package-set identity installed locally.
+        installed: RequiredContentSetId,
+    },
     /// A replacement reconnect token was issued.
     ResumeIssued {
         /// Opaque one-use token bytes.
@@ -107,6 +114,7 @@ pub struct ClientView<'a, S> {
     pub(crate) session_state: SessionState,
     pub(crate) authoritative: SnapshotWindow<'a>,
     pub(crate) predicted: Option<&'a S>,
+    pub(crate) content: Option<&'a ContentManifest>,
     pub(crate) pending_events: usize,
 }
 
@@ -133,6 +141,12 @@ impl<S> ClientView<'_, S> {
     #[must_use]
     pub const fn predicted(&self) -> Option<&S> {
         self.predicted
+    }
+
+    /// Return the server-selected map after exact local content validation.
+    #[must_use]
+    pub const fn content_manifest(&self) -> Option<&ContentManifest> {
+        self.content
     }
 
     /// Return the number of client-facing events waiting to be consumed.

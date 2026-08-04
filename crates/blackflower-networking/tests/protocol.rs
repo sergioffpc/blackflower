@@ -1,14 +1,15 @@
 use std::error::Error as StdError;
 use std::num::NonZeroU64;
+use std::str::FromStr as _;
 use std::time::Duration;
 
 use blackflower_networking::{
     AdmissionClaims, BandwidthScheduler, BudgetTier, ClientSession, ClockFilter, ClockSafety,
     ClockSample, CommandId, CommandTimingClass, CompatibilityContract, ConnectionEpoch,
-    ControlFrame, DatagramHeader, Deduplication, DeduplicationError, DiscreteCommand, FlowId,
-    FlowSequence, InputDeduplicator, InputHealth, InputSequence, MatchEgressBudget, MatchId,
-    NetworkQueues, PlayerId, ProjectionDigest, ProtocolRevision, RequiredContentSetId,
-    SessionControlMessage, SessionId, SessionState, SimulationCompatibilityId, SimulationTick,
+    ContentManifest, ControlFrame, DatagramHeader, Deduplication, DeduplicationError,
+    DiscreteCommand, FlowId, FlowSequence, InputDeduplicator, InputHealth, InputSequence, MapId,
+    MatchEgressBudget, MatchId, NetworkQueues, PlayerId, ProjectionDigest, ProtocolRevision,
+    RequiredContentSetId, SessionControlMessage, SessionId, SessionState, SimulationTick,
     SnapshotAppliedAck, TimeSyncSchedule, TrafficClass, TrafficDirection, WireError,
     activation_tick, classify_command, decode_datagram, decode_input_datagram,
     decode_stream_preamble, encode_control_message, encode_datagram, encode_input_datagram,
@@ -47,10 +48,10 @@ fn stream_preamble_and_control_framing_reject_noncanonical_input() -> TestResult
     );
 
     let message = SessionControlMessage::AdmissionRequest {
-        ticket: vec![1, 2, 3],
+        protocol_revision: ProtocolRevision::V1,
     };
     let encoded = encode_control_message(&message)?;
-    assert_eq!(encoded, [1, 5, 3, 0, 1, 2, 3]);
+    assert_eq!(encoded, [1, 4, 1, 0, 0, 0]);
     let mut trailing = encoded;
     trailing.push(0);
     assert_eq!(
@@ -61,6 +62,49 @@ fn stream_preamble_and_control_framing_reject_noncanonical_input() -> TestResult
         blackflower_networking::decode_frame(&[1, 0x40, 0x03, 1, 2, 3], 16),
         Err(WireError::InvalidValue("non-canonical QUIC varint"))
     );
+    Ok(())
+}
+
+#[test]
+fn admission_accepted_carries_a_nonzero_server_assigned_epoch() -> TestResult {
+    let contract = CompatibilityContract {
+        protocol_revision: ProtocolRevision::V1,
+    };
+    let message = SessionControlMessage::AdmissionAccepted {
+        claims: claims(contract),
+        connection_epoch: ConnectionEpoch::new(7),
+    };
+    let encoded = encode_control_message(&message)?;
+    assert_eq!(
+        blackflower_networking::decode_control_message(&encoded)?,
+        message
+    );
+    assert_eq!(
+        encode_control_message(&SessionControlMessage::AdmissionAccepted {
+            claims: claims(contract),
+            connection_epoch: ConnectionEpoch::new(0),
+        }),
+        Err(WireError::InvalidValue("connection epoch"))
+    );
+    Ok(())
+}
+
+#[test]
+fn server_content_manifest_and_client_readiness_round_trip() -> TestResult {
+    let manifest = ContentManifest {
+        map_id: MapId::from_str("maps/arena_01")?,
+        required_content_set_id: RequiredContentSetId::from_bytes([9; 32]),
+    };
+    for message in [
+        SessionControlMessage::ContentManifest(manifest.clone()),
+        SessionControlMessage::ContentReady(manifest.clone()),
+    ] {
+        let encoded = encode_control_message(&message)?;
+        assert_eq!(
+            blackflower_networking::decode_control_message(&encoded)?,
+            message
+        );
+    }
     Ok(())
 }
 
@@ -194,12 +238,10 @@ fn clock_filter_and_schedule_apply_admission_and_degraded_thresholds() -> TestRe
 fn exact_compatibility_activation_and_resync_limit_drive_session_state() -> TestResult {
     let contract = CompatibilityContract {
         protocol_revision: ProtocolRevision::V1,
-        simulation_compatibility_id: SimulationCompatibilityId::from_bytes([2; 32]),
-        required_content_set_id: RequiredContentSetId::from_bytes([3; 32]),
     };
     let mut session = ClientSession::new(contract, ConnectionEpoch::new(1));
     session.secure()?;
-    session.authenticate()?;
+    session.negotiate()?;
     session.accept_claims(&claims(contract))?;
     session.synchronize()?;
     let activation = activation_tick(SimulationTick::new(100), 2);
@@ -264,7 +306,5 @@ fn claims(contract: CompatibilityContract) -> AdmissionClaims {
         player_id: PlayerId::from_bytes([2; 16]),
         match_id: MatchId::from_bytes([3; 16]),
         protocol_revision: contract.protocol_revision,
-        simulation_compatibility_id: contract.simulation_compatibility_id,
-        required_content_set_id: contract.required_content_set_id,
     }
 }

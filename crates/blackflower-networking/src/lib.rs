@@ -15,8 +15,8 @@ mod voice;
 mod wire;
 
 pub use authority::{
-    ADMISSION_TICKET_LIFETIME, AuthorityError, IssuedResumeToken, RECONNECT_WINDOW, ResumeClaims,
-    SessionAuthority, validate_admission_ticket, validate_resume_token,
+    AuthorityError, IssuedResumeToken, RECONNECT_WINDOW, ResumeClaims, SessionAuthority,
+    validate_resume_token,
 };
 pub use clock::{
     ACTIVE_TIME_SYNC_INTERVAL, CLOCK_SAMPLE_TIMEOUT, ClockError, ClockFilter, ClockSafety,
@@ -24,9 +24,9 @@ pub use clock::{
     NETWORK_TICK_RATE_HZ, TimeSyncSchedule, input_lead_ticks, server_micros_to_tick,
 };
 pub use control::{
-    AdmissionClaims, AdmissionRejectReason, CommandDisposition, MAX_ADMISSION_TICKET_BYTES,
-    MAX_RESUME_TOKEN_BYTES, ResyncReason, SessionControlMessage, decode_control_message,
-    encode_control_message,
+    AdmissionClaims, AdmissionRejectReason, CommandDisposition, ContentManifest,
+    ContentRejectReason, MAX_RESUME_TOKEN_BYTES, ResyncReason, SessionControlMessage,
+    decode_control_message, encode_control_message,
 };
 pub use datagram_link::{DatagramLinkEndpoint, DatagramLinkError, InMemoryDatagramLink};
 pub use datagrams::{
@@ -67,9 +67,9 @@ pub use telemetry::{
     record_snapshot, record_udp_bytes, record_voice,
 };
 pub use types::{
-    BootstrapId, CommandId, ConnectionEpoch, FlowSequence, InputSequence, MatchId, PlayerId,
-    ProjectionDigest, ProtocolRevision, RequiredContentSetId, SessionId, SimulationCompatibilityId,
-    SimulationTick, VoiceStreamId,
+    BootstrapId, ByteIdParseError, CommandId, ConnectionEpoch, FlowSequence, InputSequence,
+    MAX_MAP_ID_BYTES, MapId, MapIdParseError, MatchId, PlayerId, ProjectionDigest,
+    ProtocolRevision, RequiredContentSetId, SessionId, SimulationTick, VoiceStreamId,
 };
 pub use voice::{
     MAX_AUDIBLE_VOICES, MAX_QUEUED_VOICE_PACKETS, VOICE_FRAME_MILLIS, VOICE_JITTER_MILLIS,

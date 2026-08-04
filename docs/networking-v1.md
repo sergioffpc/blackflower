@@ -44,8 +44,9 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `QuicClient`, `ServerNetworkHandle`, `ClientNetworkHandle`, and supporting
   endpoint/TLS configuration. `QuicClient` is not a game client.
 - **NET-TLS-001**: clients MUST trust only the configured current service CA
-  root and optional next root during rotation. The server MUST NOT request a
-  client certificate.
+  root. CA rotation requires reconnecting with a client configuration that
+  contains the new root; trust-root overlap is not supported. The server MUST
+  NOT request a client certificate.
 - **NET-TLS-002**: service leaf certificates SHOULD have a lifetime no longer
   than 24 hours. CA operation and leaf issuance remain deployment concerns.
 - **NET-ADMIT-001**: server construction MUST require a finite global token
@@ -82,19 +83,33 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `blackflower.snapshot.projection.v1\0`, protocol revision, snapshot tick, and
   reconstructed canonical client projection.
 
-## Admission, lifecycle, and reconnect
+## Session negotiation, content readiness, and reconnect
 
 - **NET-SESSION-001**: the lifecycle is `Connecting`, `Secure`,
-  `Authenticating`, `Compatible`, `Synchronizing`, `Active`,
+  `Negotiating`, `ContentChecking`, `Synchronizing`, `Active`,
   `Resynchronizing`, and `Closing`. All transitions MUST be explicit.
-- **NET-SESSION-002**: an opaque `AdmissionTicket` MUST be at most 4 KiB,
-  expire within 60 seconds, and be consumed atomically once by
-  `SessionAuthority`.
-- **NET-SESSION-003**: admission MUST compare `ProtocolRevision`,
-  `SimulationCompatibilityId`, and `RequiredContentSetId` for exact equality
-  before authoritative player state is created. The simulation identity covers
-  authoritative rules, canonical quantization/schema choices, and solver policy;
-  it MUST NOT include client CPU architecture or SIMD path.
+- **NET-SESSION-002**: the initial `AdmissionRequest` carries no credential. It
+  MUST negotiate `ProtocolRevision` exactly before server-assigned session
+  identities are accepted. Authentication and matchmaking remain a future
+  boundary.
+- **NET-SESSION-003**: every change that makes simulation rules, component or
+  control schemas, quantization, or solver policy incompatible MUST use a new
+  `ProtocolRevision`. CPU architecture, SIMD path, and floating-point bit
+  patterns MUST NOT participate in protocol compatibility.
+- **NET-SESSION-003A**: zero is reserved before admission. A successful
+  `AdmissionAccepted` MUST carry the non-zero server-assigned
+  `connection_epoch` that both peers use for every datagram on the accepted
+  connection.
+- **NET-CONTENT-001**: after protocol negotiation, the server MUST send a
+  `ContentManifest` containing the selected portable `MapId` and exact
+  `RequiredContentSetId` derived from its signed package store.
+- **NET-CONTENT-002**: the client MUST derive its installed content-set identity
+  from locally signature-verified packages. It sends `ContentReady` only for an
+  exact match; otherwise it sends `ContentRejected` and closes the application
+  session.
+- **NET-CONTENT-003**: the server MUST NOT offer a bootstrap or schedule
+  activation before exact `ContentReady`. Map bytes are distributed by the
+  asset pipeline, not on the session-control stream.
 - **NET-SESSION-004**: activation MUST be aligned to four ticks and scheduled at
   least 24 ticks plus current uncertainty into the future. A peer remains
   `Synchronizing` until that tick is reached.
@@ -115,8 +130,11 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   estimate uncertainty as half its network delay, and slew mapped time without
   moving the mapped clock backwards.
 - **NET-CLOCK-003**: first activation requires uncertainty at or below two
-  simulation ticks. Uncertainty above four ticks for three consecutive samples
-  yields `ClockDegraded`.
+  simulation ticks. After all eight admission samples, the client MUST report
+  `ClockSynchronized` on the reliable control stream; the server MUST NOT send
+  `ActivateAt` before receiving that report and applying the full bootstrap.
+  Uncertainty above four ticks for three consecutive samples yields
+  `ClockDegraded`.
 - **NET-CLOCK-004**: temporal commands MUST be blocked above eight ticks of
   uncertainty or after three seconds without a valid sample.
 - **NET-CLOCK-005**: input lead is four-tick aligned from

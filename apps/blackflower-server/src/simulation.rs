@@ -43,6 +43,20 @@ pub struct SimulationHost {
     worker: Option<JoinHandle<Result<SimulationExit, SimulationHostError>>>,
 }
 
+/// Cloneable read-only progress source for network and diagnostics tasks.
+#[derive(Debug, Clone)]
+pub struct SimulationStatus {
+    completed_ticks: Arc<AtomicU64>,
+}
+
+impl SimulationStatus {
+    /// Return the latest completed authoritative tick count.
+    #[must_use]
+    pub fn completed_ticks(&self) -> u64 {
+        self.completed_ticks.load(Ordering::Acquire)
+    }
+}
+
 impl SimulationHost {
     /// Create `SimulationWorld` on its owning thread and begin 240 Hz execution.
     pub fn spawn() -> Result<Self, SimulationHostError> {
@@ -75,6 +89,14 @@ impl SimulationHost {
     #[must_use]
     pub fn completed_ticks(&self) -> u64 {
         self.completed_ticks.load(Ordering::Acquire)
+    }
+
+    /// Return a cloneable read-only progress source.
+    #[must_use]
+    pub fn status(&self) -> SimulationStatus {
+        SimulationStatus {
+            completed_ticks: Arc::clone(&self.completed_ticks),
+        }
     }
 
     /// Request orderly shutdown and join the simulation thread.

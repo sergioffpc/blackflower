@@ -12,6 +12,7 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
 blackflower-acoustics.workspace = true
+blackflower-assets = { workspace = true, features = ["signing", "unversioned-loading"] }
 blackflower-networking.workspace = true
 blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
@@ -20,8 +21,10 @@ blackflower-observability-tui.workspace = true
 blackflower-world-simulation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
+blake3.workspace = true
 clap.workspace = true
 ratatui.workspace = true
+rustls.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
@@ -29,8 +32,9 @@ tracing.workspace = true
 [dev-dependencies]
 blackflower-audio-capture.workspace = true
 blackflower-audio-voice.workspace = true
+blackflower-harness.workspace = true
+
 rcgen.workspace = true
-rustls.workspace = true
 
 [lints]
 workspace = true

@@ -52,13 +52,11 @@ pub struct ServerEndpointConfig {
     pub admission_limits: AdmissionLimits,
 }
 
-/// Service-CA trust set containing the current and optional next root.
+/// Service-CA trust set used to authenticate the dedicated server.
 #[derive(Debug, Clone)]
-pub struct ClientTrustRoots {
-    /// Current service root.
+pub struct ClientTrustRoot {
+    /// Current service root. Rotation requires reconnecting with a new configuration.
     pub current: CertificateDer<'static>,
-    /// Next service root during an overlap rotation window.
-    pub next: Option<CertificateDer<'static>>,
 }
 
 /// Low-level client endpoint configuration.
@@ -70,8 +68,8 @@ pub struct ClientEndpointConfig {
     pub server_address: SocketAddr,
     /// DNS name verified against the short-lived service leaf.
     pub server_name: String,
-    /// Current and optional next service CA roots.
-    pub trust_roots: ClientTrustRoots,
+    /// Current service CA root.
+    pub trust_root: ClientTrustRoot,
 }
 
 pub(crate) fn server_config(tls: ServerTlsConfig) -> Result<quinn::ServerConfig, QuicError> {
@@ -91,12 +89,9 @@ pub(crate) fn server_config(tls: ServerTlsConfig) -> Result<quinn::ServerConfig,
     Ok(config)
 }
 
-pub(crate) fn client_config(roots: ClientTrustRoots) -> Result<quinn::ClientConfig, QuicError> {
+pub(crate) fn client_config(root: ClientTrustRoot) -> Result<quinn::ClientConfig, QuicError> {
     let mut root_store = rustls::RootCertStore::empty();
-    root_store.add(roots.current)?;
-    if let Some(next) = roots.next {
-        root_store.add(next)?;
-    }
+    root_store.add(root.current)?;
     let mut crypto =
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)

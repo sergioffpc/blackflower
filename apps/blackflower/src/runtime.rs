@@ -89,7 +89,12 @@ where
 
     /// Drain harness work, capture its immutable view, then advance presentation.
     pub fn frame(&mut self, now: Duration, delta: TickDelta) -> Result<bool> {
-        let authoritative_tick = latest_authoritative_tick(self.harness.view());
+        let snapshot_tick = latest_authoritative_tick(self.harness.view());
+        let clock_tick = self
+            .harness
+            .estimated_server_tick(now)
+            .context("server clock mapping failed")?;
+        let authoritative_tick = snapshot_tick.max(clock_tick);
         self.harness
             .update(now, authoritative_tick)
             .context("client harness update failed")?;
@@ -143,31 +148,6 @@ pub(crate) trait ApplicationRuntime {
     fn frame(&mut self, now: Duration, delta: TickDelta) -> Result<bool>;
 
     fn current_frame(&self) -> FrameIndex;
-}
-
-pub(crate) struct PresentationRuntime {
-    presentation: PresentationWorld,
-}
-
-impl PresentationRuntime {
-    pub(crate) fn new() -> Result<Self> {
-        Ok(Self {
-            presentation: PresentationWorld::new()
-                .context("presentation world initialization failed")?,
-        })
-    }
-}
-
-impl ApplicationRuntime for PresentationRuntime {
-    fn frame(&mut self, _now: Duration, delta: TickDelta) -> Result<bool> {
-        self.presentation
-            .frame(delta)
-            .context("presentation frame failed")
-    }
-
-    fn current_frame(&self) -> FrameIndex {
-        self.presentation.current_frame()
-    }
 }
 
 impl<T, P, B> ApplicationRuntime for HarnessPresentationRuntime<T, P, B>

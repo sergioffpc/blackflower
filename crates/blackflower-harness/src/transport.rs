@@ -43,6 +43,9 @@ pub trait ClientTransport {
     /// Replace the unsent input datagram with the newest exact value.
     fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
 
+    /// Queue one bounded time-synchronization request datagram.
+    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
+
     /// Poll one transport fact without blocking.
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error>;
 }
@@ -56,6 +59,10 @@ impl ClientTransport for ClientNetworkHandle {
 
     fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
         ClientNetworkHandle::set_latest_input(self, datagram)
+    }
+
+    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+        self.try_send_time_sync(datagram)
     }
 
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error> {

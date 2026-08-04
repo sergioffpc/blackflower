@@ -1,34 +1,42 @@
-//! Native Blackflower client shell.
+//! Native Blackflower network client.
 //!
 //! This crate owns process-facing window and device-input lifecycle plus the
-//! client-only presentation loop. Gameplay can compose an already established
-//! shared harness through [`run_with_harness`]; transport construction,
-//! prediction policy, and renderer submission remain external boundaries.
+//! client-only presentation loop. The executable always establishes a network
+//! session; gameplay can compose an already established shared harness through
+//! [`run_with_harness`]. Prediction policy and renderer submission remain
+//! external boundaries.
 
 pub mod foreground;
 pub mod input;
 pub mod lifecycle;
 
 mod application;
+mod connection;
 mod runtime;
 
 use anyhow::{Context as _, Result};
 use application::ClientApplication;
 use blackflower_harness::{ClientHarness, ClientPrediction, ClientTransport};
+pub use connection::{ClientConnectionConfig, ClientConnectionError, ConnectedClient};
 pub use runtime::{HarnessPresentationRuntime, PresentationBridge};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use winit::event_loop::{ControlFlow, EventLoop};
 
-/// Run the native client event loop on the calling thread.
-pub fn run() -> Result<()> {
-    run_application(ClientApplication::new(None)?)
+/// Run an established bootstrap-only network client on the native event loop.
+pub fn run_connected(client: ConnectedClient) -> Result<()> {
+    run_application(ClientApplication::with_runtime(Box::new(client), None)?)
 }
 
-/// Run the native client until its window closes or another process component
-/// requests shutdown.
-pub fn run_with_shutdown(shutdown_requested: Arc<AtomicBool>) -> Result<()> {
-    run_application(ClientApplication::new(Some(shutdown_requested))?)
+/// Run an established network client until either native or foreground shutdown.
+pub fn run_connected_with_shutdown(
+    client: ConnectedClient,
+    shutdown_requested: Arc<AtomicBool>,
+) -> Result<()> {
+    run_application(ClientApplication::with_runtime(
+        Box::new(client),
+        Some(shutdown_requested),
+    )?)
 }
 
 /// Run the native client with an already established shared harness.

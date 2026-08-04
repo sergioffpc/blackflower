@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::error::Error as StdError;
 use std::time::Duration;
 
@@ -9,9 +9,12 @@ use crate::{
     ClientView, ControlBinding, ControlSubmission, PredictionUpdate, TraceObserver, TraceRecord,
 };
 use blackflower_networking::{
-    BootstrapId, FlowId, ResyncReason, SessionControlMessage, SessionError, SessionState,
-    SimulationTick, SnapshotAppliedAck, StateBootstrapHeader, WireError, decode_control_message,
+    BootstrapId, CLOCK_SAMPLE_TIMEOUT, ClockError, ClockFilter, ClockSafety, ContentRejectReason,
+    DatagramHeader, FlowId, FlowSequence, INITIAL_TIME_SYNC_SAMPLES, ResyncReason,
+    SessionControlMessage, SessionError, SessionState, SimulationTick, SnapshotAppliedAck,
+    StateBootstrapHeader, TimeSyncMessage, TimeSyncSchedule, WireError, decode_control_message,
     decode_datagram, decode_snapshot_chunk, decode_time_sync, encode_control_message,
+    encode_datagram, encode_time_sync, record_clock_uncertainty,
 };
 
 const MAX_EVENTS_PER_UPDATE: usize = 128;
@@ -27,6 +30,14 @@ pub struct ClientHarness<T, P> {
     events: VecDeque<ClientEvent>,
     pending_offer: Option<BootstrapOffer>,
     pending_transfer: Option<BootstrapTransfer>,
+    clock: ClockFilter,
+    time_sync_schedule: Option<TimeSyncSchedule>,
+    pending_time_sync: BTreeMap<u32, u64>,
+    next_time_sync_exchange: u32,
+    observed_time_sync: u8,
+    clock_ready_reported: bool,
+    installed_content_set_id: blackflower_networking::RequiredContentSetId,
+    content: Option<blackflower_networking::ContentManifest>,
     trace: Option<Box<dyn TraceObserver>>,
 }
 
@@ -41,14 +52,13 @@ where
         prediction: P,
         config: ClientHarnessConfig,
     ) -> Result<Self, ClientHarnessError<T::Error, P::Error>> {
-        let mut session = blackflower_networking::ClientSession::new(
-            config.compatibility,
-            config.connection_epoch,
-        );
+        let initial_epoch = blackflower_networking::ConnectionEpoch::new(0);
+        let mut session =
+            blackflower_networking::ClientSession::new(config.compatibility, initial_epoch);
         session.secure()?;
-        session.authenticate()?;
+        session.negotiate()?;
         let admission = SessionControlMessage::AdmissionRequest {
-            ticket: config.admission_ticket,
+            protocol_revision: config.compatibility.protocol_revision,
         };
         transport
             .send_control(encode_control_message(&admission)?)
@@ -57,11 +67,19 @@ where
             transport,
             prediction,
             session,
-            input: InputSender::new(config.connection_epoch),
+            input: InputSender::new(initial_epoch),
             snapshots: SnapshotInbox::new(),
             events: VecDeque::new(),
             pending_offer: None,
             pending_transfer: None,
+            clock: ClockFilter::new(),
+            time_sync_schedule: None,
+            pending_time_sync: BTreeMap::new(),
+            next_time_sync_exchange: 0,
+            observed_time_sync: 0,
+            clock_ready_reported: false,
+            installed_content_set_id: config.installed_content_set_id,
+            content: None,
             trace: None,
         })
     }
@@ -85,7 +103,8 @@ where
             };
             self.handle_transport_event(event, now)?;
         }
-        self.advance_activation(authoritative_tick)
+        self.send_due_time_sync(now)?;
+        self.advance_activation(authoritative_tick, now)
     }
 
     /// Install or replace the server-authorized controlled-object binding.
@@ -146,6 +165,12 @@ where
             .map_err(ClientHarnessError::Prediction)
     }
 
+    /// Map client monotonic time into the current estimated authoritative tick.
+    pub fn estimated_server_tick(&mut self, now: Duration) -> Result<SimulationTick, ClockError> {
+        let server_micros = self.clock.map_local_micros(duration_micros(now))?;
+        Ok(blackflower_networking::server_micros_to_tick(server_micros))
+    }
+
     /// Ask the server for a bounded full-state resynchronization.
     pub fn request_resync(
         &mut self,
@@ -178,6 +203,7 @@ where
             session_state: self.session.state(),
             authoritative: self.snapshots.window(),
             predicted: self.prediction.predicted_state(),
+            content: self.content.as_ref(),
             pending_events: self.events.len(),
         }
     }
@@ -224,13 +250,19 @@ where
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         match event {
-            ClientTransportEvent::SessionControl(frame) => self.handle_control(&frame),
+            ClientTransportEvent::SessionControl(frame) => self.handle_control(&frame, now),
             ClientTransportEvent::Datagram(datagram) => self.handle_datagram(datagram, now),
             ClientTransportEvent::Bootstrap { header, body } => {
                 self.pending_transfer = Some(BootstrapTransfer { header, body });
                 self.try_apply_bootstrap()
             }
             ClientTransportEvent::PathChanged { previous, current } => {
+                if let Some(schedule) = self.time_sync_schedule.as_mut() {
+                    schedule.path_changed(now);
+                }
+                self.pending_time_sync.clear();
+                self.observed_time_sync = 0;
+                self.clock_ready_reported = false;
                 self.events
                     .push_back(ClientEvent::PathChanged { previous, current });
                 Ok(())
@@ -242,10 +274,15 @@ where
     fn handle_control(
         &mut self,
         frame: &[u8],
+        now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         match decode_control_message(frame)? {
-            SessionControlMessage::AdmissionAccepted(claims) => self.admitted(&claims),
+            SessionControlMessage::AdmissionAccepted {
+                claims,
+                connection_epoch,
+            } => self.admitted(&claims, connection_epoch, now),
             SessionControlMessage::AdmissionRejected(reason) => self.admission_rejected(reason),
+            SessionControlMessage::ContentManifest(manifest) => self.content_manifest(manifest),
             SessionControlMessage::BootstrapOffer {
                 bootstrap_id,
                 snapshot_tick,
@@ -261,13 +298,7 @@ where
             SessionControlMessage::ResumeIssued {
                 token,
                 expires_in_millis,
-            } => {
-                self.events.push_back(ClientEvent::ResumeIssued {
-                    token,
-                    expires_in_millis,
-                });
-                Ok(())
-            }
+            } => self.resume_issued(token, expires_in_millis),
             SessionControlMessage::CommandDisposition {
                 command_id,
                 disposition,
@@ -286,12 +317,27 @@ where
             }
             SessionControlMessage::Closing { code } => self.server_closing(code),
             SessionControlMessage::AdmissionRequest { .. }
+            | SessionControlMessage::ContentReady(_)
+            | SessionControlMessage::ContentRejected(_)
             | SessionControlMessage::BootstrapApplied { .. }
+            | SessionControlMessage::ClockSynchronized { .. }
             | SessionControlMessage::ResyncRequest { .. }
             | SessionControlMessage::ResumeRequest { .. } => {
                 Err(ClientHarnessError::UnexpectedControlMessage)
             }
         }
+    }
+
+    fn resume_issued(
+        &mut self,
+        token: Vec<u8>,
+        expires_in_millis: u32,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        self.events.push_back(ClientEvent::ResumeIssued {
+            token,
+            expires_in_millis,
+        });
+        Ok(())
     }
 
     fn handle_datagram(
@@ -308,11 +354,7 @@ where
                 let chunk = decode_snapshot_chunk(decoded.payload, decoded.payload.len())?;
                 self.handle_snapshot_chunk(chunk, now)
             }
-            FlowId::TimeSync => {
-                self.events
-                    .push_back(ClientEvent::TimeSync(decode_time_sync(decoded.payload)?));
-                Ok(())
-            }
+            FlowId::TimeSync => self.handle_time_sync(decoded.payload, now),
             FlowId::VoiceDelivery => {
                 self.events.push_back(ClientEvent::VoiceDatagram(datagram));
                 Ok(())
@@ -321,6 +363,92 @@ where
                 Err(ClientHarnessError::UnexpectedDatagramFlow)
             }
         }
+    }
+
+    fn handle_time_sync(
+        &mut self,
+        payload: &[u8],
+        now: Duration,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        let message = decode_time_sync(payload)?;
+        let TimeSyncMessage::Response {
+            exchange_id,
+            client_send_micros,
+            server_receive_micros,
+            server_send_micros,
+        } = message
+        else {
+            return Err(ClientHarnessError::UnexpectedTimeSyncMessage);
+        };
+        let expected = self
+            .pending_time_sync
+            .remove(&exchange_id)
+            .ok_or(ClientHarnessError::UnexpectedTimeSyncResponse)?;
+        if expected != client_send_micros {
+            return Err(ClientHarnessError::UnexpectedTimeSyncResponse);
+        }
+        self.clock.observe(
+            blackflower_networking::ClockSample {
+                client_send_micros,
+                server_receive_micros,
+                server_send_micros,
+                client_receive_micros: duration_micros(now),
+            },
+            now,
+        )?;
+        self.observed_time_sync = self.observed_time_sync.saturating_add(1);
+        let uncertainty = self.clock.uncertainty_ticks();
+        record_clock_uncertainty(uncertainty);
+        self.events.push_back(ClientEvent::TimeSync(message));
+        if self.observed_time_sync >= INITIAL_TIME_SYNC_SAMPLES
+            && self.clock.safety(now) == ClockSafety::ActivationReady
+            && !self.clock_ready_reported
+        {
+            let uncertainty_ticks = u16::try_from(uncertainty)
+                .map_err(|_error| ClientHarnessError::ClockUncertaintyOutOfRange)?;
+            self.send_control(SessionControlMessage::ClockSynchronized { uncertainty_ticks })?;
+            self.clock_ready_reported = true;
+        }
+        Ok(())
+    }
+
+    fn send_due_time_sync(
+        &mut self,
+        now: Duration,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        let now_micros = duration_micros(now);
+        let timeout_micros = duration_micros(CLOCK_SAMPLE_TIMEOUT);
+        self.pending_time_sync
+            .retain(|_exchange, sent| now_micros.saturating_sub(*sent) < timeout_micros);
+        let Some(schedule) = self.time_sync_schedule.as_mut() else {
+            return Ok(());
+        };
+        if !schedule.take_due(now) {
+            return Ok(());
+        }
+        let exchange_id = self.next_time_sync_exchange;
+        self.next_time_sync_exchange = exchange_id
+            .checked_add(1)
+            .ok_or(ClientHarnessError::TimeSyncSequenceExhausted)?;
+        let client_send_micros = now_micros;
+        let payload = encode_time_sync(TimeSyncMessage::Request {
+            exchange_id,
+            client_send_micros,
+        });
+        let datagram = encode_datagram(
+            DatagramHeader {
+                flow: FlowId::TimeSync,
+                connection_epoch: self.session.connection_epoch(),
+                flow_sequence: FlowSequence::new(exchange_id),
+            },
+            &payload,
+        );
+        self.transport
+            .send_time_sync(datagram)
+            .map_err(ClientHarnessError::Transport)?;
+        self.pending_time_sync
+            .insert(exchange_id, client_send_micros);
+        Ok(())
     }
 
     fn handle_snapshot_chunk(
@@ -338,8 +466,8 @@ where
                     SessionState::Resynchronizing => Ok(()),
                     SessionState::Connecting
                     | SessionState::Secure
-                    | SessionState::Authenticating
-                    | SessionState::Compatible
+                    | SessionState::Negotiating
+                    | SessionState::ContentChecking
                     | SessionState::Synchronizing
                     | SessionState::Closing => Err(ClientHarnessError::Snapshot(error)),
                 };
@@ -378,9 +506,35 @@ where
     fn admitted(
         &mut self,
         claims: &blackflower_networking::AdmissionClaims,
+        connection_epoch: blackflower_networking::ConnectionEpoch,
+        now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        self.session.accept_claims(claims)?;
+        self.session
+            .accept_initial_claims(claims, connection_epoch)?;
+        self.input.reconnect(connection_epoch);
+        self.time_sync_schedule = Some(TimeSyncSchedule::admission(now));
+        Ok(())
+    }
+
+    fn content_manifest(
+        &mut self,
+        manifest: blackflower_networking::ContentManifest,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        if manifest.required_content_set_id != self.installed_content_set_id {
+            self.send_control(SessionControlMessage::ContentRejected(
+                ContentRejectReason::AssetSetMismatch,
+            ))?;
+            self.session.close()?;
+            self.events.push_back(ClientEvent::ContentRejected {
+                required: manifest,
+                installed: self.installed_content_set_id,
+            });
+            return Ok(());
+        }
+        self.send_control(SessionControlMessage::ContentReady(manifest.clone()))?;
         self.session.synchronize()?;
+        self.content = Some(manifest.clone());
+        self.events.push_back(ClientEvent::ContentReady(manifest));
         Ok(())
     }
 
@@ -459,6 +613,7 @@ where
     fn advance_activation(
         &mut self,
         current: SimulationTick,
+        now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         let Some(scheduled) = self.session.scheduled_activation() else {
             return Ok(());
@@ -468,6 +623,9 @@ where
         }
         self.events
             .push_back(ClientEvent::Activated { tick: scheduled });
+        if let Some(schedule) = self.time_sync_schedule.as_mut() {
+            schedule.set_active(now);
+        }
         Ok(())
     }
 
@@ -528,6 +686,9 @@ where
     /// Network wire codec failed.
     #[error(transparent)]
     Wire(#[from] WireError),
+    /// A time-synchronization sample was internally inconsistent.
+    #[error(transparent)]
+    Clock(#[from] ClockError),
     /// Snapshot reconstruction or baseline application failed.
     #[error(transparent)]
     Snapshot(#[from] SnapshotInboxError),
@@ -546,12 +707,28 @@ where
     /// Datagram connection generation differs from the active session.
     #[error("datagram belongs to a different connection epoch")]
     WrongConnectionEpoch,
+    /// The server sent a time-synchronization request instead of a response.
+    #[error("server sent an unexpected time-synchronization message")]
+    UnexpectedTimeSyncMessage,
+    /// A time-synchronization response does not match an outstanding request.
+    #[error("time-synchronization response is not outstanding")]
+    UnexpectedTimeSyncResponse,
+    /// Time-synchronization exchange identities wrapped.
+    #[error("time-synchronization exchange identity exhausted")]
+    TimeSyncSequenceExhausted,
+    /// Clock uncertainty cannot be represented on the control stream.
+    #[error("clock uncertainty exceeds the control-stream representation")]
+    ClockUncertaintyOutOfRange,
     /// Activation was scheduled before a full state was applied.
     #[error("session activation was scheduled before bootstrap")]
     ActivationBeforeBootstrap,
     /// Bootstrap reliable-stream and control-stream metadata differ.
     #[error("bootstrap offer does not match the received transfer")]
     BootstrapMismatch,
+}
+
+fn duration_micros(value: Duration) -> u64 {
+    u64::try_from(value.as_micros()).unwrap_or(u64::MAX)
 }
 
 fn validate_bootstrap_offer<TE, PE>(

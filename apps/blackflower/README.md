@@ -1,6 +1,6 @@
 # Blackflower client
 
-`blackflower` is the native desktop client shell. It owns the operating-system
+`blackflower` is the native desktop network client. It owns the operating-system
 window, device-input lifecycle, observability setup, and the client-side
 presentation loop.
 
@@ -12,43 +12,56 @@ presentation loop.
   lost, preventing stale input from leaking into later frames.
 - Advance `PresentationWorld` at a target rate of 60 Hz while the window is
   active and visible.
-- Optionally connect an established `ClientHarness` to presentation through
-  `run_with_harness` and `PresentationBridge`.
+- Establish authenticated QUIC, negotiate the compiled protocol revision, and
+  verify the server-selected map against locally signed asset packages before
+  running the shared `ClientHarness` beside presentation.
 - Initialize client observability and health reporting.
 - Optionally run a terminal dashboard beside the native window.
 
 ## Integration boundary
 
-The executable currently calls `blackflower::run()`, which starts the native
-presentation shell without constructing a network transport or prediction
-runtime.
+The executable always establishes QUIC, negotiates the protocol and content,
+performs eight-sample clock synchronization, applies an empty bootstrap, and
+reaches the shared session's `Active` state. The server address defaults to
+`127.0.0.1:4433`; there is no offline or local-shell mode.
+
+After protocol negotiation, the server sends `ContentManifest` with its selected
+map and exact signed package-set identity. The client derives its local identity
+from `--asset-package-directory`, sends `ContentReady` only for an exact match,
+and rejects the session before bootstrap otherwise.
 
 Gameplay clients can instead call `blackflower::run_with_harness(...)` with an
 already configured `ClientHarness`. On every client update, the shared harness
 is advanced first; its immutable client view and emitted events are then
 captured by the presentation bridge before the presentation frame runs.
 
-Transport construction, prediction policy, gameplay command encoding, and
-renderer submission remain external integration boundaries. The window emits
-redraw requests, but this application does not yet submit a render frame to a
-renderer.
+The built-in connected path is deliberately bootstrap-only: non-empty gameplay
+state and controls are rejected until the component/control schema is composed.
+Concrete gameplay prediction, command encoding, and renderer submission remain
+integration boundaries. The window emits redraw requests, but this application
+does not yet submit a render frame to a renderer.
 
 ## Run
 
-From the repository root:
+After creating the local TLS and signed-asset fixture described in the
+[server README](../blackflower-server/README.md), run the client with:
 
 ```bash
-RUST_LOG=info cargo run --package blackflower --locked
+cargo run --package blackflower --locked -- \
+  --server-name localhost \
+  --service-ca-certificate .local-network/service-ca.pem \
+  --asset-package-directory target/assets/packages/debug \
+  --asset-trust-key .local-network/asset-signing-public.pem
 ```
+
+`--server-address` may override the default `127.0.0.1:4433`. Add
+`--foreground` to show the same connection and presentation state in the client
+terminal dashboard. Admission is credential-free until authentication and
+matchmaking are composed. Service-CA rotation requires restarting the client
+with the new CA certificate; overlapping roots are deliberately not accepted.
 
 Left-click requests cursor capture; `Escape`, focus loss, suspension, and
 application exit release it.
-
-Run the native client with the terminal dashboard:
-
-```bash
-cargo run --package blackflower --locked -- --foreground
-```
 
 The dashboard exposes Overview, Logs, Session, Prediction, Presentation, and
 Host panels. It reads the process-local Prometheus endpoint at

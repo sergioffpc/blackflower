@@ -11,9 +11,12 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
+blackflower-assets = { workspace = true, features = ["signing", "unversioned-loading"] }
 blackflower-ecs.workspace = true
 blackflower-harness.workspace = true
 blackflower-networking.workspace = true
+blackflower-networking-quic.workspace = true
+blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
 blackflower-world-prediction = { workspace = true, features = ["observability"] }
@@ -23,12 +26,11 @@ anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
 ratatui.workspace = true
+rustls.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 winit.workspace = true
-
-[dev-dependencies]
-blackflower-networking-replication.workspace = true
 
 [lints]
 workspace = true

@@ -5,14 +5,15 @@ use blackflower_acoustics::{VoiceCapturePacket, decode_voice_capture};
 use blackflower_networking::{
     AdmissionClaims, AuthorityError, BandwidthScheduler, BootstrapId, BudgetTier,
     CommandDisposition, CommandTimingDecision, CompatibilityContract, ConnectionEpoch,
-    ControlFrame, Deduplication, DeduplicationError, DiscreteCommand, FlowId, FlowSequence,
-    InputDeduplicator, MatchEgressBudget, MetricDirection, ProtocolRevision, ResumeClaims,
-    ServerSession, SessionAuthority, SessionControlMessage, SessionError, SimulationTick,
-    SnapshotAppliedAck, StateBootstrapHeader, TrafficDirection, VoiceBindings, VoiceChannel,
-    VoiceError, VoiceStreamId, WireError, activation_tick, classify_command, connection_closed,
-    connection_opened, decode_datagram, decode_input_datagram, encode_control_message,
-    encode_datagram, encode_snapshot_chunk, record_bootstrap, record_inputs,
-    record_protocol_violation, record_resync, record_snapshot, record_udp_bytes, record_voice,
+    ContentManifest, ControlFrame, Deduplication, DeduplicationError, DiscreteCommand, FlowId,
+    FlowSequence, InputDeduplicator, MatchEgressBudget, MetricDirection, ProtocolRevision,
+    ResumeClaims, ServerSession, SessionAuthority, SessionControlMessage, SessionError,
+    SimulationTick, SnapshotAppliedAck, StateBootstrapHeader, TimeSyncMessage, TrafficDirection,
+    VoiceBindings, VoiceChannel, VoiceError, VoiceStreamId, WireError, activation_tick,
+    classify_command, connection_closed, connection_opened, decode_datagram, decode_input_datagram,
+    decode_time_sync, encode_control_message, encode_datagram, encode_snapshot_chunk,
+    encode_time_sync, record_bootstrap, record_inputs, record_protocol_violation, record_resync,
+    record_snapshot, record_udp_bytes, record_voice,
 };
 use blackflower_networking::{DatagramHeader, ViolationKind};
 use blackflower_networking_quic::{
@@ -24,23 +25,25 @@ use blackflower_networking_replication::{
 
 const SNAPSHOT_CHUNK_PAYLOAD_BYTES: usize = 948;
 
-/// Dedicated-server network listener and external credential authority.
+/// Dedicated-server listener with session identity and reconnect authority.
 pub struct DedicatedServerNetwork<A> {
     endpoint: QuicServer,
     authority: A,
     contract: CompatibilityContract,
+    content: ContentManifest,
     budget_tier: BudgetTier,
     next_connection_epoch: u32,
     match_egress: Arc<Mutex<MatchEgressBudget>>,
 }
 
 impl<A: SessionAuthority> DedicatedServerNetwork<A> {
-    /// Compose an already configured QUIC endpoint with exact compatibility.
+    /// Compose an endpoint, protocol contract, and server-selected map content.
     #[must_use]
     pub fn new(
         endpoint: QuicServer,
         authority: A,
         contract: CompatibilityContract,
+        content: ContentManifest,
         budget_tier: BudgetTier,
         now: Duration,
     ) -> Self {
@@ -48,10 +51,16 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
             endpoint,
             authority,
             contract,
+            content,
             budget_tier,
             next_connection_epoch: 1,
             match_egress: Arc::new(Mutex::new(MatchEgressBudget::new(budget_tier, now))),
         }
+    }
+
+    /// Return the bound UDP address of the owned QUIC endpoint.
+    pub fn local_addr(&self) -> Result<std::net::SocketAddr, PeerError> {
+        Ok(self.endpoint.local_addr()?)
     }
 
     /// Accept one address-validated connection and start bounded Tokio I/O tasks.
@@ -61,7 +70,7 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
         let handle = connection.spawn_io().await?;
         let mut session = ServerSession::new(self.contract, epoch);
         session.secure()?;
-        session.authenticate()?;
+        session.negotiate()?;
         connection_opened();
         Ok(NetworkPeer::new(
             handle,
@@ -72,27 +81,45 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
         ))
     }
 
-    /// Atomically consume admission, enforce exact compatibility, and issue resume.
+    /// Negotiate the protocol, assign session identities, and declare map content.
     pub fn admit(
         &mut self,
         peer: &mut NetworkPeer,
-        ticket: &[u8],
+        protocol_revision: ProtocolRevision,
         now: Duration,
     ) -> Result<AdmittedSession, PeerError> {
-        blackflower_networking::validate_admission_ticket(ticket)?;
-        let claims = self.authority.consume_admission(ticket, now)?;
+        if protocol_revision != self.contract.protocol_revision {
+            return Err(SessionError::Incompatible.into());
+        }
+        let claims = self.authority.admit(now)?;
         peer.session.accept_claims(&claims)?;
-        peer.session.synchronize()?;
         let resume = self.authority.issue_resume(&claims, now)?;
-        peer.send_control(SessionControlMessage::AdmissionAccepted(claims))?;
+        peer.send_control(SessionControlMessage::AdmissionAccepted {
+            claims,
+            connection_epoch: peer.session.connection_epoch(),
+        })?;
         peer.send_control(SessionControlMessage::ResumeIssued {
             token: resume.token.clone(),
             expires_in_millis: millis_until(now, resume.expires_at),
         })?;
+        peer.send_control(SessionControlMessage::ContentManifest(self.content.clone()))?;
         Ok(AdmittedSession {
             claims,
             resume_token: resume.token,
         })
+    }
+
+    /// Accept exact client readiness for the server-owned map requirement.
+    pub fn content_ready(
+        &self,
+        peer: &mut NetworkPeer,
+        content: &ContentManifest,
+    ) -> Result<(), PeerError> {
+        if content != &self.content {
+            return Err(PeerError::ContentMismatch);
+        }
+        peer.session.synchronize()?;
+        Ok(())
     }
 
     /// Consume a one-use reconnect token; caller invalidates the old peer by session ID.
@@ -118,7 +145,7 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
     }
 }
 
-/// One authenticated ordinary admission result.
+/// One protocol-negotiated ordinary session result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmittedSession {
     /// Exact claims consumed from the external authority.
@@ -145,6 +172,7 @@ pub struct NetworkPeer {
     bandwidth: BandwidthScheduler,
     match_egress: Arc<Mutex<MatchEgressBudget>>,
     snapshot_sequence: u32,
+    time_sync_sequence: u32,
     bootstrap_sequence: u64,
     pending_bootstrap: Option<(
         BootstrapId,
@@ -170,6 +198,7 @@ impl NetworkPeer {
             bandwidth: BandwidthScheduler::new(budget_tier, now),
             match_egress,
             snapshot_sequence: 0,
+            time_sync_sequence: 0,
             bootstrap_sequence: 1,
             pending_bootstrap: None,
             voice_bindings: VoiceBindings::new(),
@@ -187,8 +216,55 @@ impl NetworkPeer {
         Ok(self.handle.try_receive()?)
     }
 
+    /// Reject admission before authoritative player state is created.
+    pub fn reject_admission(
+        &self,
+        reason: blackflower_networking::AdmissionRejectReason,
+    ) -> Result<(), PeerError> {
+        self.send_control(SessionControlMessage::AdmissionRejected(reason))
+    }
+
+    /// Validate one client clock request and queue its four-timestamp response.
+    pub fn respond_time_sync(&mut self, datagram: &[u8], now: Duration) -> Result<(), PeerError> {
+        let decoded = decode_datagram(datagram)?;
+        if decoded.header.flow != FlowId::TimeSync
+            || decoded.header.connection_epoch != self.session.connection_epoch()
+        {
+            record_protocol_violation(ViolationKind::Session);
+            return Err(PeerError::WrongTimeSyncFlow);
+        }
+        let TimeSyncMessage::Request {
+            exchange_id,
+            client_send_micros,
+        } = decode_time_sync(decoded.payload)?
+        else {
+            return Err(PeerError::UnexpectedTimeSyncMessage);
+        };
+        let server_receive_micros = duration_micros(now);
+        let server_send_micros = duration_micros(now);
+        let payload = encode_time_sync(TimeSyncMessage::Response {
+            exchange_id,
+            client_send_micros,
+            server_receive_micros,
+            server_send_micros,
+        });
+        let sequence = self.next_time_sync_sequence()?;
+        self.handle.try_send_time_sync(encode_datagram(
+            DatagramHeader {
+                flow: FlowId::TimeSync,
+                connection_epoch: self.session.connection_epoch(),
+                flow_sequence: sequence,
+            },
+            &payload,
+        ))?;
+        Ok(())
+    }
+
     /// Queue a full uncompressed snapshot before admission, resync, or reconnect activation.
     pub fn queue_bootstrap(&mut self, snapshot: Snapshot) -> Result<BootstrapId, PeerError> {
+        if self.session.state() == blackflower_networking::SessionState::Resynchronizing {
+            self.session.synchronize()?;
+        }
         let (body, digest) = snapshot.encode_with_digest(ProtocolRevision::V1)?;
         let bootstrap_id = BootstrapId::new(self.bootstrap_sequence);
         self.bootstrap_sequence = self
@@ -512,6 +588,14 @@ impl NetworkPeer {
             .ok_or(PeerError::FlowSequenceExhausted)?;
         Ok(FlowSequence::new(value))
     }
+
+    fn next_time_sync_sequence(&mut self) -> Result<FlowSequence, PeerError> {
+        let value = self.time_sync_sequence;
+        self.time_sync_sequence = value
+            .checked_add(1)
+            .ok_or(PeerError::FlowSequenceExhausted)?;
+        Ok(FlowSequence::new(value))
+    }
 }
 
 impl Drop for NetworkPeer {
@@ -560,7 +644,7 @@ pub enum PeerError {
     /// Session lifecycle or compatibility failed.
     #[error(transparent)]
     Session(#[from] SessionError),
-    /// External credential authority failed.
+    /// Session identity or reconnect authority failed.
     #[error(transparent)]
     Authority(#[from] AuthorityError),
     /// Application wire codec failed.
@@ -590,9 +674,18 @@ pub enum PeerError {
     /// Voice flow or connection generation does not match this peer.
     #[error("voice datagram belongs to the wrong flow or connection epoch")]
     WrongVoiceFlow,
+    /// Time-sync flow or connection generation does not match this peer.
+    #[error("time-sync datagram belongs to the wrong flow or connection epoch")]
+    WrongTimeSyncFlow,
+    /// A client sent a time-sync response instead of a request.
+    #[error("client sent an unexpected time-synchronization message")]
+    UnexpectedTimeSyncMessage,
     /// Bootstrap application ACK does not match the active transfer exactly.
     #[error("bootstrap applied acknowledgement does not match the active transfer")]
     UnexpectedBootstrapAck,
+    /// Client readiness does not echo the server-selected map requirement.
+    #[error("client content readiness does not match the server manifest")]
+    ContentMismatch,
     /// Connection generation domain was exhausted.
     #[error("connection epoch domain exhausted")]
     EpochExhausted,
@@ -622,4 +715,8 @@ fn rejection_code(reason: blackflower_networking::CommandRejection) -> u16 {
 fn millis_until(now: Duration, expiry: Duration) -> u32 {
     let millis = expiry.saturating_sub(now).as_millis();
     u32::try_from(millis).unwrap_or(u32::MAX)
+}
+
+fn duration_micros(value: Duration) -> u64 {
+    u64::try_from(value.as_micros()).unwrap_or(u64::MAX)
 }

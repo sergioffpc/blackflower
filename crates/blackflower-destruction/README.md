@@ -48,9 +48,9 @@ Resolve this debt by:
 
 The debt is closed when ARM64 reports stress support and passes the same
 authoritative conformance suite as x86-64. Until cross-architecture fracture
-outcomes are proven equivalent, the selected stress backend must participate in
-`SimulationCompatibilityId` so incompatible authoritative simulations cannot
-share a session.
+outcomes are proven equivalent, deployments with incompatible selected stress
+backends must use different `ProtocolRevision` values and cannot share a
+session.
 
 Jolt remains responsible for rigid bodies and contacts. This crate reports
 chunk/bond topology changes for the simulation layer to materialize in Jolt;

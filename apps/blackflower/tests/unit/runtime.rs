@@ -8,8 +8,7 @@ use blackflower_harness::{
     ClientTransportEvent, ClientView, PredictionUpdate,
 };
 use blackflower_networking::{
-    CompatibilityContract, ConnectionEpoch, ProtocolRevision, RequiredContentSetId, SessionState,
-    SimulationCompatibilityId, SimulationTick,
+    CompatibilityContract, ProtocolRevision, RequiredContentSetId, SessionState, SimulationTick,
 };
 use blackflower_networking_replication::Snapshot;
 use blackflower_world_presentation::PresentationWorld;
@@ -50,7 +49,7 @@ fn harness_view_is_captured_before_presentation_advances() -> TestResult {
     )?);
 
     let capture = runtime.bridge();
-    assert_eq!(capture.session_state, Some(SessionState::Authenticating));
+    assert_eq!(capture.session_state, Some(SessionState::Negotiating));
     assert_eq!(capture.authoritative_count, 0);
     assert!(!capture.predicted);
     assert_eq!(capture.event_count, 0);
@@ -62,11 +61,8 @@ fn harness_config() -> ClientHarnessConfig {
     ClientHarnessConfig {
         compatibility: CompatibilityContract {
             protocol_revision: ProtocolRevision::V1,
-            simulation_compatibility_id: SimulationCompatibilityId::from_bytes([1; 32]),
-            required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
         },
-        connection_epoch: ConnectionEpoch::new(1),
-        admission_ticket: b"ticket".to_vec(),
+        installed_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
     }
 }
 
@@ -87,6 +83,10 @@ impl ClientTransport for TestTransport {
 
     fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
         self.latest_input = Some(datagram);
+        Ok(())
+    }
+
+    fn send_time_sync(&mut self, _datagram: Vec<u8>) -> Result<(), Self::Error> {
         Ok(())
     }
 

@@ -26,12 +26,12 @@ pub struct ClientCapabilities {
 }
 
 impl ClientCapabilities {
-    /// Describe the current native client shell.
+    /// Describe the bootstrap-only client with an established shared harness.
     #[must_use]
-    pub const fn shell() -> Self {
+    pub const fn connected() -> Self {
         Self {
             native_application: true,
-            session_configured: false,
+            session_configured: true,
             presentation_configured: true,
             renderer_configured: false,
         }

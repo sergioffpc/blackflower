@@ -19,6 +19,7 @@ use crate::{
 const HOST_EVENT_CAPACITY: usize = 128;
 const CONTROL_CAPACITY: usize = 64;
 const SNAPSHOT_CAPACITY: usize = 32;
+const TIME_SYNC_CAPACITY: usize = 16;
 const BOOTSTRAP_CAPACITY: usize = 1;
 const VOICE_STREAM_CAPACITY: usize = 4;
 const VOICE_PACKETS_PER_STREAM: usize = 3;
@@ -53,6 +54,7 @@ pub struct ClientNetworkHandle {
     connection: ClientConnection,
     control: SharedControlSender,
     latest_input: Arc<Mutex<Option<Vec<u8>>>>,
+    time_sync: tokio_mpsc::Sender<Vec<u8>>,
     voice: SharedVoiceQueue,
     events: mpsc::Receiver<NetworkEvent>,
 }
@@ -63,6 +65,7 @@ pub struct ServerNetworkHandle {
     connection: ServerConnection,
     control: SharedControlSender,
     snapshots: tokio_mpsc::Sender<Vec<Vec<u8>>>,
+    time_sync: tokio_mpsc::Sender<Vec<u8>>,
     voice: SharedVoiceQueue,
     bootstrap: tokio_mpsc::Sender<BootstrapTransfer>,
     bootstrap_pending: Arc<AtomicBool>,
@@ -75,6 +78,7 @@ impl ClientConnection {
         let control_stream = self.open_session_control().await?;
         let (control, control_receive) = control_channel();
         let latest_input = Arc::new(Mutex::new(None));
+        let (time_sync, time_sync_receive) = tokio_mpsc::channel(TIME_SYNC_CAPACITY);
         let voice = SharedVoiceQueue::default();
         let (events_send, events) = mpsc::sync_channel(HOST_EVENT_CAPACITY);
         spawn_control_tasks(
@@ -87,11 +91,17 @@ impl ClientConnection {
         spawn_datagram_receive(self.inner.clone(), events_send.clone());
         spawn_path_change_monitor(self.inner.clone(), events_send.clone());
         spawn_bootstrap_receive(self.clone(), events_send);
-        spawn_client_datagram_send(self.clone(), Arc::clone(&latest_input), voice.clone());
+        spawn_client_datagram_send(
+            self.clone(),
+            Arc::clone(&latest_input),
+            time_sync_receive,
+            voice.clone(),
+        );
         Ok(ClientNetworkHandle {
             connection: self,
             control,
             latest_input,
+            time_sync,
             voice,
             events,
         })
@@ -104,6 +114,7 @@ impl ServerConnection {
         let control_stream = self.accept_session_control().await?;
         let (control, control_receive) = control_channel();
         let (snapshots, snapshot_receive) = tokio_mpsc::channel(SNAPSHOT_CAPACITY);
+        let (time_sync, time_sync_receive) = tokio_mpsc::channel(TIME_SYNC_CAPACITY);
         let (bootstrap, bootstrap_receive) = tokio_mpsc::channel(BOOTSTRAP_CAPACITY);
         let bootstrap_pending = Arc::new(AtomicBool::new(false));
         let voice = SharedVoiceQueue::default();
@@ -117,7 +128,12 @@ impl ServerConnection {
         );
         spawn_datagram_receive(self.inner.clone(), events_send.clone());
         spawn_path_change_monitor(self.inner.clone(), events_send);
-        spawn_server_datagram_send(self.clone(), snapshot_receive, voice.clone());
+        spawn_server_datagram_send(
+            self.clone(),
+            snapshot_receive,
+            time_sync_receive,
+            voice.clone(),
+        );
         spawn_bootstrap_send(
             self.clone(),
             bootstrap_receive,
@@ -127,6 +143,7 @@ impl ServerConnection {
             connection: self,
             control,
             snapshots,
+            time_sync,
             voice,
             bootstrap,
             bootstrap_pending,
@@ -152,6 +169,13 @@ impl ClientNetworkHandle {
             .map_err(|_poisoned| QuicError::QueueUnavailable)?;
         *latest = Some(datagram);
         Ok(())
+    }
+
+    /// Queue one bounded time-synchronization request datagram.
+    pub fn try_send_time_sync(&self, datagram: Vec<u8>) -> Result<(), QuicError> {
+        validate_flow(&datagram, FlowId::TimeSync)?;
+        self.connection.validate_datagram(&datagram)?;
+        try_send(&self.time_sync, datagram)
     }
 
     /// Queue at most three capture packets on each of at most four streams.
@@ -194,6 +218,13 @@ impl ServerNetworkHandle {
             self.connection.validate_datagram(datagram)?;
         }
         try_send(&self.snapshots, datagrams)
+    }
+
+    /// Queue one bounded time-synchronization response datagram.
+    pub fn try_send_time_sync(&self, datagram: Vec<u8>) -> Result<(), QuicError> {
+        validate_flow(&datagram, FlowId::TimeSync)?;
+        self.connection.validate_datagram(&datagram)?;
+        try_send(&self.time_sync, datagram)
     }
 
     /// Queue at most three delivery packets on each of at most four streams.
@@ -453,6 +484,7 @@ fn spawn_bootstrap_receive(connection: ClientConnection, events: mpsc::SyncSende
 fn spawn_client_datagram_send(
     connection: ClientConnection,
     latest_input: Arc<Mutex<Option<Vec<u8>>>>,
+    mut time_sync: tokio_mpsc::Receiver<Vec<u8>>,
     voice: SharedVoiceQueue,
 ) {
     tokio::spawn(async move {
@@ -464,6 +496,9 @@ fn spawn_client_datagram_send(
                 .ok()
                 .and_then(|mut latest| latest.take());
             if let Some(datagram) = input {
+                let _sent = connection.send_datagram(datagram);
+            }
+            if let Ok(datagram) = time_sync.try_recv() {
                 let _sent = connection.send_datagram(datagram);
             }
             if let Ok(Some(datagram)) = voice.pop() {
@@ -479,6 +514,7 @@ fn spawn_client_datagram_send(
 fn spawn_server_datagram_send(
     connection: ServerConnection,
     mut snapshots: tokio_mpsc::Receiver<Vec<Vec<u8>>>,
+    mut time_sync: tokio_mpsc::Receiver<Vec<u8>>,
     voice: SharedVoiceQueue,
 ) {
     tokio::spawn(async move {
@@ -487,6 +523,9 @@ fn spawn_server_datagram_send(
             tokio::select! {
                 biased;
                 _ = interval.tick() => {
+                    if let Ok(datagram) = time_sync.try_recv() {
+                        let _sent = connection.send_datagram(datagram);
+                    }
                     if let Ok(Some(datagram)) = voice.pop() {
                         let _sent = connection.send_datagram(datagram);
                     }

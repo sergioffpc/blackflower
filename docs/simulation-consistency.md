@@ -56,12 +56,13 @@ quantization or hysteresis where repeated cross-platform decisions matter.
 
 ## Compatibility identity
 
-`SimulationCompatibilityId` identifies the authoritative gameplay rules,
-protocol contract, canonical quantization/schema choices, and solver-policy
-revision. Required cooked content remains independently identified by
-`RequiredContentSetId`. CPU architecture, SIMD path, and client floating-point
-bit patterns do not participate in session admission. They may be recorded as
-telemetry and used to certify server deployment configurations.
+`ProtocolRevision` is the compatibility boundary for authoritative gameplay
+rules, component and control schemas, canonical quantization, and solver policy.
+Any incompatible change requires a new revision. The selected map and its exact
+signed package-set identity are server-owned runtime data negotiated separately
+through `ContentManifest`. CPU architecture, SIMD path, and client
+floating-point bit patterns do not participate in compatibility. They may be
+recorded as telemetry and used to certify server deployment configurations.
 
 Jolt is compiled without fast-math or floating-point contraction and with its
 cross-platform deterministic option enabled. These controls reduce numerical

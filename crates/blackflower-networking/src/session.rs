@@ -1,10 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use crate::{
-    AdmissionClaims, ConnectionEpoch, ProtocolRevision, RequiredContentSetId,
-    SimulationCompatibilityId, SimulationTick,
-};
+use crate::{AdmissionClaims, ConnectionEpoch, ProtocolRevision, SimulationTick};
 
 /// Minimum activation lead after admission, in simulation ticks.
 pub const MINIMUM_ACTIVATION_LEAD_TICKS: u64 = 24;
@@ -22,10 +19,10 @@ pub enum SessionState {
     Connecting,
     /// TLS 1.3 and ALPN are established.
     Secure,
-    /// A ticket or resume token is being consumed.
-    Authenticating,
-    /// Exact protocol, simulation, and content identities match.
-    Compatible,
+    /// The exact application protocol revision is being negotiated.
+    Negotiating,
+    /// The client is checking the map content selected by the server.
+    ContentChecking,
     /// Clock and full-state bootstrap are being established.
     Synchronizing,
     /// Inputs and incremental snapshots may affect the game session.
@@ -56,13 +53,9 @@ pub enum OperationalState {
 pub struct CompatibilityContract {
     /// Required application protocol revision.
     pub protocol_revision: ProtocolRevision,
-    /// Required deterministic simulation identity.
-    pub simulation_compatibility_id: SimulationCompatibilityId,
-    /// Required cooked-content set identity.
-    pub required_content_set_id: RequiredContentSetId,
 }
 
-/// Invalid application-session transition or admission claim.
+/// Invalid application-session transition or protocol claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SessionError {
     /// The event is not legal from the current lifecycle state.
@@ -73,8 +66,8 @@ pub enum SessionError {
         /// Requested lifecycle state.
         to: SessionState,
     },
-    /// One or more exact compatibility identities differ.
-    #[error("admission claims are incompatible")]
+    /// The peer uses a different application protocol revision.
+    #[error("application protocol revision is incompatible")]
     Incompatible,
     /// Activation tick does not meet alignment or minimum lead.
     #[error("activation tick is invalid")]
@@ -85,6 +78,9 @@ pub enum SessionError {
     /// A reconnect did not advance the connection generation.
     #[error("connection epoch did not advance")]
     StaleConnectionEpoch,
+    /// Initial admission assigned the reserved zero connection generation.
+    #[error("initial connection epoch is zero")]
+    ZeroConnectionEpoch,
 }
 
 /// Deterministic client-side application session machine.
@@ -159,12 +155,12 @@ macro_rules! session_api {
                 self.core.transition(SessionState::Secure)
             }
 
-            /// Begin atomic ticket or resume-token consumption.
-            pub fn authenticate(&mut self) -> Result<(), SessionError> {
-                self.core.transition(SessionState::Authenticating)
+            /// Begin exact application-protocol negotiation.
+            pub fn negotiate(&mut self) -> Result<(), SessionError> {
+                self.core.transition(SessionState::Negotiating)
             }
 
-            /// Check exact identities and record compatibility.
+            /// Check the accepted protocol revision and wait for map content.
             pub fn accept_claims(&mut self, claims: &AdmissionClaims) -> Result<(), SessionError> {
                 self.core.accept_claims(claims)
             }
@@ -215,6 +211,22 @@ macro_rules! session_api {
 session_api!(ClientSession);
 session_api!(ServerSession);
 
+impl ClientSession {
+    /// Validate the accepted protocol and install the server-assigned generation.
+    pub fn accept_initial_claims(
+        &mut self,
+        claims: &AdmissionClaims,
+        connection_epoch: ConnectionEpoch,
+    ) -> Result<(), SessionError> {
+        if connection_epoch.get() == 0 {
+            return Err(SessionError::ZeroConnectionEpoch);
+        }
+        self.core.accept_claims(claims)?;
+        self.core.connection_epoch = connection_epoch;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct SessionCore {
     state: SessionState,
@@ -247,13 +259,13 @@ impl SessionCore {
     }
 
     fn accept_claims(&mut self, claims: &AdmissionClaims) -> Result<(), SessionError> {
-        if self.state != SessionState::Authenticating {
-            return self.transition(SessionState::Compatible);
+        if self.state != SessionState::Negotiating {
+            return self.transition(SessionState::ContentChecking);
         }
         if !self.contract.matches(claims) {
             return Err(SessionError::Incompatible);
         }
-        self.state = SessionState::Compatible;
+        self.state = SessionState::ContentChecking;
         Ok(())
     }
 
@@ -317,8 +329,6 @@ impl SessionCore {
 impl CompatibilityContract {
     fn matches(self, claims: &AdmissionClaims) -> bool {
         self.protocol_revision == claims.protocol_revision
-            && self.simulation_compatibility_id == claims.simulation_compatibility_id
-            && self.required_content_set_id == claims.required_content_set_id
     }
 }
 
@@ -326,9 +336,9 @@ fn valid_transition(from: SessionState, to: SessionState) -> bool {
     matches!(
         (from, to),
         (SessionState::Connecting, SessionState::Secure)
-            | (SessionState::Secure, SessionState::Authenticating)
-            | (SessionState::Authenticating, SessionState::Compatible)
-            | (SessionState::Compatible, SessionState::Synchronizing)
+            | (SessionState::Secure, SessionState::Negotiating)
+            | (SessionState::Negotiating, SessionState::ContentChecking)
+            | (SessionState::ContentChecking, SessionState::Synchronizing)
             | (SessionState::Synchronizing, SessionState::Active)
             | (SessionState::Resynchronizing, SessionState::Synchronizing)
             | (_, SessionState::Closing)

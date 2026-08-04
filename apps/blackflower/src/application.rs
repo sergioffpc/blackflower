@@ -13,7 +13,7 @@ use winit::window::{CursorGrabMode, Icon, Window, WindowId};
 
 use crate::input::{InputContext, InputState};
 use crate::lifecycle::{ClientLifecycle, ClientLifecycleState, ResumeAction};
-use crate::runtime::{ApplicationRuntime, FrameClock, PresentationRuntime};
+use crate::runtime::{ApplicationRuntime, FrameClock};
 
 const WINDOW_TITLE: &str = "Blackflower";
 const INITIAL_WIDTH: f64 = 1_920.0;
@@ -54,10 +54,6 @@ pub(crate) struct ClientApplication {
 }
 
 impl ClientApplication {
-    pub(crate) fn new(shutdown_requested: Option<Arc<AtomicBool>>) -> Result<Self> {
-        Self::with_runtime(Box::new(PresentationRuntime::new()?), shutdown_requested)
-    }
-
     pub(crate) fn with_runtime(
         runtime: Box<dyn ApplicationRuntime>,
         shutdown_requested: Option<Arc<AtomicBool>>,

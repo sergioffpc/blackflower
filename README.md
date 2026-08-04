@@ -83,10 +83,15 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 
 ## Running the applications
 
-Run the player client:
+Run the player client after preparing the authenticated local fixture described
+in the [client README](apps/blackflower/README.md):
 
 ```sh
-RUST_LOG=info cargo run --package blackflower --locked
+cargo run --package blackflower --locked -- \
+  --server-name localhost \
+  --service-ca-certificate .local-network/service-ca.pem \
+  --asset-package-directory target/assets/packages/debug \
+  --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
 Run the authoritative server:
@@ -117,7 +122,12 @@ showing client-side diagnostics in the launching terminal. Its panels are
 Overview, Logs, Session, Prediction, Presentation, and Host:
 
 ```sh
-cargo run --package blackflower --locked -- --foreground
+cargo run --package blackflower --locked -- \
+  --foreground \
+  --server-name localhost \
+  --service-ca-certificate .local-network/service-ca.pem \
+  --asset-package-directory target/assets/packages/debug \
+  --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
 The agent has a separate foreground dashboard with Overview, Logs, Session,

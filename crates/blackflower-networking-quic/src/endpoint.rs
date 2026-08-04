@@ -119,12 +119,12 @@ pub struct QuicClient {
 }
 
 impl QuicClient {
-    /// Bind the client UDP endpoint and install exactly the service CA roots.
+    /// Bind the client UDP endpoint and install exactly one service CA root.
     pub fn bind(config: ClientEndpointConfig) -> Result<Self, QuicError> {
         if config.server_name.is_empty() {
             return Err(QuicError::Configuration("server name is empty"));
         }
-        let client = client_config(config.trust_roots)?;
+        let client = client_config(config.trust_root)?;
         let mut endpoint = quinn::Endpoint::client(config.bind_address)?;
         endpoint.set_default_client_config(client);
         Ok(Self {
