@@ -9,7 +9,7 @@ use ratatui::backend::TestBackend;
 use crate::foreground::ForegroundConfig;
 
 use super::super::app::{App, Page};
-use super::{draw, format_bytes, format_uptime};
+use super::{CODEX_BACKGROUND, draw, format_bytes, format_uptime};
 
 #[test]
 fn formats_operational_values() {
@@ -22,8 +22,38 @@ fn formats_operational_values() {
 
 #[test]
 fn every_panel_renders_on_a_standard_terminal() -> Result<(), Box<dyn Error>> {
+    let mut app = test_app()?;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+
+    for page in Page::ALL {
+        app.page = page;
+        let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+        let rendered = rendered_text(&terminal);
+        assert!(rendered.contains(page.title()));
+    }
+    Ok(())
+}
+
+#[test]
+fn overview_uses_codex_shell_layout_without_brand_mark() -> Result<(), Box<dyn Error>> {
+    let app = test_app()?;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+    let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+    let rendered = rendered_text(&terminal);
+
+    assert!(rendered.contains("›_ blackflower-server"));
+    assert!(rendered.contains("› Process"));
+    assert!(!rendered.contains("████"));
+    assert_eq!(
+        terminal.backend().buffer().content()[0].bg,
+        CODEX_BACKGROUND
+    );
+    Ok(())
+}
+
+fn test_app() -> Result<App, Box<dyn Error>> {
     let (_log_sender, log_receiver) = mpsc::channel();
-    let mut app = App::new(ForegroundConfig {
+    Ok(App::new(ForegroundConfig {
         service_name: "blackflower-server",
         service_version: "0.1.0",
         metrics_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
@@ -31,20 +61,15 @@ fn every_panel_renders_on_a_standard_terminal() -> Result<(), Box<dyn Error>> {
         log_control: ForegroundLogControl::new(ForegroundLogLevel::Info),
         initial_view_level: ForegroundLogLevel::Info,
         initial_log_regex: None,
-    })?;
-    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+    })?)
+}
 
-    for page in Page::ALL {
-        app.page = page;
-        let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
-        let rendered = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(ratatui::buffer::Cell::symbol)
-            .collect::<String>();
-        assert!(rendered.contains(page.title()));
-    }
-    Ok(())
+fn rendered_text(terminal: &Terminal<TestBackend>) -> String {
+    terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect()
 }

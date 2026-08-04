@@ -80,7 +80,7 @@ Run the authoritative server:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
-Run the server with the interactive Black Ink diagnostics dashboard:
+Run the server with the interactive foreground diagnostics dashboard:
 
 ```sh
 cargo run --package blackflower-server --locked -- --foreground

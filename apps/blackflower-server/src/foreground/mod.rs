@@ -30,7 +30,7 @@ pub struct ForegroundConfig {
     pub initial_log_regex: Option<String>,
 }
 
-/// Run the Black Ink terminal UI until the operator quits.
+/// Run the foreground terminal UI until the operator quits.
 pub fn run(config: ForegroundConfig) -> Result<(), ForegroundError> {
     let mut app = app::App::new(config)?;
     ratatui::run(|terminal| app.run(terminal)).map_err(ForegroundError::Terminal)

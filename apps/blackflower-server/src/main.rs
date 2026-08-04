@@ -14,7 +14,7 @@ const FOREGROUND_LOG_CAPACITY: usize = 4_096;
 #[derive(Debug, Parser)]
 #[command(version, about = "Blackflower authoritative server")]
 struct Arguments {
-    /// Run the interactive Black Ink metrics and logs dashboard.
+    /// Run the interactive foreground metrics and logs dashboard.
     #[arg(long)]
     foreground: bool,
 

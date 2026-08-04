@@ -4,7 +4,7 @@ use blackflower_observability::{ForegroundLogEvent, ForegroundLogLevel};
 use blackflower_world_simulation::{SIMULATION_TICK_RATE_HZ, SimulationPhase};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table, Tabs, Wrap,
@@ -15,49 +15,34 @@ use super::metrics::MetricStore;
 
 const MIN_WIDTH: u16 = 72;
 const MIN_HEIGHT: u16 = 20;
-const LARGE_OVERVIEW_WIDTH: u16 = 118;
-const LARGE_OVERVIEW_HEIGHT: u16 = 34;
 
-const FLOWER: &str = "                      ████\n\
-                    ████████\n\
-                  ████████████\n\
-                  ████████████\n\
-                  ████████████\n\
-  ████████        ████████████        ████████\n\
-██████████████      ████████      ██████████████\n\
-██████████████        ████        ██████████████\n\
-  ██████████████                ██████████████\n\
-    ████████████      ████      ████████████\n\
-      ████████    ████████████    ████████\n\
-                  ████████████\n\
-                  ████████████\n\
-      ████████    ████████████    ████████\n\
-    ████████████      ████      ████████████\n\
-  ██████████████                ██████████████\n\
-██████████████        ████        ██████████████\n\
-██████████████      ████████      ██████████████\n\
-  ████████        ████████████        ████████\n\
-                  ████████████\n\
-                  ████████████\n\
-                  ████████████\n\
-                    ████████\n\
-                      ████";
+const CODEX_BACKGROUND: Color = Color::Rgb(14, 29, 57);
+const CODEX_SURFACE: Color = Color::Rgb(39, 55, 83);
+const CODEX_BORDER: Color = Color::Rgb(72, 92, 122);
+const CODEX_TEXT: Color = Color::Rgb(219, 224, 232);
+const CODEX_MUTED: Color = Color::Rgb(132, 146, 166);
+const CODEX_ACCENT: Color = Color::Rgb(79, 195, 247);
+const CODEX_SUCCESS: Color = Color::Rgb(101, 214, 173);
+const CODEX_WARNING: Color = Color::Rgb(243, 201, 105);
+const CODEX_ERROR: Color = Color::Rgb(255, 122, 144);
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
+    frame.render_widget(Block::default().style(base_style()), area);
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         draw_too_small(frame, area);
         return;
     }
 
+    let content = area.inner(Margin::new(2, 1));
     let regions = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),
+            Constraint::Length(7),
             Constraint::Min(8),
             Constraint::Length(1),
         ])
-        .split(area);
+        .split(content);
     draw_header(frame, regions[0], app);
     match app.page {
         Page::Overview => draw_overview(frame, regions[1], app),
@@ -79,68 +64,89 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
 fn draw_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let regions = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Length(2)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(4),
+            Constraint::Length(2),
+        ])
         .split(area);
-    let title = Line::from(vec![
-        Span::styled(
-            format!(" {} ", app.service_name.to_ascii_uppercase()),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(format!("v{}  ", app.service_version)),
-        Span::styled(scrape_status(app), scrape_style(app)),
-        Span::raw(format!("  uptime {}", format_uptime(app.started.elapsed()))),
-    ]);
-    frame.render_widget(
-        Paragraph::new(title).block(
-            Block::default()
-                .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
-                .border_type(BorderType::Plain),
-        ),
-        regions[0],
-    );
+    draw_command(frame, regions[0], app);
+    draw_identity(frame, regions[1], app);
+    draw_navigation(frame, regions[2], area.width, app.page);
+}
 
+fn draw_command(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("› ", accent_style()),
+            Span::styled(app.service_name, text_style().add_modifier(Modifier::BOLD)),
+            Span::styled(" --foreground", muted_style()),
+        ])),
+        area,
+    );
+}
+
+fn draw_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let identity = vec![
+        Line::from(vec![
+            Span::styled("›_ ", accent_style()),
+            Span::styled(app.service_name, text_style().add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  (v{})", app.service_version), muted_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("metrics: ", muted_style()),
+            Span::styled(scrape_status(app), scrape_style(app)),
+            Span::styled("    uptime: ", muted_style()),
+            Span::styled(format_uptime(app.started.elapsed()), text_style()),
+        ]),
+    ];
+    frame.render_widget(
+        Paragraph::new(identity).style(base_style()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style())
+                .style(base_style()),
+        ),
+        area,
+    );
+}
+
+fn draw_navigation(frame: &mut Frame<'_>, area: Rect, header_width: u16, page: Page) {
     let titles = Page::ALL
         .iter()
         .enumerate()
         .map(|(index, page)| {
-            let title = if area.width < 100 {
+            let title = if header_width < 100 {
                 page.short_title()
             } else {
                 page.title()
             };
-            Line::from(format!(" [{}] {title} ", index + 1))
+            Line::from(format!(" {} {title} ", index + 1))
         })
         .collect::<Vec<_>>();
+    let navigation = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(area);
+    frame.render_widget(Paragraph::new("›").style(accent_style()), navigation[0]);
     frame.render_widget(
         Tabs::new(titles)
-            .select(page_index(app.page))
-            .highlight_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD))
-            .divider("│")
-            .block(
-                Block::default()
-                    .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
-                    .border_type(BorderType::Plain),
-            ),
-        regions[1],
+            .select(page_index(page))
+            .style(muted_style())
+            .highlight_style(
+                Style::default()
+                    .fg(CODEX_TEXT)
+                    .bg(CODEX_SURFACE)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .divider("  "),
+        navigation[1],
     );
 }
 
 fn draw_overview(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    if area.width >= LARGE_OVERVIEW_WIDTH && area.height >= LARGE_OVERVIEW_HEIGHT {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(52), Constraint::Min(48)])
-            .split(area);
-        frame.render_widget(
-            Paragraph::new(FLOWER)
-                .alignment(Alignment::Center)
-                .block(panel("BLACKFLOWER")),
-            columns[0],
-        );
-        draw_overview_metrics(frame, columns[1], app);
-    } else {
-        draw_overview_metrics(frame, area, app);
-    }
+    draw_overview_metrics(frame, area, app);
 }
 
 #[allow(
@@ -163,7 +169,7 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[0],
-        "PROCESS",
+        "Process",
         vec![
             (
                 "CPU",
@@ -186,7 +192,7 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[1],
-        "SIMULATION",
+        "Simulation",
         vec![
             (
                 "Tick rate",
@@ -224,7 +230,7 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[0],
-        "WORLD",
+        "World",
         vec![
             (
                 "Worlds",
@@ -247,7 +253,7 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[1],
-        "NETWORK",
+        "Network",
         vec![
             (
                 "Connections",
@@ -289,7 +295,7 @@ fn draw_recent_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .into_iter()
         .map(log_line)
         .collect::<Vec<_>>();
-    frame.render_widget(Paragraph::new(lines).block(panel("RECENT LOGS")), area);
+    frame.render_widget(Paragraph::new(lines).block(panel("Recent logs")), area);
 }
 
 #[allow(
@@ -322,19 +328,25 @@ fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Span::raw(" Capture "),
             Span::styled(
                 app.logs.control.level().as_str(),
-                Style::default().add_modifier(Modifier::BOLD),
+                text_style().add_modifier(Modifier::BOLD),
             ),
             Span::raw("  View "),
             Span::styled(
                 app.logs.view_level.as_str(),
-                Style::default().add_modifier(Modifier::BOLD),
+                text_style().add_modifier(Modifier::BOLD),
             ),
             Span::raw("  Regex "),
-            Span::styled(filter, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(filter, text_style().add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(state, Style::default().add_modifier(Modifier::REVERSED)),
+            Span::styled(
+                state,
+                Style::default()
+                    .fg(CODEX_TEXT)
+                    .bg(CODEX_SURFACE)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]))
-        .block(panel("FILTERS")),
+        .block(panel("Filters")),
         regions[0],
     );
 
@@ -351,10 +363,9 @@ fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
         ],
     )
     .header(
-        Row::new(["Elapsed", "Level", "Target", "Message and fields"])
-            .style(Style::default().add_modifier(Modifier::BOLD)),
+        Row::new(["Elapsed", "Level", "Target", "Message and fields"]).style(table_header_style()),
     )
-    .block(panel("STRUCTURED LOGS"))
+    .block(panel("Structured logs"))
     .column_spacing(1);
     frame.render_widget(table, regions[1]);
     let disconnected = if app.logs.disconnected() {
@@ -370,7 +381,8 @@ fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
             total,
             app.logs.control.dropped_events(),
             disconnected,
-        )),
+        ))
+        .style(muted_style()),
         regions[2],
     );
 }
@@ -393,9 +405,9 @@ fn draw_simulation(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(
         Gauge::default()
             .block(panel(&format!(
-                "AUTHORITATIVE TICK · {SIMULATION_TICK_RATE_HZ} HZ"
+                "Authoritative tick · {SIMULATION_TICK_RATE_HZ} Hz"
             )))
-            .gauge_style(Style::default().add_modifier(Modifier::REVERSED))
+            .gauge_style(gauge_style())
             .ratio(ratio)
             .label(format!(
                 "p95 {} / {:.2} ms budget",
@@ -422,15 +434,15 @@ fn draw_tick_distribution(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let data = app.histories.tick_p95_micros.values();
     frame.render_widget(
         Sparkline::default()
-            .block(panel("TICK p95 · LAST 60 S"))
+            .block(panel("Tick p95 · last 60 s"))
             .data(&data)
-            .style(Style::default().add_modifier(Modifier::BOLD)),
+            .style(accent_style().add_modifier(Modifier::BOLD)),
         regions[0],
     );
     draw_key_values(
         frame,
         regions[1],
-        "DISTRIBUTION",
+        "Distribution",
         vec![
             (
                 "p50",
@@ -461,7 +473,7 @@ fn draw_tick_outcomes(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "OUTCOMES",
+        "Outcomes",
         vec![
             (
                 "Completed",
@@ -530,11 +542,8 @@ fn draw_phase_table(frame: &mut Frame<'_>, area: Rect, app: &App) {
             rows,
             [Constraint::Percentage(70), Constraint::Percentage(30)],
         )
-        .header(
-            Row::new(["Phase", "System executions"])
-                .style(Style::default().add_modifier(Modifier::BOLD)),
-        )
-        .block(panel("PIPELINE PHASES")),
+        .header(Row::new(["Phase", "System executions"]).style(table_header_style()))
+        .block(panel("Pipeline phases")),
         area,
     );
 }
@@ -555,7 +564,7 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         regions[0],
-        "QUIC TRANSPORT",
+        "QUIC transport",
         vec![
             (
                 "Connections",
@@ -596,7 +605,7 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_metric_series(
         frame,
         columns[1],
-        "QUEUE DEPTH",
+        "Queue depth",
         &app.metrics,
         "blackflower_network_queue_depth",
         "queue",
@@ -615,13 +624,13 @@ fn draw_network_sparklines(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area.inner(Margin::new(1, 1)));
-    frame.render_widget(panel("HOST THROUGHPUT · 60 S"), area);
+    frame.render_widget(panel("Host throughput · 60 s"), area);
     let receive = app.histories.network_receive_bytes.values();
     let transmit = app.histories.network_transmit_bytes.values();
     frame.render_widget(
         Sparkline::default()
             .data(&receive)
-            .style(Style::default().add_modifier(Modifier::BOLD)),
+            .style(accent_style().add_modifier(Modifier::BOLD)),
         regions[0],
     );
     frame.render_widget(Sparkline::default().data(&transmit), regions[1]);
@@ -631,7 +640,7 @@ fn draw_network_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "NETWORK HEALTH",
+        "Network health",
         vec![
             (
                 "Drops",
@@ -664,7 +673,7 @@ fn draw_replication(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_metric_series(
         frame,
         area,
-        "SNAPSHOT ACTIONS",
+        "Snapshot actions",
         &app.metrics,
         "blackflower_network_snapshots_total",
         "action",
@@ -688,7 +697,7 @@ fn draw_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         regions[0],
-        "WORLD · ECS",
+        "World · ECS",
         vec![
             (
                 "Active worlds",
@@ -719,7 +728,7 @@ fn draw_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[0],
-        "ECS HEALTH",
+        "ECS health",
         vec![
             (
                 "Allocations",
@@ -745,7 +754,7 @@ fn draw_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         columns[1],
-        "ACOUSTICS",
+        "Acoustics",
         vec![
             (
                 "Candidate pairs p95",
@@ -781,7 +790,7 @@ fn draw_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_metric_series(
         frame,
         regions[2],
-        "ECS TICK OPERATIONS",
+        "ECS tick operations",
         &app.metrics,
         "blackflower_ecs_ticks_total",
         "operation",
@@ -826,7 +835,7 @@ fn draw_cpu(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Gauge::default()
             .block(panel("CPU"))
             .ratio(ratio)
-            .gauge_style(Style::default().add_modifier(Modifier::REVERSED))
+            .gauge_style(gauge_style())
             .label(format_percent(usage)),
         regions[0],
     );
@@ -837,7 +846,8 @@ fn draw_cpu(frame: &mut Frame<'_>, area: Rect, app: &App) {
             format_decimal(app.metrics.value("node_load5")),
             format_decimal(app.metrics.value("node_load15")),
         ))
-        .block(panel("LOAD")),
+        .style(text_style())
+        .block(panel("Load")),
         regions[1],
     );
 }
@@ -857,7 +867,7 @@ fn draw_memory(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        &format!("MEMORY · {:.0}%", ratio * 100.0),
+        &format!("Memory · {:.0}%", ratio * 100.0),
         vec![
             (
                 "Used / total",
@@ -912,9 +922,9 @@ fn draw_filesystems(frame: &mut Frame<'_>, area: Rect, app: &App) {
         )
         .header(
             Row::new(["Mount", "Filesystem", "Used", "Available", "Usage"])
-                .style(Style::default().add_modifier(Modifier::BOLD)),
+                .style(table_header_style()),
         )
-        .block(panel("FILESYSTEMS")),
+        .block(panel("Filesystems")),
         area,
     );
 }
@@ -923,7 +933,7 @@ fn draw_host_io(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "HOST I/O",
+        "Host I/O",
         vec![
             (
                 "Disk read",
@@ -959,7 +969,7 @@ fn draw_process(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "BLACKFLOWER PROCESS",
+        "Server process",
         vec![
             (
                 "CPU",
@@ -1028,10 +1038,7 @@ fn draw_metric_series(
             rows,
             [Constraint::Percentage(65), Constraint::Percentage(35)],
         )
-        .header(
-            Row::new([label, if rate { "Rate" } else { "Value" }])
-                .style(Style::default().add_modifier(Modifier::BOLD)),
-        )
+        .header(Row::new([label, if rate { "Rate" } else { "Value" }]).style(table_header_style()))
         .block(panel(title)),
         area,
     );
@@ -1042,11 +1049,8 @@ fn draw_key_values(frame: &mut Frame<'_>, area: Rect, title: &str, values: Vec<(
         .into_iter()
         .map(|(label, value)| {
             Line::from(vec![
-                Span::styled(
-                    format!("{label:<20}"),
-                    Style::default().add_modifier(Modifier::DIM),
-                ),
-                Span::styled(value, Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{label:<20}"), muted_style()),
+                Span::styled(value, text_style().add_modifier(Modifier::BOLD)),
             ])
         })
         .collect::<Vec<_>>();
@@ -1056,8 +1060,12 @@ fn draw_key_values(frame: &mut Frame<'_>, area: Rect, title: &str, values: Vec<(
 fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     if let Some(error) = &app.metrics.last_error {
         frame.render_widget(
-            Paragraph::new(format!(" Metrics error: {error}"))
-                .style(Style::default().add_modifier(Modifier::REVERSED)),
+            Paragraph::new(format!(" Metrics error: {error}")).style(
+                Style::default()
+                    .fg(CODEX_BACKGROUND)
+                    .bg(CODEX_ERROR)
+                    .add_modifier(Modifier::BOLD),
+            ),
             area,
         );
         return;
@@ -1071,7 +1079,8 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Paragraph::new(format!(
             " Tab next · Shift+Tab previous · 1-6 page · ? help · q quit{page_help} · http://{}/metrics",
             app.metrics_address,
-        )),
+        ))
+        .style(muted_style()),
         area,
     );
 }
@@ -1096,7 +1105,8 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     ];
     frame.render_widget(
         Paragraph::new(text)
-            .block(panel("HELP"))
+            .style(surface_style())
+            .block(popup_panel("Keyboard shortcuts"))
             .wrap(Wrap { trim: false }),
         popup,
     );
@@ -1116,12 +1126,10 @@ fn draw_filter_editor(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Paragraph::new(vec![
             Line::from(format!("/{}", editor.draft)),
             Line::from(""),
-            Line::from(Span::styled(
-                error,
-                Style::default().add_modifier(Modifier::DIM),
-            )),
+            Line::from(Span::styled(error, muted_surface_style())),
         ])
-        .block(panel("LOG REGEX")),
+        .style(surface_style())
+        .block(popup_panel("Log filter")),
         popup,
     );
 }
@@ -1129,11 +1137,12 @@ fn draw_filter_editor(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_too_small(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(format!(
-            "BLACKFLOWER SERVER\n\nTerminal too small: {}x{}\nMinimum: {MIN_WIDTH}x{MIN_HEIGHT}\n\nq or Ctrl+C to stop",
+            "›_ SERVER FOREGROUND\n\nTerminal too small: {}x{}\nMinimum: {MIN_WIDTH}x{MIN_HEIGHT}\n\nq or Ctrl+C to stop",
             area.width, area.height,
         ))
         .alignment(Alignment::Center)
-        .block(panel("FOREGROUND")),
+        .style(base_style())
+        .block(panel("Terminal size")),
         area,
     );
 }
@@ -1159,11 +1168,8 @@ fn log_line(event: &ForegroundLogEvent) -> Line<'static> {
             format!("{:>5} ", event.level.as_str()),
             log_style(event.level),
         ),
-        Span::styled(
-            format!("{:<28} ", event.target),
-            Style::default().add_modifier(Modifier::DIM),
-        ),
-        Span::raw(event.message.clone()),
+        Span::styled(format!("{:<28} ", event.target), muted_style()),
+        Span::styled(event.message.clone(), text_style()),
     ])
 }
 
@@ -1179,29 +1185,44 @@ fn format_fields(event: &ForegroundLogEvent) -> String {
 fn log_style(level: ForegroundLogLevel) -> Style {
     match level {
         ForegroundLogLevel::Off | ForegroundLogLevel::Trace | ForegroundLogLevel::Debug => {
-            Style::default().add_modifier(Modifier::DIM)
+            muted_style()
         }
-        ForegroundLogLevel::Info => Style::default(),
-        ForegroundLogLevel::Warn => Style::default().add_modifier(Modifier::BOLD),
-        ForegroundLogLevel::Error => {
-            Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED)
-        }
+        ForegroundLogLevel::Info => text_style(),
+        ForegroundLogLevel::Warn => Style::default()
+            .fg(CODEX_WARNING)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD),
+        ForegroundLogLevel::Error => Style::default()
+            .fg(CODEX_ERROR)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD),
     }
 }
 
-fn panel<'a>(title: &'a str) -> Block<'a> {
+fn panel(title: &str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
+        .border_type(BorderType::Rounded)
+        .border_style(border_style())
+        .style(base_style())
+        .title(Line::from(vec![
+            Span::styled(" › ", accent_style().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{title} "),
+                text_style().add_modifier(Modifier::BOLD),
+            ),
+        ]))
+}
+
+fn popup_panel(title: &str) -> Block<'static> {
+    panel(title)
+        .style(surface_style())
+        .border_style(Style::default().fg(CODEX_ACCENT).bg(CODEX_SURFACE))
 }
 
 fn scrape_status(app: &App) -> String {
     if app.metrics.last_success.is_none() {
-        return "METRICS WAITING".to_owned();
+        return "waiting".to_owned();
     }
     if app.metrics.last_error.is_some()
         || app
@@ -1209,21 +1230,73 @@ fn scrape_status(app: &App) -> String {
             .scrape_age(Instant::now())
             .is_some_and(|age| age > Duration::from_secs(3))
     {
-        return "METRICS STALE".to_owned();
+        return "stale".to_owned();
     }
     let age = app
         .metrics
         .scrape_age(Instant::now())
         .unwrap_or(Duration::ZERO);
-    format!("METRICS LIVE · age {:.1}s", age.as_secs_f64())
+    format!("live · age {:.1}s", age.as_secs_f64())
 }
 
 fn scrape_style(app: &App) -> Style {
-    if app.metrics.last_error.is_some() {
-        Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    if app.metrics.last_success.is_none() {
+        muted_style()
+    } else if app.metrics.last_error.is_some()
+        || app
+            .metrics
+            .scrape_age(Instant::now())
+            .is_some_and(|age| age > Duration::from_secs(3))
+    {
+        Style::default()
+            .fg(CODEX_WARNING)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(CODEX_SUCCESS)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD)
     }
+}
+
+const fn base_style() -> Style {
+    Style::new().fg(CODEX_TEXT).bg(CODEX_BACKGROUND)
+}
+
+const fn text_style() -> Style {
+    base_style()
+}
+
+const fn muted_style() -> Style {
+    Style::new().fg(CODEX_MUTED).bg(CODEX_BACKGROUND)
+}
+
+const fn accent_style() -> Style {
+    Style::new().fg(CODEX_ACCENT).bg(CODEX_BACKGROUND)
+}
+
+const fn border_style() -> Style {
+    Style::new().fg(CODEX_BORDER).bg(CODEX_BACKGROUND)
+}
+
+const fn surface_style() -> Style {
+    Style::new().fg(CODEX_TEXT).bg(CODEX_SURFACE)
+}
+
+const fn muted_surface_style() -> Style {
+    Style::new().fg(CODEX_MUTED).bg(CODEX_SURFACE)
+}
+
+fn table_header_style() -> Style {
+    accent_style().add_modifier(Modifier::BOLD)
+}
+
+fn gauge_style() -> Style {
+    Style::default()
+        .fg(CODEX_ACCENT)
+        .bg(CODEX_SURFACE)
+        .add_modifier(Modifier::BOLD)
 }
 
 const fn page_index(page: Page) -> usize {

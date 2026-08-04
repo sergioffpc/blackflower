@@ -85,7 +85,7 @@ payloads, or full IP addresses. Player identifiers must be pseudonymous.
 
 ## Foreground diagnostics
 
-`blackflower-server --foreground` runs the Black Ink Ratatui dashboard on an
+`blackflower-server --foreground` runs the Ratatui diagnostics dashboard on an
 interactive terminal. Its six panels are:
 
 | Key | Panel | Signals |
