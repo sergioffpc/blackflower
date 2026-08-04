@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "blackflower-networking-fuzz"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "blackflower-animation-format",
  "blackflower-networking",

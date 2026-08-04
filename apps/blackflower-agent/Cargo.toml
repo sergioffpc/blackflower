@@ -1,5 +1,5 @@
 [package]
-name = "blackflower"
+name = "blackflower-agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,25 +11,21 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
-blackflower-ecs.workspace = true
 blackflower-harness.workspace = true
+blackflower-navigation.workspace = true
 blackflower-networking.workspace = true
+blackflower-networking-quic.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
 blackflower-world-prediction = { workspace = true, features = ["observability"] }
-blackflower-world-presentation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
 clap.workspace = true
-image.workspace = true
 ratatui.workspace = true
 regex.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
-winit.workspace = true
-
-[dev-dependencies]
-blackflower-networking-replication.workspace = true
 
 [lints]
 workspace = true

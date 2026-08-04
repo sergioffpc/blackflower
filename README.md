@@ -39,6 +39,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | Path | Responsibility |
 | --- | --- |
 | `apps/blackflower` | Player client executable |
+| `apps/blackflower-agent` | Headless ordinary-client agent shell and diagnostics executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
@@ -65,6 +66,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-networking-quic` | Low-level Quinn transport endpoints and bounded host queues |
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
+| `crates/blackflower-observability-tui` | Shared bounded logs and Prometheus polling for terminal observability dashboards |
 | `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
 | `crates/blackflower-rendering-fluids` | NVIDIA Flow context bridge for renderer-owned GPU resources and passes |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
@@ -93,16 +95,44 @@ Run the authoritative server:
 RUST_LOG=info cargo run --package blackflower-server --locked
 ```
 
+Run the headless agent shell:
+
+```sh
+RUST_LOG=info cargo run --package blackflower-agent --locked
+```
+
+The shell composes the existing QUIC, shared client harness/prediction, and
+Detour navigation boundaries for gameplay-owned configuration. It does not yet
+install an observation encoder, policy, steering controller, or background
+inference worker.
+
 Run the server with the interactive foreground diagnostics dashboard:
 
 ```sh
 cargo run --package blackflower-server --locked -- --foreground
 ```
 
-The dashboard reads the same `http://127.0.0.1:9000/metrics` exposition used by
-Prometheus. It provides Overview, Logs, Simulation, Network, World, and Host
-panels without requiring Prometheus, Grafana, or a separate host-exporter
-process. Set the initial structured log capture level and optional regex with:
+The player client can keep its native window and presentation loop active while
+showing client-side diagnostics in the launching terminal. Its panels are
+Overview, Logs, Session, Prediction, Presentation, and Host:
+
+```sh
+cargo run --package blackflower --locked -- --foreground
+```
+
+The agent has a separate foreground dashboard with Overview, Logs, Session,
+Prediction, Navigation, and Host panels:
+
+```sh
+cargo run --package blackflower-agent --locked -- --foreground
+```
+
+Each dashboard reads the same Prometheus exposition as an external collector.
+The default loopback ports are `9000` for the server, `9001` for an agent, and
+`9002` for the player client. The server provides Overview, Logs, Simulation,
+Network, World, and Host panels without requiring Prometheus, Grafana, or a
+separate host-exporter process. Set the initial structured log capture level and
+optional regex with:
 
 ```sh
 cargo run --package blackflower-server --locked -- \
@@ -265,9 +295,9 @@ Pushing a `v*` tag runs the release workflow and uploads six binary archives:
 | Windows | IntelLLVM 2025.0.4 + ISPC 1.31.0 | MSVC |
 | macOS | AppleClang + ISPC 1.31.0 | AppleClang |
 
-Each archive contains `blackflower` and `blackflower-server` (with `.exe`
-suffixes on Windows). The x86-64 jobs also build the statically linked Steam
-Audio crate, so the pinned ISPC,
+Each archive contains `blackflower`, `blackflower-agent`, and
+`blackflower-server` (with `.exe` suffixes on Windows). The x86-64 jobs also
+build the statically linked Steam Audio crate, so the pinned ISPC,
 Steam Audio, and Embree combination is part of the release gate. ARM64 Windows
 uses GitHub's public-preview hosted runner and remains a required matrix entry.
 

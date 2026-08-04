@@ -2,13 +2,12 @@ use std::time::{Duration, Instant};
 
 use blackflower_observability::{ForegroundLogEvent, ForegroundLogLevel};
 use blackflower_observability_tui::MetricStore;
-use blackflower_world_simulation::{SIMULATION_TICK_RATE_HZ, SimulationPhase};
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table, Tabs, Wrap,
+    Block, BorderType, Borders, Clear, Gauge, Paragraph, Row, Sparkline, Table, Tabs, Wrap,
 };
 
 use super::app::{App, Page};
@@ -16,7 +15,7 @@ use super::app::{App, Page};
 const MIN_WIDTH: u16 = 72;
 const MIN_HEIGHT: u16 = 20;
 
-const CODEX_BACKGROUND: Color = Color::Rgb(14, 29, 57);
+pub(crate) const CODEX_BACKGROUND: Color = Color::Rgb(14, 29, 57);
 const CODEX_SURFACE: Color = Color::Rgb(39, 55, 83);
 const CODEX_BORDER: Color = Color::Rgb(72, 92, 122);
 const CODEX_TEXT: Color = Color::Rgb(219, 224, 232);
@@ -35,21 +34,19 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
     }
 
     let content = area.inner(Margin::new(2, 1));
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(7),
-            Constraint::Min(8),
-            Constraint::Length(1),
-        ])
-        .split(content);
+    let regions = Layout::vertical([
+        Constraint::Length(7),
+        Constraint::Min(8),
+        Constraint::Length(1),
+    ])
+    .split(content);
     draw_header(frame, regions[0], app);
     match app.page {
         Page::Overview => draw_overview(frame, regions[1], app),
         Page::Logs => draw_logs(frame, regions[1], app),
-        Page::Simulation => draw_simulation(frame, regions[1], app),
-        Page::Network => draw_network(frame, regions[1], app),
-        Page::World => draw_world(frame, regions[1], app),
+        Page::Session => draw_session(frame, regions[1], app),
+        Page::Prediction => draw_prediction(frame, regions[1], app),
+        Page::Navigation => draw_navigation_panel(frame, regions[1], app),
         Page::Host => draw_host(frame, regions[1], app),
     }
     draw_footer(frame, regions[2], app);
@@ -62,28 +59,22 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
 }
 
 fn draw_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(4),
-            Constraint::Length(2),
-        ])
-        .split(area);
-    draw_command(frame, regions[0], app);
-    draw_identity(frame, regions[1], app);
-    draw_navigation(frame, regions[2], area.width, app.page);
-}
-
-fn draw_command(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(4),
+        Constraint::Length(2),
+    ])
+    .split(area);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("› ", accent_style()),
             Span::styled(app.service_name, text_style().add_modifier(Modifier::BOLD)),
             Span::styled(" --foreground", muted_style()),
         ])),
-        area,
+        regions[0],
     );
+    draw_identity(frame, regions[1], app);
+    draw_tabs(frame, regions[2], area.width, app.page);
 }
 
 fn draw_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -98,6 +89,11 @@ fn draw_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Span::styled(scrape_status(app), scrape_style(app)),
             Span::styled("    uptime: ", muted_style()),
             Span::styled(format_uptime(app.started.elapsed()), text_style()),
+            Span::styled("    policy: ", muted_style()),
+            Span::styled(
+                configured(app.capabilities.policy_configured),
+                capability_style(app.capabilities.policy_configured),
+            ),
         ]),
     ];
     frame.render_widget(
@@ -112,12 +108,12 @@ fn draw_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-fn draw_navigation(frame: &mut Frame<'_>, area: Rect, header_width: u16, page: Page) {
+fn draw_tabs(frame: &mut Frame<'_>, area: Rect, width: u16, page: Page) {
     let titles = Page::ALL
         .iter()
         .enumerate()
         .map(|(index, page)| {
-            let title = if header_width < 100 {
+            let title = if width < 100 {
                 page.short_title()
             } else {
                 page.title()
@@ -125,11 +121,8 @@ fn draw_navigation(frame: &mut Frame<'_>, area: Rect, header_width: u16, page: P
             Line::from(format!(" {} {title} ", index + 1))
         })
         .collect::<Vec<_>>();
-    let navigation = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(2), Constraint::Min(1)])
-        .split(area);
-    frame.render_widget(Paragraph::new("›").style(accent_style()), navigation[0]);
+    let regions = Layout::horizontal([Constraint::Length(2), Constraint::Min(1)]).split(area);
+    frame.render_widget(Paragraph::new("›").style(accent_style()), regions[0]);
     frame.render_widget(
         Tabs::new(titles)
             .select(page_index(page))
@@ -141,34 +134,47 @@ fn draw_navigation(frame: &mut Frame<'_>, area: Rect, header_width: u16, page: P
                     .add_modifier(Modifier::BOLD),
             )
             .divider("  "),
-        navigation[1],
+        regions[1],
     );
 }
 
 fn draw_overview(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    draw_overview_metrics(frame, area, app);
+    let rows = Layout::vertical([
+        Constraint::Percentage(38),
+        Constraint::Percentage(37),
+        Constraint::Percentage(25),
+    ])
+    .split(area);
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
+    draw_agent_shell(frame, columns[0], app);
+    draw_process_summary(frame, columns[1], app);
+
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
+    draw_session_summary(frame, columns[0], app);
+    draw_prediction_summary(frame, columns[1], app);
+    draw_recent_logs(frame, rows[2], app);
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "overview metric declarations stay adjacent so the operator summary remains auditable"
-)]
-fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(38),
-            Constraint::Percentage(37),
-            Constraint::Percentage(25),
-        ])
-        .split(area);
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[0]);
+fn draw_agent_shell(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
-        columns[0],
+        area,
+        "Agent shell",
+        vec![
+            ("Runtime", configured(app.capabilities.runtime_configured)),
+            ("Policy", configured(app.capabilities.policy_configured)),
+            ("Navigation", loaded(app.capabilities.navigation_loaded)),
+            ("Role", "ordinary client".to_owned()),
+        ],
+    );
+}
+
+fn draw_process_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    draw_key_values(
+        frame,
+        area,
         "Process",
         vec![
             (
@@ -189,71 +195,13 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
             ),
         ],
     );
-    draw_key_values(
-        frame,
-        columns[1],
-        "Simulation",
-        vec![
-            (
-                "Tick rate",
-                format_rate(
-                    app.metrics.rate("blackflower_world_simulation_ticks_total"),
-                    "Hz",
-                ),
-            ),
-            (
-                "p95",
-                format_millis(app.metrics.histogram_quantile(
-                    "blackflower_world_simulation_tick_duration_seconds",
-                    0.95,
-                )),
-            ),
-            (
-                "Budget",
-                format!("{:.2} ms", tick_budget_seconds() * 1_000.0),
-            ),
-            (
-                "Misses",
-                format_rate(
-                    app.metrics
-                        .rate("blackflower_world_simulation_deadline_misses_total"),
-                    "/s",
-                ),
-            ),
-        ],
-    );
+}
 
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[1]);
+fn draw_session_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
-        columns[0],
-        "World",
-        vec![
-            (
-                "Worlds",
-                format_number(app.metrics.value("blackflower_ecs_active_worlds")),
-            ),
-            (
-                "Entities",
-                format_number(app.metrics.value("blackflower_ecs_entities")),
-            ),
-            (
-                "Systems",
-                format_number(app.metrics.value("blackflower_ecs_systems")),
-            ),
-            (
-                "Allocations",
-                format_number(app.metrics.value("blackflower_ecs_allocations_outstanding")),
-            ),
-        ],
-    );
-    draw_key_values(
-        frame,
-        columns[1],
-        "Network",
+        area,
+        "Session",
         vec![
             (
                 "Connections",
@@ -267,24 +215,62 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 ),
             ),
             (
-                "Upstream",
-                format_byte_rate(app.metrics.rate_with_label(
-                    "blackflower_network_udp_bytes_total",
-                    "direction",
-                    "upstream",
-                )),
+                "Inputs",
+                format_rate(app.metrics.rate("blackflower_network_inputs_total"), "/s"),
             ),
             (
-                "Downstream",
-                format_byte_rate(app.metrics.rate_with_label(
-                    "blackflower_network_udp_bytes_total",
-                    "direction",
-                    "downstream",
-                )),
+                "Resyncs",
+                format_rate(app.metrics.rate("blackflower_network_resync_total"), "/s"),
             ),
         ],
     );
-    draw_recent_logs(frame, rows[2], app);
+}
+
+fn draw_prediction_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    draw_key_values(
+        frame,
+        area,
+        "Prediction",
+        vec![
+            (
+                "Forward ticks",
+                format_rate(
+                    app.metrics.rate_with_label(
+                        "blackflower_world_prediction_ticks_total",
+                        "pass",
+                        "forward",
+                    ),
+                    "/s",
+                ),
+            ),
+            (
+                "Resimulation",
+                format_rate(
+                    app.metrics.rate_with_label(
+                        "blackflower_world_prediction_ticks_total",
+                        "pass",
+                        "resimulation",
+                    ),
+                    "/s",
+                ),
+            ),
+            (
+                "Tick p95",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_world_prediction_tick_duration_seconds",
+                    0.95,
+                )),
+            ),
+            (
+                "Reconciliations",
+                format_rate(
+                    app.metrics
+                        .rate("blackflower_world_prediction_reconciliations_total"),
+                    "/s",
+                ),
+            ),
+        ],
+    );
 }
 
 fn draw_recent_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -298,19 +284,18 @@ fn draw_recent_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(lines).block(panel("Recent logs")), area);
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "log table, filter state, and bounded-buffer health form one visual contract"
-)]
 fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(1),
-        ])
-        .split(area);
+    let regions = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(5),
+        Constraint::Length(1),
+    ])
+    .split(area);
+    draw_log_filters(frame, regions[0], app);
+    draw_log_table(frame, regions[1], regions[2], app);
+}
+
+fn draw_log_filters(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let filter = if app.logs.filter_source.is_empty() {
         "—"
     } else {
@@ -338,36 +323,35 @@ fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Span::raw("  Regex "),
             Span::styled(filter, text_style().add_modifier(Modifier::BOLD)),
             Span::raw("  "),
-            Span::styled(
-                state,
-                Style::default()
-                    .fg(CODEX_TEXT)
-                    .bg(CODEX_SURFACE)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(state, surface_style().add_modifier(Modifier::BOLD)),
         ]))
         .block(panel("Filters")),
-        regions[0],
+        area,
     );
+}
 
-    let visible_rows = usize::from(regions[1].height.saturating_sub(3));
+fn draw_log_table(frame: &mut Frame<'_>, table_area: Rect, status_area: Rect, app: &App) {
+    let visible_rows = usize::from(table_area.height.saturating_sub(3));
     let (events, first, total) = app.logs.visible(visible_rows);
     let rows = events.into_iter().map(log_row).collect::<Vec<_>>();
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(11),
-            Constraint::Length(7),
-            Constraint::Length(28),
-            Constraint::Min(20),
-        ],
-    )
-    .header(
-        Row::new(["Elapsed", "Level", "Target", "Message and fields"]).style(table_header_style()),
-    )
-    .block(panel("Structured logs"))
-    .column_spacing(1);
-    frame.render_widget(table, regions[1]);
+    frame.render_widget(
+        Table::new(
+            rows,
+            [
+                Constraint::Length(11),
+                Constraint::Length(7),
+                Constraint::Length(28),
+                Constraint::Min(20),
+            ],
+        )
+        .header(
+            Row::new(["Elapsed", "Level", "Target", "Message and fields"])
+                .style(table_header_style()),
+        )
+        .block(panel("Structured logs"))
+        .column_spacing(1),
+        table_area,
+    );
     let disconnected = if app.logs.disconnected() {
         " · source closed"
     } else {
@@ -383,189 +367,29 @@ fn draw_logs(frame: &mut Frame<'_>, area: Rect, app: &App) {
             disconnected,
         ))
         .style(muted_style()),
-        regions[2],
+        status_area,
     );
 }
 
-fn draw_simulation(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(5),
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(area);
-    let p95 = app
-        .metrics
-        .histogram_quantile("blackflower_world_simulation_tick_duration_seconds", 0.95);
-    let ratio = p95.map_or(0.0, |seconds| {
-        (seconds / tick_budget_seconds()).clamp(0.0, 1.0)
-    });
-    frame.render_widget(
-        Gauge::default()
-            .block(panel(&format!(
-                "Authoritative tick · {SIMULATION_TICK_RATE_HZ} Hz"
-            )))
-            .gauge_style(gauge_style())
-            .ratio(ratio)
-            .label(format!(
-                "p95 {} / {:.2} ms budget",
-                format_millis(p95),
-                tick_budget_seconds() * 1_000.0
-            )),
-        regions[0],
-    );
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[1]);
-    draw_tick_distribution(frame, columns[0], app);
-    draw_tick_outcomes(frame, columns[1], app);
-    draw_phase_table(frame, regions[2], app);
+fn draw_session(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([
+        Constraint::Length(8),
+        Constraint::Percentage(45),
+        Constraint::Percentage(55),
+    ])
+    .split(area);
+    draw_session_identity(frame, regions[0], app);
+    draw_session_activity(frame, regions[1], app);
+    draw_session_health(frame, regions[2], app);
 }
 
-fn draw_tick_distribution(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(4)])
-        .split(area);
-    let data = app.histories.tick_p95_micros.values();
-    frame.render_widget(
-        Sparkline::default()
-            .block(panel("Tick p95 · last 60 s"))
-            .data(&data)
-            .style(accent_style().add_modifier(Modifier::BOLD)),
-        regions[0],
-    );
-    draw_key_values(
-        frame,
-        regions[1],
-        "Distribution",
-        vec![
-            (
-                "p50",
-                format_millis(app.metrics.histogram_quantile(
-                    "blackflower_world_simulation_tick_duration_seconds",
-                    0.50,
-                )),
-            ),
-            (
-                "p95 / p99",
-                format!(
-                    "{} / {}",
-                    format_millis(app.metrics.histogram_quantile(
-                        "blackflower_world_simulation_tick_duration_seconds",
-                        0.95,
-                    )),
-                    format_millis(app.metrics.histogram_quantile(
-                        "blackflower_world_simulation_tick_duration_seconds",
-                        0.99,
-                    )),
-                ),
-            ),
-        ],
-    );
-}
-
-fn draw_tick_outcomes(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_session_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Outcomes",
+        "Ordinary client session",
         vec![
-            (
-                "Completed",
-                format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_world_simulation_ticks_total",
-                        "result",
-                        "completed",
-                    ),
-                    "/s",
-                ),
-            ),
-            (
-                "Stopped",
-                format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_world_simulation_ticks_total",
-                        "result",
-                        "stopped",
-                    ),
-                    "/s",
-                ),
-            ),
-            (
-                "Failed",
-                format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_world_simulation_ticks_total",
-                        "result",
-                        "failed",
-                    ),
-                    "/s",
-                ),
-            ),
-            (
-                "Deadline misses",
-                format_rate(
-                    app.metrics
-                        .rate("blackflower_world_simulation_deadline_misses_total"),
-                    "/s",
-                ),
-            ),
-        ],
-    );
-}
-
-fn draw_phase_table(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let rows = SimulationPhase::ORDER
-        .iter()
-        .map(|phase| {
-            Row::new([
-                Cell::from(phase.name()),
-                Cell::from(format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_world_simulation_system_executions_total",
-                        "phase",
-                        phase.name(),
-                    ),
-                    "/s",
-                )),
-            ])
-        })
-        .collect::<Vec<_>>();
-    frame.render_widget(
-        Table::new(
-            rows,
-            [Constraint::Percentage(70), Constraint::Percentage(30)],
-        )
-        .header(Row::new(["Phase", "System executions"]).style(table_header_style()))
-        .block(panel("Pipeline phases")),
-        area,
-    );
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "network layout keeps transport, queue, and replication sections visibly coordinated"
-)]
-fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(7),
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(area);
-    draw_key_values(
-        frame,
-        regions[0],
-        "QUIC transport",
-        vec![
+            ("Runtime", configured(app.capabilities.runtime_configured)),
             (
                 "Connections",
                 format_number(app.metrics.value("blackflower_network_connections")),
@@ -592,55 +416,35 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 ),
             ),
             (
-                "Inputs",
+                "Controls",
                 format_rate(app.metrics.rate("blackflower_network_inputs_total"), "/s"),
             ),
         ],
     );
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[1]);
+}
+
+fn draw_session_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
     draw_network_sparklines(frame, columns[0], app);
     draw_metric_series(
         frame,
         columns[1],
-        "Queue depth",
+        "Bounded queues",
         &app.metrics,
         "blackflower_network_queue_depth",
         "queue",
         false,
     );
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[2]);
-    draw_network_health(frame, columns[0], app);
-    draw_replication(frame, columns[1], app);
 }
 
-fn draw_network_sparklines(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area.inner(Margin::new(1, 1)));
-    frame.render_widget(panel("Host throughput · 60 s"), area);
-    let receive = app.histories.network_receive_bytes.values();
-    let transmit = app.histories.network_transmit_bytes.values();
-    frame.render_widget(
-        Sparkline::default()
-            .data(&receive)
-            .style(accent_style().add_modifier(Modifier::BOLD)),
-        regions[0],
-    );
-    frame.render_widget(Sparkline::default().data(&transmit), regions[1]);
-}
-
-fn draw_network_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_session_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
     draw_key_values(
         frame,
-        area,
-        "Network health",
+        columns[0],
+        "Session health",
         vec![
             (
                 "Drops",
@@ -659,20 +463,26 @@ fn draw_network_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 format_rate(app.metrics.rate("blackflower_network_resync_total"), "/s"),
             ),
             (
-                "Voice",
-                format_rate(
-                    app.metrics.rate("blackflower_network_voice_packets_total"),
-                    "/s",
-                ),
+                "Upstream",
+                format_byte_rate(app.metrics.rate_with_label(
+                    "blackflower_network_udp_bytes_total",
+                    "direction",
+                    "upstream",
+                )),
+            ),
+            (
+                "Downstream",
+                format_byte_rate(app.metrics.rate_with_label(
+                    "blackflower_network_udp_bytes_total",
+                    "direction",
+                    "downstream",
+                )),
             ),
         ],
     );
-}
-
-fn draw_replication(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_metric_series(
         frame,
-        area,
+        columns[1],
         "Snapshot actions",
         &app.metrics,
         "blackflower_network_snapshots_total",
@@ -681,143 +491,190 @@ fn draw_replication(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "world layout keeps ECS and acoustics metric mappings adjacent and auditable"
-)]
-fn draw_world(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(8),
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(area);
+fn draw_network_sparklines(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area.inner(Margin::new(1, 1)));
+    frame.render_widget(panel("Host throughput · 60 s"), area);
+    let receive = app.histories.network_receive_bytes.values();
+    let transmit = app.histories.network_transmit_bytes.values();
+    frame.render_widget(
+        Sparkline::default()
+            .data(&receive)
+            .style(accent_style().add_modifier(Modifier::BOLD)),
+        regions[0],
+    );
+    frame.render_widget(Sparkline::default().data(&transmit), regions[1]);
+}
+
+fn draw_prediction(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([
+        Constraint::Percentage(38),
+        Constraint::Percentage(31),
+        Constraint::Percentage(31),
+    ])
+    .split(area);
+    let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(regions[0]);
+    draw_prediction_history(frame, columns[0], app);
+    draw_prediction_timing(frame, columns[1], app);
+    draw_prediction_metric_series(
+        frame,
+        regions[1],
+        "Tick executions by pass and result",
+        &app.metrics,
+        "blackflower_world_prediction_ticks_total",
+        &["pass", "result"],
+    );
+    draw_prediction_metric_series(
+        frame,
+        regions[2],
+        "Reconciliation outcomes",
+        &app.metrics,
+        "blackflower_world_prediction_reconciliations_total",
+        &["result", "reason"],
+    );
+}
+
+fn draw_prediction_timing(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
-        regions[0],
-        "World · ECS",
+        area,
+        "Prediction timing",
         vec![
             (
-                "Active worlds",
-                format_number(app.metrics.value("blackflower_ecs_active_worlds")),
+                "Tick p50",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_world_prediction_tick_duration_seconds",
+                    0.50,
+                )),
             ),
             (
-                "Entities",
-                format_number(app.metrics.value("blackflower_ecs_entities")),
+                "Tick p95 / p99",
+                format!(
+                    "{} / {}",
+                    format_millis(app.metrics.histogram_quantile(
+                        "blackflower_world_prediction_tick_duration_seconds",
+                        0.95,
+                    )),
+                    format_millis(app.metrics.histogram_quantile(
+                        "blackflower_world_prediction_tick_duration_seconds",
+                        0.99,
+                    )),
+                ),
             ),
             (
-                "Tables",
-                format_number(app.metrics.value("blackflower_ecs_tables")),
+                "Reconcile p95",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_world_prediction_reconciliation_duration_seconds",
+                    0.95,
+                )),
             ),
             (
-                "Queries",
-                format_number(app.metrics.value("blackflower_ecs_queries")),
-            ),
-            (
-                "Systems",
-                format_number(app.metrics.value("blackflower_ecs_systems")),
+                "Resim ticks p95",
+                format_number(
+                    app.metrics
+                        .histogram_quantile("blackflower_world_prediction_resimulated_ticks", 0.95),
+                ),
             ),
         ],
     );
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[1]);
+}
+
+fn draw_prediction_history(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let data = app.histories.prediction_p95_micros.values();
+    frame.render_widget(
+        Sparkline::default()
+            .block(panel("Prediction tick p95 · µs · 60 s"))
+            .data(&data)
+            .style(accent_style().add_modifier(Modifier::BOLD)),
+        area,
+    );
+}
+
+fn draw_navigation_panel(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([
+        Constraint::Length(8),
+        Constraint::Percentage(45),
+        Constraint::Percentage(55),
+    ])
+    .split(area);
+    draw_navigation_identity(frame, regions[0], app);
+    draw_navigation_capabilities(frame, regions[1]);
+    draw_controller_boundary(frame, regions[2]);
+}
+
+fn draw_navigation_identity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let (major, minor, patch) = app.capabilities.recastnavigation_version;
+    draw_key_values(
+        frame,
+        area,
+        "Detour runtime",
+        vec![
+            (
+                "Navigation asset",
+                loaded(app.capabilities.navigation_loaded),
+            ),
+            ("RecastNavigation", format!("{major}.{minor}.{patch}")),
+            (
+                "Navmesh data version",
+                app.capabilities.detour_navmesh_version.to_string(),
+            ),
+            ("Ownership", "agent main thread · !Send · !Sync".to_owned()),
+            ("Dynamic avoidance", "not available".to_owned()),
+        ],
+    );
+}
+
+fn draw_navigation_capabilities(frame: &mut Frame<'_>, area: Rect) {
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
     draw_key_values(
         frame,
         columns[0],
-        "ECS health",
+        "Available now",
         vec![
-            (
-                "Allocations",
-                format_number(app.metrics.value("blackflower_ecs_allocations_outstanding")),
-            ),
-            (
-                "Callback failures",
-                format_number(app.metrics.sum("blackflower_ecs_callback_failures_total")),
-            ),
-            (
-                "Registrations",
-                format_number(app.metrics.sum("blackflower_ecs_registrations_total")),
-            ),
-            (
-                "Tick p95",
-                format_millis(
-                    app.metrics
-                        .histogram_quantile("blackflower_ecs_tick_duration_seconds", 0.95),
-                ),
-            ),
+            ("Static navmesh", "cooked .bfnav".to_owned()),
+            ("Pathfinding", "bounded Detour query".to_owned()),
+            ("Area policy", "cooked query filter".to_owned()),
+            ("Partial paths", "reported explicitly".to_owned()),
         ],
     );
     draw_key_values(
         frame,
         columns[1],
-        "Acoustics",
+        "Deliberately absent",
         vec![
-            (
-                "Candidate pairs p95",
-                format_number(
-                    app.metrics
-                        .histogram_quantile("blackflower_acoustic_candidate_pairs", 0.95),
-                ),
-            ),
-            (
-                "Direct pairs p95",
-                format_number(
-                    app.metrics
-                        .histogram_quantile("blackflower_acoustic_direct_pairs", 0.95),
-                ),
-            ),
-            (
-                "Observations",
-                format_rate(
-                    app.metrics.rate("blackflower_acoustic_observations_total"),
-                    "/s",
-                ),
-            ),
-            (
-                "Deferred",
-                format_rate(
-                    app.metrics
-                        .rate("blackflower_acoustic_deferred_indirect_pairs_total"),
-                    "/s",
-                ),
-            ),
+            ("Observation encoder", "not configured".to_owned()),
+            ("Policy / model", "not configured".to_owned()),
+            ("Steering", "not implemented".to_owned()),
+            ("Background worker", "not started".to_owned()),
         ],
     );
-    draw_metric_series(
-        frame,
-        regions[2],
-        "ECS tick operations",
-        &app.metrics,
-        "blackflower_ecs_ticks_total",
-        "operation",
-        true,
+}
+
+fn draw_controller_boundary(frame: &mut Frame<'_>, area: Rect) {
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from("The agent remains an ordinary client."),
+            Line::from("Navigation reads only the cooked local mesh; snapshots and prediction arrive through ClientHarness."),
+            Line::from("A future gameplay controller must translate semantic actions into validated ControlSubmission values."),
+        ])
+        .style(text_style())
+        .block(panel("Controller boundary"))
+        .wrap(Wrap { trim: true }),
+        area,
     );
 }
 
 fn draw_host(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(8),
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(area);
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[0]);
+    let rows =
+        Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(area);
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
     draw_cpu(frame, columns[0], app);
     draw_memory(frame, columns[1], app);
-    draw_filesystems(frame, regions[1], app);
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[2]);
+    let columns =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
     draw_host_io(frame, columns[0], app);
     draw_process(frame, columns[1], app);
 }
@@ -827,10 +684,7 @@ fn draw_cpu(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .metrics
         .value_with_label("node_cpu_usage_ratio", "cpu", "all");
     let ratio = usage.unwrap_or(0.0).clamp(0.0, 1.0);
-    let regions = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(2)])
-        .split(area);
+    let regions = Layout::vertical([Constraint::Length(3), Constraint::Min(2)]).split(area);
     frame.render_widget(
         Gauge::default()
             .block(panel("CPU"))
@@ -855,77 +709,25 @@ fn draw_cpu(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_memory(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let total = app.metrics.value("node_memory_MemTotal_bytes");
     let available = app.metrics.value("node_memory_MemAvailable_bytes");
-    let used = total
-        .zip(available)
-        .map(|(total, available)| total - available);
-    let ratio = used
-        .zip(total)
-        .map_or(0.0, |(used, total)| safe_ratio(used, total));
+    let used = total.zip(available).map(|(total, free)| total - free);
     let swap_total = app.metrics.value("node_memory_SwapTotal_bytes");
     let swap_free = app.metrics.value("node_memory_SwapFree_bytes");
     let swap_used = swap_total.zip(swap_free).map(|(total, free)| total - free);
     draw_key_values(
         frame,
         area,
-        &format!("Memory · {:.0}%", ratio * 100.0),
+        "Memory",
         vec![
             (
                 "Used / total",
                 format!("{} / {}", format_bytes(used), format_bytes(total)),
             ),
-            (
-                "Available",
-                format_bytes(app.metrics.value("node_memory_MemAvailable_bytes")),
-            ),
+            ("Available", format_bytes(available)),
             (
                 "Swap used / total",
                 format!("{} / {}", format_bytes(swap_used), format_bytes(swap_total)),
             ),
         ],
-    );
-}
-
-fn draw_filesystems(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let rows = app
-        .metrics
-        .series("node_filesystem_size_bytes")
-        .into_iter()
-        .map(|size| {
-            let mount = size.label("mountpoint").unwrap_or("—");
-            let filesystem = size.label("fstype").unwrap_or("—");
-            let available = app
-                .metrics
-                .series("node_filesystem_avail_bytes")
-                .into_iter()
-                .find(|sample| sample.label("mountpoint") == Some(mount))
-                .map(|sample| sample.value);
-            let used = available.map(|available| size.value - available);
-            Row::new([
-                mount.to_owned(),
-                filesystem.to_owned(),
-                format_bytes(used),
-                format_bytes(available),
-                format_percent(used.map(|used| safe_ratio(used, size.value))),
-            ])
-        })
-        .collect::<Vec<_>>();
-    frame.render_widget(
-        Table::new(
-            rows,
-            [
-                Constraint::Percentage(28),
-                Constraint::Percentage(18),
-                Constraint::Percentage(18),
-                Constraint::Percentage(18),
-                Constraint::Percentage(18),
-            ],
-        )
-        .header(
-            Row::new(["Mount", "Filesystem", "Used", "Available", "Usage"])
-                .style(table_header_style()),
-        )
-        .block(panel("Filesystems")),
-        area,
     );
 }
 
@@ -969,7 +771,7 @@ fn draw_process(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Server process",
+        "Agent process",
         vec![
             (
                 "CPU",
@@ -1039,6 +841,37 @@ fn draw_metric_series(
             [Constraint::Percentage(65), Constraint::Percentage(35)],
         )
         .header(Row::new([label, if rate { "Rate" } else { "Value" }]).style(table_header_style()))
+        .block(panel(title)),
+        area,
+    );
+}
+
+fn draw_prediction_metric_series(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &str,
+    metrics: &MetricStore,
+    metric: &str,
+    labels: &[&str],
+) {
+    let rows = metrics
+        .series(metric)
+        .into_iter()
+        .map(|sample| {
+            let identity = labels
+                .iter()
+                .map(|label| sample.label(label).unwrap_or("—"))
+                .collect::<Vec<_>>()
+                .join(" / ");
+            Row::new([identity, format_rate(metrics.rate_for_sample(sample), "/s")])
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Table::new(
+            rows,
+            [Constraint::Percentage(65), Constraint::Percentage(35)],
+        )
+        .header(Row::new([labels.join(" / "), "Rate".to_owned()]).style(table_header_style()))
         .block(panel(title)),
         area,
     );
@@ -1137,7 +970,7 @@ fn draw_filter_editor(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_too_small(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(format!(
-            "›_ SERVER FOREGROUND\n\nTerminal too small: {}x{}\nMinimum: {MIN_WIDTH}x{MIN_HEIGHT}\n\nq or Ctrl+C to stop",
+            "›_ AGENT FOREGROUND\n\nTerminal too small: {}x{}\nMinimum: {MIN_WIDTH}x{MIN_HEIGHT}\n\nq or Ctrl+C to stop",
             area.width, area.height,
         ))
         .alignment(Alignment::Center)
@@ -1260,6 +1093,36 @@ fn scrape_style(app: &App) -> Style {
     }
 }
 
+fn capability_style(configured: bool) -> Style {
+    if configured {
+        Style::default()
+            .fg(CODEX_SUCCESS)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(CODEX_WARNING)
+            .bg(CODEX_BACKGROUND)
+            .add_modifier(Modifier::BOLD)
+    }
+}
+
+fn configured(value: bool) -> String {
+    if value {
+        "configured".to_owned()
+    } else {
+        "not configured".to_owned()
+    }
+}
+
+fn loaded(value: bool) -> String {
+    if value {
+        "loaded".to_owned()
+    } else {
+        "not loaded".to_owned()
+    }
+}
+
 const fn base_style() -> Style {
     Style::new().fg(CODEX_TEXT).bg(CODEX_BACKGROUND)
 }
@@ -1303,9 +1166,9 @@ const fn page_index(page: Page) -> usize {
     match page {
         Page::Overview => 0,
         Page::Logs => 1,
-        Page::Simulation => 2,
-        Page::Network => 3,
-        Page::World => 4,
+        Page::Session => 2,
+        Page::Prediction => 3,
+        Page::Navigation => 4,
         Page::Host => 5,
     }
 }
@@ -1333,7 +1196,7 @@ fn format_cores(value: Option<f64>) -> String {
     value.map_or_else(|| "—".to_owned(), |cores| format!("{cores:.2} cores"))
 }
 
-fn format_bytes(value: Option<f64>) -> String {
+pub(crate) fn format_bytes(value: Option<f64>) -> String {
     let Some(bytes) = value else {
         return "—".to_owned();
     };
@@ -1365,14 +1228,6 @@ fn format_percent(ratio: Option<f64>) -> String {
     ratio.map_or_else(|| "—".to_owned(), |ratio| format!("{:.1}%", ratio * 100.0))
 }
 
-fn safe_ratio(numerator: f64, denominator: f64) -> f64 {
-    if denominator <= 0.0 {
-        0.0
-    } else {
-        (numerator / denominator).clamp(0.0, 1.0)
-    }
-}
-
 fn combine_rates(left: Option<f64>, right: Option<f64>) -> Option<f64> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left + right),
@@ -1381,12 +1236,7 @@ fn combine_rates(left: Option<f64>, right: Option<f64>) -> Option<f64> {
     }
 }
 
-fn tick_budget_seconds() -> f64 {
-    let rate = u32::try_from(SIMULATION_TICK_RATE_HZ).unwrap_or(u32::MAX);
-    1.0 / f64::from(rate)
-}
-
-fn format_uptime(duration: Duration) -> String {
+pub(crate) fn format_uptime(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     let days = total_seconds / 86_400;
     let hours = (total_seconds % 86_400) / 3_600;
@@ -1400,22 +1250,18 @@ fn format_uptime(duration: Duration) -> String {
 }
 
 fn centered_rect(width_percent: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Fill(1),
-            Constraint::Length(height.min(area.height)),
-            Constraint::Fill(1),
-        ])
-        .split(area);
-    let horizontal = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - width_percent) / 2),
-            Constraint::Percentage(width_percent),
-            Constraint::Percentage((100 - width_percent) / 2),
-        ])
-        .split(vertical[1]);
+    let vertical = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(height.min(area.height)),
+        Constraint::Fill(1),
+    ])
+    .split(area);
+    let horizontal = Layout::horizontal([
+        Constraint::Percentage((100 - width_percent) / 2),
+        Constraint::Percentage(width_percent),
+        Constraint::Percentage((100 - width_percent) / 2),
+    ])
+    .split(vertical[1]);
     horizontal[1]
 }
 

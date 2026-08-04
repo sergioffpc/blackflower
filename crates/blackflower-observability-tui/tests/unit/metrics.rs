@@ -35,8 +35,7 @@ fn calculates_histogram_quantiles() -> Result<(), String> {
         samples,
     };
 
-    let quantile = snapshot.histogram_quantile("tick", 0.5);
-    assert_eq!(quantile, Some(0.001));
+    assert_eq!(snapshot.histogram_quantile("tick", 0.5), Some(0.001));
     assert_eq!(snapshot.histogram_quantile("tick", 0.99), Some(0.002));
     Ok(())
 }

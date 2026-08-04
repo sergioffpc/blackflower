@@ -5,20 +5,30 @@
 //! shared harness through [`run_with_harness`]; transport construction,
 //! prediction policy, and renderer submission remain external boundaries.
 
-mod application;
+pub mod foreground;
 pub mod input;
 pub mod lifecycle;
+
+mod application;
 mod runtime;
 
 use anyhow::{Context as _, Result};
 use application::ClientApplication;
 use blackflower_harness::{ClientHarness, ClientPrediction, ClientTransport};
 pub use runtime::{HarnessPresentationRuntime, PresentationBridge};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 /// Run the native client event loop on the calling thread.
 pub fn run() -> Result<()> {
-    run_application(ClientApplication::new()?)
+    run_application(ClientApplication::new(None)?)
+}
+
+/// Run the native client until its window closes or another process component
+/// requests shutdown.
+pub fn run_with_shutdown(shutdown_requested: Arc<AtomicBool>) -> Result<()> {
+    run_application(ClientApplication::new(Some(shutdown_requested))?)
 }
 
 /// Run the native client with an already established shared harness.
@@ -29,7 +39,7 @@ where
     B: PresentationBridge<P::State> + 'static,
 {
     let runtime = HarnessPresentationRuntime::new(harness, bridge)?;
-    run_application(ClientApplication::with_runtime(Box::new(runtime))?)
+    run_application(ClientApplication::with_runtime(Box::new(runtime), None)?)
 }
 
 fn run_application(mut application: ClientApplication) -> Result<()> {

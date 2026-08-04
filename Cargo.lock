@@ -350,8 +350,14 @@ dependencies = [
  "blackflower-networking",
  "blackflower-networking-replication",
  "blackflower-observability",
+ "blackflower-observability-tui",
+ "blackflower-world-prediction",
  "blackflower-world-presentation",
+ "clap",
  "image",
+ "ratatui",
+ "regex",
+ "thiserror 2.0.19",
  "tracing",
  "winit",
 ]
@@ -365,6 +371,26 @@ dependencies = [
  "serde",
  "thiserror 2.0.19",
  "toml",
+]
+
+[[package]]
+name = "blackflower-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blackflower-harness",
+ "blackflower-navigation",
+ "blackflower-networking",
+ "blackflower-networking-quic",
+ "blackflower-observability",
+ "blackflower-observability-tui",
+ "blackflower-world-prediction",
+ "clap",
+ "ratatui",
+ "regex",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -663,6 +689,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-observability-tui"
+version = "0.1.0"
+dependencies = [
+ "blackflower-observability",
+ "ratatui",
+ "regex",
+]
+
+[[package]]
 name = "blackflower-physics"
 version = "0.1.0"
 dependencies = [
@@ -758,6 +793,7 @@ dependencies = [
  "blackflower-networking-quic",
  "blackflower-networking-replication",
  "blackflower-observability",
+ "blackflower-observability-tui",
  "blackflower-world-simulation",
  "clap",
  "ratatui",
@@ -1869,9 +1905,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.33.2"
+version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f22fb22f065b308be0d8724e3706c7fa3fc2a6c7d6899df4cad7860e7a75436"
+checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
 dependencies = [
  "mint",
 ]
@@ -4555,6 +4591,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -4661,6 +4698,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
+ "parking_lot",
  "symlink",
  "thiserror 2.0.19",
  "time",
@@ -4700,16 +4738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-serde"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
-dependencies = [
- "serde",
- "tracing-core",
-]
-
-[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4718,16 +4746,14 @@ dependencies = [
  "matchers",
  "nu-ansi-term",
  "once_cell",
+ "parking_lot",
  "regex-automata",
- "serde",
- "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
- "tracing-serde",
 ]
 
 [[package]]
@@ -5081,6 +5107,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
+ "parking_lot",
  "portable-atomic",
  "profiling",
  "raw-window-handle",

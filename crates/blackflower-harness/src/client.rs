@@ -6,7 +6,7 @@ use crate::input::{InputBuildError, InputSender};
 use crate::snapshots::{AppliedSnapshot, SnapshotInbox, SnapshotInboxError};
 use crate::{
     ClientEvent, ClientHarnessConfig, ClientPrediction, ClientTransport, ClientTransportEvent,
-    ClientView, ControlBinding, ControlSubmission, PredictionUpdate,
+    ClientView, ControlBinding, ControlSubmission, PredictionUpdate, TraceObserver, TraceRecord,
 };
 use blackflower_networking::{
     BootstrapId, FlowId, ResyncReason, SessionControlMessage, SessionError, SessionState,
@@ -27,6 +27,7 @@ pub struct ClientHarness<T, P> {
     events: VecDeque<ClientEvent>,
     pending_offer: Option<BootstrapOffer>,
     pending_transfer: Option<BootstrapTransfer>,
+    trace: Option<Box<dyn TraceObserver>>,
 }
 
 impl<T, P> ClientHarness<T, P>
@@ -61,6 +62,7 @@ where
             events: VecDeque::new(),
             pending_offer: None,
             pending_transfer: None,
+            trace: None,
         })
     }
 
@@ -91,6 +93,21 @@ where
         self.input.set_binding(binding);
     }
 
+    /// Install a boundary trace sink that records every accepted submission.
+    ///
+    /// The sink observes the same information a fair client has (perceived
+    /// projection plus submitted input) and nothing more, which is what makes a
+    /// captured corpus valid imitation-learning data. Passing a new sink
+    /// replaces any previously installed one.
+    pub fn set_trace_observer(&mut self, observer: Box<dyn TraceObserver>) {
+        self.trace = Some(observer);
+    }
+
+    /// Remove and return the installed boundary trace sink, if any.
+    pub fn take_trace_observer(&mut self) -> Option<Box<dyn TraceObserver>> {
+        self.trace.take()
+    }
+
     /// Accept source-neutral canonical control, queue prediction, and publish input.
     pub fn submit_control(
         &mut self,
@@ -99,6 +116,11 @@ where
         if self.session.state() != SessionState::Active {
             return Err(ClientHarnessError::SessionNotActive);
         }
+        // Clone the submission only while a trace sink is attached, so ordinary
+        // play pays nothing. The clone captures the accepted input before
+        // `build` consumes it, letting the tee fire after the submission is
+        // fully committed below.
+        let traced = self.trace.as_ref().map(|_sink| submission.clone());
         let mut next_input = self.input.clone();
         let (sequence, frame, datagram) = next_input.build(submission)?;
         self.prediction
@@ -108,6 +130,9 @@ where
             .set_latest_input(datagram)
             .map_err(ClientHarnessError::Transport)?;
         self.input = next_input;
+        if let Some(submission) = traced.as_ref() {
+            self.record_submission(sequence, submission);
+        }
         Ok(sequence)
     }
 
@@ -172,6 +197,25 @@ where
     #[must_use]
     pub const fn prediction_mut(&mut self) -> &mut P {
         &mut self.prediction
+    }
+
+    fn record_submission(
+        &mut self,
+        input_sequence: blackflower_networking::InputSequence,
+        submission: &ControlSubmission,
+    ) {
+        let session_state = self.session.state();
+        let window = self.snapshots.window();
+        let authoritative = window.newest();
+        if let Some(observer) = self.trace.as_mut() {
+            observer.on_control_submitted(TraceRecord {
+                session_state,
+                input_sequence,
+                authoritative,
+                window,
+                submission,
+            });
+        }
     }
 
     fn handle_transport_event(

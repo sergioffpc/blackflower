@@ -6,23 +6,23 @@ use regex::Regex;
 
 const MAX_LOG_EVENTS: usize = 10_000;
 
-pub(crate) struct LogState {
+pub struct LogState {
     receiver: Receiver<ForegroundLogEvent>,
-    pub(crate) control: ForegroundLogControl,
+    pub control: ForegroundLogControl,
     events: VecDeque<BufferedLogEvent>,
-    pub(crate) view_level: ForegroundLogLevel,
-    pub(crate) filter_source: String,
+    pub view_level: ForegroundLogLevel,
+    pub filter_source: String,
     filter: Option<Regex>,
-    pub(crate) filter_editor: Option<FilterEditor>,
-    pub(crate) follow: bool,
-    pub(crate) paused: bool,
+    pub filter_editor: Option<FilterEditor>,
+    pub follow: bool,
+    pub paused: bool,
     scroll_from_bottom: usize,
     disconnected: bool,
 }
 
-pub(crate) struct FilterEditor {
-    pub(crate) draft: String,
-    pub(crate) error: Option<String>,
+pub struct FilterEditor {
+    pub draft: String,
+    pub error: Option<String>,
 }
 
 struct BufferedLogEvent {
@@ -31,7 +31,7 @@ struct BufferedLogEvent {
 }
 
 impl LogState {
-    pub(crate) fn new(
+    pub fn new(
         receiver: Receiver<ForegroundLogEvent>,
         control: ForegroundLogControl,
         view_level: ForegroundLogLevel,
@@ -58,7 +58,7 @@ impl LogState {
         })
     }
 
-    pub(crate) fn drain(&mut self) {
+    pub fn drain(&mut self) {
         loop {
             match self.receiver.try_recv() {
                 Ok(event) => self.push(event),
@@ -93,7 +93,7 @@ impl LogState {
         }
     }
 
-    pub(crate) fn visible(&self, rows: usize) -> (Vec<&ForegroundLogEvent>, usize, usize) {
+    pub fn visible(&self, rows: usize) -> (Vec<&ForegroundLogEvent>, usize, usize) {
         let matches = self
             .events
             .iter()
@@ -106,7 +106,7 @@ impl LogState {
         (matches[start..end].to_vec(), start, total)
     }
 
-    pub(crate) fn recent(&self, rows: usize) -> Vec<&ForegroundLogEvent> {
+    pub fn recent(&self, rows: usize) -> Vec<&ForegroundLogEvent> {
         let matches = self
             .events
             .iter()
@@ -116,37 +116,37 @@ impl LogState {
         matches[matches.len().saturating_sub(rows)..].to_vec()
     }
 
-    pub(crate) fn cycle_view_level(&mut self) {
+    pub fn cycle_view_level(&mut self) {
         self.view_level = self.view_level.next();
         self.follow();
     }
 
-    pub(crate) fn cycle_capture_level(&mut self) {
+    pub fn cycle_capture_level(&mut self) {
         self.control.set_level(self.control.level().next());
     }
 
-    pub(crate) fn begin_filter_edit(&mut self) {
+    pub fn begin_filter_edit(&mut self) {
         self.filter_editor = Some(FilterEditor {
             draft: self.filter_source.clone(),
             error: None,
         });
     }
 
-    pub(crate) fn edit_filter_character(&mut self, character: char) {
+    pub fn edit_filter_character(&mut self, character: char) {
         if let Some(editor) = &mut self.filter_editor {
             editor.draft.push(character);
             editor.error = None;
         }
     }
 
-    pub(crate) fn edit_filter_backspace(&mut self) {
+    pub fn edit_filter_backspace(&mut self) {
         if let Some(editor) = &mut self.filter_editor {
             editor.draft.pop();
             editor.error = None;
         }
     }
 
-    pub(crate) fn commit_filter(&mut self) {
+    pub fn commit_filter(&mut self) {
         let Some(editor) = &mut self.filter_editor else {
             return;
         };
@@ -168,22 +168,22 @@ impl LogState {
         }
     }
 
-    pub(crate) fn cancel_filter_edit(&mut self) {
+    pub fn cancel_filter_edit(&mut self) {
         self.filter_editor = None;
     }
 
-    pub(crate) fn clear_filter(&mut self) {
+    pub fn clear_filter(&mut self) {
         self.filter = None;
         self.filter_source.clear();
         self.follow();
     }
 
-    pub(crate) fn clear_events(&mut self) {
+    pub fn clear_events(&mut self) {
         self.events.clear();
         self.follow();
     }
 
-    pub(crate) fn toggle_pause(&mut self) {
+    pub fn toggle_pause(&mut self) {
         self.paused = !self.paused;
         if self.paused {
             self.follow = false;
@@ -192,12 +192,12 @@ impl LogState {
         }
     }
 
-    pub(crate) fn scroll_up(&mut self, amount: usize) {
+    pub fn scroll_up(&mut self, amount: usize) {
         self.follow = false;
         self.scroll_from_bottom = self.scroll_from_bottom.saturating_add(amount);
     }
 
-    pub(crate) fn scroll_down(&mut self, amount: usize) {
+    pub fn scroll_down(&mut self, amount: usize) {
         self.scroll_from_bottom = self.scroll_from_bottom.saturating_sub(amount);
         if self.scroll_from_bottom == 0 {
             self.follow = true;
@@ -205,13 +205,13 @@ impl LogState {
         }
     }
 
-    pub(crate) fn follow(&mut self) {
+    pub fn follow(&mut self) {
         self.follow = true;
         self.paused = false;
         self.scroll_from_bottom = 0;
     }
 
-    pub(crate) const fn disconnected(&self) -> bool {
+    pub const fn disconnected(&self) -> bool {
         self.disconnected
     }
 
@@ -230,5 +230,5 @@ impl LogState {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/foreground_logs.rs"]
+#[path = "../tests/unit/logs.rs"]
 mod tests;

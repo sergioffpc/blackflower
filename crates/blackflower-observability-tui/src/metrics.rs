@@ -11,14 +11,14 @@ const RESULT_QUEUE_CAPACITY: usize = 2;
 const MAX_HTTP_RESPONSE_BYTES: usize = 8 * 1_024 * 1_024;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Sample {
-    pub(crate) name: String,
-    pub(crate) labels: Vec<(String, String)>,
-    pub(crate) value: f64,
+pub struct Sample {
+    pub name: String,
+    pub labels: Vec<(String, String)>,
+    pub value: f64,
 }
 
 impl Sample {
-    pub(crate) fn label(&self, name: &str) -> Option<&str> {
+    pub fn label(&self, name: &str) -> Option<&str> {
         self.labels
             .iter()
             .find(|(candidate, _value)| candidate == name)
@@ -33,16 +33,14 @@ pub(crate) struct MetricSnapshot {
 }
 
 impl MetricSnapshot {
-    #[must_use]
-    pub(crate) fn value(&self, name: &str) -> Option<f64> {
+    fn value(&self, name: &str) -> Option<f64> {
         self.samples
             .iter()
             .find(|sample| sample.name == name && sample.labels.is_empty())
             .map(|sample| sample.value)
     }
 
-    #[must_use]
-    pub(crate) fn sum(&self, name: &str) -> Option<f64> {
+    fn sum(&self, name: &str) -> Option<f64> {
         let mut found = false;
         let sum = self
             .samples
@@ -55,24 +53,28 @@ impl MetricSnapshot {
         found.then_some(sum)
     }
 
-    #[must_use]
-    pub(crate) fn value_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
+    fn value_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
         self.samples
             .iter()
             .find(|sample| sample.name == name && sample.label(label) == Some(value))
             .map(|sample| sample.value)
     }
 
-    #[must_use]
-    pub(crate) fn series(&self, name: &str) -> Vec<&Sample> {
+    fn series(&self, name: &str) -> Vec<&Sample> {
         self.samples
             .iter()
             .filter(|sample| sample.name == name)
             .collect()
     }
 
-    #[must_use]
-    pub(crate) fn histogram_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
+    fn matching_value(&self, sample: &Sample) -> Option<f64> {
+        self.samples
+            .iter()
+            .find(|candidate| candidate.name == sample.name && candidate.labels == sample.labels)
+            .map(|candidate| candidate.value)
+    }
+
+    fn histogram_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
         let bucket_name = format!("{name}_bucket");
         let mut buckets: Vec<(String, f64, f64)> = Vec::new();
         for sample in self
@@ -128,16 +130,16 @@ impl MetricSnapshot {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct MetricStore {
-    pub(crate) current: Option<MetricSnapshot>,
+pub struct MetricStore {
+    current: Option<MetricSnapshot>,
     previous: Option<MetricSnapshot>,
-    pub(crate) last_success: Option<Instant>,
-    pub(crate) last_attempt: Option<Instant>,
-    pub(crate) last_error: Option<String>,
+    pub last_success: Option<Instant>,
+    pub last_attempt: Option<Instant>,
+    pub last_error: Option<String>,
 }
 
 impl MetricStore {
-    pub(crate) fn accept(&mut self, result: ScrapeResult) -> bool {
+    pub fn accept(&mut self, result: ScrapeResult) -> bool {
         self.last_attempt = Some(result.completed_at);
         match result.result {
             Ok(snapshot) => {
@@ -153,35 +155,30 @@ impl MetricStore {
         }
     }
 
-    #[must_use]
-    pub(crate) fn value(&self, name: &str) -> Option<f64> {
+    pub fn value(&self, name: &str) -> Option<f64> {
         self.current.as_ref()?.value(name)
     }
 
-    #[must_use]
-    pub(crate) fn sum(&self, name: &str) -> Option<f64> {
+    /// Sum every current series with the requested metric name.
+    pub fn sum(&self, name: &str) -> Option<f64> {
         self.current.as_ref()?.sum(name)
     }
 
-    #[must_use]
-    pub(crate) fn value_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
+    pub fn value_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
         self.current.as_ref()?.value_with_label(name, label, value)
     }
 
-    #[must_use]
-    pub(crate) fn histogram_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
+    pub fn histogram_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
         self.current.as_ref()?.histogram_quantile(name, quantile)
     }
 
-    #[must_use]
-    pub(crate) fn rate(&self, name: &str) -> Option<f64> {
+    pub fn rate(&self, name: &str) -> Option<f64> {
         let current = self.current.as_ref()?;
         let previous = self.previous.as_ref()?;
         counter_rate(current.sum(name)?, previous.sum(name)?, current, previous)
     }
 
-    #[must_use]
-    pub(crate) fn rate_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
+    pub fn rate_with_label(&self, name: &str, label: &str, value: &str) -> Option<f64> {
         let current = self.current.as_ref()?;
         let previous = self.previous.as_ref()?;
         counter_rate(
@@ -192,15 +189,25 @@ impl MetricStore {
         )
     }
 
-    #[must_use]
-    pub(crate) fn series(&self, name: &str) -> Vec<&Sample> {
+    /// Calculate the rate of one exact current series, including all labels.
+    pub fn rate_for_sample(&self, sample: &Sample) -> Option<f64> {
+        let current = self.current.as_ref()?;
+        let previous = self.previous.as_ref()?;
+        counter_rate(
+            sample.value,
+            previous.matching_value(sample)?,
+            current,
+            previous,
+        )
+    }
+
+    pub fn series(&self, name: &str) -> Vec<&Sample> {
         self.current
             .as_ref()
             .map_or_else(Vec::new, |snapshot| snapshot.series(name))
     }
 
-    #[must_use]
-    pub(crate) fn scrape_age(&self, now: Instant) -> Option<Duration> {
+    pub fn scrape_age(&self, now: Instant) -> Option<Duration> {
         self.last_success
             .map(|success| now.saturating_duration_since(success))
     }
@@ -223,23 +230,23 @@ fn counter_rate(
 }
 
 #[derive(Debug)]
-pub(crate) struct ScrapeResult {
+pub struct ScrapeResult {
     pub(crate) completed_at: Instant,
     pub(crate) result: Result<MetricSnapshot, String>,
 }
 
-pub(crate) struct MetricsPoller {
+pub struct MetricsPoller {
     results: Receiver<ScrapeResult>,
     stop: Sender<()>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl MetricsPoller {
-    pub(crate) fn start(address: SocketAddr) -> std::io::Result<Self> {
+    pub fn start(address: SocketAddr) -> std::io::Result<Self> {
         let (result_sender, results) = mpsc::sync_channel(RESULT_QUEUE_CAPACITY);
         let (stop, stop_receiver) = mpsc::channel();
         let worker = std::thread::Builder::new()
-            .name("blackflower-foreground-metrics".to_owned())
+            .name("blackflower-observability-tui-metrics".to_owned())
             .spawn(move || poll_metrics(address, &result_sender, &stop_receiver))?;
         Ok(Self {
             results,
@@ -248,7 +255,7 @@ impl MetricsPoller {
         })
     }
 
-    pub(crate) fn try_recv(&self) -> Result<ScrapeResult, mpsc::TryRecvError> {
+    pub fn try_recv(&self) -> Result<ScrapeResult, mpsc::TryRecvError> {
         self.results.try_recv()
     }
 }
@@ -259,7 +266,7 @@ impl Drop for MetricsPoller {
             return;
         }
         if let Some(worker) = self.worker.take() {
-            let _join_result = worker.join();
+            drop(worker.join());
         }
     }
 }
@@ -399,9 +406,7 @@ fn split_sample(line: &str) -> Option<(&str, &str)> {
     for (index, character) in line.char_indices() {
         if escaped {
             escaped = false;
-            continue;
-        }
-        if in_quotes && character == '\\' {
+        } else if in_quotes && character == '\\' {
             escaped = true;
         } else if character == '"' && in_labels {
             in_quotes = !in_quotes;
@@ -479,5 +484,5 @@ fn parse_quoted(source: &str) -> Result<(String, usize), String> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/foreground_metrics.rs"]
+#[path = "../tests/unit/metrics.rs"]
 mod tests;

@@ -9,8 +9,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 
 use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
 
-use super::ForegroundConfig;
-use super::render;
+use super::{AgentCapabilities, ForegroundConfig, render};
 
 const DRAW_INTERVAL: Duration = Duration::from_millis(100);
 const HISTORY_CAPACITY: usize = 60;
@@ -34,9 +33,9 @@ pub(crate) enum Page {
     #[default]
     Overview,
     Logs,
-    Simulation,
-    Network,
-    World,
+    Session,
+    Prediction,
+    Navigation,
     Host,
 }
 
@@ -44,9 +43,9 @@ impl Page {
     pub(crate) const ALL: [Self; 6] = [
         Self::Overview,
         Self::Logs,
-        Self::Simulation,
-        Self::Network,
-        Self::World,
+        Self::Session,
+        Self::Prediction,
+        Self::Navigation,
         Self::Host,
     ];
 
@@ -54,9 +53,9 @@ impl Page {
         match self {
             Self::Overview => "Overview",
             Self::Logs => "Logs",
-            Self::Simulation => "Simulation",
-            Self::Network => "Network",
-            Self::World => "World",
+            Self::Session => "Session",
+            Self::Prediction => "Prediction",
+            Self::Navigation => "Navigation",
             Self::Host => "Host",
         }
     }
@@ -65,9 +64,9 @@ impl Page {
         match self {
             Self::Overview => "Ovr",
             Self::Logs => "Logs",
-            Self::Simulation => "Sim",
-            Self::Network => "Net",
-            Self::World => "World",
+            Self::Session => "Sess",
+            Self::Prediction => "Pred",
+            Self::Navigation => "Nav",
             Self::Host => "Host",
         }
     }
@@ -76,25 +75,25 @@ impl Page {
         match self {
             Self::Overview => 0,
             Self::Logs => 1,
-            Self::Simulation => 2,
-            Self::Network => 3,
-            Self::World => 4,
+            Self::Session => 2,
+            Self::Prediction => 3,
+            Self::Navigation => 4,
             Self::Host => 5,
         }
     }
 
-    fn next(self) -> Self {
+    pub(crate) fn next(self) -> Self {
         Self::ALL[(self.index() + 1) % Self::ALL.len()]
     }
 
-    fn previous(self) -> Self {
+    pub(crate) fn previous(self) -> Self {
         Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
     }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Histories {
-    pub(crate) tick_p95_micros: History,
+    pub(crate) prediction_p95_micros: History,
     pub(crate) network_receive_bytes: History,
     pub(crate) network_transmit_bytes: History,
 }
@@ -121,6 +120,7 @@ pub(crate) struct App {
     pub(crate) service_name: &'static str,
     pub(crate) service_version: &'static str,
     pub(crate) metrics_address: std::net::SocketAddr,
+    pub(crate) capabilities: AgentCapabilities,
     pub(crate) started: Instant,
     pub(crate) page: Page,
     pub(crate) metrics: MetricStore,
@@ -147,6 +147,7 @@ impl App {
             service_name: config.service_name,
             service_version: config.service_version,
             metrics_address: config.metrics_address,
+            capabilities: config.capabilities,
             started: Instant::now(),
             page: Page::Overview,
             metrics: MetricStore::default(),
@@ -182,13 +183,13 @@ impl App {
     fn record_history(&mut self) {
         if let Some(seconds) = self
             .metrics
-            .histogram_quantile("blackflower_world_simulation_tick_duration_seconds", 0.95)
+            .histogram_quantile("blackflower_world_prediction_tick_duration_seconds", 0.95)
             && seconds.is_finite()
             && seconds >= 0.0
         {
             let micros = Duration::from_secs_f64(seconds).as_micros();
             self.histories
-                .tick_p95_micros
+                .prediction_p95_micros
                 .push(u64::try_from(micros).unwrap_or(u64::MAX));
         }
         if let Some(rate) = self.metrics.rate("node_network_receive_bytes_total") {
@@ -232,9 +233,9 @@ impl App {
             KeyCode::BackTab => self.page = self.page.previous(),
             KeyCode::Char('1') => self.page = Page::Overview,
             KeyCode::Char('2') => self.page = Page::Logs,
-            KeyCode::Char('3') => self.page = Page::Simulation,
-            KeyCode::Char('4') => self.page = Page::Network,
-            KeyCode::Char('5') => self.page = Page::World,
+            KeyCode::Char('3') => self.page = Page::Session,
+            KeyCode::Char('4') => self.page = Page::Prediction,
+            KeyCode::Char('5') => self.page = Page::Navigation,
             KeyCode::Char('6') => self.page = Page::Host,
             _ if self.page == Page::Logs => self.handle_log_key(key),
             _ => {}
@@ -264,7 +265,7 @@ impl App {
 
     #[allow(
         clippy::wildcard_enum_match_arm,
-        reason = "filter editing accepts text keys and intentionally ignores other input"
+        reason = "unbound Crossterm keys and future key variants are intentionally harmless"
     )]
     fn handle_filter_editor(&mut self, key: KeyEvent) {
         match key.code {
@@ -272,9 +273,7 @@ impl App {
             KeyCode::Esc => self.logs.cancel_filter_edit(),
             KeyCode::Backspace => self.logs.edit_filter_backspace(),
             KeyCode::Char(character)
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
             {
                 self.logs.edit_filter_character(character);
             }

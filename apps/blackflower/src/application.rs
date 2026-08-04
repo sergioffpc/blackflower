@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context as _, Error, Result};
@@ -14,11 +16,12 @@ use crate::lifecycle::{ClientLifecycle, ClientLifecycleState, ResumeAction};
 use crate::runtime::{ApplicationRuntime, FrameClock, PresentationRuntime};
 
 const WINDOW_TITLE: &str = "Blackflower";
-const INITIAL_WIDTH: f64 = 1_280.0;
-const INITIAL_HEIGHT: f64 = 720.0;
-const MINIMUM_WIDTH: f64 = 960.0;
-const MINIMUM_HEIGHT: f64 = 540.0;
+const INITIAL_WIDTH: f64 = 1_920.0;
+const INITIAL_HEIGHT: f64 = 1_080.0;
+const MINIMUM_WIDTH: f64 = 1_280.0;
+const MINIMUM_HEIGHT: f64 = 720.0;
 const WINDOW_ICON: &[u8] = include_bytes!("../assets/icons/png/blackflower-icon-64.png");
+const FOREGROUND_SHUTDOWN_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 struct NativeWindow {
     window: Window,
@@ -46,15 +49,19 @@ pub(crate) struct ClientApplication {
     runtime: Box<dyn ApplicationRuntime>,
     frame_clock: FrameClock,
     started: Instant,
+    shutdown_requested: Option<Arc<AtomicBool>>,
     failure: Option<Error>,
 }
 
 impl ClientApplication {
-    pub(crate) fn new() -> Result<Self> {
-        Self::with_runtime(Box::new(PresentationRuntime::new()?))
+    pub(crate) fn new(shutdown_requested: Option<Arc<AtomicBool>>) -> Result<Self> {
+        Self::with_runtime(Box::new(PresentationRuntime::new()?), shutdown_requested)
     }
 
-    pub(crate) fn with_runtime(runtime: Box<dyn ApplicationRuntime>) -> Result<Self> {
+    pub(crate) fn with_runtime(
+        runtime: Box<dyn ApplicationRuntime>,
+        shutdown_requested: Option<Arc<AtomicBool>>,
+    ) -> Result<Self> {
         Ok(Self {
             lifecycle: ClientLifecycle::default(),
             window: None,
@@ -63,6 +70,7 @@ impl ClientApplication {
             runtime,
             frame_clock: FrameClock::default(),
             started: Instant::now(),
+            shutdown_requested,
             failure: None,
         })
     }
@@ -173,6 +181,9 @@ impl ClientApplication {
     }
 
     fn begin_shutdown(&mut self, event_loop: &ActiveEventLoop, reason: &'static str) {
+        if let Some(shutdown_requested) = &self.shutdown_requested {
+            shutdown_requested.store(true, Ordering::Release);
+        }
         if self.lifecycle.request_stop() {
             self.input.suspend();
             self.frame_clock.suspend();
@@ -232,6 +243,10 @@ impl ClientApplication {
         );
     }
 
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "unhandled winit window events are traced and future variants are non-fatal"
+    )]
     fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => self.begin_shutdown(event_loop, "close_requested"),
@@ -260,20 +275,7 @@ impl ClientApplication {
             }
             WindowEvent::MouseWheel { delta, .. } => self.input.mouse_wheel(delta),
             WindowEvent::RedrawRequested => self.redraw_requested(),
-            unhandled @ WindowEvent::ActivationTokenDone { .. }
-            | unhandled @ WindowEvent::Moved(_)
-            | unhandled @ WindowEvent::DroppedFile(_)
-            | unhandled @ WindowEvent::HoveredFile(_)
-            | unhandled @ WindowEvent::HoveredFileCancelled
-            | unhandled @ WindowEvent::Ime(_)
-            | unhandled @ WindowEvent::PinchGesture { .. }
-            | unhandled @ WindowEvent::PanGesture { .. }
-            | unhandled @ WindowEvent::DoubleTapGesture { .. }
-            | unhandled @ WindowEvent::RotationGesture { .. }
-            | unhandled @ WindowEvent::TouchpadPressure { .. }
-            | unhandled @ WindowEvent::AxisMotion { .. }
-            | unhandled @ WindowEvent::Touch(_)
-            | unhandled @ WindowEvent::ThemeChanged(_) => {
+            unhandled => {
                 tracing::trace!(
                     target: "blackflower_client",
                     event_name = "window_event_ignored",
@@ -344,10 +346,24 @@ impl ClientApplication {
     }
 
     fn advance_runtime(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        if self
+            .shutdown_requested
+            .as_ref()
+            .is_some_and(|requested| requested.load(Ordering::Acquire))
+        {
+            self.begin_shutdown(event_loop, "external_request");
+            return Ok(());
+        }
         let can_present = self.window.as_ref().is_some_and(|native| !native.occluded)
             && self.lifecycle.state() == ClientLifecycleState::Active;
         if !can_present {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            if self.shutdown_requested.is_some() {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + FOREGROUND_SHUTDOWN_POLL,
+                ));
+            } else {
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
             return Ok(());
         }
 
@@ -392,6 +408,10 @@ impl ApplicationHandler for ClientApplication {
         }
     }
 
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "unhandled raw device events are traced and future variants are non-fatal"
+    )]
     fn device_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -400,12 +420,7 @@ impl ApplicationHandler for ClientApplication {
     ) {
         match event {
             DeviceEvent::MouseMotion { delta } => self.input.raw_mouse_motion(delta),
-            unhandled @ DeviceEvent::Added
-            | unhandled @ DeviceEvent::Removed
-            | unhandled @ DeviceEvent::MouseWheel { .. }
-            | unhandled @ DeviceEvent::Motion { .. }
-            | unhandled @ DeviceEvent::Button { .. }
-            | unhandled @ DeviceEvent::Key(_) => {
+            unhandled => {
                 tracing::trace!(
                     target: "blackflower_client",
                     event_name = "device_event_ignored",

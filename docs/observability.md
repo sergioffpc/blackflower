@@ -52,10 +52,8 @@ metrics because wall-clock pacing is outside `SimulationWorld`.
 ## Logging
 
 Compact colored text is the default for every executable. `LogFormat::Pretty`
-selects a colored multi-line format for interactive diagnosis.
-`LogFormat::Json` remains available for production ingestion and never contains
-ANSI color sequences. `RUST_LOG` controls filtering, with `info` as the
-fallback.
+selects a colored multi-line format for interactive diagnosis. `RUST_LOG`
+controls filtering, with `info` as the fallback.
 
 Levels have stable meanings:
 
@@ -103,6 +101,25 @@ external collector; it does not read a world, scheduler, recorder handle, or
 `sysinfo` directly. A failed or stale scrape is visible in the header and is
 retried without affecting the server. Missing series render as `—`, counter
 resets do not produce a false rate, and histories are bounded to 60 samples.
+
+`blackflower-agent --foreground` follows the same isolation and bounded-log
+rules. Its six panels are Overview, Logs, Session, Prediction, Navigation, and
+Host. The process defaults to `127.0.0.1:9001` so one local server and one agent
+can expose metrics simultaneously; deployments running multiple agents must
+assign distinct loopback ports. Missing policy or runtime configuration is
+rendered explicitly rather than represented by synthetic metric activity.
+
+`blackflower --foreground` keeps the native `winit` client on the main thread
+and runs its terminal dashboard beside it. Its six panels are Overview, Logs,
+Session, Prediction, Presentation, and Host. The client defaults to
+`127.0.0.1:9002`; closing either the native application or the dashboard
+requests an orderly shutdown of the other. Missing harness or renderer series
+are reported as unavailable rather than inferred from window activity.
+
+Reusable terminal-only state lives in `blackflower-observability-tui`, a
+sibling extension of `blackflower-observability`. The core observability crate
+therefore remains independent of Ratatui and executable-specific page models;
+each executable owns the mapping from its metric families to its panels.
 
 Foreground logging is a second bounded, lossy output of the process tracing
 subscriber. Formatted terminal logging is suppressed while the alternate

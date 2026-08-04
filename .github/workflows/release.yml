@@ -101,6 +101,7 @@ jobs:
           cargo build --release --locked
           --target ${{ matrix.target }}
           --package blackflower
+          --package blackflower-agent
           --package blackflower-server
 
       - name: Package Unix executables
@@ -112,6 +113,7 @@ jobs:
           package="$RUNNER_TEMP/blackflower-$TARGET"
           mkdir -p "$package"
           cp "target/$TARGET/release/blackflower" "$package/"
+          cp "target/$TARGET/release/blackflower-agent" "$package/"
           cp "target/$TARGET/release/blackflower-server" "$package/"
           cp LICENSE README.md "$package/"
           tar -C "$RUNNER_TEMP" -czf "blackflower-$TARGET.tar.gz" "blackflower-$TARGET"
@@ -125,6 +127,7 @@ jobs:
           $package = Join-Path $env:RUNNER_TEMP "blackflower-$env:TARGET"
           New-Item -ItemType Directory -Path $package | Out-Null
           Copy-Item "target/$env:TARGET/release/blackflower.exe" $package
+          Copy-Item "target/$env:TARGET/release/blackflower-agent.exe" $package
           Copy-Item "target/$env:TARGET/release/blackflower-server.exe" $package
           Copy-Item LICENSE, README.md $package
           Compress-Archive -Path "$package/*" -DestinationPath "blackflower-$env:TARGET.zip"

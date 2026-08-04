@@ -4,28 +4,26 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
-
-use super::ForegroundConfig;
-use super::render;
+use super::{ClientCapabilities, ForegroundConfig, render};
 
 const DRAW_INTERVAL: Duration = Duration::from_millis(100);
 const HISTORY_CAPACITY: usize = 60;
 
-/// Failure while starting or running foreground diagnostics.
+/// Failure while starting or running client terminal diagnostics.
 #[derive(Debug, thiserror::Error)]
 pub enum ForegroundError {
     /// The metrics polling worker could not be started.
-    #[error("failed to start foreground metrics poller")]
+    #[error("failed to start client metrics poller")]
     MetricsPoller(#[source] io::Error),
     /// The initial log regex is invalid.
-    #[error("invalid foreground log regex")]
+    #[error("invalid client log regex")]
     LogRegex(#[source] regex::Error),
     /// The terminal backend failed.
-    #[error("foreground terminal failed")]
+    #[error("client terminal failed")]
     Terminal(#[source] io::Error),
 }
 
@@ -34,9 +32,9 @@ pub(crate) enum Page {
     #[default]
     Overview,
     Logs,
-    Simulation,
-    Network,
-    World,
+    Session,
+    Prediction,
+    Presentation,
     Host,
 }
 
@@ -44,9 +42,9 @@ impl Page {
     pub(crate) const ALL: [Self; 6] = [
         Self::Overview,
         Self::Logs,
-        Self::Simulation,
-        Self::Network,
-        Self::World,
+        Self::Session,
+        Self::Prediction,
+        Self::Presentation,
         Self::Host,
     ];
 
@@ -54,9 +52,9 @@ impl Page {
         match self {
             Self::Overview => "Overview",
             Self::Logs => "Logs",
-            Self::Simulation => "Simulation",
-            Self::Network => "Network",
-            Self::World => "World",
+            Self::Session => "Session",
+            Self::Prediction => "Prediction",
+            Self::Presentation => "Presentation",
             Self::Host => "Host",
         }
     }
@@ -65,9 +63,9 @@ impl Page {
         match self {
             Self::Overview => "Ovr",
             Self::Logs => "Logs",
-            Self::Simulation => "Sim",
-            Self::Network => "Net",
-            Self::World => "World",
+            Self::Session => "Sess",
+            Self::Prediction => "Pred",
+            Self::Presentation => "Pres",
             Self::Host => "Host",
         }
     }
@@ -76,25 +74,26 @@ impl Page {
         match self {
             Self::Overview => 0,
             Self::Logs => 1,
-            Self::Simulation => 2,
-            Self::Network => 3,
-            Self::World => 4,
+            Self::Session => 2,
+            Self::Prediction => 3,
+            Self::Presentation => 4,
             Self::Host => 5,
         }
     }
 
-    fn next(self) -> Self {
+    pub(crate) fn next(self) -> Self {
         Self::ALL[(self.index() + 1) % Self::ALL.len()]
     }
 
-    fn previous(self) -> Self {
+    pub(crate) fn previous(self) -> Self {
         Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
     }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Histories {
-    pub(crate) tick_p95_micros: History,
+    pub(crate) prediction_p95_micros: History,
+    pub(crate) presentation_p95_micros: History,
     pub(crate) network_receive_bytes: History,
     pub(crate) network_transmit_bytes: History,
 }
@@ -121,6 +120,7 @@ pub(crate) struct App {
     pub(crate) service_name: &'static str,
     pub(crate) service_version: &'static str,
     pub(crate) metrics_address: std::net::SocketAddr,
+    pub(crate) capabilities: ClientCapabilities,
     pub(crate) started: Instant,
     pub(crate) page: Page,
     pub(crate) metrics: MetricStore,
@@ -147,6 +147,7 @@ impl App {
             service_name: config.service_name,
             service_version: config.service_version,
             metrics_address: config.metrics_address,
+            capabilities: config.capabilities,
             started: Instant::now(),
             page: Page::Overview,
             metrics: MetricStore::default(),
@@ -167,6 +168,9 @@ impl App {
                 self.handle_event(event::read()?);
             }
         }
+        if self.should_quit {
+            self.shutdown_requested.store(true, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -180,17 +184,16 @@ impl App {
     }
 
     fn record_history(&mut self) {
-        if let Some(seconds) = self
-            .metrics
-            .histogram_quantile("blackflower_world_simulation_tick_duration_seconds", 0.95)
-            && seconds.is_finite()
-            && seconds >= 0.0
-        {
-            let micros = Duration::from_secs_f64(seconds).as_micros();
-            self.histories
-                .tick_p95_micros
-                .push(u64::try_from(micros).unwrap_or(u64::MAX));
-        }
+        record_histogram_micros(
+            &self.metrics,
+            "blackflower_world_prediction_tick_duration_seconds",
+            &mut self.histories.prediction_p95_micros,
+        );
+        record_histogram_micros(
+            &self.metrics,
+            "blackflower_world_presentation_frame_duration_seconds",
+            &mut self.histories.presentation_p95_micros,
+        );
         if let Some(rate) = self.metrics.rate("node_network_receive_bytes_total") {
             self.histories.network_receive_bytes.push(rate_to_u64(rate));
         }
@@ -232,9 +235,9 @@ impl App {
             KeyCode::BackTab => self.page = self.page.previous(),
             KeyCode::Char('1') => self.page = Page::Overview,
             KeyCode::Char('2') => self.page = Page::Logs,
-            KeyCode::Char('3') => self.page = Page::Simulation,
-            KeyCode::Char('4') => self.page = Page::Network,
-            KeyCode::Char('5') => self.page = Page::World,
+            KeyCode::Char('3') => self.page = Page::Session,
+            KeyCode::Char('4') => self.page = Page::Prediction,
+            KeyCode::Char('5') => self.page = Page::Presentation,
             KeyCode::Char('6') => self.page = Page::Host,
             _ if self.page == Page::Logs => self.handle_log_key(key),
             _ => {}
@@ -283,13 +286,23 @@ impl App {
     }
 }
 
+fn record_histogram_micros(metrics: &MetricStore, name: &str, history: &mut History) {
+    if let Some(seconds) = metrics.histogram_quantile(name, 0.95)
+        && seconds.is_finite()
+        && seconds >= 0.0
+    {
+        let micros = Duration::from_secs_f64(seconds).as_micros();
+        history.push(u64::try_from(micros).unwrap_or(u64::MAX));
+    }
+}
+
 fn rate_to_u64(rate: f64) -> u64 {
     if !rate.is_finite() || rate <= 0.0 {
         return 0;
     }
-    let whole = rate.floor();
-    let text = format!("{whole:.0}");
-    text.parse::<u64>().unwrap_or(u64::MAX)
+    format!("{:.0}", rate.floor())
+        .parse::<u64>()
+        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

@@ -38,8 +38,6 @@ pub enum LogFormat {
     Compact,
     /// Multi-line human-readable logs for interactive diagnosis.
     Pretty,
-    /// Structured newline-delimited JSON for production ingestion.
-    Json,
 }
 
 impl LogFormat {
@@ -47,7 +45,6 @@ impl LogFormat {
         match self {
             Self::Compact => "compact",
             Self::Pretty => "pretty",
-            Self::Json => "json",
         }
     }
 }
@@ -358,14 +355,6 @@ fn install_tracing(
         LogFormat::Pretty => tracing_subscriber::fmt::layer()
             .pretty()
             .with_ansi(true)
-            .with_writer(writer)
-            .boxed(),
-        LogFormat::Json => tracing_subscriber::fmt::layer()
-            .json()
-            .flatten_event(true)
-            .with_ansi(false)
-            .with_current_span(true)
-            .with_span_list(true)
             .with_writer(writer)
             .boxed(),
     };

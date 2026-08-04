@@ -1,6 +1,6 @@
 [package]
 name = "blackflower-networking-fuzz"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 publish = false
 
@@ -12,6 +12,7 @@ blackflower-animation-format = { path = "../crates/blackflower-animation-format"
 blackflower-networking = { path = "../crates/blackflower-networking" }
 blackflower-networking-replication = { path = "../crates/blackflower-networking-replication" }
 blackflower-rendering-models = { path = "../crates/blackflower-rendering-models" }
+
 libfuzzer-sys = "0.4"
 
 [[bin]]

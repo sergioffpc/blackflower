@@ -15,6 +15,7 @@ presentation loop.
 - Optionally connect an established `ClientHarness` to presentation through
   `run_with_harness` and `PresentationBridge`.
 - Initialize client observability and health reporting.
+- Optionally run a terminal dashboard beside the native window.
 
 ## Integration boundary
 
@@ -43,6 +44,18 @@ RUST_LOG=info cargo run --package blackflower --locked
 Left-click requests cursor capture; `Escape`, focus loss, suspension, and
 application exit release it.
 
+Run the native client with the terminal dashboard:
+
+```bash
+cargo run --package blackflower --locked -- --foreground
+```
+
+The dashboard exposes Overview, Logs, Session, Prediction, Presentation, and
+Host panels. It reads the process-local Prometheus endpoint at
+`127.0.0.1:9002`; missing session or renderer signals remain visibly
+unconfigured. Closing the native window or pressing `q`/`Ctrl-C` in the
+terminal stops both sides and restores the terminal.
+
 To enable Tracy profiling support:
 
 ```bash
@@ -58,7 +71,7 @@ cargo test --package blackflower --locked
 ```
 
 The tests cover input snapshot semantics, window lifecycle transitions, frame
-clock behavior, and the harness-to-presentation handoff.
+clock behavior, the harness-to-presentation handoff, and every terminal panel.
 
 ## Related documentation
 
