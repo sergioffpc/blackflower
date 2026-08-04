@@ -415,14 +415,14 @@ fn apply_operation(
             let entity_state = entities
                 .get_mut(entity)
                 .ok_or(DeltaError::MissingEntity { entity: *entity })?;
-            entity_state.components.insert(*component, state.clone());
+            entity_state.insert_component(*component, state.clone());
             Ok(())
         }
         DeltaOperation::RemoveComponent { entity, component } => {
             let entity_state = entities
                 .get_mut(entity)
                 .ok_or(DeltaError::MissingEntity { entity: *entity })?;
-            if entity_state.components.remove(component).is_none() {
+            if entity_state.remove_component(*component).is_none() {
                 Err(DeltaError::MissingComponent {
                     entity: *entity,
                     component: *component,
@@ -488,9 +488,8 @@ fn decode_operation(decoder: &mut Decoder<'_>) -> Result<DeltaOperation, DeltaEr
             })
         }
         2 => {
-            let mut components = decode_entity(decoder, 1)?.components;
-            let (component, state) = components
-                .pop_first()
+            let (component, state) = decode_entity(decoder, 1)?
+                .into_first_component()
                 .ok_or(DeltaError::IntegerOutOfRange)?;
             Ok(DeltaOperation::Update {
                 entity,

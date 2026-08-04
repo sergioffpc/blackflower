@@ -147,14 +147,20 @@ impl Pose {
         transform: JointTransform,
     ) -> Result<(), Error> {
         self.validate_skeleton(skeleton)?;
-
-        let mut transforms = self.local_transforms().collect::<Vec<_>>();
-        let joint_count = transforms.len();
-        let Some(slot) = transforms.get_mut(joint) else {
+        let joint_count = self.transforms.len();
+        if joint >= joint_count {
             return Err(Error::JointIndexOutOfRange { joint, joint_count });
-        };
-        *slot = transform;
-        self.set_local_transforms(skeleton, &transforms)
+        }
+        if !transform.is_valid() {
+            return Err(Error::InvalidJointTransform { joint });
+        }
+        let native = transform_to_native(transform);
+        let joint = u32::try_from(joint)
+            .map_err(|_error| Error::JointIndexOutOfRange { joint, joint_count })?;
+        ffi::set_local_transform(skeleton.pointer, joint, &native, self.pointer)
+            .map_err(map_native)?;
+        self.transforms[usize::try_from(joint).map_err(|_error| Error::NativeContract)?] = native;
+        self.refresh_matrices()
     }
 
     /// Apply aim inverse kinematics and rebuild the final pose.
@@ -211,6 +217,10 @@ impl Pose {
 
     fn refresh(&mut self) -> Result<(), Error> {
         ffi::copy_local_transforms(self.pointer, &mut self.transforms).map_err(map_native)?;
+        self.refresh_matrices()
+    }
+
+    fn refresh_matrices(&mut self) -> Result<(), Error> {
         ffi::copy_model_matrices(self.pointer, &mut self.matrices).map_err(map_native)
     }
 }

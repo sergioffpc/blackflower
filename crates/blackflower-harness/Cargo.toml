@@ -12,6 +12,7 @@ blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-world-prediction.workspace = true
 
+bytes.workspace = true
 thiserror.workspace = true
 
 [lints]

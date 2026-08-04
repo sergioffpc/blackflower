@@ -72,6 +72,19 @@ int32_t bf_spatial_query_scene_intersect_segment(
     BFSpatialQuerySurfaceHit *out_hits,
     uint32_t *out_hit_count);
 
+int32_t bf_spatial_query_scene_closest_hit(
+    const BFSpatialQueryScene *scene,
+    BFSpatialQueryVec3 start,
+    BFSpatialQueryVec3 end,
+    BFSpatialQuerySurfaceHit *out_hit,
+    uint8_t *out_has_hit);
+
+int32_t bf_spatial_query_scene_is_occluded(
+    const BFSpatialQueryScene *scene,
+    BFSpatialQueryVec3 start,
+    BFSpatialQueryVec3 end,
+    uint8_t *out_occluded);
+
 #ifdef __cplusplus
 }
 #endif

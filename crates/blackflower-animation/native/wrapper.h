@@ -159,6 +159,11 @@ int32_t bf_animation_pose_set_local_transforms(
     const BFAnimationTransform *transforms,
     size_t transform_count,
     BFAnimationPose *pose);
+int32_t bf_animation_pose_set_local_transform(
+    const BFAnimationSkeleton *skeleton,
+    uint32_t joint,
+    const BFAnimationTransform *transform,
+    BFAnimationPose *pose);
 int32_t bf_animation_pose_apply_aim_ik(
     const BFAnimationSkeleton *skeleton,
     const BFAnimationAimIk *configuration,

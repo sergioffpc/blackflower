@@ -180,6 +180,42 @@ fn stateful_aoi_uses_fixed_entry_hysteresis_and_same_id_reentry() -> TestResult 
 }
 
 #[test]
+fn indexed_aoi_preserves_order_and_includes_distant_global_entities() -> TestResult {
+    let mut entities = (3_u64..=1_024)
+        .map(|id| {
+            Ok(SourceEntity::new(
+                entity(id)?,
+                Position::new(f64::from(u32::try_from(id)?) * 2_048.0, 0.0, 0.0)?,
+                EntityState::default(),
+            ))
+        })
+        .collect::<Result<Vec<_>, Box<dyn StdError>>>()?;
+    entities.push(SourceEntity::new(
+        entity(2)?,
+        Position::new(-10.0, 0.0, 0.0)?,
+        EntityState::default(),
+    ));
+    entities.push(SourceEntity::new(
+        entity(1)?,
+        Position::new(10.0, 0.0, 0.0)?,
+        EntityState::default(),
+    ));
+    let source = ReplicationSource::new(SnapshotTick::new(1), entities)?;
+    let always_relevant = BTreeSet::from([entity(1_024)?]);
+    let mut aoi = AoiTracker::new(Position::new(0.0, 0.0, 0.0)?, 0.0)?;
+
+    let projected = aoi.project(&source, &always_relevant);
+    assert_eq!(
+        projected
+            .entities()
+            .map(|(entity, _state)| entity.get())
+            .collect::<Vec<_>>(),
+        [1, 2, 1_024]
+    );
+    Ok(())
+}
+
+#[test]
 fn normative_quantizers_round_trip_with_bounded_error() -> TestResult {
     let position = QuantizedPosition::quantize([12.345, -6.789, 0.001])?;
     assert_eq!(position.codes(), [1_235, -679, 0]);
@@ -354,6 +390,50 @@ fn canonical_codec_chunks_and_exact_applied_ack_share_digest() -> TestResult {
         projection_digest: digest,
     })?;
     assert_eq!(baselines.baseline(), Some(&snapshot));
+    Ok(())
+}
+
+#[test]
+fn late_ack_reconstructs_a_demoted_pending_snapshot() -> TestResult {
+    let id = entity(1)?;
+    let component = component(1)?;
+    let snapshot = |tick, value| -> Result<Snapshot, Box<dyn StdError>> {
+        Ok(Snapshot::new(
+            SnapshotTick::new(tick),
+            [(
+                id,
+                entity_state([(
+                    component,
+                    state(tick, ReplicationPriority::ActiveActor, &[value])?,
+                )])?,
+            )],
+        )?)
+    };
+    let first = snapshot(8, 1)?;
+    let second = snapshot(16, 2)?;
+    let third = snapshot(24, 3)?;
+    let mut baselines = BaselineTracker::new(ProtocolRevision::V1);
+    baselines.record_sent(first.clone())?;
+    baselines.acknowledge(SnapshotAppliedAck {
+        snapshot_tick: SimulationTick::new(8),
+        projection_digest: first.digest(ProtocolRevision::V1)?,
+    })?;
+    baselines.record_sent_delta(
+        second.clone(),
+        SnapshotDelta::between(&second, Some(&first))?,
+    )?;
+    baselines.record_sent_delta(third.clone(), SnapshotDelta::between(&third, Some(&first))?)?;
+
+    baselines.acknowledge(SnapshotAppliedAck {
+        snapshot_tick: SimulationTick::new(16),
+        projection_digest: second.digest(ProtocolRevision::V1)?,
+    })?;
+    assert_eq!(baselines.baseline(), Some(&second));
+    baselines.acknowledge(SnapshotAppliedAck {
+        snapshot_tick: SimulationTick::new(24),
+        projection_digest: third.digest(ProtocolRevision::V1)?,
+    })?;
+    assert_eq!(baselines.baseline(), Some(&third));
     Ok(())
 }
 

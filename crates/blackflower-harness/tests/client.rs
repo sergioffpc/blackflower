@@ -108,14 +108,17 @@ fn incremental_snapshot_is_applied_and_acknowledged_on_input() -> TestResult {
     let chunks = build_snapshot_chunks(&delta, &current, ProtocolRevision::V1, 1_000)?;
     assert_eq!(chunks.len(), 1);
     let payload = encode_snapshot_chunk(&chunks[0], 1_000)?;
-    transport.push(ClientTransportEvent::Datagram(encode_datagram(
-        DatagramHeader {
-            flow: FlowId::SnapshotDelta,
-            connection_epoch: ConnectionEpoch::new(1),
-            flow_sequence: FlowSequence::new(1),
-        },
-        &payload,
-    )))?;
+    transport.push(ClientTransportEvent::Datagram(
+        encode_datagram(
+            DatagramHeader {
+                flow: FlowId::SnapshotDelta,
+                connection_epoch: ConnectionEpoch::new(1),
+                flow_sequence: FlowSequence::new(1),
+            },
+            &payload,
+        )
+        .into(),
+    ))?;
 
     harness.update(Duration::from_millis(200), SimulationTick::new(108))?;
     assert_eq!(

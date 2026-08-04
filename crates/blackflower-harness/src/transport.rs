@@ -5,6 +5,7 @@ use blackflower_networking::StateBootstrapHeader;
 use blackflower_networking_quic::{
     BootstrapTransfer, ClientNetworkHandle, NetworkEvent, QuicError,
 };
+use bytes::Bytes;
 
 /// Inbound transport fact consumed by the shared client harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,7 +13,7 @@ pub enum ClientTransportEvent {
     /// One reliable session-control frame.
     SessionControl(Vec<u8>),
     /// One validated application datagram.
-    Datagram(Vec<u8>),
+    Datagram(Bytes),
     /// One complete reliable full-state transfer.
     Bootstrap {
         /// Canonical bootstrap header.

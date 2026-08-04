@@ -8,6 +8,7 @@ use blackflower_networking::{
     FlowId, MAX_BOOTSTRAP_BYTES, MAX_CONTROL_MESSAGE_BYTES, MAX_CONTROL_QUEUE_BYTES,
     MAX_SNAPSHOT_CHUNKS, StateBootstrapHeader, VoiceStreamId, decode_datagram, decode_frame,
 };
+use bytes::Bytes;
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::streams::read_control_frame;
@@ -30,7 +31,7 @@ pub enum NetworkEvent {
     /// One complete reliable session-control frame.
     SessionControl(Vec<u8>),
     /// One validated common-header application DATAGRAM.
-    Datagram(Vec<u8>),
+    Datagram(Bytes),
     /// One complete uncompressed full-state bootstrap.
     Bootstrap(BootstrapTransfer),
     /// The peer's validated network path moved to a different remote address.
@@ -382,7 +383,7 @@ fn spawn_datagram_receive(connection: quinn::Connection, events: mpsc::SyncSende
                         stop_transport(&connection, &events);
                         return;
                     }
-                    if !publish(&events, NetworkEvent::Datagram(bytes.to_vec())) {
+                    if !publish(&events, NetworkEvent::Datagram(bytes)) {
                         connection.close(quinn::VarInt::from_u32(2), b"host event queue full");
                         return;
                     }

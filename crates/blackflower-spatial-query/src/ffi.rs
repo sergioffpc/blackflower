@@ -9,6 +9,7 @@
     reason = "all unsafe operations are confined to the reviewed Embree FFI boundary"
 )]
 
+use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 use glam::Vec3A;
@@ -150,6 +151,48 @@ pub(crate) fn intersect_segment(
     }
     unsafe { output.set_len(usize::try_from(count).unwrap_or(0)) };
     Ok(())
+}
+
+pub(crate) fn closest_hit(
+    scene: ScenePtr,
+    start: Vec3A,
+    end: Vec3A,
+) -> Result<Option<SurfaceHit>, Error> {
+    let mut hit = MaybeUninit::<SurfaceHit>::uninit();
+    let mut has_hit = 0_u8;
+    let status = unsafe {
+        raw::bf_spatial_query_scene_closest_hit(
+            scene.0.as_ptr(),
+            raw_vec3(start),
+            raw_vec3(end),
+            hit.as_mut_ptr().cast(),
+            &raw mut has_hit,
+        )
+    };
+    check(status)?;
+    match has_hit {
+        0 => Ok(None),
+        1 => Ok(Some(unsafe { hit.assume_init() })),
+        _ => Err(Error::ContractViolation),
+    }
+}
+
+pub(crate) fn is_occluded(scene: ScenePtr, start: Vec3A, end: Vec3A) -> Result<bool, Error> {
+    let mut occluded = 0_u8;
+    let status = unsafe {
+        raw::bf_spatial_query_scene_is_occluded(
+            scene.0.as_ptr(),
+            raw_vec3(start),
+            raw_vec3(end),
+            &raw mut occluded,
+        )
+    };
+    check(status)?;
+    match occluded {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(Error::ContractViolation),
+    }
 }
 
 fn raw_vec3(value: Vec3A) -> raw::BFSpatialQueryVec3 {

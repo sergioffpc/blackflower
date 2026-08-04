@@ -7,8 +7,10 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::num::NonZeroUsize;
+use std::time::Duration;
 
 use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_util::MetricKindMask;
 use tracing_appender::non_blocking::{ErrorCounter, NonBlocking, NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
     EnvFilter, Layer, Registry, layer::SubscriberExt as _, util::SubscriberInitExt as _,
@@ -26,6 +28,7 @@ use tracing_subscriber::filter::filter_fn;
 
 const DEFAULT_LOG_BUFFER_LINES: usize = 8_192;
 const DEFAULT_SERVER_METRICS_PORT: u16 = 9_000;
+const METRICS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Format used for process logs.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +332,7 @@ fn install_metrics(
     if let Some(address) = address {
         PrometheusBuilder::new()
             .with_http_listener(address)
+            .idle_timeout(MetricKindMask::ALL, Some(METRICS_IDLE_TIMEOUT))
             .install()?;
         return Ok(true);
     }

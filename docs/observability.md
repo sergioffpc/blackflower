@@ -200,6 +200,11 @@ VM statistics remain outside this portable embedded collector.
 sampling cost. Metrics unavailable on a platform are omitted rather than
 reported as invented zeroes.
 
+The embedded Prometheus registry expires every counter, gauge, and histogram
+series after five minutes without an update. This bounds stale label cardinality
+when short-lived network interfaces, container mounts, or hardware sensors
+disappear; continuously sampled host series remain resident.
+
 At 240 Hz, an authoritative tick has a theoretical wall-clock budget of about
 4.17 ms. Alert policy should prioritize sustained deadline misses, tick lag,
 invariant or replay divergence, missing sealed snapshots, queue saturation, and

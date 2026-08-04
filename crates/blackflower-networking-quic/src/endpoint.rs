@@ -186,7 +186,7 @@ impl ServerConnection {
     }
 
     /// Receive one validated common-header application DATAGRAM.
-    pub async fn read_datagram(&self) -> Result<Vec<u8>, QuicError> {
+    pub async fn read_datagram(&self) -> Result<Bytes, QuicError> {
         read_datagram(&self.inner).await
     }
 
@@ -235,7 +235,7 @@ impl ClientConnection {
     }
 
     /// Receive one validated common-header application DATAGRAM.
-    pub async fn read_datagram(&self) -> Result<Vec<u8>, QuicError> {
+    pub async fn read_datagram(&self) -> Result<Bytes, QuicError> {
         read_datagram(&self.inner).await
     }
 
@@ -304,10 +304,10 @@ fn validate_datagram(connection: &quinn::Connection, bytes: &[u8]) -> Result<(),
     Ok(())
 }
 
-async fn read_datagram(connection: &quinn::Connection) -> Result<Vec<u8>, QuicError> {
+async fn read_datagram(connection: &quinn::Connection) -> Result<Bytes, QuicError> {
     let bytes = connection.read_datagram().await?;
     let _decoded = decode_datagram(&bytes)?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn udp_bytes(connection: &quinn::Connection) -> UdpByteStats {

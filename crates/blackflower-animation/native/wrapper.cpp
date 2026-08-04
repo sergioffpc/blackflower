@@ -218,6 +218,16 @@ void set_local_group(
     target->scale.z = load_lanes(sz);
 }
 
+void set_local_joint(
+    const BFAnimationTransform &transform,
+    size_t lane,
+    ozz::math::SoaTransform *target) {
+    BFAnimationTransform transforms[4]{};
+    copy_local_group(*target, 0, 4, transforms);
+    transforms[lane] = transform;
+    set_local_group(transforms, 0, 4, target);
+}
+
 } // namespace
 
 extern "C" BFAnimationVersion bf_animation_ozz_version() {
@@ -675,6 +685,29 @@ extern "C" int32_t bf_animation_pose_set_local_transforms(
         set_local_group(
             transforms, group * 4, transform_count, &pose->locals[group]);
     }
+    return update_models(skeleton, pose);
+}
+
+extern "C" int32_t bf_animation_pose_set_local_transform(
+    const BFAnimationSkeleton *skeleton,
+    uint32_t joint,
+    const BFAnimationTransform *transform,
+    BFAnimationPose *pose) {
+    if (skeleton == nullptr || transform == nullptr || pose == nullptr) {
+        return BF_ANIMATION_STATUS_NULL_POINTER;
+    }
+    if (!pose_matches(skeleton, pose) || joint >= pose->models.size()) {
+        return BF_ANIMATION_STATUS_INDEX_OUT_OF_RANGE;
+    }
+    if (!finite3(transform->translation)
+        || !finite4(transform->rotation)
+        || !finite3(transform->scale)) {
+        return BF_ANIMATION_STATUS_INVALID_ARGUMENT;
+    }
+    set_local_joint(
+        *transform,
+        static_cast<size_t>(joint & 3U),
+        &pose->locals[joint / 4U]);
     return update_models(skeleton, pose);
 }
 

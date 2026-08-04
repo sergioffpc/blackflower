@@ -181,7 +181,7 @@ where
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         match event {
             ClientTransportEvent::SessionControl(frame) => self.handle_control(&frame),
-            ClientTransportEvent::Datagram(datagram) => self.handle_datagram(&datagram, now),
+            ClientTransportEvent::Datagram(datagram) => self.handle_datagram(datagram, now),
             ClientTransportEvent::Bootstrap { header, body } => {
                 self.pending_transfer = Some(BootstrapTransfer { header, body });
                 self.try_apply_bootstrap()
@@ -252,10 +252,10 @@ where
 
     fn handle_datagram(
         &mut self,
-        datagram: &[u8],
+        datagram: bytes::Bytes,
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        let decoded = decode_datagram(datagram)?;
+        let decoded = decode_datagram(&datagram)?;
         if decoded.header.connection_epoch != self.session.connection_epoch() {
             return Err(ClientHarnessError::WrongConnectionEpoch);
         }
@@ -270,8 +270,7 @@ where
                 Ok(())
             }
             FlowId::VoiceDelivery => {
-                self.events
-                    .push_back(ClientEvent::VoiceDatagram(datagram.to_vec()));
+                self.events.push_back(ClientEvent::VoiceDatagram(datagram));
                 Ok(())
             }
             FlowId::Input | FlowId::SnapshotAppliedAck | FlowId::VoiceCapture => {

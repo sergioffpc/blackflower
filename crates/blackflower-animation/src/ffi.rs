@@ -384,6 +384,23 @@ pub(crate) fn set_local_transforms(
     check(status)
 }
 
+pub(crate) fn set_local_transform(
+    skeleton: SkeletonPtr,
+    joint: u32,
+    transform: &Transform,
+    pose: PosePtr,
+) -> Result<(), Status> {
+    let status = unsafe {
+        raw::bf_animation_pose_set_local_transform(
+            skeleton.0.as_ptr(),
+            joint,
+            transform,
+            pose.0.as_ptr(),
+        )
+    };
+    check(status)
+}
+
 pub(crate) fn apply_aim_ik(
     skeleton: SkeletonPtr,
     configuration: &AimIk,

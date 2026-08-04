@@ -189,8 +189,7 @@ impl NetworkPeer {
 
     /// Queue a full uncompressed snapshot before admission, resync, or reconnect activation.
     pub fn queue_bootstrap(&mut self, snapshot: Snapshot) -> Result<BootstrapId, PeerError> {
-        let body = snapshot.encode()?;
-        let digest = snapshot.digest(ProtocolRevision::V1)?;
+        let (body, digest) = snapshot.encode_with_digest(ProtocolRevision::V1)?;
         let bootstrap_id = BootstrapId::new(self.bootstrap_sequence);
         self.bootstrap_sequence = self
             .bootstrap_sequence
@@ -295,7 +294,7 @@ impl NetworkPeer {
         }
         drop(match_egress);
         self.handle.try_send_snapshot_generation(datagrams)?;
-        self.baselines.record_sent(snapshot)?;
+        self.baselines.record_sent_delta(snapshot, delta)?;
         record_snapshot("sent");
         Ok(())
     }

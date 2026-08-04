@@ -19,6 +19,7 @@ profile-with-tracy = [
 [dependencies]
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
+metrics-util.workspace = true
 profiling.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true

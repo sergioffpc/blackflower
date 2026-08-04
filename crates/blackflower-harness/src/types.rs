@@ -6,6 +6,7 @@ use blackflower_networking::{
     CompatibilityContract, ConnectionEpoch, SessionState, SimulationTick,
 };
 use blackflower_networking_replication::Snapshot;
+use bytes::Bytes;
 
 use crate::{PredictionUpdate, SnapshotWindow};
 
@@ -86,7 +87,7 @@ pub enum ClientEvent {
     /// The synchronized session reached its scheduled activation tick.
     Activated { tick: SimulationTick },
     /// One exact voice-delivery datagram for the audio or bot event consumer.
-    VoiceDatagram(Vec<u8>),
+    VoiceDatagram(Bytes),
     /// The validated peer path changed.
     PathChanged {
         /// Previous peer address.

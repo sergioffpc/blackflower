@@ -348,3 +348,121 @@ int32_t bf_spatial_query_scene_intersect_segment(
     *out_hit_count = context.count;
     return BF_SPATIAL_QUERY_STATUS_OK;
 }
+
+int32_t bf_spatial_query_scene_closest_hit(
+    const BFSpatialQueryScene *scene,
+    BFSpatialQueryVec3 start,
+    BFSpatialQueryVec3 end,
+    BFSpatialQuerySurfaceHit *out_hit,
+    uint8_t *out_has_hit) {
+    if (!scene || !scene->handle || !scene->device
+        || !out_hit || !out_has_hit) {
+        return BF_SPATIAL_QUERY_STATUS_NULL_POINTER;
+    }
+    *out_hit = {};
+    *out_has_hit = 0;
+    if (!scene->committed || !finite(start) || !finite(end)) {
+        return BF_SPATIAL_QUERY_STATUS_INVALID_ARGUMENT;
+    }
+    const BFSpatialQueryVec3 direction{
+        end.x - start.x,
+        end.y - start.y,
+        end.z - start.z,
+    };
+    const float length_squared = direction.x * direction.x
+        + direction.y * direction.y
+        + direction.z * direction.z;
+    if (!std::isfinite(length_squared)) {
+        return BF_SPATIAL_QUERY_STATUS_INVALID_ARGUMENT;
+    }
+    if (length_squared <= 0.0f) {
+        return BF_SPATIAL_QUERY_STATUS_OK;
+    }
+
+    RTCRayHit ray_hit{};
+    ray_hit.ray.org_x = start.x;
+    ray_hit.ray.org_y = start.y;
+    ray_hit.ray.org_z = start.z;
+    ray_hit.ray.dir_x = direction.x;
+    ray_hit.ray.dir_y = direction.y;
+    ray_hit.ray.dir_z = direction.z;
+    ray_hit.ray.tnear = 0.0f;
+    ray_hit.ray.tfar = 1.0f;
+    ray_hit.ray.mask = UINT32_MAX;
+    ray_hit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+    ray_hit.hit.primID = RTC_INVALID_GEOMETRY_ID;
+    ray_hit.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+    RTCIntersectArguments arguments{};
+    rtcInitIntersectArguments(&arguments);
+    rtcIntersect1(scene->handle, &ray_hit, &arguments);
+
+    const auto status = native_status(scene->device);
+    if (status != BF_SPATIAL_QUERY_STATUS_OK) {
+        return status;
+    }
+    if (ray_hit.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+        return BF_SPATIAL_QUERY_STATUS_OK;
+    }
+    const float segment_length = std::sqrt(length_squared);
+    *out_hit = {
+        ray_hit.ray.tfar * segment_length,
+        ray_hit.ray.tfar,
+        {ray_hit.hit.Ng_x, ray_hit.hit.Ng_y, ray_hit.hit.Ng_z},
+        ray_hit.hit.u,
+        ray_hit.hit.v,
+        ray_hit.hit.geomID,
+        ray_hit.hit.primID,
+        ray_hit.hit.instID[0],
+    };
+    *out_has_hit = 1;
+    return BF_SPATIAL_QUERY_STATUS_OK;
+}
+
+int32_t bf_spatial_query_scene_is_occluded(
+    const BFSpatialQueryScene *scene,
+    BFSpatialQueryVec3 start,
+    BFSpatialQueryVec3 end,
+    uint8_t *out_occluded) {
+    if (!scene || !scene->handle || !scene->device || !out_occluded) {
+        return BF_SPATIAL_QUERY_STATUS_NULL_POINTER;
+    }
+    *out_occluded = 0;
+    if (!scene->committed || !finite(start) || !finite(end)) {
+        return BF_SPATIAL_QUERY_STATUS_INVALID_ARGUMENT;
+    }
+    const BFSpatialQueryVec3 direction{
+        end.x - start.x,
+        end.y - start.y,
+        end.z - start.z,
+    };
+    const float length_squared = direction.x * direction.x
+        + direction.y * direction.y
+        + direction.z * direction.z;
+    if (!std::isfinite(length_squared)) {
+        return BF_SPATIAL_QUERY_STATUS_INVALID_ARGUMENT;
+    }
+    if (length_squared <= 0.0f) {
+        return BF_SPATIAL_QUERY_STATUS_OK;
+    }
+
+    RTCRay ray{};
+    ray.org_x = start.x;
+    ray.org_y = start.y;
+    ray.org_z = start.z;
+    ray.dir_x = direction.x;
+    ray.dir_y = direction.y;
+    ray.dir_z = direction.z;
+    ray.tnear = 0.0f;
+    ray.tfar = 1.0f;
+    ray.mask = UINT32_MAX;
+    RTCOccludedArguments arguments{};
+    rtcInitOccludedArguments(&arguments);
+    rtcOccluded1(scene->handle, &ray, &arguments);
+
+    const auto status = native_status(scene->device);
+    if (status != BF_SPATIAL_QUERY_STATUS_OK) {
+        return status;
+    }
+    *out_occluded = ray.tfar < 0.0f ? 1 : 0;
+    return BF_SPATIAL_QUERY_STATUS_OK;
+}
