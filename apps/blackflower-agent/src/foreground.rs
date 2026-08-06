@@ -10,6 +10,8 @@ use std::sync::mpsc::Receiver;
 
 use blackflower_observability::{ForegroundLogControl, ForegroundLogEvent};
 
+use crate::AgentDiagnosticReceiver;
+
 pub use app::ForegroundError;
 
 /// Static status of the deliberately incomplete agent shell.
@@ -55,6 +57,8 @@ pub struct ForegroundConfig {
     pub log_control: ForegroundLogControl,
     /// Current process composition visible to the operator.
     pub capabilities: AgentCapabilities,
+    /// Real-runtime diagnostic records, absent from the process-only shell.
+    pub diagnostics: Option<AgentDiagnosticReceiver>,
     /// Process-level shutdown request shared with the terminal loop.
     pub shutdown_requested: Arc<AtomicBool>,
 }

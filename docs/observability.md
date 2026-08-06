@@ -116,11 +116,21 @@ retried without affecting the server. Missing series render as `—`, counter
 resets do not produce a false rate, and histories are bounded to 60 samples.
 
 `blackflower-agent --foreground` follows the same isolation and bounded-log
-rules. Its six panels are Overview, Logs, Session, Prediction, Navigation, and
-Host. The process defaults to `127.0.0.1:9001` so one local server and one agent
-can expose metrics simultaneously; deployments running multiple agents must
-assign distinct loopback ports. Missing policy or runtime configuration is
-rendered explicitly rather than represented by synthetic metric activity.
+rules. Its nine panels are Overview, Logs, Agents, Sensorium, Decisions,
+Session, Prediction, Navigation, and Host. The process defaults to
+`127.0.0.1:9001` so one local server and one agent can expose metrics
+simultaneously; deployments running multiple processes must assign distinct
+loopback ports.
+
+Aggregate agent health, decision/inference timing, perception size, navigation,
+fallback, budget, memory, and diagnostic-drop signals come from the loopback
+Prometheus endpoint. Per-agent status, sensorium, memory, and decision detail is
+not encoded in high-cardinality metrics or routine logs. An established
+`AgentRuntime` may publish those immutable records through a dedicated bounded,
+lossy, process-local channel using non-blocking sends. The terminal owns its
+bounded history and is read-only. If the executable is still the process-only
+shell, or a real controller has not emitted a record, the agent panels state
+that explicitly rather than presenting synthetic activity.
 
 `blackflower --foreground` keeps the native `winit` client on the main thread
 and runs its terminal dashboard beside it. Its seven panels are Overview, Logs,

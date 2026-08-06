@@ -39,7 +39,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | Path | Responsibility |
 | --- | --- |
 | `apps/blackflower` | Player client executable |
-| `apps/blackflower-agent` | Headless ordinary-client agent shell and diagnostics executable |
+| `apps/blackflower-agent` | Headless ordinary-client agent runtime, bounded diagnostics, and foreground executable |
 | `apps/blackflower-server` | Authoritative server executable |
 | `crates/blackflower-animation` | `.bfskel`/`.bfanim` runtime, evaluation, root motion, blending, and IK |
 | `crates/blackflower-animation-format` | Native-free `.bfskel`/`.bfanim` format and rig identity |
@@ -113,10 +113,11 @@ Run the headless agent shell:
 RUST_LOG=info cargo run --package blackflower-agent --locked
 ```
 
-The shell composes the existing QUIC, shared client harness/prediction, and
-Detour navigation boundaries for gameplay-owned configuration. It does not yet
-install an observation encoder, policy, steering controller, or background
-inference worker.
+The shell exposes the existing QUIC, shared client harness/prediction, Detour,
+aggregate agent metrics, and bounded foreground-record boundaries for
+gameplay-owned configuration. It does not yet install an observation encoder,
+policy, steering controller, or background inference worker, so the
+Agents/Sensorium/Decisions panels never invent sample activity.
 
 Run the server with the interactive foreground diagnostics dashboard:
 
@@ -137,8 +138,8 @@ cargo run --package blackflower --locked -- \
   --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
-The agent has a separate foreground dashboard with Overview, Logs, Session,
-Prediction, Navigation, and Host panels:
+The agent has a separate foreground dashboard with Overview, Logs, Agents,
+Sensorium, Decisions, Session, Prediction, Navigation, and Host panels:
 
 ```sh
 cargo run --package blackflower-agent --locked -- --foreground

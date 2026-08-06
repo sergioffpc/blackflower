@@ -1,7 +1,8 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
@@ -10,9 +11,15 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
 
 use super::{AgentCapabilities, ForegroundConfig, render};
+use crate::{
+    AgentDiagnosticReceiver, AgentDiagnosticRecord, AgentId, AgentStatusSnapshot, DecisionRecord,
+    SensoriumSnapshot,
+};
 
 const DRAW_INTERVAL: Duration = Duration::from_millis(100);
 const HISTORY_CAPACITY: usize = 60;
+const MAX_VISIBLE_AGENTS: usize = 32;
+const DECISION_HISTORY_CAPACITY: usize = 128;
 
 /// Failure while starting or running foreground diagnostics.
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +37,9 @@ pub(crate) enum Page {
     #[default]
     Overview,
     Logs,
+    Agents,
+    Sensorium,
+    Decisions,
     Session,
     Prediction,
     Navigation,
@@ -37,9 +47,12 @@ pub(crate) enum Page {
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Overview,
         Self::Logs,
+        Self::Agents,
+        Self::Sensorium,
+        Self::Decisions,
         Self::Session,
         Self::Prediction,
         Self::Navigation,
@@ -50,6 +63,9 @@ impl Page {
         match self {
             Self::Overview => "Overview",
             Self::Logs => "Logs",
+            Self::Agents => "Agents",
+            Self::Sensorium => "Sensorium",
+            Self::Decisions => "Decisions",
             Self::Session => "Session",
             Self::Prediction => "Prediction",
             Self::Navigation => "Navigation",
@@ -61,6 +77,9 @@ impl Page {
         match self {
             Self::Overview => "Ovr",
             Self::Logs => "Logs",
+            Self::Agents => "Agents",
+            Self::Sensorium => "Sense",
+            Self::Decisions => "Dec",
             Self::Session => "Sess",
             Self::Prediction => "Pred",
             Self::Navigation => "Nav",
@@ -72,10 +91,13 @@ impl Page {
         match self {
             Self::Overview => 0,
             Self::Logs => 1,
-            Self::Session => 2,
-            Self::Prediction => 3,
-            Self::Navigation => 4,
-            Self::Host => 5,
+            Self::Agents => 2,
+            Self::Sensorium => 3,
+            Self::Decisions => 4,
+            Self::Session => 5,
+            Self::Prediction => 6,
+            Self::Navigation => 7,
+            Self::Host => 8,
         }
     }
 
@@ -85,6 +107,134 @@ impl Page {
 
     pub(crate) fn previous(self) -> Self {
         Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct AgentView {
+    pub(crate) status: Option<AgentStatusSnapshot>,
+    pub(crate) sensorium: Option<SensoriumSnapshot>,
+    pub(crate) decisions: VecDeque<DecisionRecord>,
+}
+
+#[derive(Debug)]
+pub(crate) struct AgentDiagnosticState {
+    receiver: Option<AgentDiagnosticReceiver>,
+    pub(crate) configured: bool,
+    pub(crate) agents: BTreeMap<AgentId, AgentView>,
+    pub(crate) selected: Option<AgentId>,
+    pub(crate) selected_decision_offset: usize,
+    pub(crate) disconnected: bool,
+}
+
+impl AgentDiagnosticState {
+    fn new(receiver: Option<AgentDiagnosticReceiver>) -> Self {
+        let configured = receiver.is_some();
+        Self {
+            receiver,
+            configured,
+            agents: BTreeMap::new(),
+            selected: None,
+            selected_decision_offset: 0,
+            disconnected: false,
+        }
+    }
+
+    pub(crate) fn drain(&mut self) {
+        loop {
+            let result = self
+                .receiver
+                .as_ref()
+                .map(AgentDiagnosticReceiver::try_recv);
+            match result {
+                Some(Ok(record)) => self.accept(record),
+                Some(Err(TryRecvError::Empty)) | None => break,
+                Some(Err(TryRecvError::Disconnected)) => {
+                    self.receiver = None;
+                    self.disconnected = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    fn accept(&mut self, record: AgentDiagnosticRecord) {
+        let agent_id = match &record {
+            AgentDiagnosticRecord::Status(status) => status.descriptor().id(),
+            AgentDiagnosticRecord::Sensorium(snapshot) => snapshot.agent_id(),
+            AgentDiagnosticRecord::Decision(decision) => decision.agent_id(),
+        };
+        if !self.agents.contains_key(&agent_id) && self.agents.len() == MAX_VISIBLE_AGENTS {
+            return;
+        }
+        let agent = self.agents.entry(agent_id).or_default();
+        match record {
+            AgentDiagnosticRecord::Status(status) => agent.status = Some(status),
+            AgentDiagnosticRecord::Sensorium(snapshot) => agent.sensorium = Some(snapshot),
+            AgentDiagnosticRecord::Decision(decision) => {
+                if agent.decisions.len() == DECISION_HISTORY_CAPACITY {
+                    agent.decisions.pop_front();
+                }
+                agent.decisions.push_back(decision);
+            }
+        }
+        if self.selected.is_none() {
+            self.selected = Some(agent_id);
+        }
+    }
+
+    pub(crate) fn selected_view(&self) -> Option<(AgentId, &AgentView)> {
+        let id = self.selected?;
+        Some((id, self.agents.get(&id)?))
+    }
+
+    pub(crate) fn selected_decision(&self) -> Option<&DecisionRecord> {
+        let (_id, view) = self.selected_view()?;
+        let index = view
+            .decisions
+            .len()
+            .checked_sub(self.selected_decision_offset + 1)?;
+        view.decisions.get(index)
+    }
+
+    fn select_next_agent(&mut self) {
+        let ids = self.agents.keys().copied().collect::<Vec<_>>();
+        if ids.is_empty() {
+            return;
+        }
+        let next = self
+            .selected
+            .and_then(|selected| ids.iter().position(|candidate| *candidate == selected))
+            .map_or(0, |index| (index + 1) % ids.len());
+        self.selected = Some(ids[next]);
+        self.selected_decision_offset = 0;
+    }
+
+    fn select_previous_agent(&mut self) {
+        let ids = self.agents.keys().copied().collect::<Vec<_>>();
+        if ids.is_empty() {
+            return;
+        }
+        let previous = self
+            .selected
+            .and_then(|selected| ids.iter().position(|candidate| *candidate == selected))
+            .map_or(0, |index| (index + ids.len() - 1) % ids.len());
+        self.selected = Some(ids[previous]);
+        self.selected_decision_offset = 0;
+    }
+
+    fn select_older_decision(&mut self) {
+        let Some((_id, view)) = self.selected_view() else {
+            return;
+        };
+        self.selected_decision_offset = self
+            .selected_decision_offset
+            .saturating_add(1)
+            .min(view.decisions.len().saturating_sub(1));
+    }
+
+    fn select_newer_decision(&mut self) {
+        self.selected_decision_offset = self.selected_decision_offset.saturating_sub(1);
     }
 }
 
@@ -123,6 +273,7 @@ pub(crate) struct App {
     pub(crate) metrics: MetricStore,
     pub(crate) logs: LogState,
     pub(crate) histories: Histories,
+    pub(crate) diagnostics: AgentDiagnosticState,
     pub(crate) show_help: bool,
     poller: MetricsPoller,
     shutdown_requested: Arc<AtomicBool>,
@@ -144,6 +295,7 @@ impl App {
             metrics: MetricStore::default(),
             logs,
             histories: Histories::default(),
+            diagnostics: AgentDiagnosticState::new(config.diagnostics),
             show_help: false,
             poller,
             shutdown_requested: config.shutdown_requested,
@@ -164,6 +316,7 @@ impl App {
 
     fn drain_inputs(&mut self) {
         self.logs.drain();
+        self.diagnostics.drain();
         while let Ok(result) = self.poller.try_recv() {
             if self.metrics.accept(result) {
                 self.record_history();
@@ -195,6 +348,7 @@ impl App {
 
     #[allow(
         clippy::wildcard_enum_match_arm,
+        clippy::too_many_lines,
         reason = "unbound Crossterm keys and future key variants are intentionally harmless"
     )]
     fn handle_event(&mut self, event: Event) {
@@ -224,11 +378,33 @@ impl App {
             KeyCode::BackTab => self.page = self.page.previous(),
             KeyCode::Char('1') => self.page = Page::Overview,
             KeyCode::Char('2') => self.page = Page::Logs,
-            KeyCode::Char('3') => self.page = Page::Session,
-            KeyCode::Char('4') => self.page = Page::Prediction,
-            KeyCode::Char('5') => self.page = Page::Navigation,
-            KeyCode::Char('6') => self.page = Page::Host,
+            KeyCode::Char('3') => self.page = Page::Agents,
+            KeyCode::Char('4') => self.page = Page::Sensorium,
+            KeyCode::Char('5') => self.page = Page::Decisions,
+            KeyCode::Char('6') => self.page = Page::Session,
+            KeyCode::Char('7') => self.page = Page::Prediction,
+            KeyCode::Char('8') => self.page = Page::Navigation,
+            KeyCode::Char('9') => self.page = Page::Host,
             _ if self.page == Page::Logs => self.handle_log_key(key),
+            KeyCode::Down
+                if matches!(self.page, Page::Agents | Page::Sensorium | Page::Decisions) =>
+            {
+                self.diagnostics.select_next_agent();
+            }
+            KeyCode::Up
+                if matches!(self.page, Page::Agents | Page::Sensorium | Page::Decisions) =>
+            {
+                self.diagnostics.select_previous_agent();
+            }
+            KeyCode::Left if self.page == Page::Decisions => {
+                self.diagnostics.select_older_decision();
+            }
+            KeyCode::Right if self.page == Page::Decisions => {
+                self.diagnostics.select_newer_decision();
+            }
+            KeyCode::End if self.page == Page::Decisions => {
+                self.diagnostics.selected_decision_offset = 0;
+            }
             _ => {}
         }
     }

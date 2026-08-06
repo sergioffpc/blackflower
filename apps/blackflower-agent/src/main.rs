@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result, bail};
 use blackflower_agent::foreground::{self, AgentCapabilities, ForegroundConfig};
+use blackflower_agent::initialize_agent_metrics;
 use blackflower_observability::{ObservabilityConfig, ObservabilityGuard, init};
 use clap::Parser;
 
@@ -38,6 +39,7 @@ async fn main() -> Result<()> {
         config = config.with_foreground_logs(Default::default(), capacity);
     }
     let mut observability = init(&config).context("observability init failed")?;
+    initialize_agent_metrics();
     observability.report_health();
 
     let capabilities = AgentCapabilities::shell();
@@ -103,6 +105,7 @@ async fn run_foreground(
         log_receiver,
         log_control,
         capabilities,
+        diagnostics: None,
         shutdown_requested: foreground_shutdown,
     };
     let mut foreground_task =

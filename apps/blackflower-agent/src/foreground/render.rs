@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use blackflower_networking::SessionState;
 use blackflower_observability::{ForegroundLogEvent, ForegroundLogLevel};
 use blackflower_observability_tui::MetricStore;
 use ratatui::Frame;
@@ -11,6 +12,7 @@ use ratatui::widgets::{
 };
 
 use super::app::{App, Page};
+use crate::AgentHealth;
 
 const MIN_WIDTH: u16 = 72;
 const MIN_HEIGHT: u16 = 20;
@@ -44,6 +46,9 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
     match app.page {
         Page::Overview => draw_overview(frame, regions[1], app),
         Page::Logs => draw_logs(frame, regions[1], app),
+        Page::Agents => draw_agents(frame, regions[1], app),
+        Page::Sensorium => draw_sensorium(frame, regions[1], app),
+        Page::Decisions => draw_decisions(frame, regions[1], app),
         Page::Session => draw_session(frame, regions[1], app),
         Page::Prediction => draw_prediction(frame, regions[1], app),
         Page::Navigation => draw_navigation_panel(frame, regions[1], app),
@@ -147,7 +152,7 @@ fn draw_overview(frame: &mut Frame<'_>, area: Rect, app: &App) {
     .split(area);
     let columns =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
-    draw_agent_shell(frame, columns[0], app);
+    draw_agent_summary(frame, columns[0], app);
     draw_process_summary(frame, columns[1], app);
 
     let columns =
@@ -157,16 +162,47 @@ fn draw_overview(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_recent_logs(frame, rows[2], app);
 }
 
-fn draw_agent_shell(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_agent_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Agent shell",
+        "Agent runtime",
         vec![
-            ("Runtime", configured(app.capabilities.runtime_configured)),
-            ("Policy", configured(app.capabilities.policy_configured)),
-            ("Navigation", loaded(app.capabilities.navigation_loaded)),
-            ("Role", "ordinary client".to_owned()),
+            (
+                "Active",
+                format_number(app.metrics.value("blackflower_agent_active_agents")),
+            ),
+            (
+                "Healthy / stalled",
+                format!(
+                    "{} / {}",
+                    format_number(app.metrics.value_with_label(
+                        "blackflower_agent_agents",
+                        "health",
+                        AgentHealth::Healthy.as_str(),
+                    )),
+                    format_number(app.metrics.value_with_label(
+                        "blackflower_agent_agents",
+                        "health",
+                        AgentHealth::Stalled.as_str(),
+                    )),
+                ),
+            ),
+            (
+                "Decision p95",
+                format_millis(
+                    app.metrics
+                        .histogram_quantile("blackflower_agent_decision_duration_seconds", 0.95),
+                ),
+            ),
+            (
+                "Diagnostic drops",
+                format_rate(
+                    app.metrics
+                        .rate("blackflower_agent_diagnostic_records_dropped_total"),
+                    "/s",
+                ),
+            ),
         ],
     );
 }
@@ -369,6 +405,439 @@ fn draw_log_table(frame: &mut Frame<'_>, table_area: Rect, status_area: Rect, ap
         .style(muted_style()),
         status_area,
     );
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the agent table keeps its complete bounded operational column mapping together"
+)]
+fn draw_agents(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::vertical([Constraint::Min(6), Constraint::Length(2)]).split(area);
+    let now = Instant::now();
+    let rows = app
+        .diagnostics
+        .agents
+        .iter()
+        .map(|(agent_id, view)| {
+            let status = view.status.as_ref();
+            let decision = view.decisions.back();
+            let sensorium = view.sensorium.as_ref();
+            let selected = if app.diagnostics.selected == Some(*agent_id) {
+                "›"
+            } else {
+                " "
+            };
+            let row = Row::new([
+                format!("{selected} {agent_id}"),
+                status.map_or_else(
+                    || "—".to_owned(),
+                    |status| session_state(status.session_state()).to_owned(),
+                ),
+                status.map_or_else(
+                    || "—".to_owned(),
+                    |status| status.descriptor().difficulty().to_string(),
+                ),
+                status.map_or_else(
+                    || "—".to_owned(),
+                    |status| status.descriptor().policy_version().to_string(),
+                ),
+                decision.map_or_else(
+                    || "—".to_owned(),
+                    |decision| decision.current_intent().to_string(),
+                ),
+                decision.map_or_else(
+                    || "—".to_owned(),
+                    |decision| decision.source().as_str().to_owned(),
+                ),
+                decision.map_or_else(
+                    || "—".to_owned(),
+                    |decision| format_age(now.saturating_duration_since(decision.recorded_at())),
+                ),
+                sensorium.map_or_else(
+                    || "—".to_owned(),
+                    |snapshot| format_age(now.saturating_duration_since(snapshot.recorded_at())),
+                ),
+                status.map_or_else(
+                    || "—".to_owned(),
+                    |status| status.health().as_str().to_owned(),
+                ),
+            ]);
+            if app.diagnostics.selected == Some(*agent_id) {
+                row.style(surface_style().add_modifier(Modifier::BOLD))
+            } else {
+                row
+            }
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Table::new(
+            rows,
+            [
+                Constraint::Length(5),
+                Constraint::Length(13),
+                Constraint::Length(11),
+                Constraint::Length(14),
+                Constraint::Min(12),
+                Constraint::Length(10),
+                Constraint::Length(9),
+                Constraint::Length(9),
+                Constraint::Length(10),
+            ],
+        )
+        .header(
+            Row::new([
+                "Agent",
+                "Session",
+                "Difficulty",
+                "Policy",
+                "Intent",
+                "Source",
+                "Decision",
+                "Observe",
+                "Health",
+            ])
+            .style(table_header_style()),
+        )
+        .block(panel("Real runtime agents · bounded to 32"))
+        .column_spacing(1),
+        regions[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!(
+            " {} · ↑/↓ select · details persist across Agents, Sensorium, and Decisions",
+            diagnostic_stream_status(app),
+        ))
+        .style(muted_style()),
+        regions[1],
+    );
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the sensorium page maps one immutable record into its linked channel and memory views"
+)]
+fn draw_sensorium(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let Some((agent_id, view)) = app.diagnostics.selected_view() else {
+        draw_no_agent_records(frame, area, app, "Sensorium");
+        return;
+    };
+    let Some(snapshot) = view.sensorium.as_ref() else {
+        draw_missing_selected_record(frame, area, app, agent_id, "sensorium");
+        return;
+    };
+    let regions = Layout::vertical([
+        Constraint::Length(5),
+        Constraint::Percentage(44),
+        Constraint::Percentage(56),
+    ])
+    .split(area);
+    draw_key_values(
+        frame,
+        regions[0],
+        &format!("Sensorium · agent {agent_id}"),
+        vec![
+            ("Observation", snapshot.observation_sequence().to_string()),
+            ("Tick", snapshot.observation_tick().get().to_string()),
+            (
+                "Freshness",
+                format_age(Instant::now().saturating_duration_since(snapshot.recorded_at())),
+            ),
+            (
+                "Schema / policy",
+                format!(
+                    "{} / {}",
+                    snapshot.schema_version(),
+                    snapshot.policy_version()
+                ),
+            ),
+        ],
+    );
+    let channel_rows = snapshot
+        .channels()
+        .iter()
+        .map(|channel| {
+            Row::new([
+                channel.kind().as_str().to_owned(),
+                channel.availability().as_str().to_owned(),
+                channel.summary().to_string(),
+                if channel.affected_decision() {
+                    "applied".to_owned()
+                } else {
+                    "available".to_owned()
+                },
+            ])
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Table::new(
+            channel_rows,
+            [
+                Constraint::Length(13),
+                Constraint::Length(16),
+                Constraint::Min(24),
+                Constraint::Length(11),
+            ],
+        )
+        .header(
+            Row::new([
+                "Channel",
+                "Availability",
+                "Exact runtime projection",
+                "Decision",
+            ])
+            .style(table_header_style()),
+        )
+        .block(panel(&format!(
+            "Senses, body, capacity, performance · {} perceived",
+            snapshot.perceived_entities()
+        )))
+        .column_spacing(1),
+        regions[1],
+    );
+    let memory_rows = snapshot
+        .memory()
+        .iter()
+        .map(|item| {
+            Row::new([
+                item.token().to_string(),
+                item.kind().as_str().to_owned(),
+                item.status().as_str().to_owned(),
+                item.summary().to_string(),
+                format!("{:.0}%", item.confidence() * 100.0),
+                format!("{:.0}%", item.uncertainty() * 100.0),
+                format_age(item.age()),
+                if item.consumed_by_decision() {
+                    "used".to_owned()
+                } else {
+                    "unused".to_owned()
+                },
+            ])
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Table::new(
+            memory_rows,
+            [
+                Constraint::Length(7),
+                Constraint::Length(10),
+                Constraint::Length(11),
+                Constraint::Min(24),
+                Constraint::Length(7),
+                Constraint::Length(7),
+                Constraint::Length(8),
+                Constraint::Length(7),
+            ],
+        )
+        .header(
+            Row::new([
+                "Token",
+                "Kind",
+                "Status",
+                "Legal evidence / belief",
+                "Conf.",
+                "Uncert.",
+                "Age",
+                "Policy",
+            ])
+            .style(table_header_style()),
+        )
+        .block(panel(
+            "Actual bounded semantic memory · no authoritative identities",
+        ))
+        .column_spacing(1),
+        regions[2],
+    );
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the decisions page keeps the causal feed and selected record projection together"
+)]
+fn draw_decisions(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let Some((agent_id, view)) = app.diagnostics.selected_view() else {
+        draw_no_agent_records(frame, area, app, "Decisions");
+        return;
+    };
+    let regions =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(area);
+    let selected_sequence = app
+        .diagnostics
+        .selected_decision()
+        .map(|decision| decision.decision_sequence());
+    let rows = view
+        .decisions
+        .iter()
+        .rev()
+        .map(|decision| {
+            let row = Row::new([
+                decision.decision_sequence().to_string(),
+                decision.source().as_str().to_owned(),
+                decision.selected_action().to_string(),
+                decision.outcome().as_str().to_owned(),
+                format_age(Instant::now().saturating_duration_since(decision.recorded_at())),
+            ]);
+            if selected_sequence == Some(decision.decision_sequence()) {
+                row.style(surface_style().add_modifier(Modifier::BOLD))
+            } else {
+                row
+            }
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Table::new(
+            rows,
+            [
+                Constraint::Length(7),
+                Constraint::Length(10),
+                Constraint::Min(14),
+                Constraint::Length(10),
+                Constraint::Length(8),
+            ],
+        )
+        .header(Row::new(["Seq", "Source", "Action", "Outcome", "Age"]).style(table_header_style()))
+        .block(panel(&format!(
+            "Decisions · agent {agent_id} · newest first"
+        )))
+        .column_spacing(1),
+        regions[0],
+    );
+    let Some(decision) = app.diagnostics.selected_decision() else {
+        frame.render_widget(
+            Paragraph::new("No real controller decision has been published for this agent.")
+                .style(muted_style())
+                .block(panel("Causal detail"))
+                .wrap(Wrap { trim: true }),
+            regions[1],
+        );
+        return;
+    };
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Selected  ", muted_style()),
+            Span::styled(
+                decision.selected_action().to_string(),
+                accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  →  ", muted_style()),
+            Span::styled(decision.emission().to_string(), text_style()),
+        ]),
+        Line::from(format!(
+            "Intent {} · source {} · outcome {} · observation {} @ tick {}",
+            decision.current_intent(),
+            decision.source().as_str(),
+            decision.outcome().as_str(),
+            decision.observation_sequence(),
+            decision.observation_tick().get(),
+        )),
+        Line::from(format!(
+            "Decision {:.3} ms · inference {} · budget {}",
+            decision.decision_duration().as_secs_f64() * 1_000.0,
+            decision.inference_duration().map_or_else(
+                || "not used".to_owned(),
+                |duration| format!("{:.3} ms", duration.as_secs_f64() * 1_000.0),
+            ),
+            if decision.budget_exhausted() {
+                "EXHAUSTED"
+            } else {
+                "within limit"
+            },
+        )),
+        Line::from(""),
+        Line::from(Span::styled("Policy candidates", table_header_style())),
+    ];
+    if decision.candidates().is_empty() {
+        lines.push(Line::from("  —"));
+    } else {
+        lines.extend(decision.candidates().iter().map(|candidate| {
+            Line::from(format!(
+                "  {:<24} {:>8.3}  {}",
+                candidate.action(),
+                candidate.score(),
+                candidate.disposition(),
+            ))
+        }));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Downstream constraints",
+        table_header_style(),
+    )));
+    if decision.constraints().is_empty() {
+        lines.push(Line::from("  none"));
+    } else {
+        lines.extend(decision.constraints().iter().map(|constraint| {
+            Line::from(format!(
+                "  {} → {}",
+                constraint.stage(),
+                constraint.effect()
+            ))
+        }));
+    }
+    if let Some(reason) = decision.fallback_reason() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("Fallback: {}", reason.as_str()),
+            Style::default()
+                .fg(CODEX_WARNING)
+                .bg(CODEX_BACKGROUND)
+                .add_modifier(Modifier::BOLD),
+        )));
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(text_style())
+            .block(panel(
+                "Causal detail · policy selection then deterministic overrides",
+            ))
+            .wrap(Wrap { trim: true }),
+        regions[1],
+    );
+}
+
+fn draw_no_agent_records(frame: &mut Frame<'_>, area: Rect, app: &App, title: &str) {
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(diagnostic_stream_status(app)),
+            Line::from(""),
+            Line::from("This surface consumes only bounded records published by an established AgentRuntime controller."),
+            Line::from("The foreground UI never inspects the harness, navigation runtime, policy, or mutable agent state directly."),
+        ])
+        .style(muted_style())
+        .block(panel(title))
+        .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_missing_selected_record(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &App,
+    agent_id: crate::AgentId,
+    kind: &str,
+) {
+    frame.render_widget(
+        Paragraph::new(format!(
+            "Agent {agent_id} is known, but no real {kind} record has been published yet.\n\n{}",
+            diagnostic_stream_status(app),
+        ))
+        .style(muted_style())
+        .block(panel("Waiting for runtime data"))
+        .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn diagnostic_stream_status(app: &App) -> &'static str {
+    if !app.diagnostics.configured {
+        "diagnostic stream unavailable: process-only shell"
+    } else if app.diagnostics.disconnected {
+        "diagnostic stream closed"
+    } else if app.diagnostics.agents.is_empty() {
+        "diagnostic stream live: waiting for runtime records"
+    } else {
+        "diagnostic stream live"
+    }
 }
 
 fn draw_session(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -903,14 +1372,15 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         );
         return;
     }
-    let page_help = if app.page == Page::Logs {
-        " · / regex · l view · L capture · p pause · c clear"
-    } else {
-        ""
+    let page_help = match app.page {
+        Page::Logs => " · / regex · l view · L capture · p pause · c clear",
+        Page::Agents | Page::Sensorium => " · ↑/↓ agent",
+        Page::Decisions => " · ↑/↓ agent · ←/→ decision · End live",
+        Page::Overview | Page::Session | Page::Prediction | Page::Navigation | Page::Host => "",
     };
     frame.render_widget(
         Paragraph::new(format!(
-            " Tab next · Shift+Tab previous · 1-6 page · ? help · q quit{page_help} · http://{}/metrics",
+            " Tab next · Shift+Tab previous · 1-9 page · ? help · q quit{page_help} · http://{}/metrics",
             app.metrics_address,
         ))
         .style(muted_style()),
@@ -919,10 +1389,10 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let popup = centered_rect(64, 17, area);
+    let popup = centered_rect(64, 21, area);
     frame.render_widget(Clear, popup);
     let text = vec![
-        Line::from("1-6             select panel"),
+        Line::from("1-9             select panel"),
         Line::from("Tab / Shift+Tab next / previous panel"),
         Line::from("q / Ctrl+C      stop foreground mode"),
         Line::from(""),
@@ -933,6 +1403,10 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("p / End          pause / resume follow"),
         Line::from("↑ ↓ PgUp PgDn    scroll"),
         Line::from("c                clear local log buffer"),
+        Line::from(""),
+        Line::from("Agents / Sensorium / Decisions"),
+        Line::from("↑ / ↓            select real runtime agent"),
+        Line::from("← / → / End      browse decisions / return live"),
         Line::from(""),
         Line::from("Press any key to close help."),
     ];
@@ -1166,10 +1640,34 @@ const fn page_index(page: Page) -> usize {
     match page {
         Page::Overview => 0,
         Page::Logs => 1,
-        Page::Session => 2,
-        Page::Prediction => 3,
-        Page::Navigation => 4,
-        Page::Host => 5,
+        Page::Agents => 2,
+        Page::Sensorium => 3,
+        Page::Decisions => 4,
+        Page::Session => 5,
+        Page::Prediction => 6,
+        Page::Navigation => 7,
+        Page::Host => 8,
+    }
+}
+
+const fn session_state(state: SessionState) -> &'static str {
+    match state {
+        SessionState::Connecting => "connecting",
+        SessionState::Secure => "secure",
+        SessionState::Negotiating => "negotiating",
+        SessionState::ContentChecking => "content",
+        SessionState::Synchronizing => "syncing",
+        SessionState::Active => "active",
+        SessionState::Resynchronizing => "resyncing",
+        SessionState::Closing => "closing",
+    }
+}
+
+fn format_age(age: Duration) -> String {
+    if age < Duration::from_secs(1) {
+        format!("{} ms", age.as_millis())
+    } else {
+        format!("{:.1} s", age.as_secs_f64())
     }
 }
 

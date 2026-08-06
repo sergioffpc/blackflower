@@ -770,12 +770,14 @@ low-cardinality families; exact buckets require representative load tests:
 
 The current tracked codebase provides the shared `ClientHarness`/`ClientView`
 input and prediction boundary, static Detour queries, the `rtcOccluded1`
-visibility predicate, privacy-preserving `AcousticObservation`, structured
-observability, Prometheus/host metrics, and the server foreground dashboard. It
-does not yet provide adopted v1 implementations of `blackflower-agent`, player
-physiology, a gameplay `PlayerSensorium`, semantic `AgentMemory`, diagnostic
-observer hooks, or agent foreground pages. The remaining v1 work should be
-delivered in this order:
+visibility predicate, privacy-preserving `AcousticObservation`, the
+`blackflower-agent` runtime composition, aggregate agent metric registry, a
+bounded process-local diagnostic channel, and Agents/Sensorium/Decisions
+foreground surfaces. The detailed pages remain empty unless a real controller
+publishes exact immutable records; the current executable shell does not create
+sample sensorium or decisions. Gameplay-owned `PlayerSensorium`, semantic
+`AgentMemory`, perception/policy/controller implementations, and their parity
+tests remain outstanding. The remaining v1 work should preserve this order:
 
 1. Define the gameplay-owned, versioned `PlayerSensorium`, capability catalog,
    `PerformanceEnvelope`, semantic memory item/status schemas, precision,
@@ -793,10 +795,10 @@ delivered in this order:
 4. Build the bounded 10-30 Hz decision scheduler and 60 Hz motor/input controller
    for both real-transport and in-process harness hosts, including aggregate CPU
    budgets and plan expiry.
-5. Emit the agent metric families, structured lifecycle/anomaly logs, and the
-   dedicated diagnostic stream; factor the existing server foreground shell as
-   needed and add Agents, Sensorium with memory views, Decisions, and Overview
-   integration.
+5. Complete the existing agent metric families, structured lifecycle/anomaly
+   logs, dedicated diagnostic stream, and Agents/Sensorium/Decisions/Overview
+   surfaces with the real schemas and controller records delivered by steps
+   1-4; never substitute UI-only sample state.
 6. Add the harness `TraceObserver`, explicit trace framing, consented capture, the
    offline shared sensorium/perception encoder, dataset validation, behavioral-
    cloning training, signed model packaging, and local ONNX inference with the

@@ -10,11 +10,14 @@ use blackflower_networking_quic::{
     ClientEndpointConfig, ClientNetworkHandle, QuicClient, QuicError,
 };
 
+use crate::{AgentDiagnosticConfig, AgentDiagnostics};
+
 /// Complete existing-system inputs required to establish one ordinary agent client.
 pub struct AgentRuntimeConfig {
     endpoint: ClientEndpointConfig,
     harness: ClientHarnessConfig,
     navigation: NavMeshAsset,
+    diagnostics: Option<AgentDiagnosticConfig>,
 }
 
 impl AgentRuntimeConfig {
@@ -29,7 +32,15 @@ impl AgentRuntimeConfig {
             endpoint,
             harness,
             navigation,
+            diagnostics: None,
         }
+    }
+
+    /// Attach a real controller identity and optional bounded foreground observer.
+    #[must_use]
+    pub fn with_diagnostics(mut self, diagnostics: AgentDiagnosticConfig) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 }
 
@@ -46,6 +57,7 @@ where
     harness: ClientHarness<ClientNetworkHandle, P>,
     navigation: NavMesh,
     navigation_filter: QueryFilter,
+    diagnostics: AgentDiagnostics,
 }
 
 impl<P> AgentRuntime<P>
@@ -64,11 +76,14 @@ where
         let transport = connection.spawn_io().await?;
         let harness = ClientHarness::new(transport, prediction, config.harness)
             .map_err(AgentRuntimeError::Harness)?;
+        let diagnostics =
+            AgentDiagnostics::connected(config.diagnostics, harness.view().session_state());
         Ok(Self {
             endpoint,
             harness,
             navigation,
             navigation_filter,
+            diagnostics,
         })
     }
 
@@ -80,7 +95,10 @@ where
     ) -> Result<(), AgentRuntimeError<P::Error>> {
         self.harness
             .update(now, authoritative_tick)
-            .map_err(AgentRuntimeError::Harness)
+            .map_err(AgentRuntimeError::Harness)?;
+        self.diagnostics
+            .set_session_state(self.harness.view().session_state());
+        Ok(())
     }
 
     /// Return the immutable ordinary-client observation boundary.
@@ -110,6 +128,18 @@ where
     #[must_use]
     pub const fn navigation_filter(&self) -> &QueryFilter {
         &self.navigation_filter
+    }
+
+    /// Return runtime-owned aggregate telemetry and diagnostic publication.
+    #[must_use]
+    pub const fn diagnostics(&self) -> &AgentDiagnostics {
+        &self.diagnostics
+    }
+
+    /// Return mutable runtime-owned telemetry for real controller records.
+    #[must_use]
+    pub const fn diagnostics_mut(&mut self) -> &mut AgentDiagnostics {
+        &mut self.diagnostics
     }
 
     /// Close the owned QUIC endpoint and every connection it owns.

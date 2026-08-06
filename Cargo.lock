@@ -389,6 +389,7 @@ dependencies = [
  "blackflower-observability-tui",
  "blackflower-world-prediction",
  "clap",
+ "metrics",
  "ratatui",
  "thiserror 2.0.19",
  "tokio",
