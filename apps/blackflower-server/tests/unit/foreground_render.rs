@@ -67,6 +67,53 @@ fn simulation_panel_exposes_scheduler_health() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn network_domains_have_dedicated_operational_panels() -> Result<(), Box<dyn Error>> {
+    let mut app = test_app()?;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+
+    for (page, expected) in [
+        (
+            Page::Transport,
+            [
+                "QUIC transport",
+                "Application UDP",
+                "Queue depth",
+                "Transport drops",
+            ],
+        ),
+        (
+            Page::Sessions,
+            [
+                "Application sessions",
+                "Input actions",
+                "Resync actions",
+                "Clock sessions",
+            ],
+        ),
+        (
+            Page::Replication,
+            [
+                "Replication summary",
+                "Bootstrap p50 / p95",
+                "Snapshot actions",
+                "Replication queues",
+            ],
+        ),
+    ] {
+        app.page = page;
+        let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+        let rendered = rendered_text(&terminal);
+        for heading in expected {
+            assert!(rendered.contains(heading), "missing {heading} on {page:?}");
+        }
+        if page == Page::Transport {
+            assert!(!rendered.contains("Host throughput"));
+        }
+    }
+    Ok(())
+}
+
 fn test_app() -> Result<App, Box<dyn Error>> {
     let (_log_sender, log_receiver) = mpsc::channel();
     Ok(App::new(ForegroundConfig {

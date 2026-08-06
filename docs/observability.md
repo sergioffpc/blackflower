@@ -84,16 +84,18 @@ payloads, or full IP addresses. Player identifiers must be pseudonymous.
 ## Foreground diagnostics
 
 `blackflower-server --foreground` runs the Ratatui diagnostics dashboard on an
-interactive terminal. Its six panels are:
+interactive terminal. Its eight panels are:
 
 | Key | Panel | Signals |
 | --- | --- | --- |
 | `1` | Overview | Process, simulation, world, network, and recent logs |
 | `2` | Logs | Structured tracing events, capture/view levels, regex, scrolling, and drop health |
 | `3` | Simulation | Tick budget, rates, histogram percentiles, outcomes, and phase executions |
-| `4` | Network | QUIC health, RTT, queues, traffic, drops, voice, and snapshot actions |
-| `5` | World | ECS gauges/ticks and authoritative acoustics activity |
-| `6` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
+| `4` | Transport | QUIC health, application UDP throughput, queues, drops, and protocol violations |
+| `5` | Sessions | Connection, clock, input, resynchronization, and voice lifecycle |
+| `6` | Replication | Bootstrap sizes, snapshot actions, acknowledgements, and transfer queues |
+| `7` | World | ECS gauges/ticks and authoritative acoustics activity |
+| `8` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
 
 Network queue gauges are process-wide sums of each live connection's bounded
 queue contribution. The server clock gauge is the maximum uncertainty reported
@@ -101,6 +103,10 @@ by synchronized peers, accompanied by synchronized and unsynchronized session
 counts. Input, snapshot, and resynchronization counters use bounded lifecycle
 actions so client submissions/applications/requests remain distinct from server
 acceptance/sends/acknowledgements/starts.
+
+Transport throughput is derived from `blackflower_network_udp_bytes_total`, not
+from host-interface counters. The `node_network_*` families remain confined to
+Host so unrelated traffic on the machine is not presented as game traffic.
 
 The UI polls `http://<metrics_bind_address>/metrics` once per second on a
 dedicated worker. It parses the same Prometheus exposition available to an

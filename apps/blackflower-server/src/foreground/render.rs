@@ -48,7 +48,9 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
         Page::Overview => draw_overview(frame, regions[1], app),
         Page::Logs => draw_logs(frame, regions[1], app),
         Page::Simulation => draw_simulation(frame, regions[1], app),
-        Page::Network => draw_network(frame, regions[1], app),
+        Page::Transport => draw_transport(frame, regions[1], app),
+        Page::Sessions => draw_sessions(frame, regions[1], app),
+        Page::Replication => draw_replication(frame, regions[1], app),
         Page::World => draw_world(frame, regions[1], app),
         Page::Host => draw_host(frame, regions[1], app),
     }
@@ -599,11 +601,7 @@ fn draw_phase_table(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "network layout keeps transport, queue, and replication sections visibly coordinated"
-)]
-fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_transport(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let regions = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -612,63 +610,59 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Constraint::Percentage(55),
         ])
         .split(area);
+    draw_transport_summary(frame, regions[0], app);
+    draw_transport_queues(frame, regions[1], app);
+    draw_transport_health(frame, regions[2], app);
+}
+
+fn draw_transport_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let rtt = format!(
+        "{} / {}",
+        format_millis(
+            app.metrics
+                .histogram_quantile("blackflower_network_rtt_seconds", 0.50),
+        ),
+        format_millis(
+            app.metrics
+                .histogram_quantile("blackflower_network_rtt_seconds", 0.95),
+        ),
+    );
+    let upstream = app.metrics.rate_with_label(
+        "blackflower_network_udp_bytes_total",
+        "direction",
+        "upstream",
+    );
+    let downstream = app.metrics.rate_with_label(
+        "blackflower_network_udp_bytes_total",
+        "direction",
+        "downstream",
+    );
     draw_key_values(
         frame,
-        regions[0],
+        area,
         "QUIC transport",
         vec![
             (
                 "Connections",
                 format_number(app.metrics.value("blackflower_network_connections")),
             ),
+            ("RTT p50 / p95", rtt),
+            ("Upstream", format_byte_rate(upstream)),
+            ("Downstream", format_byte_rate(downstream)),
             (
-                "RTT p50 / p95",
-                format!(
-                    "{} / {}",
-                    format_millis(
-                        app.metrics
-                            .histogram_quantile("blackflower_network_rtt_seconds", 0.50),
-                    ),
-                    format_millis(
-                        app.metrics
-                            .histogram_quantile("blackflower_network_rtt_seconds", 0.95),
-                    ),
-                ),
-            ),
-            (
-                "Clock uncertainty max",
-                format_number(
-                    app.metrics
-                        .value("blackflower_network_clock_uncertainty_ticks"),
-                ),
-            ),
-            (
-                "Clock sessions",
-                format!(
-                    "{} ready / {} pending",
-                    format_number(app.metrics.value_with_label(
-                        "blackflower_network_clock_sessions",
-                        "state",
-                        "synchronized",
-                    )),
-                    format_number(app.metrics.value_with_label(
-                        "blackflower_network_clock_sessions",
-                        "state",
-                        "unsynchronized",
-                    )),
-                ),
-            ),
-            (
-                "Inputs",
-                format_rate(app.metrics.rate("blackflower_network_inputs_total"), "/s"),
+                "Drops",
+                format_rate(app.metrics.rate("blackflower_network_drops_total"), "/s"),
             ),
         ],
     );
+}
+
+fn draw_transport_queues(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[1]);
-    draw_network_sparklines(frame, columns[0], app);
+        .split(area);
+    draw_transport_sparklines(frame, columns[0], app);
     draw_metric_series(
         frame,
         columns[1],
@@ -678,73 +672,240 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
         "queue",
         false,
     );
+}
+
+fn draw_transport_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(regions[2]);
-    draw_network_health(frame, columns[0], app);
-    draw_replication(frame, columns[1], app);
+        .split(area);
+    draw_metric_series(
+        frame,
+        columns[0],
+        "Transport drops",
+        &app.metrics,
+        "blackflower_network_drops_total",
+        "reason",
+        true,
+    );
+    draw_metric_series(
+        frame,
+        columns[1],
+        "Protocol violations",
+        &app.metrics,
+        "blackflower_network_protocol_violations_total",
+        "kind",
+        true,
+    );
 }
 
-fn draw_network_sparklines(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_transport_sparklines(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let regions = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area.inner(Margin::new(1, 1)));
-    frame.render_widget(panel("Host throughput · 60 s"), area);
-    let receive = app.histories.network_receive_bytes.values();
-    let transmit = app.histories.network_transmit_bytes.values();
+    frame.render_widget(panel("Application UDP · 60 s"), area);
+    let upstream = app.histories.transport_upstream_bytes.values();
+    let downstream = app.histories.transport_downstream_bytes.values();
     frame.render_widget(
         Sparkline::default()
-            .data(&receive)
+            .data(&upstream)
             .style(accent_style().add_modifier(Modifier::BOLD)),
         regions[0],
     );
-    frame.render_widget(Sparkline::default().data(&transmit), regions[1]);
+    frame.render_widget(Sparkline::default().data(&downstream), regions[1]);
 }
 
-fn draw_network_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_sessions(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(7),
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(area);
+    draw_session_summary(frame, regions[0], app);
+    draw_session_lifecycle(frame, regions[1], app);
+    draw_session_state(frame, regions[2], app);
+}
+
+fn draw_session_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let clock_sessions = format!(
+        "{} ready / {} pending",
+        format_number(app.metrics.value_with_label(
+            "blackflower_network_clock_sessions",
+            "state",
+            "synchronized",
+        )),
+        format_number(app.metrics.value_with_label(
+            "blackflower_network_clock_sessions",
+            "state",
+            "unsynchronized",
+        )),
+    );
+    let inputs =
+        app.metrics
+            .rate_with_label("blackflower_network_inputs_total", "action", "accepted");
+    let resyncs =
+        app.metrics
+            .rate_with_label("blackflower_network_resync_total", "action", "started");
     draw_key_values(
         frame,
         area,
-        "Network health",
+        "Application sessions",
         vec![
             (
-                "Drops",
-                format_rate(app.metrics.rate("blackflower_network_drops_total"), "/s"),
+                "Connections",
+                format_number(app.metrics.value("blackflower_network_connections")),
             ),
             (
-                "Violations",
-                format_rate(
+                "Clock uncertainty max",
+                format_number(
                     app.metrics
-                        .rate("blackflower_network_protocol_violations_total"),
-                    "/s",
+                        .value("blackflower_network_clock_uncertainty_ticks"),
                 ),
             ),
+            ("Clock sessions", clock_sessions),
+            ("Inputs accepted", format_rate(inputs, "/s")),
+            ("Resyncs started", format_rate(resyncs, "/s")),
+        ],
+    );
+}
+
+fn draw_session_lifecycle(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+    draw_metric_series_matching(
+        frame,
+        columns[0],
+        "Input actions",
+        &app.metrics,
+        "blackflower_network_inputs_total",
+        "action",
+        true,
+        &["accepted"],
+    );
+    draw_metric_series_matching(
+        frame,
+        columns[1],
+        "Resync actions",
+        &app.metrics,
+        "blackflower_network_resync_total",
+        "action",
+        true,
+        &["started"],
+    );
+}
+
+fn draw_session_state(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+    draw_metric_series(
+        frame,
+        columns[0],
+        "Voice packets",
+        &app.metrics,
+        "blackflower_network_voice_packets_total",
+        "direction",
+        true,
+    );
+    draw_metric_series(
+        frame,
+        columns[1],
+        "Clock sessions",
+        &app.metrics,
+        "blackflower_network_clock_sessions",
+        "state",
+        false,
+    );
+}
+
+fn draw_replication(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let regions = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(7), Constraint::Min(8)])
+        .split(area);
+    draw_replication_summary(frame, regions[0], app);
+    draw_replication_details(frame, regions[1], app);
+}
+
+fn draw_replication_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let sent = app
+        .metrics
+        .rate_with_label("blackflower_network_snapshots_total", "action", "sent");
+    let acknowledged = app.metrics.rate_with_label(
+        "blackflower_network_snapshots_total",
+        "action",
+        "acknowledged",
+    );
+    let bootstrap_sizes = format!(
+        "{} / {}",
+        format_bytes(
+            app.metrics
+                .histogram_quantile("blackflower_network_bootstrap_bytes", 0.50),
+        ),
+        format_bytes(
+            app.metrics
+                .histogram_quantile("blackflower_network_bootstrap_bytes", 0.95),
+        ),
+    );
+    draw_key_values(
+        frame,
+        area,
+        "Replication summary",
+        vec![
+            ("Snapshots sent", format_rate(sent, "/s")),
+            ("Acknowledged", format_rate(acknowledged, "/s")),
+            ("Bootstrap p50 / p95", bootstrap_sizes),
             (
-                "Resyncs",
-                format_rate(app.metrics.rate("blackflower_network_resync_total"), "/s"),
+                "Bootstrap queue",
+                format_number(app.metrics.value_with_label(
+                    "blackflower_network_queue_depth",
+                    "queue",
+                    "bootstrap",
+                )),
             ),
             (
-                "Voice",
-                format_rate(
-                    app.metrics.rate("blackflower_network_voice_packets_total"),
-                    "/s",
-                ),
+                "Snapshot queue",
+                format_number(app.metrics.value_with_label(
+                    "blackflower_network_queue_depth",
+                    "queue",
+                    "snapshot",
+                )),
             ),
         ],
     );
 }
 
-fn draw_replication(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    draw_metric_series(
+fn draw_replication_details(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+    draw_metric_series_matching(
         frame,
-        area,
+        columns[0],
         "Snapshot actions",
         &app.metrics,
         "blackflower_network_snapshots_total",
         "action",
         true,
+        &["sent", "acknowledged"],
+    );
+    draw_metric_series_matching(
+        frame,
+        columns[1],
+        "Replication queues",
+        &app.metrics,
+        "blackflower_network_queue_depth",
+        "queue",
+        false,
+        &["bootstrap", "snapshot"],
     );
 }
 
@@ -1083,9 +1244,32 @@ fn draw_metric_series(
     label: &str,
     rate: bool,
 ) {
+    draw_metric_series_matching(frame, area, title, metrics, metric, label, rate, &[]);
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "metric identity, bounded label selection, and presentation remain explicit at each panel"
+)]
+fn draw_metric_series_matching(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &str,
+    metrics: &MetricStore,
+    metric: &str,
+    label: &str,
+    rate: bool,
+    allowed_label_values: &[&str],
+) {
     let rows = metrics
         .series(metric)
         .into_iter()
+        .filter(|sample| {
+            allowed_label_values.is_empty()
+                || sample
+                    .label(label)
+                    .is_some_and(|value| allowed_label_values.contains(&value))
+        })
         .map(|sample| {
             let value = if rate {
                 sample.label(label).map_or_else(
@@ -1144,7 +1328,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            " Tab next · Shift+Tab previous · 1-6 page · ? help · q quit{page_help} · http://{}/metrics",
+            " Tab next · Shift+Tab previous · 1-8 page · ? help · q quit{page_help} · http://{}/metrics",
             app.metrics_address,
         ))
         .style(muted_style()),
@@ -1156,7 +1340,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let popup = centered_rect(64, 17, area);
     frame.render_widget(Clear, popup);
     let text = vec![
-        Line::from("1-6             select panel"),
+        Line::from("1-8             select panel"),
         Line::from("Tab / Shift+Tab next / previous panel"),
         Line::from("q / Ctrl+C      stop foreground mode"),
         Line::from(""),
@@ -1371,9 +1555,11 @@ const fn page_index(page: Page) -> usize {
         Page::Overview => 0,
         Page::Logs => 1,
         Page::Simulation => 2,
-        Page::Network => 3,
-        Page::World => 4,
-        Page::Host => 5,
+        Page::Transport => 3,
+        Page::Sessions => 4,
+        Page::Replication => 5,
+        Page::World => 6,
+        Page::Host => 7,
     }
 }
 

@@ -91,13 +91,13 @@ Log capture and view levels start at `INFO`, with no regex, and are configured
 inside the Logs panel. Foreground mode requires interactive standard input and
 output.
 
-The dashboard exposes Overview, Logs, Simulation, Network, World, and Host
-pages. Its primary controls are:
+The dashboard exposes Overview, Logs, Simulation, Transport, Sessions,
+Replication, World, and Host pages. Its primary controls are:
 
 | Key | Action |
 | --- | --- |
 | `Tab` / `Shift+Tab` | Select the next or previous page |
-| `1`-`6` | Open a page directly |
+| `1`-`8` | Open a page directly |
 | `?` | Show help |
 | `q` / `Ctrl-C` | Exit |
 | `l` / `L` | Change the log view or capture level |
