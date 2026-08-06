@@ -46,6 +46,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
         Page::Logs => draw_logs(frame, regions[1], app),
         Page::Session => draw_session(frame, regions[1], app),
         Page::Prediction => draw_prediction(frame, regions[1], app),
+        Page::Runtime => draw_runtime(frame, regions[1], app),
         Page::Presentation => draw_presentation(frame, regions[1], app),
         Page::Host => draw_host(frame, regions[1], app),
     }
@@ -223,7 +224,7 @@ fn draw_frame_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Client frames",
+        "Client runtime",
         vec![
             (
                 "Presentation",
@@ -240,23 +241,10 @@ fn draw_frame_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     0.95,
                 )),
             ),
+            ("Prediction", "bootstrap-only".to_owned()),
             (
-                "Prediction",
-                format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_world_prediction_ticks_total",
-                        "pass",
-                        "forward",
-                    ),
-                    "/s",
-                ),
-            ),
-            (
-                "Prediction p95",
-                format_millis(app.metrics.histogram_quantile(
-                    "blackflower_world_prediction_tick_duration_seconds",
-                    0.95,
-                )),
+                "Renderer backend",
+                configured(app.capabilities.renderer_configured),
             ),
         ],
     );
@@ -462,74 +450,197 @@ fn draw_network_history(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn draw_prediction(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let rows =
+        Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(area);
+    let columns = halves(rows[0]);
+    draw_prediction_contract(frame, columns[0]);
+    draw_bootstrap_activity(frame, columns[1], app);
+    draw_prediction_boundary(frame, rows[1]);
+}
+
+fn draw_prediction_contract(frame: &mut Frame<'_>, area: Rect) {
+    draw_key_values(
+        frame,
+        area,
+        "Bootstrap-only prediction",
+        vec![
+            ("Mode", "BOOTSTRAP ONLY".to_owned()),
+            ("PredictionWorld", "not instantiated".to_owned()),
+            ("Gameplay state", "empty snapshots only".to_owned()),
+            ("Gameplay controls", "unavailable".to_owned()),
+            ("Reconciliation", "unavailable".to_owned()),
+        ],
+    );
+}
+
+fn draw_bootstrap_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    draw_key_values(
+        frame,
+        area,
+        "Bootstrap activity",
+        vec![
+            ("Harness", configured(app.capabilities.session_configured)),
+            (
+                "Connections",
+                format_number(app.metrics.value("blackflower_network_connections")),
+            ),
+            (
+                "Snapshots applied",
+                format_rate(
+                    app.metrics.rate_with_label(
+                        "blackflower_network_snapshots_total",
+                        "action",
+                        "applied",
+                    ),
+                    "/s",
+                ),
+            ),
+            (
+                "Resync requests",
+                format_rate(
+                    app.metrics.rate_with_label(
+                        "blackflower_network_resync_total",
+                        "action",
+                        "requested",
+                    ),
+                    "/s",
+                ),
+            ),
+            (
+                "Clock uncertainty",
+                format_number(
+                    app.metrics
+                        .value("blackflower_network_clock_uncertainty_ticks"),
+                ),
+            ),
+        ],
+    );
+}
+
+fn draw_prediction_boundary(frame: &mut Frame<'_>, area: Rect) {
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from("This client currently tracks server tick and content activation only."),
+            Line::from("Gameplay entities and control prediction require the concrete component schema."),
+            Line::from("Prediction timing, reconciliation, and resimulation metrics are therefore not expected."),
+        ])
+        .style(text_style())
+        .block(panel("Operational boundary"))
+        .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn draw_runtime(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let rows = Layout::vertical([
-        Constraint::Percentage(38),
-        Constraint::Percentage(31),
-        Constraint::Percentage(31),
+        Constraint::Length(8),
+        Constraint::Percentage(45),
+        Constraint::Percentage(55),
     ])
     .split(area);
-    let columns = halves(rows[0]);
-    let data = app.histories.prediction_p95_micros.values();
-    frame.render_widget(
-        Sparkline::default()
-            .block(panel("Prediction tick p95 · µs · 60 s"))
-            .data(&data)
-            .style(accent_style()),
-        columns[0],
-    );
-    draw_prediction_timing(frame, columns[1], app);
-    draw_series(
+    draw_key_values(
         frame,
-        rows[1],
-        "Tick executions by pass and result",
-        &app.metrics,
-        "blackflower_world_prediction_ticks_total",
-        &["pass", "result"],
-        true,
+        rows[0],
+        "Client runtime / world",
+        vec![
+            (
+                "Presentation world",
+                configured(app.capabilities.presentation_configured),
+            ),
+            (
+                "Active worlds",
+                format_number(app.metrics.value("blackflower_ecs_active_worlds")),
+            ),
+            (
+                "Entities",
+                format_number(app.metrics.value("blackflower_ecs_entities")),
+            ),
+            (
+                "Tables",
+                format_number(app.metrics.value("blackflower_ecs_tables")),
+            ),
+            (
+                "Systems",
+                format_number(app.metrics.value("blackflower_ecs_systems")),
+            ),
+        ],
     );
+    draw_runtime_health(frame, rows[1], app);
     draw_series(
         frame,
         rows[2],
-        "Reconciliation outcomes",
+        "ECS tick executions",
         &app.metrics,
-        "blackflower_world_prediction_reconciliations_total",
-        &["result", "reason"],
+        "blackflower_ecs_ticks_total",
+        &["operation", "result"],
         true,
     );
 }
 
-fn draw_prediction_timing(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_runtime_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let columns = halves(area);
+    draw_ecs_health(frame, columns[0], app);
+    draw_tick_internals(frame, columns[1], app);
+}
+
+fn draw_ecs_health(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Prediction timing",
+        "ECS health",
         vec![
             (
-                "Tick p50 / p95",
-                format!(
-                    "{} / {}",
-                    format_millis(app.metrics.histogram_quantile(
-                        "blackflower_world_prediction_tick_duration_seconds",
-                        0.50,
-                    )),
-                    format_millis(app.metrics.histogram_quantile(
-                        "blackflower_world_prediction_tick_duration_seconds",
-                        0.95,
-                    )),
+                "Queries",
+                format_number(app.metrics.value("blackflower_ecs_queries")),
+            ),
+            (
+                "Allocations",
+                format_number(app.metrics.value("blackflower_ecs_allocations_outstanding")),
+            ),
+            (
+                "Registrations",
+                format_number(app.metrics.sum("blackflower_ecs_registrations_total")),
+            ),
+            (
+                "Callback failures",
+                format_number(app.metrics.sum("blackflower_ecs_callback_failures_total")),
+            ),
+        ],
+    );
+}
+
+fn draw_tick_internals(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    draw_key_values(
+        frame,
+        area,
+        "Tick internals p95",
+        vec![
+            (
+                "Duration",
+                format_millis(
+                    app.metrics
+                        .histogram_quantile("blackflower_ecs_tick_duration_seconds", 0.95),
                 ),
             ),
             (
-                "Reconcile p95",
-                format_millis(app.metrics.histogram_quantile(
-                    "blackflower_world_prediction_reconciliation_duration_seconds",
-                    0.95,
-                )),
-            ),
-            (
-                "Resim ticks p95",
+                "Systems ran",
                 format_number(
                     app.metrics
-                        .histogram_quantile("blackflower_world_prediction_resimulated_ticks", 0.95),
+                        .histogram_quantile("blackflower_ecs_tick_systems_ran", 0.95),
+                ),
+            ),
+            (
+                "Merges",
+                format_number(
+                    app.metrics
+                        .histogram_quantile("blackflower_ecs_tick_merges", 0.95),
+                ),
+            ),
+            (
+                "Rematches",
+                format_number(
+                    app.metrics
+                        .histogram_quantile("blackflower_ecs_tick_rematches", 0.95),
                 ),
             ),
         ],
@@ -814,7 +925,7 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            " Tab next · Shift+Tab previous · 1-6 page · ? help · q stop client{page_help} · http://{}/metrics",
+            " Tab next · Shift+Tab previous · 1-7 page · ? help · q stop client{page_help} · http://{}/metrics",
             app.metrics_address,
         ))
         .style(muted_style()),
@@ -826,7 +937,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let popup = centered_rect(64, 17, area);
     frame.render_widget(Clear, popup);
     let text = vec![
-        Line::from("1-6             select panel"),
+        Line::from("1-7             select panel"),
         Line::from("Tab / Shift+Tab next / previous panel"),
         Line::from("q / Ctrl+C      stop client and dashboard"),
         Line::from(""),
@@ -996,8 +1107,9 @@ const fn page_index(page: Page) -> usize {
         Page::Logs => 1,
         Page::Session => 2,
         Page::Prediction => 3,
-        Page::Presentation => 4,
-        Page::Host => 5,
+        Page::Runtime => 4,
+        Page::Presentation => 5,
+        Page::Host => 6,
     }
 }
 

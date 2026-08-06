@@ -123,11 +123,16 @@ assign distinct loopback ports. Missing policy or runtime configuration is
 rendered explicitly rather than represented by synthetic metric activity.
 
 `blackflower --foreground` keeps the native `winit` client on the main thread
-and runs its terminal dashboard beside it. Its six panels are Overview, Logs,
-Session, Prediction, Presentation, and Host. The client defaults to
-`127.0.0.1:9002`; closing either the native application or the dashboard
+and runs its terminal dashboard beside it. Its seven panels are Overview, Logs,
+Session, Prediction, Runtime/World, Presentation, and Host. The client defaults
+to `127.0.0.1:9002`; closing either the native application or the dashboard
 requests an orderly shutdown of the other. Missing harness or renderer series
 are reported as unavailable rather than inferred from window activity.
+
+Prediction reports the executable's current bootstrap-only contract instead of
+rendering absent `PredictionWorld` series. Runtime/World displays the
+process-wide ECS view emitted by the live client presentation world. It remains
+read-only and does not inspect the world directly.
 
 Reusable terminal-only state lives in `blackflower-observability-tui`, a
 sibling extension of `blackflower-observability`. The core observability crate

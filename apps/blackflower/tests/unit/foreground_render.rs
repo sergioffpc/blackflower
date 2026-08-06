@@ -50,6 +50,48 @@ fn overview_identifies_native_client_boundaries() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
+#[test]
+fn prediction_panel_reports_the_bootstrap_only_contract() -> Result<(), Box<dyn Error>> {
+    let mut app = test_app()?;
+    app.page = Page::Prediction;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+    let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+    let rendered = rendered_text(&terminal);
+
+    for expected in [
+        "Bootstrap-only prediction",
+        "BOOTSTRAP ONLY",
+        "PredictionWorld",
+        "not instantiated",
+        "Operational boundary",
+    ] {
+        assert!(rendered.contains(expected), "missing {expected}");
+    }
+    assert!(!rendered.contains("Prediction tick p95"));
+    assert!(!rendered.contains("Reconciliation outcomes"));
+    Ok(())
+}
+
+#[test]
+fn runtime_world_panel_exposes_live_ecs_signals() -> Result<(), Box<dyn Error>> {
+    let mut app = test_app()?;
+    app.page = Page::Runtime;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+    let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+    let rendered = rendered_text(&terminal);
+
+    for expected in [
+        "Client runtime / world",
+        "Active worlds",
+        "ECS health",
+        "Tick internals p95",
+        "ECS tick executions",
+    ] {
+        assert!(rendered.contains(expected), "missing {expected}");
+    }
+    Ok(())
+}
+
 fn test_app() -> Result<App, Box<dyn Error>> {
     let (_log_sender, log_receiver) = mpsc::channel();
     Ok(App::new(ForegroundConfig {

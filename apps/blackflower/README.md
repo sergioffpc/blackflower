@@ -63,11 +63,13 @@ with the new CA certificate; overlapping roots are deliberately not accepted.
 Left-click requests cursor capture; `Escape`, focus loss, suspension, and
 application exit release it.
 
-The dashboard exposes Overview, Logs, Session, Prediction, Presentation, and
-Host panels. It reads the process-local Prometheus endpoint at
-`127.0.0.1:9002`; missing session or renderer signals remain visibly
-unconfigured. Closing the native window or pressing `q`/`Ctrl-C` in the
-terminal stops both sides and restores the terminal.
+The dashboard exposes Overview, Logs, Session, Prediction, Runtime/World,
+Presentation, and Host panels. Prediction explicitly reports the current
+bootstrap-only boundary; Runtime/World shows the live presentation world's ECS
+state. It reads the process-local Prometheus endpoint at `127.0.0.1:9002`;
+missing session or renderer signals remain visibly unconfigured. Closing the
+native window or pressing `q`/`Ctrl-C` in the terminal stops both sides and
+restores the terminal.
 
 To enable Tracy profiling support:
 

@@ -126,7 +126,7 @@ cargo run --package blackflower-server --locked -- --foreground
 
 The player client can keep its native window and presentation loop active while
 showing client-side diagnostics in the launching terminal. Its panels are
-Overview, Logs, Session, Prediction, Presentation, and Host:
+Overview, Logs, Session, Prediction, Runtime/World, Presentation, and Host:
 
 ```sh
 cargo run --package blackflower --locked -- \

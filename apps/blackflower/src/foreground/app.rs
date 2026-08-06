@@ -31,16 +31,18 @@ pub(crate) enum Page {
     Logs,
     Session,
     Prediction,
+    Runtime,
     Presentation,
     Host,
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Overview,
         Self::Logs,
         Self::Session,
         Self::Prediction,
+        Self::Runtime,
         Self::Presentation,
         Self::Host,
     ];
@@ -51,6 +53,7 @@ impl Page {
             Self::Logs => "Logs",
             Self::Session => "Session",
             Self::Prediction => "Prediction",
+            Self::Runtime => "Runtime/World",
             Self::Presentation => "Presentation",
             Self::Host => "Host",
         }
@@ -62,6 +65,7 @@ impl Page {
             Self::Logs => "Logs",
             Self::Session => "Sess",
             Self::Prediction => "Pred",
+            Self::Runtime => "Run",
             Self::Presentation => "Pres",
             Self::Host => "Host",
         }
@@ -73,8 +77,9 @@ impl Page {
             Self::Logs => 1,
             Self::Session => 2,
             Self::Prediction => 3,
-            Self::Presentation => 4,
-            Self::Host => 5,
+            Self::Runtime => 4,
+            Self::Presentation => 5,
+            Self::Host => 6,
         }
     }
 
@@ -89,7 +94,6 @@ impl Page {
 
 #[derive(Debug, Default)]
 pub(crate) struct Histories {
-    pub(crate) prediction_p95_micros: History,
     pub(crate) presentation_p95_micros: History,
     pub(crate) network_receive_bytes: History,
     pub(crate) network_transmit_bytes: History,
@@ -177,11 +181,6 @@ impl App {
     fn record_history(&mut self) {
         record_histogram_micros(
             &self.metrics,
-            "blackflower_world_prediction_tick_duration_seconds",
-            &mut self.histories.prediction_p95_micros,
-        );
-        record_histogram_micros(
-            &self.metrics,
             "blackflower_world_presentation_frame_duration_seconds",
             &mut self.histories.presentation_p95_micros,
         );
@@ -228,8 +227,9 @@ impl App {
             KeyCode::Char('2') => self.page = Page::Logs,
             KeyCode::Char('3') => self.page = Page::Session,
             KeyCode::Char('4') => self.page = Page::Prediction,
-            KeyCode::Char('5') => self.page = Page::Presentation,
-            KeyCode::Char('6') => self.page = Page::Host,
+            KeyCode::Char('5') => self.page = Page::Runtime,
+            KeyCode::Char('6') => self.page = Page::Presentation,
+            KeyCode::Char('7') => self.page = Page::Host,
             _ if self.page == Page::Logs => self.handle_log_key(key),
             _ => {}
         }
