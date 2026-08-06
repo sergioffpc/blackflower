@@ -801,6 +801,7 @@ dependencies = [
  "blackflower-world-simulation",
  "blake3",
  "clap",
+ "metrics",
  "ratatui",
  "rcgen",
  "rustls",

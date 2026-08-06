@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 
 use blackflower_world_simulation::{SIMULATION_TICK_RATE_HZ, SimulationWorld};
 
+mod telemetry;
+
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
 
 /// Result of an orderly dedicated simulation-host shutdown.
@@ -166,13 +168,15 @@ fn run_ticks(
 ) -> Result<SimulationExit, SimulationHostError> {
     let mut pacer = TickPacer::new(Instant::now());
     while !stop.load(Ordering::Acquire) {
-        pacer.wait();
+        let timing = pacer.wait();
         if stop.load(Ordering::Acquire) {
             break;
         }
-        let should_continue = simulation
-            .tick()
-            .map_err(|error| SimulationHostError::Tick(error.to_string()))?;
+        telemetry::tick_started(timing.waited, timing.lag, timing.ticks_behind);
+        let result = simulation.tick();
+        telemetry::tick_finished(timing.deadline_pressure_ratio(Instant::now()));
+        let should_continue =
+            result.map_err(|error| SimulationHostError::Tick(error.to_string()))?;
         completed_ticks.fetch_add(1, Ordering::AcqRel);
         if !should_continue {
             break;
@@ -191,15 +195,33 @@ struct TickPacer {
 
 impl TickPacer {
     fn new(now: Instant) -> Self {
+        telemetry::initialize();
         Self {
             deadline: now,
             remainder: 0,
         }
     }
 
-    fn wait(&self) {
-        if let Some(remaining) = self.deadline.checked_duration_since(Instant::now()) {
-            thread::sleep(remaining);
+    fn wait(&self) -> TickTiming {
+        let before = Instant::now();
+        let waited = if let Some(requested) = self.deadline.checked_duration_since(before) {
+            thread::sleep(requested);
+            requested
+        } else {
+            Duration::ZERO
+        };
+        self.timing_at(Instant::now(), waited)
+    }
+
+    fn timing_at(&self, started_at: Instant, waited: Duration) -> TickTiming {
+        let lag = started_at
+            .checked_duration_since(self.deadline)
+            .unwrap_or_default();
+        TickTiming {
+            deadline: self.deadline,
+            waited,
+            lag,
+            ticks_behind: full_ticks(lag),
         }
     }
 
@@ -212,6 +234,36 @@ impl TickPacer {
         }
         self.deadline += Duration::from_nanos(base + carry);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TickTiming {
+    deadline: Instant,
+    waited: Duration,
+    lag: Duration,
+    ticks_behind: u64,
+}
+
+impl TickTiming {
+    fn deadline_pressure_ratio(self, finished_at: Instant) -> f64 {
+        let occupied = finished_at
+            .checked_duration_since(self.deadline)
+            .unwrap_or_default();
+        occupied.as_secs_f64() * tick_rate_f64()
+    }
+}
+
+fn full_ticks(duration: Duration) -> u64 {
+    let ticks = duration
+        .as_nanos()
+        .saturating_mul(u128::from(SIMULATION_TICK_RATE_HZ))
+        / u128::from(NANOSECONDS_PER_SECOND);
+    u64::try_from(ticks).unwrap_or(u64::MAX)
+}
+
+fn tick_rate_f64() -> f64 {
+    let rate = u32::try_from(SIMULATION_TICK_RATE_HZ).unwrap_or(u32::MAX);
+    f64::from(rate)
 }
 
 #[cfg(test)]

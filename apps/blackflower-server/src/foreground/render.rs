@@ -213,7 +213,7 @@ fn draw_overview_metrics(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 format!("{:.2} ms", tick_budget_seconds() * 1_000.0),
             ),
             (
-                "Misses",
+                "Compute misses",
                 format_rate(
                     app.metrics
                         .rate("blackflower_world_simulation_deadline_misses_total"),
@@ -419,10 +419,15 @@ fn draw_simulation(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
         .split(regions[1]);
     draw_tick_distribution(frame, columns[0], app);
-    draw_tick_outcomes(frame, columns[1], app);
+    draw_scheduler(frame, columns[1], app);
+    draw_tick_outcomes(frame, columns[2], app);
     draw_phase_table(frame, regions[2], app);
 }
 
@@ -469,6 +474,52 @@ fn draw_tick_distribution(frame: &mut Frame<'_>, area: Rect, app: &App) {
     );
 }
 
+fn draw_scheduler(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    draw_key_values(
+        frame,
+        area,
+        "Scheduler",
+        vec![
+            (
+                "Lag p95",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_server_simulation_scheduler_tick_lag_seconds",
+                    0.95,
+                )),
+            ),
+            (
+                "Wait p95",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_server_simulation_scheduler_wait_seconds",
+                    0.95,
+                )),
+            ),
+            (
+                "Behind",
+                format_number(
+                    app.metrics
+                        .value("blackflower_server_simulation_scheduler_catch_up_depth_ticks"),
+                ),
+            ),
+            (
+                "Pressure p95",
+                format_percent(app.metrics.histogram_quantile(
+                    "blackflower_server_simulation_scheduler_deadline_pressure_ratio",
+                    0.95,
+                )),
+            ),
+            (
+                "Catch-up",
+                format_rate(
+                    app.metrics
+                        .rate("blackflower_server_simulation_scheduler_catch_up_ticks_total"),
+                    "/s",
+                ),
+            ),
+        ],
+    );
+}
+
 fn draw_tick_outcomes(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
@@ -509,7 +560,7 @@ fn draw_tick_outcomes(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 ),
             ),
             (
-                "Deadline misses",
+                "Compute misses",
                 format_rate(
                     app.metrics
                         .rate("blackflower_world_simulation_deadline_misses_total"),

@@ -53,6 +53,20 @@ fn overview_uses_codex_shell_layout_without_brand_mark() -> Result<(), Box<dyn E
     Ok(())
 }
 
+#[test]
+fn simulation_panel_exposes_scheduler_health() -> Result<(), Box<dyn Error>> {
+    let mut app = test_app()?;
+    app.page = Page::Simulation;
+    let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
+    let _completed_frame = terminal.draw(|frame| draw(frame, &app))?;
+    let rendered = rendered_text(&terminal);
+
+    for expected in ["Scheduler", "Lag p95", "Behind", "Pressure p95", "Catch-up"] {
+        assert!(rendered.contains(expected), "missing {expected}");
+    }
+    Ok(())
+}
+
 fn test_app() -> Result<App, Box<dyn Error>> {
     let (_log_sender, log_receiver) = mpsc::channel();
     Ok(App::new(ForegroundConfig {

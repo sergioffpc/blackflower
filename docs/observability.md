@@ -183,6 +183,11 @@ The initial domain metrics are:
 | `blackflower_world_simulation_system_executions_total{phase}` | Authoritative system executions aggregated by phase |
 | `blackflower_world_simulation_tick_duration_seconds` | Authoritative tick compute time |
 | `blackflower_world_simulation_deadline_misses_total` | Tick compute time above the fixed-step budget |
+| `blackflower_server_simulation_scheduler_wait_seconds` | Wait requested by the server pacer before a scheduled tick |
+| `blackflower_server_simulation_scheduler_tick_lag_seconds` | Tick-start lag behind the scheduled deadline |
+| `blackflower_server_simulation_scheduler_catch_up_depth_ticks` | Current whole tick intervals behind schedule |
+| `blackflower_server_simulation_scheduler_catch_up_ticks_total` | Ticks started at least one whole interval behind schedule |
+| `blackflower_server_simulation_scheduler_deadline_pressure_ratio` | Scheduled interval consumed by start lag plus tick compute time |
 | `blackflower_world_prediction_ticks_total{pass,result}` | Forward and re-simulated prediction outcomes |
 | `blackflower_world_prediction_tick_duration_seconds{pass}` | Prediction tick compute time |
 | `blackflower_world_prediction_reconciliations_total{result,reason}` | Reconciliation decisions |
@@ -191,6 +196,11 @@ The initial domain metrics are:
 | `blackflower_world_presentation_frames_total{result}` | Presentation frame outcomes |
 | `blackflower_world_presentation_frame_duration_seconds` | Presentation compute time |
 | `blackflower_world_presentation_frame_delta_seconds` | Validated variable frame delta |
+
+Scheduler deadline pressure is intentionally not clamped: `1.0` means the tick
+completed at the next nominal deadline and values above `1.0` expose accumulated
+lag. Compute deadline misses remain separate so operators can distinguish an
+expensive simulation tick from an otherwise healthy tick that started late.
 
 ### Embedded host collector
 
