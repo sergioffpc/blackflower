@@ -585,10 +585,26 @@ fn draw_network(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 ),
             ),
             (
-                "Clock uncertainty",
+                "Clock uncertainty max",
                 format_number(
                     app.metrics
                         .value("blackflower_network_clock_uncertainty_ticks"),
+                ),
+            ),
+            (
+                "Clock sessions",
+                format!(
+                    "{} ready / {} pending",
+                    format_number(app.metrics.value_with_label(
+                        "blackflower_network_clock_sessions",
+                        "state",
+                        "synchronized",
+                    )),
+                    format_number(app.metrics.value_with_label(
+                        "blackflower_network_clock_sessions",
+                        "state",
+                        "unsynchronized",
+                    )),
                 ),
             ),
             (

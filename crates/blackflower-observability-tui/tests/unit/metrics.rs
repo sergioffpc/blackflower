@@ -41,6 +41,27 @@ fn calculates_histogram_quantiles() -> Result<(), String> {
 }
 
 #[test]
+fn reads_exported_summary_quantiles() -> Result<(), String> {
+    let samples = parse_prometheus(
+        "network_rtt{quantile=\"0.5\"} 0.004\n\
+         network_rtt{quantile=\"0.95\"} 0.012\n\
+         network_rtt_sum 0.016\n\
+         network_rtt_count 2\n",
+    )?;
+    let snapshot = super::MetricSnapshot {
+        collected_at: std::time::Instant::now(),
+        samples,
+    };
+
+    assert_eq!(snapshot.histogram_quantile("network_rtt", 0.5), Some(0.004));
+    assert_eq!(
+        snapshot.histogram_quantile("network_rtt", 0.95),
+        Some(0.012)
+    );
+    Ok(())
+}
+
+#[test]
 fn reads_content_length_case_insensitively() -> std::io::Result<()> {
     assert_eq!(
         super::content_length(b"HTTP/1.1 200 OK\r\nContent-Length: 17434")?,

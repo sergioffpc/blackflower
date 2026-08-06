@@ -1,12 +1,15 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blackflower_networking::{
-    FlowId, MAX_BOOTSTRAP_BYTES, MAX_CONTROL_MESSAGE_BYTES, MAX_CONTROL_QUEUE_BYTES,
-    MAX_SNAPSHOT_CHUNKS, StateBootstrapHeader, VoiceStreamId, decode_datagram, decode_frame,
+    DropReason, FlowId, MAX_BOOTSTRAP_BYTES, MAX_CONTROL_MESSAGE_BYTES, MAX_CONTROL_QUEUE_BYTES,
+    MAX_SNAPSHOT_CHUNKS, MetricDirection, QueueKind, StateBootstrapHeader, VoiceStreamId,
+    connection_closed, connection_opened, decode_datagram, decode_frame,
+    initialize_network_metrics, record_drop, record_queue_depth_delta, record_rtt,
+    record_udp_bytes,
 };
 use bytes::Bytes;
 use tokio::sync::mpsc as tokio_mpsc;
@@ -25,6 +28,7 @@ const VOICE_STREAM_CAPACITY: usize = 4;
 const VOICE_PACKETS_PER_STREAM: usize = 3;
 const DATAGRAM_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const PATH_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const TELEMETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Event delivered synchronously from Tokio transport tasks to the game host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,24 +56,26 @@ pub enum NetworkEvent {
 #[derive(Debug)]
 pub struct ClientNetworkHandle {
     connection: ClientConnection,
+    telemetry: ConnectionTelemetry,
     control: SharedControlSender,
     latest_input: Arc<Mutex<Option<Vec<u8>>>>,
     time_sync: tokio_mpsc::Sender<Vec<u8>>,
     voice: SharedVoiceQueue,
-    events: mpsc::Receiver<NetworkEvent>,
+    events: SharedEventReceiver,
 }
 
 /// Synchronous bounded host handle for a dedicated-server connection.
 #[derive(Debug)]
 pub struct ServerNetworkHandle {
     connection: ServerConnection,
+    telemetry: ConnectionTelemetry,
     control: SharedControlSender,
     snapshots: tokio_mpsc::Sender<Vec<Vec<u8>>>,
     time_sync: tokio_mpsc::Sender<Vec<u8>>,
     voice: SharedVoiceQueue,
     bootstrap: tokio_mpsc::Sender<BootstrapTransfer>,
     bootstrap_pending: Arc<AtomicBool>,
-    events: mpsc::Receiver<NetworkEvent>,
+    events: SharedEventReceiver,
 }
 
 impl ClientConnection {
@@ -80,7 +86,7 @@ impl ClientConnection {
         let latest_input = Arc::new(Mutex::new(None));
         let (time_sync, time_sync_receive) = tokio_mpsc::channel(TIME_SYNC_CAPACITY);
         let voice = SharedVoiceQueue::default();
-        let (events_send, events) = mpsc::sync_channel(HOST_EVENT_CAPACITY);
+        let (events_send, events) = event_channel();
         spawn_control_tasks(
             self.inner.clone(),
             control_stream,
@@ -97,8 +103,10 @@ impl ClientConnection {
             time_sync_receive,
             voice.clone(),
         );
+        let telemetry = ConnectionTelemetry::new(&self, ConnectionRole::Client);
         Ok(ClientNetworkHandle {
             connection: self,
+            telemetry,
             control,
             latest_input,
             time_sync,
@@ -118,7 +126,7 @@ impl ServerConnection {
         let (bootstrap, bootstrap_receive) = tokio_mpsc::channel(BOOTSTRAP_CAPACITY);
         let bootstrap_pending = Arc::new(AtomicBool::new(false));
         let voice = SharedVoiceQueue::default();
-        let (events_send, events) = mpsc::sync_channel(HOST_EVENT_CAPACITY);
+        let (events_send, events) = event_channel();
         spawn_control_tasks(
             self.inner.clone(),
             control_stream,
@@ -139,8 +147,10 @@ impl ServerConnection {
             bootstrap_receive,
             Arc::clone(&bootstrap_pending),
         );
+        let telemetry = ConnectionTelemetry::new(&self, ConnectionRole::Server);
         Ok(ServerNetworkHandle {
             connection: self,
+            telemetry,
             control,
             snapshots,
             time_sync,
@@ -167,7 +177,11 @@ impl ClientNetworkHandle {
             .latest_input
             .lock()
             .map_err(|_poisoned| QuicError::QueueUnavailable)?;
-        *latest = Some(datagram);
+        let superseded = latest.replace(datagram).is_some();
+        drop(latest);
+        if superseded {
+            record_drop(DropReason::Superseded);
+        }
         Ok(())
     }
 
@@ -198,6 +212,21 @@ impl ClientNetworkHandle {
     #[must_use]
     pub fn udp_bytes(&self) -> crate::UdpByteStats {
         self.connection.udp_bytes()
+    }
+
+    /// Publish throttled connection-level QUIC telemetry for this process.
+    pub fn record_metrics(&mut self) {
+        let depths = QueueDepths {
+            control: self.control.depth(),
+            input: self
+                .latest_input
+                .lock()
+                .map_or(0, |latest| usize::from(latest.is_some())),
+            voice: self.voice.depth(),
+            host: self.events.depth(),
+            ..QueueDepths::default()
+        };
+        self.telemetry.record(&self.connection, depths);
     }
 }
 
@@ -241,12 +270,17 @@ impl ServerNetworkHandle {
     /// Queue the single active full-state bootstrap transfer.
     pub fn try_send_bootstrap(&self, transfer: BootstrapTransfer) -> Result<(), QuicError> {
         validate_bootstrap(&transfer.header, &transfer.body)?;
-        self.bootstrap_pending
+        if self
+            .bootstrap_pending
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_pending| QuicError::QueueFull)?;
-        if try_send(&self.bootstrap, transfer).is_err() {
-            self.bootstrap_pending.store(false, Ordering::Release);
+            .is_err()
+        {
+            record_drop(DropReason::QueueFull);
             return Err(QuicError::QueueFull);
+        }
+        if let Err(error) = try_send(&self.bootstrap, transfer) {
+            self.bootstrap_pending.store(false, Ordering::Release);
+            return Err(error);
         }
         Ok(())
     }
@@ -261,22 +295,188 @@ impl ServerNetworkHandle {
     pub fn udp_bytes(&self) -> crate::UdpByteStats {
         self.connection.udp_bytes()
     }
+
+    /// Publish throttled connection-level QUIC telemetry for this process.
+    pub fn record_metrics(&mut self) {
+        let depths = QueueDepths {
+            control: self.control.depth(),
+            bootstrap: channel_depth(&self.bootstrap),
+            snapshot: channel_depth(&self.snapshots),
+            voice: self.voice.depth(),
+            host: self.events.depth(),
+            ..QueueDepths::default()
+        };
+        self.telemetry.record(&self.connection, depths);
+    }
 }
 
 impl Drop for ClientNetworkHandle {
     fn drop(&mut self) {
+        self.telemetry.close();
         self.connection.close(0, b"client network handle dropped");
     }
 }
 
 impl Drop for ServerNetworkHandle {
     fn drop(&mut self) {
+        self.telemetry.close();
         self.connection.close(0, b"server network handle dropped");
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ConnectionRole {
+    Client,
+    Server,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct QueueDepths {
+    control: usize,
+    bootstrap: usize,
+    input: usize,
+    snapshot: usize,
+    voice: usize,
+    host: usize,
+}
+
+impl QueueDepths {
+    const fn entries(self) -> [(QueueKind, usize); 6] {
+        [
+            (QueueKind::Control, self.control),
+            (QueueKind::Bootstrap, self.bootstrap),
+            (QueueKind::Input, self.input),
+            (QueueKind::Snapshot, self.snapshot),
+            (QueueKind::Voice, self.voice),
+            (QueueKind::Host, self.host),
+        ]
+    }
+
+    fn replace_contribution(&mut self, current: Self) {
+        for ((kind, previous), (_, current)) in self.entries().into_iter().zip(current.entries()) {
+            record_queue_depth_delta(kind, previous, current);
+        }
+        *self = current;
+    }
+}
+
+#[derive(Debug)]
+struct ConnectionTelemetry {
+    role: ConnectionRole,
+    previous_udp_bytes: crate::UdpByteStats,
+    queue_depths: QueueDepths,
+    last_recorded: Option<Instant>,
+    open: bool,
+}
+
+impl ConnectionTelemetry {
+    fn new<C>(connection: &C, role: ConnectionRole) -> Self
+    where
+        C: ConnectionStats,
+    {
+        initialize_network_metrics();
+        connection_opened();
+        Self {
+            role,
+            previous_udp_bytes: connection.udp_bytes(),
+            queue_depths: QueueDepths::default(),
+            last_recorded: None,
+            open: true,
+        }
+    }
+
+    fn record<C>(&mut self, connection: &C, queue_depths: QueueDepths)
+    where
+        C: ConnectionStats,
+    {
+        let now = Instant::now();
+        if self
+            .last_recorded
+            .is_some_and(|previous| now.duration_since(previous) < TELEMETRY_INTERVAL)
+        {
+            return;
+        }
+        self.last_recorded = Some(now);
+        record_rtt(connection.rtt());
+        self.queue_depths.replace_contribution(queue_depths);
+
+        let current = connection.udp_bytes();
+        let transmitted = current
+            .transmitted
+            .saturating_sub(self.previous_udp_bytes.transmitted);
+        let received = current
+            .received
+            .saturating_sub(self.previous_udp_bytes.received);
+        self.previous_udp_bytes = current;
+        let (upstream, downstream) = match self.role {
+            ConnectionRole::Client => (transmitted, received),
+            ConnectionRole::Server => (received, transmitted),
+        };
+        record_udp_bytes(
+            MetricDirection::Upstream,
+            usize::try_from(upstream).unwrap_or(usize::MAX),
+        );
+        record_udp_bytes(
+            MetricDirection::Downstream,
+            usize::try_from(downstream).unwrap_or(usize::MAX),
+        );
+    }
+
+    fn close(&mut self) {
+        if self.open {
+            self.queue_depths
+                .replace_contribution(QueueDepths::default());
+            connection_closed();
+            self.open = false;
+        }
+    }
+}
+
+trait ConnectionStats {
+    fn udp_bytes(&self) -> crate::UdpByteStats;
+    fn rtt(&self) -> Duration;
+}
+
+impl ConnectionStats for ClientConnection {
+    fn udp_bytes(&self) -> crate::UdpByteStats {
+        Self::udp_bytes(self)
+    }
+
+    fn rtt(&self) -> Duration {
+        Self::rtt(self)
+    }
+}
+
+impl ConnectionStats for ServerConnection {
+    fn udp_bytes(&self) -> crate::UdpByteStats {
+        Self::udp_bytes(self)
+    }
+
+    fn rtt(&self) -> Duration {
+        Self::rtt(self)
     }
 }
 
 #[derive(Debug, Default, Clone)]
 struct SharedVoiceQueue(Arc<Mutex<BTreeMap<VoiceStreamId, VecDeque<Vec<u8>>>>>);
+
+#[derive(Debug, Clone)]
+struct SharedEventSender {
+    sender: mpsc::SyncSender<NetworkEvent>,
+    depth: Arc<AtomicUsize>,
+}
+
+#[derive(Debug)]
+struct SharedEventReceiver {
+    receiver: mpsc::Receiver<NetworkEvent>,
+    depth: Arc<AtomicUsize>,
+}
+
+impl SharedEventReceiver {
+    fn depth(&self) -> usize {
+        self.depth.load(Ordering::Acquire)
+    }
+}
 
 #[derive(Debug, Clone)]
 struct SharedControlSender {
@@ -287,22 +487,39 @@ struct SharedControlSender {
 impl SharedControlSender {
     fn try_send(&self, frame: Vec<u8>) -> Result<(), QuicError> {
         let frame_bytes = frame.len();
-        {
+        let over_byte_limit = {
             let mut queued = self
                 .queued_bytes
                 .lock()
                 .map_err(|_poisoned| QuicError::QueueUnavailable)?;
             let next = queued.saturating_add(frame_bytes);
             if next > MAX_CONTROL_QUEUE_BYTES {
-                return Err(QuicError::QueueFull);
+                true
+            } else {
+                *queued = next;
+                false
             }
-            *queued = next;
-        }
-        if self.sender.try_send(frame).is_err() {
-            release_control_bytes(&self.queued_bytes, frame_bytes)?;
+        };
+        if over_byte_limit {
+            record_drop(DropReason::QueueFull);
             return Err(QuicError::QueueFull);
         }
-        Ok(())
+        match self.sender.try_send(frame) {
+            Ok(()) => Ok(()),
+            Err(tokio_mpsc::error::TrySendError::Full(_frame)) => {
+                release_control_bytes(&self.queued_bytes, frame_bytes)?;
+                record_drop(DropReason::QueueFull);
+                Err(QuicError::QueueFull)
+            }
+            Err(tokio_mpsc::error::TrySendError::Closed(_frame)) => {
+                release_control_bytes(&self.queued_bytes, frame_bytes)?;
+                Err(QuicError::QueueUnavailable)
+            }
+        }
+    }
+
+    fn depth(&self) -> usize {
+        channel_depth(&self.sender)
     }
 }
 
@@ -314,6 +531,18 @@ fn control_channel() -> (SharedControlSender, tokio_mpsc::Receiver<Vec<u8>>) {
             queued_bytes: Arc::new(Mutex::new(0)),
         },
         receiver,
+    )
+}
+
+fn event_channel() -> (SharedEventSender, SharedEventReceiver) {
+    let (sender, receiver) = mpsc::sync_channel(HOST_EVENT_CAPACITY);
+    let depth = Arc::new(AtomicUsize::new(0));
+    (
+        SharedEventSender {
+            sender,
+            depth: Arc::clone(&depth),
+        },
+        SharedEventReceiver { receiver, depth },
     )
 }
 
@@ -332,13 +561,22 @@ impl SharedVoiceQueue {
             .lock()
             .map_err(|_poisoned| QuicError::QueueUnavailable)?;
         if !streams.contains_key(&stream) && streams.len() >= VOICE_STREAM_CAPACITY {
+            drop(streams);
+            record_drop(DropReason::QueueFull);
             return Err(QuicError::QueueFull);
         }
         let queue = streams.entry(stream).or_default();
-        if queue.len() == VOICE_PACKETS_PER_STREAM {
+        let superseded = if queue.len() == VOICE_PACKETS_PER_STREAM {
             let _expired = queue.pop_front();
-        }
+            true
+        } else {
+            false
+        };
         queue.push_back(datagram);
+        drop(streams);
+        if superseded {
+            record_drop(DropReason::Superseded);
+        }
         Ok(())
     }
 
@@ -359,6 +597,12 @@ impl SharedVoiceQueue {
         }
         Ok(packet)
     }
+
+    fn depth(&self) -> usize {
+        self.0
+            .lock()
+            .map_or(0, |streams| streams.values().map(VecDeque::len).sum())
+    }
 }
 
 fn spawn_control_tasks(
@@ -366,7 +610,7 @@ fn spawn_control_tasks(
     stream: SessionControlStream,
     mut outbound: tokio_mpsc::Receiver<Vec<u8>>,
     queued_bytes: Arc<Mutex<usize>>,
-    events: mpsc::SyncSender<NetworkEvent>,
+    events: SharedEventSender,
 ) {
     let SessionControlStream {
         mut send,
@@ -405,7 +649,7 @@ fn spawn_control_tasks(
     });
 }
 
-fn spawn_datagram_receive(connection: quinn::Connection, events: mpsc::SyncSender<NetworkEvent>) {
+fn spawn_datagram_receive(connection: quinn::Connection, events: SharedEventSender) {
     tokio::spawn(async move {
         loop {
             match connection.read_datagram().await {
@@ -428,10 +672,7 @@ fn spawn_datagram_receive(connection: quinn::Connection, events: mpsc::SyncSende
     });
 }
 
-fn spawn_path_change_monitor(
-    connection: quinn::Connection,
-    events: mpsc::SyncSender<NetworkEvent>,
-) {
+fn spawn_path_change_monitor(connection: quinn::Connection, events: SharedEventSender) {
     tokio::spawn(async move {
         let mut remote_address = connection.remote_address();
         let mut interval = tokio::time::interval(PATH_POLL_INTERVAL);
@@ -462,7 +703,7 @@ fn spawn_path_change_monitor(
     });
 }
 
-fn spawn_bootstrap_receive(connection: ClientConnection, events: mpsc::SyncSender<NetworkEvent>) {
+fn spawn_bootstrap_receive(connection: ClientConnection, events: SharedEventSender) {
     tokio::spawn(async move {
         loop {
             match connection.receive_bootstrap().await {
@@ -605,26 +846,54 @@ fn validate_bootstrap(header: &StateBootstrapHeader, body: &[u8]) -> Result<(), 
 }
 
 fn try_send<T>(sender: &tokio_mpsc::Sender<T>, value: T) -> Result<(), QuicError> {
-    sender
-        .try_send(value)
-        .map_err(|_error| QuicError::QueueFull)
+    match sender.try_send(value) {
+        Ok(()) => Ok(()),
+        Err(tokio_mpsc::error::TrySendError::Full(_value)) => {
+            record_drop(DropReason::QueueFull);
+            Err(QuicError::QueueFull)
+        }
+        Err(tokio_mpsc::error::TrySendError::Closed(_value)) => Err(QuicError::QueueUnavailable),
+    }
 }
 
-fn try_receive(receiver: &mpsc::Receiver<NetworkEvent>) -> Result<Option<NetworkEvent>, QuicError> {
-    match receiver.try_recv() {
-        Ok(event) => Ok(Some(event)),
+fn channel_depth<T>(sender: &tokio_mpsc::Sender<T>) -> usize {
+    sender.max_capacity().saturating_sub(sender.capacity())
+}
+
+fn try_receive(receiver: &SharedEventReceiver) -> Result<Option<NetworkEvent>, QuicError> {
+    match receiver.receiver.try_recv() {
+        Ok(event) => {
+            let _previous = receiver.depth.fetch_sub(1, Ordering::AcqRel);
+            Ok(Some(event))
+        }
         Err(mpsc::TryRecvError::Empty) => Ok(None),
         Err(mpsc::TryRecvError::Disconnected) => Err(QuicError::QueueUnavailable),
     }
 }
 
-fn publish(events: &mpsc::SyncSender<NetworkEvent>, event: NetworkEvent) -> bool {
-    events.try_send(event).is_ok()
+fn publish(events: &SharedEventSender, event: NetworkEvent) -> bool {
+    let _previous = events.depth.fetch_add(1, Ordering::AcqRel);
+    match events.sender.try_send(event) {
+        Ok(()) => true,
+        Err(mpsc::TrySendError::Full(_event)) => {
+            let _previous = events.depth.fetch_sub(1, Ordering::AcqRel);
+            record_drop(DropReason::QueueFull);
+            false
+        }
+        Err(mpsc::TrySendError::Disconnected(_event)) => {
+            let _previous = events.depth.fetch_sub(1, Ordering::AcqRel);
+            false
+        }
+    }
 }
 
-fn stop_transport(connection: &quinn::Connection, events: &mpsc::SyncSender<NetworkEvent>) {
+fn stop_transport(connection: &quinn::Connection, events: &SharedEventSender) {
     let _published = publish(events, NetworkEvent::TransportStopped);
     connection.close(quinn::VarInt::from_u32(4), b"transport task stopped");
 }
 
 const _: () = assert!(MAX_SNAPSHOT_CHUNKS == 4);
+
+#[cfg(test)]
+#[path = "../tests/unit/handles.rs"]
+mod tests;

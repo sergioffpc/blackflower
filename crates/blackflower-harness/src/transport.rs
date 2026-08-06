@@ -48,6 +48,9 @@ pub trait ClientTransport {
 
     /// Poll one transport fact without blocking.
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error>;
+
+    /// Publish transport-owned process telemetry when the implementation has it.
+    fn record_metrics(&mut self) {}
 }
 
 impl ClientTransport for ClientNetworkHandle {
@@ -67,6 +70,10 @@ impl ClientTransport for ClientNetworkHandle {
 
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error> {
         self.try_receive().map(|event| event.map(Into::into))
+    }
+
+    fn record_metrics(&mut self) {
+        ClientNetworkHandle::record_metrics(self);
     }
 }
 

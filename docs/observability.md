@@ -95,6 +95,13 @@ interactive terminal. Its six panels are:
 | `5` | World | ECS gauges/ticks and authoritative acoustics activity |
 | `6` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
 
+Network queue gauges are process-wide sums of each live connection's bounded
+queue contribution. The server clock gauge is the maximum uncertainty reported
+by synchronized peers, accompanied by synchronized and unsynchronized session
+counts. Input, snapshot, and resynchronization counters use bounded lifecycle
+actions so client submissions/applications/requests remain distinct from server
+acceptance/sends/acknowledgements/starts.
+
 The UI polls `http://<metrics_bind_address>/metrics` once per second on a
 dedicated worker. It parses the same Prometheus exposition available to an
 external collector; it does not read a world, scheduler, recorder handle, or

@@ -61,10 +61,11 @@ pub use session::{
     SessionState, activation_tick, operational_state,
 };
 pub use telemetry::{
-    DropReason, MetricDirection, QueueKind, ViolationKind, connection_closed, connection_opened,
-    describe_network_metrics, record_bootstrap, record_clock_uncertainty, record_drop,
-    record_inputs, record_protocol_violation, record_queue_depth, record_resync, record_rtt,
-    record_snapshot, record_udp_bytes, record_voice,
+    ClockState, DropReason, InputAction, MetricDirection, QueueKind, ResyncAction, SnapshotAction,
+    ViolationKind, connection_closed, connection_opened, describe_network_metrics,
+    initialize_network_metrics, record_bootstrap, record_clock_sessions, record_clock_uncertainty,
+    record_drop, record_inputs, record_protocol_violation, record_queue_depth_delta, record_resync,
+    record_rtt, record_snapshot, record_udp_bytes, record_voice,
 };
 pub use types::{
     BootstrapId, ByteIdParseError, CommandId, ConnectionEpoch, FlowSequence, InputSequence,

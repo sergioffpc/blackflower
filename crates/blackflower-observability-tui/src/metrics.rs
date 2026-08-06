@@ -75,6 +75,11 @@ impl MetricSnapshot {
     }
 
     fn histogram_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
+        self.summary_quantile(name, quantile)
+            .or_else(|| self.bucket_quantile(name, quantile))
+    }
+
+    fn bucket_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
         let bucket_name = format!("{name}_bucket");
         let mut buckets: Vec<(String, f64, f64)> = Vec::new();
         for sample in self
@@ -126,6 +131,14 @@ impl MetricSnapshot {
             previous_count = cumulative_count;
         }
         None
+    }
+
+    fn summary_quantile(&self, name: &str, quantile: f64) -> Option<f64> {
+        self.samples.iter().find_map(|sample| {
+            let exported_quantile = sample.label("quantile")?.parse::<f64>().ok()?;
+            (sample.name == name && (exported_quantile - quantile).abs() <= f64::EPSILON)
+                .then_some(sample.value)
+        })
     }
 }
 

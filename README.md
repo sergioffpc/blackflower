@@ -94,10 +94,17 @@ cargo run --package blackflower --locked -- \
   --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
-Run the authoritative server:
+Run the authoritative server with the local certificates and asset trust key
+created by `cargo xtask keys generate`:
 
 ```sh
-RUST_LOG=info cargo run --package blackflower-server --locked
+RUST_LOG=info cargo run --package blackflower-server --locked -- \
+  --listen-address 127.0.0.1:4433 \
+  --tls-certificate .local-network/server-chain.pem \
+  --tls-private-key .local-network/server-key.pem \
+  --map-id maps/bootstrap \
+  --asset-package-directory target/assets/packages/debug \
+  --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
 Run the headless agent shell:

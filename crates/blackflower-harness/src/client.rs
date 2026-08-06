@@ -10,11 +10,12 @@ use crate::{
 };
 use blackflower_networking::{
     BootstrapId, CLOCK_SAMPLE_TIMEOUT, ClockError, ClockFilter, ClockSafety, ContentRejectReason,
-    DatagramHeader, FlowId, FlowSequence, INITIAL_TIME_SYNC_SAMPLES, ResyncReason,
-    SessionControlMessage, SessionError, SessionState, SimulationTick, SnapshotAppliedAck,
-    StateBootstrapHeader, TimeSyncMessage, TimeSyncSchedule, WireError, decode_control_message,
-    decode_datagram, decode_snapshot_chunk, decode_time_sync, encode_control_message,
-    encode_datagram, encode_time_sync, record_clock_uncertainty,
+    DatagramHeader, FlowId, FlowSequence, INITIAL_TIME_SYNC_SAMPLES, InputAction, ResyncAction,
+    ResyncReason, SessionControlMessage, SessionError, SessionState, SimulationTick,
+    SnapshotAction, SnapshotAppliedAck, StateBootstrapHeader, TimeSyncMessage, TimeSyncSchedule,
+    WireError, decode_control_message, decode_datagram, decode_snapshot_chunk, decode_time_sync,
+    encode_control_message, encode_datagram, encode_time_sync, record_bootstrap,
+    record_clock_uncertainty, record_inputs, record_resync, record_snapshot, record_voice,
 };
 
 const MAX_EVENTS_PER_UPDATE: usize = 128;
@@ -90,6 +91,7 @@ where
         now: Duration,
         authoritative_tick: SimulationTick,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        self.transport.record_metrics();
         for _index in 0..MAX_EVENTS_PER_UPDATE {
             if self.events.len() >= MAX_PENDING_EVENTS {
                 break;
@@ -149,6 +151,7 @@ where
             .set_latest_input(datagram)
             .map_err(ClientHarnessError::Transport)?;
         self.input = next_input;
+        record_inputs(InputAction::Submitted, 1);
         if let Some(submission) = traced.as_ref() {
             self.record_submission(sequence, submission);
         }
@@ -178,7 +181,9 @@ where
         reason: ResyncReason,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         self.session.begin_resync(now)?;
-        self.send_control(SessionControlMessage::ResyncRequest { reason })
+        self.send_control(SessionControlMessage::ResyncRequest { reason })?;
+        record_resync(ResyncAction::Requested);
+        Ok(())
     }
 
     /// Replace a stopped connection and present its fresh one-use resume token.
@@ -356,6 +361,7 @@ where
             }
             FlowId::TimeSync => self.handle_time_sync(decoded.payload, now),
             FlowId::VoiceDelivery => {
+                record_voice(blackflower_networking::MetricDirection::Downstream);
                 self.events.push_back(ClientEvent::VoiceDatagram(datagram));
                 Ok(())
             }
@@ -491,6 +497,7 @@ where
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         self.input.set_applied_snapshot(applied.ack);
+        record_snapshot(SnapshotAction::Applied);
         self.events.push_back(ClientEvent::SnapshotApplied {
             tick: applied.ack.snapshot_tick,
             prediction: prediction.clone(),
@@ -571,12 +578,14 @@ where
             .ok_or(ClientHarnessError::BootstrapMismatch)?;
         self.pending_offer = None;
         let applied = self.snapshots.bootstrap(transfer.header, &transfer.body)?;
+        record_bootstrap(transfer.body.len());
         self.input.reset_control_timeline();
         let prediction = self
             .prediction
             .bootstrap(&applied.snapshot)
             .map_err(ClientHarnessError::Prediction)?;
         self.input.set_applied_snapshot(applied.ack);
+        record_snapshot(SnapshotAction::Applied);
         self.send_bootstrap_applied(offer, applied.ack)?;
         self.events.push_back(ClientEvent::SnapshotApplied {
             tick: applied.ack.snapshot_tick,

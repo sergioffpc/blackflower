@@ -5,15 +5,15 @@ use blackflower_acoustics::{VoiceCapturePacket, decode_voice_capture};
 use blackflower_networking::{
     AdmissionClaims, AuthorityError, BandwidthScheduler, BootstrapId, BudgetTier,
     CommandDisposition, CommandTimingDecision, CompatibilityContract, ConnectionEpoch,
-    ContentManifest, ControlFrame, Deduplication, DeduplicationError, DiscreteCommand, FlowId,
-    FlowSequence, InputDeduplicator, MatchEgressBudget, MetricDirection, ProtocolRevision,
-    ResumeClaims, ServerSession, SessionAuthority, SessionControlMessage, SessionError,
-    SimulationTick, SnapshotAppliedAck, StateBootstrapHeader, TimeSyncMessage, TrafficDirection,
-    VoiceBindings, VoiceChannel, VoiceError, VoiceStreamId, WireError, activation_tick,
-    classify_command, connection_closed, connection_opened, decode_datagram, decode_input_datagram,
-    decode_time_sync, encode_control_message, encode_datagram, encode_snapshot_chunk,
-    encode_time_sync, record_bootstrap, record_inputs, record_protocol_violation, record_resync,
-    record_snapshot, record_udp_bytes, record_voice,
+    ContentManifest, ControlFrame, Deduplication, DeduplicationError, DiscreteCommand, DropReason,
+    FlowId, FlowSequence, InputAction, InputDeduplicator, MatchEgressBudget, MetricDirection,
+    ProtocolRevision, ResumeClaims, ResyncAction, ServerSession, SessionAuthority,
+    SessionControlMessage, SessionError, SimulationTick, SnapshotAction, SnapshotAppliedAck,
+    StateBootstrapHeader, TimeSyncMessage, TrafficDirection, VoiceBindings, VoiceChannel,
+    VoiceError, VoiceStreamId, WireError, activation_tick, classify_command, decode_datagram,
+    decode_input_datagram, decode_time_sync, encode_control_message, encode_datagram,
+    encode_snapshot_chunk, encode_time_sync, record_bootstrap, record_drop, record_inputs,
+    record_protocol_violation, record_resync, record_snapshot, record_voice,
 };
 use blackflower_networking::{DatagramHeader, ViolationKind};
 use blackflower_networking_quic::{
@@ -71,7 +71,6 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
         let mut session = ServerSession::new(self.contract, epoch);
         session.secure()?;
         session.negotiate()?;
-        connection_opened();
         Ok(NetworkPeer::new(
             handle,
             session,
@@ -216,6 +215,11 @@ impl NetworkPeer {
         Ok(self.handle.try_receive()?)
     }
 
+    /// Publish throttled QUIC connection metrics owned by the transport.
+    pub fn record_metrics(&mut self) {
+        self.handle.record_metrics();
+    }
+
     /// Reject admission before authoritative player state is created.
     pub fn reject_admission(
         &self,
@@ -315,7 +319,7 @@ impl NetworkPeer {
             projection_digest: digest,
         })?;
         self.pending_bootstrap = None;
-        record_snapshot("applied");
+        record_snapshot(SnapshotAction::Acknowledged);
         Ok(())
     }
 
@@ -366,12 +370,13 @@ impl NetworkPeer {
             .bandwidth
             .reserve_downstream(&mut match_egress, estimated_bytes, now)
         {
+            record_drop(DropReason::Budget);
             return Err(PeerError::BandwidthUnavailable);
         }
         drop(match_egress);
         self.handle.try_send_snapshot_generation(datagrams)?;
         self.baselines.record_sent_delta(snapshot, delta)?;
-        record_snapshot("sent");
+        record_snapshot(SnapshotAction::Sent);
         Ok(())
     }
 
@@ -387,6 +392,7 @@ impl NetworkPeer {
             .bandwidth
             .reserve(TrafficDirection::Upstream, datagram.len(), received_at)
         {
+            record_drop(DropReason::Budget);
             return Err(PeerError::BandwidthUnavailable);
         }
         let decoded = decode_datagram(datagram)?;
@@ -399,11 +405,11 @@ impl NetworkPeer {
         let input = decode_input_datagram(decoded.payload)?;
         if let Some(ack) = input.applied_snapshot {
             self.baselines.acknowledge(ack)?;
-            record_snapshot("applied");
+            record_snapshot(SnapshotAction::Acknowledged);
         }
         let frames = self.new_frames(&input.frames)?;
         let commands = self.new_commands(&input.commands, now, clock_safe)?;
-        record_inputs(frames.len());
+        record_inputs(InputAction::Accepted, frames.len());
         Ok(InputIngress {
             control_epoch: input.control_epoch,
             controlled_entity: input.controlled_entity,
@@ -432,6 +438,7 @@ impl NetworkPeer {
             .bandwidth
             .reserve(TrafficDirection::Upstream, datagram.len(), received_at)
         {
+            record_drop(DropReason::Budget);
             return Err(PeerError::BandwidthUnavailable);
         }
         let decoded = decode_datagram(datagram)?;
@@ -464,6 +471,7 @@ impl NetworkPeer {
             .bandwidth
             .reserve_downstream(&mut match_egress, datagram.len(), now)
         {
+            record_drop(DropReason::Budget);
             return Err(PeerError::BandwidthUnavailable);
         }
         drop(match_egress);
@@ -475,7 +483,7 @@ impl NetworkPeer {
     /// Begin a bounded post-activation full-state resynchronization.
     pub fn begin_resync(&mut self, now: Duration) -> Result<(), PeerError> {
         self.session.begin_resync(now)?;
-        record_resync();
+        record_resync(ResyncAction::Started);
         Ok(())
     }
 
@@ -509,7 +517,6 @@ impl NetworkPeer {
             .lock()
             .map_err(|_poisoned| PeerError::SharedBudgetUnavailable)?
             .reconcile_udp_bytes(estimated_bytes, actual);
-        record_udp_bytes(MetricDirection::Downstream, actual);
         Ok(())
     }
 
@@ -523,7 +530,6 @@ impl NetworkPeer {
         let actual = usize::try_from(actual).unwrap_or(usize::MAX);
         self.bandwidth
             .reconcile_udp_bytes(TrafficDirection::Upstream, estimated_bytes, actual);
-        record_udp_bytes(MetricDirection::Upstream, actual);
     }
 
     fn send_control(&self, message: SessionControlMessage) -> Result<(), PeerError> {
@@ -595,12 +601,6 @@ impl NetworkPeer {
             .checked_add(1)
             .ok_or(PeerError::FlowSequenceExhausted)?;
         Ok(FlowSequence::new(value))
-    }
-}
-
-impl Drop for NetworkPeer {
-    fn drop(&mut self) {
-        connection_closed();
     }
 }
 

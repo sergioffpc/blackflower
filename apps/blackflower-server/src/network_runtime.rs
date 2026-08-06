@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blackflower_networking::{
-    AdmissionRejectReason, AuthorityError, FlowId, SessionControlMessage, SessionState,
-    SimulationTick, decode_control_message, decode_datagram,
+    AdmissionRejectReason, AuthorityError, ClockState, FlowId, SessionControlMessage, SessionState,
+    SimulationTick, decode_control_message, decode_datagram, record_clock_sessions,
+    record_clock_uncertainty,
 };
 use blackflower_networking_quic::NetworkEvent;
 use blackflower_networking_replication::{Snapshot, SnapshotTick};
@@ -22,6 +23,7 @@ pub struct ServerNetworkRuntime {
     peers: Vec<PeerRuntime>,
     simulation: SimulationStatus,
     started: Instant,
+    clock_metrics: ClockMetrics,
 }
 
 impl ServerNetworkRuntime {
@@ -31,11 +33,14 @@ impl ServerNetworkRuntime {
         network: DedicatedServerNetwork<LoopbackSessionAuthority>,
         simulation: SimulationStatus,
     ) -> Self {
+        let clock_metrics = ClockMetrics::default();
+        clock_metrics.publish();
         Self {
             network,
             peers: Vec::new(),
             simulation,
             started: Instant::now(),
+            clock_metrics,
         }
     }
 
@@ -91,6 +96,43 @@ impl ServerNetworkRuntime {
                 index += 1;
             }
         }
+        let clock_metrics = ClockMetrics::from_peers(&self.peers);
+        if clock_metrics != self.clock_metrics {
+            clock_metrics.publish();
+            self.clock_metrics = clock_metrics;
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ClockMetrics {
+    maximum_uncertainty_ticks: u16,
+    synchronized: usize,
+    unsynchronized: usize,
+}
+
+impl ClockMetrics {
+    fn from_peers(peers: &[PeerRuntime]) -> Self {
+        let synchronized = peers
+            .iter()
+            .filter(|peer| peer.clock_uncertainty_ticks.is_some())
+            .count();
+        let maximum_uncertainty_ticks = peers
+            .iter()
+            .filter_map(|peer| peer.clock_uncertainty_ticks)
+            .max()
+            .unwrap_or(0);
+        Self {
+            maximum_uncertainty_ticks,
+            synchronized,
+            unsynchronized: peers.len().saturating_sub(synchronized),
+        }
+    }
+
+    fn publish(self) {
+        record_clock_uncertainty(u64::from(self.maximum_uncertainty_ticks));
+        record_clock_sessions(ClockState::Synchronized, self.synchronized);
+        record_clock_sessions(ClockState::Unsynchronized, self.unsynchronized);
     }
 }
 
@@ -119,6 +161,7 @@ impl PeerRuntime {
         tick: SimulationTick,
         now: Duration,
     ) -> Result<(), ServerNetworkRuntimeError> {
+        self.peer.record_metrics();
         for _index in 0..MAX_EVENTS_PER_PEER {
             let Some(event) = self.peer.poll_event()? else {
                 break;
