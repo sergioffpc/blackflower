@@ -1,0 +1,8 @@
+schema = 1
+id = "maps/bootstrap/player-mesh"
+kind = "mesh"
+audience = "presentation"
+
+[mesh]
+source = "bootstrap.gltf"
+mesh = "PlayerMesh"

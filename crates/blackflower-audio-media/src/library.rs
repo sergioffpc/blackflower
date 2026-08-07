@@ -37,7 +37,8 @@ impl AudioLibrary {
             AssetKind::AudioClip => AudioAsset::Clip(AudioClip::from_bytes(bytes)?),
             AssetKind::AudioStream => AudioAsset::Stream(AudioStream::from_bytes(bytes)?),
             AssetKind::SoundEvent => AudioAsset::Event(SoundEvent::from_bytes(bytes)?),
-            AssetKind::Blob
+            AssetKind::Map
+            | AssetKind::Blob
             | AssetKind::LuauBytecode
             | AssetKind::ShaderModule
             | AssetKind::Texture2d

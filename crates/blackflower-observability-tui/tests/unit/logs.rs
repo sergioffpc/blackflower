@@ -6,9 +6,9 @@ use blackflower_observability::{ForegroundLogEvent, ForegroundLogLevel};
 use super::LogState;
 
 #[test]
-fn filters_level_and_regex() -> Result<(), regex::Error> {
+fn filters_level_and_regex() {
     let (sender, receiver) = mpsc::channel();
-    let mut state = state_with_receiver(receiver)?;
+    let mut state = state_with_receiver(receiver);
     let info = event(ForegroundLogLevel::Info, "service ready");
     let debug = event(ForegroundLogLevel::Debug, "packet ready");
     assert!(sender.send(info).is_ok());
@@ -21,17 +21,12 @@ fn filters_level_and_regex() -> Result<(), regex::Error> {
     state.commit_filter();
 
     assert_eq!(state.visible(10).0.len(), 1);
-    Ok(())
 }
 
-fn state_with_receiver(
-    receiver: mpsc::Receiver<ForegroundLogEvent>,
-) -> Result<LogState, regex::Error> {
+fn state_with_receiver(receiver: mpsc::Receiver<ForegroundLogEvent>) -> LogState {
     LogState::new(
         receiver,
         blackflower_observability::ForegroundLogControl::new(ForegroundLogLevel::Info),
-        ForegroundLogLevel::Info,
-        None,
     )
 }
 

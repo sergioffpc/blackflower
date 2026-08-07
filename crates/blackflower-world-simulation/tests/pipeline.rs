@@ -2,7 +2,7 @@ use std::error::Error as StdError;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use blackflower_ecs::{Component, Read, TickDelta, World};
+use blackflower_ecs::{Component, Read, TickDelta, World, Write};
 use blackflower_world_simulation::{
     AcousticMode, CONTROL_FRAME_INTERVAL_TICKS, CaptureTickInputsSystem,
     CommitStateTransitionsSystem, DeriveActorActionsSystem, DeriveStateTransitionsSystem,
@@ -361,8 +361,9 @@ fn failed_pipeline_execution_does_not_commit_the_opened_tick() -> TestResult {
         .ecs_mut()
         .system("FailAfterOpenTick", "Probe")?
         .phase(capture_inputs)?
-        .project(Read::<Probe>::field(0))?
-        .each(|_context, _entity, _probe| {
+        .project(Write::<Probe>::field(0))?
+        .each(|_context, _entity, probe| {
+            probe.0 = probe.0.saturating_add(1);
             Err(io::Error::other("intentional failure after OpenTick").into())
         })?;
 
@@ -371,10 +372,22 @@ fn failed_pipeline_execution_does_not_commit_the_opened_tick() -> TestResult {
         Ok(_) => return Err(io::Error::other("the system failure must abort the tick").into()),
     };
     assert_eq!(error.system(), Some("FailAfterOpenTick"));
+    assert!(simulation.is_faulted());
+    assert_eq!(simulation.fault(), Some(&error));
     assert_eq!(simulation.current_tick(), SimulationTick::ZERO);
     assert_eq!(
         simulation.execution_context().current().tick,
         SimulationTick::ZERO
+    );
+    assert_eq!(
+        simulation.ecs().get(entity, probe)?.map(|probe| probe.0),
+        Some(1)
+    );
+
+    assert_eq!(simulation.tick(), Err(error));
+    assert_eq!(
+        simulation.ecs().get(entity, probe)?.map(|probe| probe.0),
+        Some(1)
     );
     Ok(())
 }

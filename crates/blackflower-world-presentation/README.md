@@ -31,6 +31,21 @@ succeeds. On failure, it restores the previous execution context and leaves the
 current frame unchanged. Captured simulation and prediction states remain
 read-only throughout presentation.
 
+The local client bridge copies only movement identity, position, and orientation
+into presentation-owned storage. Ordinary forward prediction updates the visual
+proxy immediately. A completed reconciliation preserves the previous visual
+transform and converges to the corrected prediction over 100 ms; bootstrap,
+hard resynchronization, source changes, and missing sources snap or retire the
+proxy explicitly. The latest proxy is committed only after the whole frame
+succeeds.
+
+When the client supplies a signed-map visual binding and a non-empty viewport,
+the proxy produces one model `RenderInstance` and one third-person `RenderView`.
+Both use the proxy's smoothed transform; viewport, camera matrices, semantic
+layer, and persistent logical resource handle are captured presentation data.
+Missing movement, binding, or drawable area deliberately produces an empty
+frame instead of inventing fallback content.
+
 The renderer consumes `RenderFrame` through a single-slot latest-wins mailbox
 and owns GPU culling, LOD, uploads, residency, retirement, swapchain, and
 presentation. The crate owns no wall-clock pacing, device input collection,

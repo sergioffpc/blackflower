@@ -24,6 +24,7 @@ pub(super) fn build(
         .build_target("install")
         .define_path("BLACKFLOWER_JOLT_ROOT", &source)
         .define("CROSS_PLATFORM_DETERMINISTIC", "ON")
+        .define("CPP_EXCEPTIONS_ENABLED", "ON")
         .define("DEBUG_RENDERER_IN_DEBUG_AND_RELEASE", "OFF")
         .define("DEBUG_RENDERER_IN_DISTRIBUTION", "OFF")
         .define("ENABLE_ALL_WARNINGS", "OFF")

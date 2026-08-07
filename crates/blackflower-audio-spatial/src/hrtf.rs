@@ -102,7 +102,7 @@ impl Context {
     }
 
     /// Create Steam Audio's built-in HRTF for one audio configuration.
-    pub fn create_default_hrtf(&mut self, audio: AudioSettings) -> Result<Hrtf, Error> {
+    pub fn create_default_hrtf(&self, audio: AudioSettings) -> Result<Hrtf, Error> {
         let pointer = ffi::create_default_hrtf(self.inner.pointer, audio)
             .map_err(|status| Error::from_status("iplHRTFCreate", status))?;
         Ok(Hrtf {
@@ -115,7 +115,7 @@ impl Context {
     }
 
     /// Create a stateful binaural renderer for one point source.
-    pub fn create_binaural_effect(&mut self, hrtf: &Hrtf) -> Result<BinauralEffect, Error> {
+    pub fn create_binaural_effect(&self, hrtf: &Hrtf) -> Result<BinauralEffect, Error> {
         if !Arc::ptr_eq(&self.inner, &hrtf.inner.context) {
             return Err(Error::WrongContext);
         }
@@ -137,15 +137,25 @@ impl Context {
     /// Create a scene with Steam Audio's built-in ray tracer for serialization.
     ///
     /// Steam Audio only permits [`crate::Scene::to_acoustic_asset`] on built-in
-    /// scenes. The resulting asset can subsequently be loaded into an Embree
-    /// scene through [`Self::load_acoustic_scene`].
+    /// scenes. Runtime loading subsequently requires those bytes to pass
+    /// through a signed asset package before [`Self::load_acoustic_scene`].
     pub fn create_serializable_scene(&mut self) -> Result<crate::Scene, Error> {
         crate::Scene::new(Arc::clone(&self.inner), RayTracerBackend::BuiltIn)
     }
 
-    /// Load a committed Steam Audio scene from `.bfacscn` bytes parsed off the
-    /// real-time thread.
+    /// Load a committed Steam Audio scene authenticated by the asset package.
     pub fn load_acoustic_scene(
+        &mut self,
+        asset: &crate::AuthenticatedAcousticScene,
+    ) -> Result<crate::Scene, Error> {
+        crate::Scene::from_serialized(Arc::clone(&self.inner), asset.serialized())
+    }
+
+    /// Load a freshly serialized scene inside the trusted offline cooker.
+    ///
+    /// This raw route is absent from ordinary runtime builds.
+    #[cfg(feature = "cooking")]
+    pub fn load_cooked_acoustic_scene(
         &mut self,
         asset: &crate::AcousticScene,
     ) -> Result<crate::Scene, Error> {

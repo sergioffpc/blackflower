@@ -1,9 +1,10 @@
 #![cfg(feature = "metrics")]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as StdError;
 use std::io;
-use std::sync::Mutex;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 use blackflower_ecs::{BuiltinPhase, Component, Read, TickDelta, World};
 use bytemuck::{Pod, Zeroable};
@@ -18,6 +19,7 @@ struct Observed(u32);
 #[derive(Debug, Default)]
 struct RecordingRecorder {
     names: Mutex<BTreeSet<String>>,
+    gauges: Mutex<BTreeMap<String, Arc<metrics::atomics::AtomicU64>>>,
 }
 
 impl RecordingRecorder {
@@ -32,6 +34,15 @@ impl RecordingRecorder {
             .lock()
             .map(|names| names.clone())
             .map_err(|_error| io::Error::other("metrics recorder lock poisoned"))
+    }
+
+    fn gauge(&self, name: &str) -> Result<f64, io::Error> {
+        self.gauges
+            .lock()
+            .map_err(|_error| io::Error::other("metrics recorder lock poisoned"))?
+            .get(name)
+            .map(|gauge| f64::from_bits(gauge.load(Ordering::Acquire)))
+            .ok_or_else(|| io::Error::other(format!("missing gauge {name}")))
     }
 }
 
@@ -49,13 +60,48 @@ impl Recorder for RecordingRecorder {
 
     fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> Gauge {
         self.record(key);
-        Gauge::noop()
+        let Ok(mut gauges) = self.gauges.lock() else {
+            return Gauge::noop();
+        };
+        let gauge = Arc::clone(
+            gauges
+                .entry(key.name().to_string())
+                .or_insert_with(|| Arc::new(metrics::atomics::AtomicU64::new(0))),
+        );
+        Gauge::from_arc(gauge)
     }
 
     fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> Histogram {
         self.record(key);
         Histogram::noop()
     }
+}
+
+#[test]
+fn allocations_outstanding_aggregate_across_live_worlds() -> TestResult {
+    let recorder = RecordingRecorder::default();
+
+    metrics::with_local_recorder(&recorder, || -> TestResult {
+        let first = World::new()?;
+        let first_allocations = recorder.gauge("blackflower_ecs_allocations_outstanding")?;
+        let second = World::new()?;
+        let combined_allocations = recorder.gauge("blackflower_ecs_allocations_outstanding")?;
+
+        drop(first);
+        let second_allocations = recorder.gauge("blackflower_ecs_allocations_outstanding")?;
+        assert!(
+            (combined_allocations - (first_allocations + second_allocations)).abs() <= f64::EPSILON
+        );
+
+        drop(second);
+        assert!(
+            recorder
+                .gauge("blackflower_ecs_allocations_outstanding")?
+                .abs()
+                <= f64::EPSILON
+        );
+        Ok(())
+    })
 }
 
 #[test]

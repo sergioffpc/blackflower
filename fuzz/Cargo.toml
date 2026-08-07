@@ -1,6 +1,6 @@
 [package]
 name = "blackflower-networking-fuzz"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 publish = false
 
@@ -8,8 +8,11 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
+blackflower-animation-format = { path = "../crates/blackflower-animation-format" }
 blackflower-networking = { path = "../crates/blackflower-networking" }
 blackflower-networking-replication = { path = "../crates/blackflower-networking-replication" }
+blackflower-rendering-models = { path = "../crates/blackflower-rendering-models" }
+
 libfuzzer-sys = "0.4"
 
 [[bin]]
@@ -29,6 +32,13 @@ bench = false
 [[bin]]
 name = "session_transitions"
 path = "fuzz_targets/session_transitions.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_length_prefixed"
+path = "fuzz_targets/decode_length_prefixed.rs"
 test = false
 doc = false
 bench = false

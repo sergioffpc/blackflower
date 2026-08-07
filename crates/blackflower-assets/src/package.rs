@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
@@ -32,6 +33,86 @@ pub struct AssetPackage {
     object_nodes: BTreeMap<String, usize>,
 }
 
+/// Complete asset bytes whose package signature and catalog identity were verified.
+///
+/// Values can only be created by [`AssetPackage`] or [`crate::AssetStore`] after
+/// the package signer, payload, catalog record, byte length, and content hash
+/// have all been authenticated.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AuthenticatedAsset {
+    bytes: Bytes,
+    record: AssetRecord,
+    profile: crate::CookingProfileIdentity,
+    toolchain: crate::ToolchainIdentity,
+    package_hash: PackageHash,
+    payload_hash: PackagePayloadHash,
+    signing_key_id: AssetKeyId,
+}
+
+impl AuthenticatedAsset {
+    /// Verified bytes of the selected asset object.
+    #[must_use]
+    pub const fn bytes(&self) -> &Bytes {
+        &self.bytes
+    }
+
+    /// Consume the proof object and return its verified bytes.
+    #[must_use]
+    pub fn into_bytes(self) -> Bytes {
+        self.bytes
+    }
+
+    /// Authenticated catalog record for these exact bytes.
+    #[must_use]
+    pub const fn record(&self) -> &AssetRecord {
+        &self.record
+    }
+
+    /// Authenticated cooking-profile identity shared by the package set.
+    #[must_use]
+    pub const fn cooking_profile(&self) -> &crate::CookingProfileIdentity {
+        &self.profile
+    }
+
+    /// Authenticated native and cooker toolchain identity.
+    #[must_use]
+    pub const fn toolchain(&self) -> &crate::ToolchainIdentity {
+        &self.toolchain
+    }
+
+    /// BLAKE3 identity of every byte in the signed package.
+    #[must_use]
+    pub const fn package_hash(&self) -> PackageHash {
+        self.package_hash
+    }
+
+    /// BLAKE3 digest of the SquashFS payload authenticated by Ed25519.
+    #[must_use]
+    pub const fn payload_hash(&self) -> PackagePayloadHash {
+        self.payload_hash
+    }
+
+    /// Identity of the trusted Ed25519 key that authenticated the package.
+    #[must_use]
+    pub const fn signing_key_id(&self) -> AssetKeyId {
+        self.signing_key_id
+    }
+}
+
+impl fmt::Debug for AuthenticatedAsset {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AuthenticatedAsset")
+            .field("record", &self.record)
+            .field("profile", &self.profile)
+            .field("toolchain", &self.toolchain)
+            .field("package_hash", &self.package_hash)
+            .field("payload_hash", &self.payload_hash)
+            .field("signing_key_id", &self.signing_key_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl core::fmt::Debug for AssetPackage {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
@@ -47,14 +128,24 @@ impl core::fmt::Debug for AssetPackage {
 }
 
 impl AssetPackage {
-    /// Opens and validates one package without eagerly reading its asset objects.
+    /// Opens one signed package without a deployment-pinned identity.
+    ///
+    /// This development/audit route is absent from ordinary runtime builds.
     ///
     /// # Errors
     ///
     /// Returns an error when the filename, SquashFS structure, fixed archive
     /// settings, embedded catalog, or catalog-to-object mapping is invalid.
+    #[cfg(feature = "unversioned-loading")]
     pub fn open(path: impl AsRef<Path>, trust_store: &AssetTrustStore) -> Result<Self, Error> {
-        let path = path.as_ref().to_path_buf();
+        Self::open_unversioned(path.as_ref(), trust_store)
+    }
+
+    pub(crate) fn open_unversioned(
+        path: &Path,
+        trust_store: &AssetTrustStore,
+    ) -> Result<Self, Error> {
+        let path = path.to_path_buf();
         let name = package_name_from_path(&path)?;
         let mut file = File::open(&path).map_err(|source| io_error(&path, source))?;
         let verified = verify_package_signature(&path, &mut file, trust_store)?;
@@ -86,17 +177,27 @@ impl AssetPackage {
         })
     }
 
-    /// Opens a package and checks its exact byte identity.
+    /// Opens a package and checks its authorized name and exact byte identity.
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`Self::open`] or a hash mismatch.
+    /// Returns an error for an invalid package, name mismatch, or hash mismatch.
     pub fn open_verified(
         path: impl AsRef<Path>,
+        expected_name: &PackageName,
         expected: PackageHash,
         trust_store: &AssetTrustStore,
     ) -> Result<Self, Error> {
-        let package = Self::open(path, trust_store)?;
+        let path = path.as_ref();
+        let actual_name = package_name_from_path(path)?;
+        if &actual_name != expected_name {
+            return Err(Error::PackageNameMismatch {
+                path: path.to_path_buf(),
+                expected: expected_name.clone(),
+                actual: actual_name,
+            });
+        }
+        let package = Self::open_unversioned(path, trust_store)?;
         if package.hash != expected {
             return Err(Error::PackageHashMismatch {
                 path: package.path.clone(),
@@ -199,6 +300,30 @@ impl AssetPackage {
             .read_to_end(&mut bytes)
             .map_err(|source| io_error(self.path.clone(), source))?;
         Ok(Bytes::from(bytes))
+    }
+
+    /// Reads one complete object and retains its authenticated package provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if resolution, decompression, byte length, or content
+    /// verification fails.
+    pub fn read_authenticated_asset(&self, id: &AssetId) -> Result<AuthenticatedAsset, Error> {
+        let record = self
+            .catalog
+            .find(id)
+            .ok_or_else(|| Error::AssetNotFound(id.clone()))?
+            .clone();
+        let bytes = self.read_asset(id)?;
+        Ok(AuthenticatedAsset {
+            bytes,
+            record,
+            profile: self.catalog.profile.clone(),
+            toolchain: self.catalog.toolchain.clone(),
+            package_hash: self.hash,
+            payload_hash: self.payload_hash,
+            signing_key_id: self.signing_key_id,
+        })
     }
 }
 
@@ -445,6 +570,15 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
     reason = "asset dependency cardinality is one catalog trust boundary with format-specific rules"
 )]
 fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error> {
+    if record.kind == crate::AssetKind::Map && record.dependencies.len() != 1 {
+        return invalid_catalog(
+            path,
+            format!(
+                "map `{}` must declare exactly one player model dependency",
+                record.id
+            ),
+        );
+    }
     if record.kind == crate::AssetKind::AnimationClip && record.dependencies.len() != 1 {
         return invalid_catalog(
             path,

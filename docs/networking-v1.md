@@ -44,12 +44,15 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `QuicClient`, `ServerNetworkHandle`, `ClientNetworkHandle`, and supporting
   endpoint/TLS configuration. `QuicClient` is not a game client.
 - **NET-TLS-001**: clients MUST trust only the configured current service CA
-  root and optional next root during rotation. The server MUST NOT request a
-  client certificate.
+  root. CA rotation requires reconnecting with a client configuration that
+  contains the new root; trust-root overlap is not supported. The server MUST
+  NOT request a client certificate.
 - **NET-TLS-002**: service leaf certificates SHOULD have a lifetime no longer
   than 24 hours. CA operation and leaf issuance remain deployment concerns.
-- **NET-ADMIT-001**: server construction MUST require finite per-origin attempt
-  and pending-handshake limits; an unlimited default is forbidden.
+- **NET-ADMIT-001**: server construction MUST require a finite global token
+  bucket for stateless Retry and a finite pending-handshake limit per validated
+  source address; an unlimited default is forbidden. The server MUST NOT retain
+  per-source state before QUIC address validation.
 
 ## Wire contract
 
@@ -80,17 +83,37 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `blackflower.snapshot.projection.v1\0`, protocol revision, snapshot tick, and
   reconstructed canonical client projection.
 
-## Admission, lifecycle, and reconnect
+## Session negotiation, content readiness, and reconnect
 
 - **NET-SESSION-001**: the lifecycle is `Connecting`, `Secure`,
-  `Authenticating`, `Compatible`, `Synchronizing`, `Active`,
+  `Negotiating`, `ContentChecking`, `Synchronizing`, `Active`,
   `Resynchronizing`, and `Closing`. All transitions MUST be explicit.
-- **NET-SESSION-002**: an opaque `AdmissionTicket` MUST be at most 4 KiB,
-  expire within 60 seconds, and be consumed atomically once by
-  `SessionAuthority`.
-- **NET-SESSION-003**: admission MUST compare `ProtocolRevision`,
-  `SimulationCompatibilityId`, and `RequiredContentSetId` for exact equality
-  before authoritative player state is created.
+- **NET-SESSION-002**: the initial `AdmissionRequest` carries no credential. It
+  MUST negotiate `ProtocolRevision` exactly before server-assigned session
+  identities are accepted. Authentication and matchmaking remain a future
+  boundary.
+- **NET-SESSION-003**: every change that makes simulation rules, component or
+  control schemas, quantization, or solver policy incompatible MUST use a new
+  `ProtocolRevision`. CPU architecture, SIMD path, and floating-point bit
+  patterns MUST NOT participate in protocol compatibility.
+- **NET-SESSION-003A**: zero is reserved before admission. A successful
+  `AdmissionAccepted` MUST carry the non-zero server-assigned
+  `connection_epoch` that both peers use for every datagram on the accepted
+  connection.
+- **NET-SESSION-003B**: after content readiness, the server MUST assign a
+  `ControlBinding` containing a non-reusing control generation and the non-zero
+  replicated actor identity. The client MUST use that exact pair for input;
+  another identity or generation is a session violation.
+- **NET-CONTENT-001**: after protocol negotiation, the server MUST send a
+  `ContentManifest` containing the selected portable `MapId` and exact
+  `RequiredContentSetId` derived from its signed package store.
+- **NET-CONTENT-002**: the client MUST derive its installed content-set identity
+  from locally signature-verified packages. It sends `ContentReady` only for an
+  exact match; otherwise it sends `ContentRejected` and closes the application
+  session.
+- **NET-CONTENT-003**: the server MUST NOT offer a bootstrap or schedule
+  activation before exact `ContentReady`. Map bytes are distributed by the
+  asset pipeline, not on the session-control stream.
 - **NET-SESSION-004**: activation MUST be aligned to four ticks and scheduled at
   least 24 ticks plus current uncertainty into the future. A peer remains
   `Synchronizing` until that tick is reached.
@@ -111,13 +134,21 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   estimate uncertainty as half its network delay, and slew mapped time without
   moving the mapped clock backwards.
 - **NET-CLOCK-003**: first activation requires uncertainty at or below two
-  simulation ticks. Uncertainty above four ticks for three consecutive samples
-  yields `ClockDegraded`.
+  simulation ticks. After all eight admission samples, the client MUST report
+  `ClockSynchronized` on the reliable control stream; the server MUST NOT send
+  `ActivateAt` before receiving that report and applying the full bootstrap.
+  Uncertainty above four ticks for three consecutive samples yields
+  `ClockDegraded`.
 - **NET-CLOCK-004**: temporal commands MUST be blocked above eight ticks of
   uncertainty or after three seconds without a valid sample.
 - **NET-CLOCK-005**: input lead is four-tick aligned from
   `srtt / 2 + 2 * rttvar`, clamped to 4 through 24 ticks. The initial lead is 12
-  ticks.
+  ticks. The first valid network-delay sample initializes `srtt = sample` and
+  `rttvar = sample / 2`; later samples first set
+  `rttvar = (3 * rttvar + abs(srtt - sample)) / 4`, then
+  `srtt = (7 * srtt + sample) / 8`, using integer microseconds. A validated path
+  change MUST discard both estimates and restore the initial lead without
+  allowing mapped time to move backwards.
 
 ## Input and command ingress
 
@@ -130,6 +161,10 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   MUST become neutral and release held edges. A separate 240-tick input
   failsafe MUST be retained. Five seconds without authenticated application
   traffic closes the connection.
+- **NET-INPUT-004**: the dedicated-server adapter MUST validate revision-1
+  movement bytes before crossing the bounded in-memory simulation ingress. The
+  simulation consumes no datagrams or protocol codecs and publishes sealed
+  transport-neutral movement state for projection at 30 Hz.
 - **NET-CMD-001**: maximum lateness is eight ticks for movement and jump, 12 for
   interaction, 24 for reload/equip/use, 32 for `RewindRay`, and 16 for
   `CatchUpBallistic`. `CurrentTickOnly` accepts no lateness. Future commands
@@ -141,6 +176,40 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   current tick.
 - **NET-PRED-001**: prediction and input history MUST retain 512 ticks. One
   reconciliation MUST NOT roll back more than 64 ticks.
+
+## Revision-1 movement and component schema
+
+- **NET-SCHEMA-001**: `blackflower-networking-protocol` MUST be the single
+  revision-specific source of component IDs, component codecs, movement-control
+  bytes, and prediction tolerances. Networking, replication, QUIC, ECS worlds,
+  and the shared harness MUST remain independent of this concrete schema.
+- **NET-SCHEMA-002**: component IDs 1 through 4 are respectively public
+  transform, public velocity, public character state, and owner-only prediction
+  state. They MUST NOT be derived from Rust type layout, registration order, or
+  a hash and MUST NOT be reused for another meaning.
+- **NET-SCHEMA-003**: transform is exactly 19 little-endian bytes: three signed
+  centimetre `i32` position codes, the canonical smallest-three omitted
+  quaternion index, and three signed `i16` quaternion codes. Velocity is exactly
+  three little-endian signed centimetre-per-second `i16` codes.
+- **NET-SCHEMA-004**: public character state is exactly one canonical boolean
+  `grounded` byte. Owner prediction state is exactly a presence byte followed by
+  a little-endian `u64` latest committed `InputSequence`; absence requires all
+  sequence bytes to be zero.
+- **NET-MOVE-001**: one revision-1 movement control is exactly eight
+  little-endian bytes: normalized local right and forward `i16` axes, absolute
+  full-turn yaw `u16`, and absolute pitch `i16` over the closed
+  `[-pi/2, pi/2]` range. The `i16` minimum is non-canonical for every signed
+  normalized field.
+- **NET-MOVE-002**: the two movement axes MUST remain inside the canonical unit
+  circle plus the single-code rounding envelope needed by normalized diagonals.
+  Missing input after the grace interval neutralizes both axes while retaining
+  the last accepted absolute orientation. Revision 1 defines no held buttons
+  and registers no discrete gameplay command kinds.
+- **NET-PRED-002**: continuous client prediction uses 2 cm position, 5 cm/s
+  velocity, and 0.5 degree shortest-arc orientation tolerances. Grounded state
+  and canonical identities compare exactly. These tolerances MUST NOT affect
+  canonical component bytes, projection digests, baselines, ordering, or state
+  hashes.
 
 ## Replication and interest
 
@@ -242,6 +311,7 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 | Requirements | Primary verification |
 | --- | --- |
 | `NET-WIRE-*`, `NET-INPUT-*`, `NET-CLOCK-*`, `NET-SESSION-*` | `crates/blackflower-networking/tests/protocol.rs` |
+| `NET-SCHEMA-*`, `NET-MOVE-*`, `NET-PRED-002` | `crates/blackflower-networking-protocol/tests/protocol.rs` |
 | `NET-REPL-*`, `NET-AOI-*`, `NET-SNAPSHOT-*` | `crates/blackflower-networking-replication/tests/replication.rs` |
 | `NET-QUIC-*`, `NET-TLS-*`, `NET-BOOT-*` | `crates/blackflower-networking-quic/tests/loopback.rs` |
 | loss, jitter, reorder, duplication, outage, MTU, NAT rebinding | `crates/blackflower-networking-quic/tests/udp_proxy.rs` and `loopback.rs` |

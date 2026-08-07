@@ -5,8 +5,9 @@ use blackflower_networking::{ControlFrame, INPUT_GRACE_TICKS, SimulationTick};
 use blackflower_networking_replication::{Snapshot, SnapshotTick};
 use blackflower_world_prediction::{
     AuthoritativeSnapshot, HardResyncReason, HistoryError, InputFrame, InputHistory, InputSequence,
-    NETWORK_HISTORY_TICKS, PredictionHistory, PredictionTick, ReconciliationCoordinator,
-    ReconciliationDriver, ReconciliationError, ReconciliationOutcome,
+    NETWORK_HISTORY_TICKS, PredictionDriver, PredictionHistory, PredictionPass,
+    PredictionStateComparison, PredictionTick, ReconciliationCoordinator, ReconciliationError,
+    ReconciliationOutcome,
 };
 
 /// Source-neutral result of applying one authoritative projection to prediction.
@@ -14,7 +15,7 @@ use blackflower_world_prediction::{
 pub enum PredictionUpdate {
     /// A full snapshot established a new prediction timeline.
     Bootstrapped { tick: SimulationTick },
-    /// Local and authoritative predicted state already matched.
+    /// Local prediction satisfied the authoritative comparison policy.
     Converged { tick: SimulationTick },
     /// Prediction was restored and replayed to its previous local tick.
     Reconciled {
@@ -44,14 +45,12 @@ pub trait PredictionCodec<S, I> {
     /// Build neutral input after the network grace interval expires.
     fn neutral_input(&self) -> I;
 
-    /// Compare the exact simulation-defined prediction subset.
-    fn states_match(&self, predicted: &S, authoritative: &S) -> bool;
-}
-
-/// Simulation-owned forward prediction added to the existing reconciliation bridge.
-pub trait ForwardPredictionDriver<S, I>: ReconciliationDriver<S, I> {
-    /// Execute one forward tick and return its newly sealed predicted state.
-    fn predict_tick(&mut self, input: &InputFrame<I>) -> Result<S, Self::Error>;
+    /// Compare the simulation-defined prediction subset.
+    ///
+    /// Discrete fields compare exactly. Continuous fields use explicit,
+    /// domain-specific tolerances or their canonical quantized representation.
+    /// CPU architecture must not affect this decision.
+    fn compare_states(&self, predicted: &S, authoritative: &S) -> PredictionStateComparison;
 }
 
 /// Prediction operations orchestrated identically for human and bot clients.
@@ -123,7 +122,7 @@ impl<D, C, S, I> PredictionSession<D, C, S, I> {
 
 impl<D, C, S, I> ClientPrediction for PredictionSession<D, C, S, I>
 where
-    D: ForwardPredictionDriver<S, I>,
+    D: PredictionDriver<S, InputFrame<I>>,
     C: PredictionCodec<S, I>,
     S: Clone,
     I: Clone,
@@ -132,13 +131,13 @@ where
     type Error = PredictionSessionError<D::Error, C::Error>;
 
     fn current_tick(&self) -> SimulationTick {
-        SimulationTick::new(self.driver.current_tick().get())
+        SimulationTick::new(self.driver.current_tick())
     }
 
     fn bootstrap(&mut self, snapshot: &Snapshot) -> Result<PredictionUpdate, Self::Error> {
         let authoritative = self.decode_authoritative(snapshot)?;
         self.driver
-            .restore_authoritative(authoritative.tick, &authoritative.state)
+            .restore_authoritative(authoritative.tick.get(), &authoritative.state)
             .map_err(PredictionSessionError::Driver)?;
         self.ensure_driver_tick(authoritative.tick)?;
         self.reset_histories(authoritative.tick, authoritative.state)?;
@@ -160,7 +159,7 @@ where
                 &mut self.prediction_history,
                 &mut self.input_history,
                 authoritative,
-                |predicted, actual| codec.states_match(predicted, actual),
+                |predicted, actual| codec.compare_states(predicted, actual),
             )
             .map_err(PredictionSessionError::Reconciliation)?;
         Ok(map_reconciliation(outcome))
@@ -179,7 +178,7 @@ where
             return Err(PredictionSessionError::NotBootstrapped);
         }
         self.validate_advance(target)?;
-        while self.driver.current_tick().get() < target.get() {
+        while self.driver.current_tick() < target.get() {
             self.advance_one_tick()?;
         }
         Ok(())
@@ -194,7 +193,7 @@ where
 
 impl<D, C, S, I> PredictionSession<D, C, S, I>
 where
-    D: ForwardPredictionDriver<S, I>,
+    D: PredictionDriver<S, InputFrame<I>>,
     C: PredictionCodec<S, I>,
     S: Clone,
     I: Clone,
@@ -235,20 +234,20 @@ where
         frame: &ControlFrame,
         input: I,
     ) -> Result<(), PredictionSessionError<D::Error, C::Error>> {
-        if frame.execute_tick.get() <= self.driver.current_tick().get() {
+        if frame.execute_tick.get() <= self.driver.current_tick() {
             return Err(PredictionSessionError::InputAlreadyPassed {
-                current: self.driver.current_tick(),
+                current: PredictionTick::new(self.driver.current_tick()),
                 execute_tick: PredictionTick::new(frame.execute_tick.get()),
             });
         }
-        let maximum = self.driver.current_tick().get().saturating_add(
+        let maximum = self.driver.current_tick().saturating_add(
             u64::try_from(NETWORK_HISTORY_TICKS)
                 .unwrap_or(u64::MAX)
                 .saturating_sub(3),
         );
         if frame.execute_tick.get() > maximum {
             return Err(PredictionSessionError::InputTooFarAhead {
-                current: self.driver.current_tick(),
+                current: PredictionTick::new(self.driver.current_tick()),
                 execute_tick: PredictionTick::new(frame.execute_tick.get()),
                 maximum: PredictionTick::new(maximum),
             });
@@ -282,7 +281,7 @@ where
         &self,
         target: SimulationTick,
     ) -> Result<(), PredictionSessionError<D::Error, C::Error>> {
-        let current = self.driver.current_tick().get();
+        let current = self.driver.current_tick();
         if target.get() < current {
             return Err(PredictionSessionError::PredictionRegressed {
                 current: PredictionTick::new(current),
@@ -300,7 +299,6 @@ where
         let next_value = self
             .driver
             .current_tick()
-            .get()
             .checked_add(1)
             .ok_or(PredictionSessionError::TickOverflow)?;
         let tick = PredictionTick::new(next_value);
@@ -308,7 +306,7 @@ where
         let frame = InputFrame::new(tick, queued.sequence, queued.input);
         let state = self
             .driver
-            .predict_tick(&frame)
+            .simulate_tick(PredictionPass::Forward, tick.get(), &frame)
             .map_err(PredictionSessionError::Driver)?;
         self.ensure_driver_tick(tick)?;
         self.input_history.record(frame)?;
@@ -347,7 +345,7 @@ where
         &self,
         expected: PredictionTick,
     ) -> Result<(), PredictionSessionError<D::Error, C::Error>> {
-        let actual = self.driver.current_tick();
+        let actual = PredictionTick::new(self.driver.current_tick());
         if actual == expected {
             Ok(())
         } else {

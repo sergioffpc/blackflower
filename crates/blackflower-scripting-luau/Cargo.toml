@@ -8,6 +8,8 @@ publish.workspace = true
 links = "luau"
 
 [dependencies]
+blackflower-assets.workspace = true
+
 thiserror.workspace = true
 
 [build-dependencies]

@@ -4,7 +4,7 @@
 runtime VFS. Cooked assets live in deterministic SquashFS 4.0 packages.
 Applications open every package in one directory and resolve duplicate asset
 identifiers from the lexicographically greatest package name to the smallest.
-This gives later packages Quake-style override semantics without extracting or
+This gives later packages style override semantics without extracting or
 mounting their contents.
 
 Every package ends in a fixed Blackflower signature footer. The footer records
@@ -14,11 +14,25 @@ that 32-byte digest. The executable supplies the trusted public keys through
 packages, unknown keys, altered payloads, and invalid signatures fail before
 the embedded catalog is accepted.
 
+Production loading additionally requires an exact deployment `AssetSetHash`.
+That identity covers every ordered package filename and complete package hash,
+so renamed packages and older still-valid signed packages are rejected by
+`AssetStore::open_dir_verified`. Loading without this freshness/name binding
+is compiled only with the explicit `unversioned-loading` development feature;
+`hot-reload` enables it and is therefore development-only.
+
 The runtime loads package metadata and catalogs at startup. Asset bytes remain
 inside SquashFS and are decompressed on demand. Each reader verifies the
 catalogued byte length and BLAKE3 content hash when it reaches the end of the
 asset. Complete reads return `Bytes`, allowing cheap clones and slices after
 the verified object has been materialized.
+
+Consumers that cross into native parsers which are not memory-safe verifiers
+must instead call `read_authenticated_asset`. Its opaque `AuthenticatedAsset`
+retains the signed catalog kind, cooking profile, toolchain, package hashes,
+and signing-key identity alongside the fully hash-checked bytes. This proof
+lets a backend such as Luau require signed, correctly typed content without
+exposing a safe raw-byte constructor at the native loading boundary.
 
 `PackagePayloadHash` identifies the authenticated SquashFS bytes.
 `PackageHash` continues to cover every final file byte, including the signing
@@ -37,7 +51,7 @@ The profile identity, runtime asset kinds, and complete cooker toolchain
 identity remain under the unreleased catalog schema 1. Development changes do
 not advance this schema; the release process owns version changes.
 
-The pipeline supports opaque blobs, profile-configured Luau bytecode,
+The pipeline supports signed map descriptors, opaque blobs, profile-configured Luau bytecode,
 Naga-validated SPIR-V compiled from Slang, and semantic KTX2 textures cooked
 from PNG or OpenEXR. It also supports meshoptimizer-optimized static meshes
 with generated LOD chains, `.bfmodel` scene hierarchies with typed Mesh and
@@ -57,6 +71,13 @@ depends on scenes, probes, and `.bfactpl` topology. The shared `.bfacmat`,
 cooking and therefore does not force WAV, PCM, FLAC, `.bfaudio`, or
 `.bfsound` into a server package. These domain kinds do not change the package
 overlay contract.
+
+A cooked Map record is shared, has exactly one presentation Model dependency,
+and encodes that same `AssetId` in its strict schema-1 payload. `MapAsset::load`
+requires authenticated package provenance and rejects a catalog/payload
+mismatch, a missing dependency, or a dependency with the wrong kind or
+audience. This makes the server-selected `MapId` sufficient to resolve the
+client's initial visual binding without trusting loose authoring metadata.
 
 ## Optional hot reload
 
@@ -86,7 +107,8 @@ there are no callbacks into simulation or presentation systems.
 Presentation changes can be adopted at a frame boundary. Simulation changes
 should be adopted only at a deterministic tick, level, or session boundary.
 Shared changes use the stricter boundary of their consumers. Production
-executables can omit the feature entirely.
+executables must omit the feature and publish updates through a new
+deployment-pinned `AssetSetHash`.
 
 ```rust,no_run
 # #[cfg(feature = "hot-reload")]
@@ -130,14 +152,15 @@ if let AssetWatchEvent::Reloaded(reload) = watcher.events().recv()? {
 ## Runtime example
 
 ```rust,no_run
-use blackflower_assets::{AssetId, AssetStore, AssetTrustStore};
+use blackflower_assets::{AssetId, AssetSetHash, AssetStore, AssetTrustStore};
 use std::str::FromStr;
 
-# fn example(release_asset_public_key: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
+# fn example(release_asset_public_key: [u8; 32], deployment_set_hash: &str) -> Result<(), Box<dyn std::error::Error>> {
 let trusted_keys =
     AssetTrustStore::from_public_keys([release_asset_public_key])?;
-let store = AssetStore::open_dir(
+let store = AssetStore::open_dir_verified(
     "target/assets/packages/release",
+    AssetSetHash::from_str(deployment_set_hash)?,
     &trusted_keys,
 )?;
 let id = AssetId::from_str("fixtures/example")?;

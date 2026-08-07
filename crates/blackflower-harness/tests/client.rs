@@ -2,19 +2,21 @@ use std::collections::VecDeque;
 use std::error::Error as StdError;
 use std::io;
 use std::num::NonZeroU64;
+use std::str::FromStr as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use blackflower_harness::{
-    ClientHarness, ClientHarnessConfig, ClientPrediction, ClientTransport, ClientTransportEvent,
-    CommandSubmission, ControlBinding, ControlSubmission, ForwardPredictionDriver, PredictionCodec,
-    PredictionSession, PredictionUpdate,
+    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction, ClientTransport,
+    ClientTransportEvent, CommandSubmission, ControlBinding, ControlSubmission, PredictionCodec,
+    PredictionDriver, PredictionPass, PredictionSession, PredictionStateComparison,
+    PredictionUpdate,
 };
 use blackflower_networking::{
     AdmissionClaims, BootstrapId, CommandDisposition, CommandTimingClass, CompatibilityContract,
-    ConnectionEpoch, DatagramHeader, FlowId, FlowSequence, MatchId, PlayerId, ProtocolRevision,
-    RequiredContentSetId, SessionControlMessage, SessionId, SimulationCompatibilityId,
-    SimulationTick, StateBootstrapHeader, decode_control_message, decode_datagram,
+    ConnectionEpoch, ContentManifest, ContentRejectReason, DatagramHeader, FlowId, FlowSequence,
+    MapId, MatchId, PlayerId, ProtocolRevision, RequiredContentSetId, SessionControlMessage,
+    SessionId, SimulationTick, StateBootstrapHeader, decode_control_message, decode_datagram,
     decode_input_datagram, encode_control_message, encode_datagram, encode_snapshot_chunk,
 };
 use blackflower_networking_replication::{
@@ -22,9 +24,7 @@ use blackflower_networking_replication::{
     ReplicationPriority, Snapshot, SnapshotBuilder, SnapshotDelta, SnapshotTick,
     build_snapshot_chunks,
 };
-use blackflower_world_prediction::{
-    AuthoritativeSnapshot, InputFrame, PredictionTick, ReconciliationDriver,
-};
+use blackflower_world_prediction::{AuthoritativeSnapshot, InputFrame, PredictionTick};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -87,6 +87,17 @@ fn prediction_session_reconciles_and_replays_recorded_controls() -> TestResult {
         }
     );
     assert_eq!(prediction.predicted_state(), Some(&12));
+    assert_eq!(
+        prediction.driver().passes,
+        [
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Forward,
+            PredictionPass::Resimulation,
+            PredictionPass::Resimulation,
+        ]
+    );
     Ok(())
 }
 
@@ -99,14 +110,17 @@ fn incremental_snapshot_is_applied_and_acknowledged_on_input() -> TestResult {
     let chunks = build_snapshot_chunks(&delta, &current, ProtocolRevision::V1, 1_000)?;
     assert_eq!(chunks.len(), 1);
     let payload = encode_snapshot_chunk(&chunks[0], 1_000)?;
-    transport.push(ClientTransportEvent::Datagram(encode_datagram(
-        DatagramHeader {
-            flow: FlowId::SnapshotDelta,
-            connection_epoch: ConnectionEpoch::new(1),
-            flow_sequence: FlowSequence::new(1),
-        },
-        &payload,
-    )))?;
+    transport.push(ClientTransportEvent::Datagram(
+        encode_datagram(
+            DatagramHeader {
+                flow: FlowId::SnapshotDelta,
+                connection_epoch: ConnectionEpoch::new(1),
+                flow_sequence: FlowSequence::new(1),
+            },
+            &payload,
+        )
+        .into(),
+    ))?;
 
     harness.update(Duration::from_millis(200), SimulationTick::new(108))?;
     assert_eq!(
@@ -246,6 +260,38 @@ fn changing_control_binding_starts_a_fresh_redundancy_timeline() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn incompatible_server_map_content_is_rejected_before_bootstrap() -> TestResult {
+    let transport = FakeTransport::default();
+    let control = transport.clone();
+    let contract = compatibility();
+    let mut harness = ClientHarness::new(
+        transport,
+        FakePrediction::default(),
+        ClientHarnessConfig {
+            compatibility: contract,
+            installed_content_set_id: RequiredContentSetId::from_bytes([7; 32]),
+        },
+    )?;
+    accept_admission(&control, contract)?;
+
+    harness.update(Duration::ZERO, SimulationTick::new(0))?;
+
+    assert_eq!(
+        decode_control_message(&control.sent_control(1)?)?,
+        SessionControlMessage::ContentRejected(ContentRejectReason::AssetSetMismatch)
+    );
+    assert_eq!(
+        harness.view().session_state(),
+        blackflower_networking::SessionState::Closing
+    );
+    assert!(matches!(
+        harness.pop_event(),
+        Some(ClientEvent::ContentRejected { .. })
+    ));
+    Ok(())
+}
+
 type TestHarness = ClientHarness<FakeTransport, FakePrediction>;
 
 fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>> {
@@ -257,8 +303,7 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         FakePrediction::default(),
         ClientHarnessConfig {
             compatibility: contract,
-            connection_epoch: ConnectionEpoch::new(1),
-            admission_ticket: vec![9, 8, 7],
+            installed_content_set_id: content()?.required_content_set_id,
         },
     )?;
     assert!(matches!(
@@ -266,9 +311,7 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         SessionControlMessage::AdmissionRequest { .. }
     ));
 
-    control.push(ClientTransportEvent::SessionControl(
-        encode_control_message(&SessionControlMessage::AdmissionAccepted(claims(contract)))?,
-    ))?;
+    accept_admission(&control, contract)?;
     let snapshot = counter_snapshot(100, 5)?;
     let body = snapshot.encode()?;
     let digest = snapshot.digest(ProtocolRevision::V1)?;
@@ -294,12 +337,34 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         })?,
     ))?;
     harness.update(Duration::ZERO, SimulationTick::new(100))?;
+    assert_content_ready(&control)?;
     harness.update(Duration::from_millis(100), SimulationTick::new(124))?;
     assert_eq!(
         harness.view().session_state(),
         blackflower_networking::SessionState::Active
     );
     Ok((harness, control))
+}
+
+fn assert_content_ready(transport: &FakeTransport) -> TestResult {
+    assert_eq!(
+        decode_control_message(&transport.sent_control(1)?)?,
+        SessionControlMessage::ContentReady(content()?)
+    );
+    Ok(())
+}
+
+fn accept_admission(transport: &FakeTransport, contract: CompatibilityContract) -> TestResult {
+    transport.push(ClientTransportEvent::SessionControl(
+        encode_control_message(&SessionControlMessage::AdmissionAccepted {
+            claims: claims(contract),
+            connection_epoch: ConnectionEpoch::new(1),
+        })?,
+    ))?;
+    transport.push(ClientTransportEvent::SessionControl(
+        encode_control_message(&SessionControlMessage::ContentManifest(content()?))?,
+    ))?;
+    Ok(())
 }
 
 fn push_command_disposition(
@@ -326,9 +391,14 @@ fn default_control_binding() -> ControlBinding {
 fn compatibility() -> CompatibilityContract {
     CompatibilityContract {
         protocol_revision: ProtocolRevision::V1,
-        simulation_compatibility_id: SimulationCompatibilityId::from_bytes([1; 32]),
-        required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
     }
+}
+
+fn content() -> Result<ContentManifest, Box<dyn StdError>> {
+    Ok(ContentManifest {
+        map_id: MapId::from_str("maps/test")?,
+        required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
+    })
 }
 
 fn claims(contract: CompatibilityContract) -> AdmissionClaims {
@@ -337,8 +407,6 @@ fn claims(contract: CompatibilityContract) -> AdmissionClaims {
         player_id: PlayerId::from_bytes([4; 16]),
         match_id: MatchId::from_bytes([5; 16]),
         protocol_revision: contract.protocol_revision,
-        simulation_compatibility_id: contract.simulation_compatibility_id,
-        required_content_set_id: contract.required_content_set_id,
     }
 }
 
@@ -404,6 +472,10 @@ impl ClientTransport for FakeTransport {
         Ok(())
     }
 
+    fn send_time_sync(&mut self, _datagram: Vec<u8>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error> {
         Ok(self
             .state
@@ -464,32 +536,32 @@ impl ClientPrediction for FakePrediction {
 struct CounterDriver {
     tick: PredictionTick,
     state: u64,
+    passes: Vec<PredictionPass>,
 }
 
-impl ReconciliationDriver<u64, u64> for CounterDriver {
+impl PredictionDriver<u64, InputFrame<u64>> for CounterDriver {
     type Error = io::Error;
 
-    fn current_tick(&self) -> PredictionTick {
-        self.tick
+    fn current_tick(&self) -> u64 {
+        self.tick.get()
     }
 
-    fn restore_authoritative(
-        &mut self,
-        tick: PredictionTick,
-        state: &u64,
-    ) -> Result<(), Self::Error> {
-        self.tick = tick;
+    fn restore_authoritative(&mut self, tick: u64, state: &u64) -> Result<(), Self::Error> {
+        self.tick = PredictionTick::new(tick);
         self.state = *state;
         Ok(())
     }
 
-    fn resimulate_tick(&mut self, input: &InputFrame<u64>) -> Result<u64, Self::Error> {
-        self.advance(input)
-    }
-}
-
-impl ForwardPredictionDriver<u64, u64> for CounterDriver {
-    fn predict_tick(&mut self, input: &InputFrame<u64>) -> Result<u64, Self::Error> {
+    fn simulate_tick(
+        &mut self,
+        pass: PredictionPass,
+        tick: u64,
+        input: &InputFrame<u64>,
+    ) -> Result<u64, Self::Error> {
+        if tick != input.tick().get() {
+            return Err(io::Error::other("gameplay tick does not match input frame"));
+        }
+        self.passes.push(pass);
         self.advance(input)
     }
 }
@@ -534,8 +606,8 @@ impl PredictionCodec<u64, u64> for CounterCodec {
         0
     }
 
-    fn states_match(&self, predicted: &u64, authoritative: &u64) -> bool {
-        predicted == authoritative
+    fn compare_states(&self, predicted: &u64, authoritative: &u64) -> PredictionStateComparison {
+        PredictionStateComparison::from_within_tolerance(predicted == authoritative)
     }
 }
 

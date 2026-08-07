@@ -345,8 +345,25 @@ name = "blackflower"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackflower-assets",
+ "blackflower-ecs",
+ "blackflower-harness",
+ "blackflower-networking",
+ "blackflower-networking-protocol",
+ "blackflower-networking-quic",
+ "blackflower-networking-replication",
  "blackflower-observability",
+ "blackflower-observability-tui",
+ "blackflower-rendering",
+ "blackflower-world-prediction",
+ "blackflower-world-presentation",
+ "bytemuck",
+ "clap",
  "image",
+ "ratatui",
+ "rustls",
+ "thiserror 2.0.19",
+ "tokio",
  "tracing",
  "winit",
 ]
@@ -360,6 +377,26 @@ dependencies = [
  "serde",
  "thiserror 2.0.19",
  "toml",
+]
+
+[[package]]
+name = "blackflower-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blackflower-harness",
+ "blackflower-navigation",
+ "blackflower-networking",
+ "blackflower-networking-quic",
+ "blackflower-observability",
+ "blackflower-observability-tui",
+ "blackflower-world-prediction",
+ "clap",
+ "metrics",
+ "ratatui",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -449,6 +486,7 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "blackflower-acoustics",
+ "blackflower-assets",
  "blackflower-build",
  "blake3",
  "glam",
@@ -591,6 +629,7 @@ dependencies = [
  "blackflower-networking-quic",
  "blackflower-networking-replication",
  "blackflower-world-prediction",
+ "bytes",
  "thiserror 2.0.19",
 ]
 
@@ -615,6 +654,15 @@ dependencies = [
  "metrics",
  "thiserror 2.0.19",
  "tracing",
+]
+
+[[package]]
+name = "blackflower-networking-protocol"
+version = "0.1.0"
+dependencies = [
+ "blackflower-networking",
+ "blackflower-networking-replication",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -645,6 +693,7 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "profiling",
  "sysinfo",
  "thiserror 2.0.19",
@@ -652,6 +701,15 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tracing-tracy",
+]
+
+[[package]]
+name = "blackflower-observability-tui"
+version = "0.1.0"
+dependencies = [
+ "blackflower-observability",
+ "ratatui",
+ "regex",
 ]
 
 [[package]]
@@ -732,6 +790,7 @@ name = "blackflower-scripting-luau"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "blackflower-assets",
  "blackflower-build",
  "cmake",
  "thiserror 2.0.19",
@@ -743,20 +802,26 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blackflower-acoustics",
+ "blackflower-assets",
  "blackflower-audio-capture",
  "blackflower-audio-voice",
+ "blackflower-harness",
  "blackflower-networking",
+ "blackflower-networking-protocol",
  "blackflower-networking-quic",
  "blackflower-networking-replication",
  "blackflower-observability",
+ "blackflower-observability-tui",
  "blackflower-world-simulation",
+ "blake3",
  "clap",
+ "metrics",
  "ratatui",
  "rcgen",
- "regex",
  "rustls",
  "thiserror 2.0.19",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -807,6 +872,7 @@ dependencies = [
  "blackflower-ecs",
  "blackflower-rendering",
  "bytemuck",
+ "glam",
  "metrics",
  "profiling",
  "strum",
@@ -830,9 +896,9 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "1.8.5"
+version = "1.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0aa83c34e62843d924f905e0f5c866eb1dd6545fc4d719e803d9ba6030371fce"
+checksum = "76ae7bad254120e9e4c63bafc385310756f90c484eac0e36b8317cf09cb92a77"
 dependencies = [
  "arrayref",
  "arrayvec",
@@ -1011,9 +1077,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "301b56658598e48f3648647ac6fc887be7e7108eddfa4e9b63fcf3ec58c0cadf"
+checksum = "473c7e07f409a8d772161724aa8db6a765a2532a70f9667eeb7b49d3d02fbdca"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1021,9 +1087,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a65403d1a1bd28f7dc68eb8506e8874808ee5eecb59298de588e2e1407a078"
+checksum = "7b48fea5a88e9ae728a2dcbedbfc0e730f7d60da42e1cb049a83c9fb8b789889"
 dependencies = [
  "anstyle",
  "clap_lex",
@@ -1859,9 +1925,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.33.2"
+version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f22fb22f065b308be0d8724e3706c7fa3fc2a6c7d6899df4cad7860e7a75436"
+checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
 dependencies = [
  "mint",
 ]
@@ -4545,7 +4611,9 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -4650,6 +4718,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
+ "parking_lot",
  "symlink",
  "thiserror 2.0.19",
  "time",
@@ -4689,16 +4758,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-serde"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
-dependencies = [
- "serde",
- "tracing-core",
-]
-
-[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4707,16 +4766,14 @@ dependencies = [
  "matchers",
  "nu-ansi-term",
  "once_cell",
+ "parking_lot",
  "regex-automata",
- "serde",
- "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
- "tracing-serde",
 ]
 
 [[package]]
@@ -5070,6 +5127,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
+ "parking_lot",
  "portable-atomic",
  "profiling",
  "raw-window-handle",

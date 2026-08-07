@@ -97,6 +97,11 @@ impl State {
             update_aggregate_gauge("blackflower_ecs_tables", self.contribution.tables, 0.0);
             update_aggregate_gauge("blackflower_ecs_queries", self.contribution.queries, 0.0);
             update_aggregate_gauge("blackflower_ecs_systems", self.contribution.systems, 0.0);
+            update_aggregate_gauge(
+                "blackflower_ecs_allocations_outstanding",
+                self.contribution.allocations_outstanding,
+                0.0,
+            );
             self.contribution = GaugeContribution::default();
         }
     }
@@ -123,13 +128,17 @@ impl State {
             self.contribution.systems,
             sample.systems,
         );
-        metrics::gauge!("blackflower_ecs_allocations_outstanding")
-            .set(sample.allocations_outstanding);
+        update_aggregate_gauge(
+            "blackflower_ecs_allocations_outstanding",
+            self.contribution.allocations_outstanding,
+            sample.allocations_outstanding,
+        );
         self.contribution = GaugeContribution {
             entities: sample.entities,
             tables: sample.tables,
             queries: sample.queries,
             systems: sample.systems,
+            allocations_outstanding: sample.allocations_outstanding,
         };
     }
 }
@@ -141,6 +150,7 @@ struct GaugeContribution {
     tables: f64,
     queries: f64,
     systems: f64,
+    allocations_outstanding: f64,
 }
 
 pub(crate) struct TickObservation {

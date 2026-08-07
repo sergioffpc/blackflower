@@ -1,9 +1,24 @@
 # Asset sources
 
-The cooker recursively discovers files named `asset.toml` or
-`*.asset.toml` below this directory. Named manifests allow several assets
+The cooker recursively discovers files named `asset.toml`, `*.asset.toml`, or
+`map.toml` below this directory. Named asset manifests allow several assets
 beside one shared source file, such as one skeleton and multiple clips selected
 from the same glTF. Other files are inputs referenced by those manifests.
+
+Map manifests live at `maps/<logical-path>/map.toml`. The path fixes the map ID,
+the source scene is validated as typed map authoring data, and the player model
+becomes an explicit signed catalog dependency:
+
+```toml
+schema = 1
+id = "maps/bootstrap"
+source = "bootstrap.gltf"
+scene = "Map"
+player_model = "maps/bootstrap/player"
+```
+
+The referenced asset must be a presentation `model`. Selecting a map in a
+package closes over the model and all of its mesh or volume attachments.
 
 Opaque blobs pass through unchanged:
 

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use blackflower_acoustics::{AudibleSoundDelivery, AudibleVoiceDelivery};
@@ -9,6 +9,12 @@ use blackflower_rendering::{LatestFrameMailbox, MailboxError, RenderFrame, Rende
 use crate::audio::{
     AudioCommand, AudioCommandBatch, PresentationAudioError, PresentationAudioState,
 };
+use crate::movement::{
+    MovementProxy, PresentationMovementError, PresentationMovementSample, PresentationMovementState,
+};
+use crate::scene::{
+    LocalVisualBinding, PresentationSceneError, PresentationSceneState, PresentationViewport,
+};
 use crate::telemetry;
 use crate::telemetry::FrameObservation;
 use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
@@ -16,7 +22,10 @@ use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
 #[derive(Debug)]
 struct ExecutionState {
     frame: AtomicU64,
+    delta_seconds: AtomicU32,
     audio: Mutex<PresentationAudioState>,
+    movement: Mutex<PresentationMovementState>,
+    scene: Mutex<PresentationSceneState>,
     render: Mutex<PresentationRenderState>,
     render_mailbox: Arc<LatestFrameMailbox>,
 }
@@ -47,7 +56,10 @@ impl FrameExecutionContext {
         Self {
             state: Arc::new(ExecutionState {
                 frame: AtomicU64::new(FrameIndex::ZERO.get()),
+                delta_seconds: AtomicU32::new(0.0_f32.to_bits()),
                 audio: Mutex::new(PresentationAudioState::default()),
+                movement: Mutex::new(PresentationMovementState::default()),
+                scene: Mutex::new(PresentationSceneState::default()),
                 render: Mutex::new(PresentationRenderState::default()),
                 render_mailbox: Arc::new(LatestFrameMailbox::default()),
             }),
@@ -68,6 +80,16 @@ impl FrameExecutionContext {
             .store(execution.frame.get(), Ordering::Release);
     }
 
+    fn delta_seconds(&self) -> f32 {
+        f32::from_bits(self.state.delta_seconds.load(Ordering::Acquire))
+    }
+
+    fn set_delta_seconds(&self, delta_seconds: f32) {
+        self.state
+            .delta_seconds
+            .store(delta_seconds.to_bits(), Ordering::Release);
+    }
+
     fn audio(&self) -> Result<MutexGuard<'_, PresentationAudioState>, PresentationAudioError> {
         self.state
             .audio
@@ -75,13 +97,89 @@ impl FrameExecutionContext {
             .map_err(|_error| PresentationAudioError::Unavailable)
     }
 
+    fn movement(
+        &self,
+    ) -> Result<MutexGuard<'_, PresentationMovementState>, PresentationMovementError> {
+        self.state
+            .movement
+            .lock()
+            .map_err(|_error| PresentationMovementError::StateUnavailable)
+    }
+
+    fn scene(&self) -> Result<MutexGuard<'_, PresentationSceneState>, PresentationSceneError> {
+        self.state
+            .scene
+            .lock()
+            .map_err(|_error| PresentationSceneError::StateUnavailable)
+    }
+
     pub(crate) fn reset_frame_transient(&self) -> Result<(), PresentationOutputError> {
         self.audio()?.reset_transient();
+        self.movement()?.begin_frame();
+        self.scene()?.begin_frame();
         self.state
             .render
             .lock()
             .map_err(|_error| PresentationOutputError::RenderStateUnavailable)?
             .staged = None;
+        Ok(())
+    }
+
+    pub(crate) fn capture_local_movement(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.capture();
+        Ok(())
+    }
+
+    pub(crate) fn create_missing_movement_proxy(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.create_missing_proxy();
+        Ok(())
+    }
+
+    pub(crate) fn retire_stale_movement_proxy(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.retire_stale_proxy();
+        Ok(())
+    }
+
+    pub(crate) fn sample_local_prediction(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.sample_prediction();
+        Ok(())
+    }
+
+    pub(crate) fn smooth_movement_correction(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.smooth_correction(self.delta_seconds());
+        Ok(())
+    }
+
+    pub(crate) fn release_captured_movement(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.release_captured();
+        Ok(())
+    }
+
+    pub(crate) fn capture_scene_configuration(&self) -> Result<(), PresentationSceneError> {
+        self.scene()?.capture();
+        Ok(())
+    }
+
+    pub(crate) fn resolve_scene_output(&self) -> Result<(), PresentationSceneError> {
+        let movement = self
+            .movement()
+            .map_err(|_error| PresentationSceneError::StateUnavailable)?
+            .working();
+        self.scene()?.resolve(movement)
+    }
+
+    pub(crate) fn release_captured_scene(&self) -> Result<(), PresentationSceneError> {
+        self.scene()?.release_captured();
+        Ok(())
+    }
+
+    fn commit_movement_frame(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.commit_frame();
+        Ok(())
+    }
+
+    fn discard_movement_frame(&self) -> Result<(), PresentationMovementError> {
+        self.movement()?.discard_frame();
         Ok(())
     }
 
@@ -101,7 +199,9 @@ impl FrameExecutionContext {
     }
 
     pub(crate) fn build_render_frame(&self) -> Result<(), PresentationOutputError> {
-        let frame = RenderFrame::empty(RenderFrameId::new(self.current().frame.get()));
+        let frame = self
+            .scene()?
+            .build_frame(RenderFrameId::new(self.current().frame.get()));
         self.state
             .render
             .lock()
@@ -139,6 +239,12 @@ pub enum PresentationOutputError {
     /// Presentation-owned audio command state rejected access.
     #[error(transparent)]
     Audio(#[from] PresentationAudioError),
+    /// Presentation-owned local movement state rejected access.
+    #[error(transparent)]
+    Movement(#[from] PresentationMovementError),
+    /// Presentation-owned visual state could not be captured or resolved.
+    #[error(transparent)]
+    Scene(#[from] PresentationSceneError),
 }
 
 /// Failure while advancing a presentation frame.
@@ -150,6 +256,9 @@ pub enum PresentationError {
     /// The monotonic presentation frame index exhausted its representation.
     #[error("presentation frame index overflow")]
     FrameIndexOverflow,
+    /// Presentation-owned movement state could not commit or roll back.
+    #[error(transparent)]
+    Movement(#[from] PresentationMovementError),
 }
 
 /// Dedicated ECS world for variable-step client presentation.
@@ -230,6 +339,41 @@ impl PresentationWorld {
         Arc::clone(&self.execution_context.state.render_mailbox)
     }
 
+    /// Replace the local movement sample captured by the next presentation frame.
+    ///
+    /// Passing `None` retires the current local movement proxy. The copied
+    /// sample never grants presentation access to prediction-owned state.
+    pub fn set_local_movement_sample(
+        &self,
+        sample: Option<PresentationMovementSample>,
+    ) -> Result<(), PresentationMovementError> {
+        self.execution_context.movement()?.set_pending(sample);
+        Ok(())
+    }
+
+    /// Replace the model binding captured by the next presentation frame.
+    pub fn set_local_visual_binding(
+        &self,
+        binding: Option<LocalVisualBinding>,
+    ) -> Result<(), PresentationSceneError> {
+        self.execution_context.scene()?.set_binding(binding);
+        Ok(())
+    }
+
+    /// Replace the physical-pixel viewport captured by the next frame.
+    pub fn set_viewport(
+        &self,
+        viewport: Option<PresentationViewport>,
+    ) -> Result<(), PresentationSceneError> {
+        self.execution_context.scene()?.set_viewport(viewport);
+        Ok(())
+    }
+
+    /// Return the local movement proxy from the latest successful frame.
+    pub fn local_movement_proxy(&self) -> Result<Option<MovementProxy>, PresentationMovementError> {
+        Ok(self.execution_context.movement()?.committed())
+    }
+
     /// Queue one server-authorized remote sound for the next presentation frame.
     pub fn queue_audible_sound(
         &self,
@@ -290,19 +434,33 @@ impl PresentationWorld {
         #[cfg(feature = "tracing")]
         tracing::Span::current().record("frame", next_frame.get());
         let previous_execution = self.execution_context.current();
+        let previous_delta_seconds = self.execution_context.delta_seconds();
         self.execution_context
             .set(FrameExecution { frame: next_frame });
+        self.execution_context.set_delta_seconds(delta.as_seconds());
 
         let observation = FrameObservation::start(delta);
         let run_result = self.ecs.progress(delta);
         let result = match run_result {
             Ok(should_continue) => {
-                self.current_frame = next_frame;
-                Ok(should_continue)
+                if let Err(error) = self.execution_context.commit_movement_frame() {
+                    self.execution_context.set(previous_execution);
+                    self.execution_context
+                        .set_delta_seconds(previous_delta_seconds);
+                    Err(PresentationError::Movement(error))
+                } else {
+                    self.current_frame = next_frame;
+                    Ok(should_continue)
+                }
             }
             Err(error) => {
                 self.execution_context.set(previous_execution);
-                Err(PresentationError::Run(error))
+                self.execution_context
+                    .set_delta_seconds(previous_delta_seconds);
+                match self.execution_context.discard_movement_frame() {
+                    Ok(()) => Err(PresentationError::Run(error)),
+                    Err(movement_error) => Err(PresentationError::Movement(movement_error)),
+                }
             }
         };
         observation.finish(&result);

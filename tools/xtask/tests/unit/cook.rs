@@ -11,12 +11,12 @@ use blackflower_animation_format::{AnimationContainer, SkeletonContainer};
 use blackflower_assets::{
     AssetCatalog, AssetChangeKind, AssetId, AssetKind, AssetPackage, AssetReloadStatus,
     AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
-    AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
+    AssetWatchEvent, Bytes, ContentHash, Error, MapAsset, PackageName, ProfileName, sign_package,
 };
 use blackflower_audio_spatial::{AcousticEnvironment, AcousticScene, ProbeBatch};
 use blackflower_navigation::NavMeshAsset;
 use blackflower_rendering_models::MeshAsset;
-use blackflower_scripting_luau::{Bytecode, Runtime, Value};
+use blackflower_scripting_luau::{CompileOptions, DebugLevel, Runtime, Value, VerifiedBytecode};
 use tempfile::TempDir;
 
 use crate::asset_cooker::{CookedAsset, cook_assets};
@@ -26,6 +26,63 @@ use crate::profile::CookingProfiles;
 use super::{CookRequest, Pipeline, build_catalog, toolchain_identity, write_package};
 
 const TEST_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+const BOOTSTRAP_GLTF: &str =
+    include_str!("../../../../assets/source/maps/bootstrap/bootstrap.gltf");
+
+#[test]
+fn map_selection_cooks_signed_descriptor_and_player_model_closure() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    let map = fixture.source.join("maps/bootstrap");
+    fs::create_dir_all(&map)?;
+    fs::write(map.join("bootstrap.gltf"), BOOTSTRAP_GLTF)?;
+    fs::write(
+        map.join("map.toml"),
+        r#"schema = 1
+id = "maps/bootstrap"
+source = "bootstrap.gltf"
+scene = "Map"
+player_model = "maps/bootstrap/player"
+"#,
+    )?;
+    fs::write(
+        map.join("player.asset.toml"),
+        r#"schema = 1
+id = "maps/bootstrap/player"
+kind = "model"
+audience = "presentation"
+
+[model]
+source = "bootstrap.gltf"
+scene = "Player"
+
+[[model.attachments]]
+node = "PlayerRoot"
+asset = "maps/bootstrap/player-mesh"
+"#,
+    )?;
+    fs::write(
+        map.join("player-mesh.asset.toml"),
+        r#"schema = 1
+id = "maps/bootstrap/player-mesh"
+kind = "mesh"
+audience = "presentation"
+
+[mesh]
+source = "bootstrap.gltf"
+mesh = "PlayerMesh"
+"#,
+    )?;
+
+    fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["maps/bootstrap"])?)?;
+    let store = fixture.open_store()?;
+    let id = AssetId::from_str("maps/bootstrap")?;
+    let descriptor = MapAsset::load(&store, &id)?;
+    assert_eq!(descriptor.player_model().as_str(), "maps/bootstrap/player");
+    assert_eq!(store.packages()[0].catalog().assets.len(), 3);
+    Ok(())
+}
 
 impl Pipeline {
     fn new(profiles_root: PathBuf, source_root: PathBuf, target_root: PathBuf) -> Self {
@@ -537,17 +594,60 @@ fn cooks_profile_configured_luau_bytecode_for_runtime_loading() -> anyhow::Resul
     assert_eq!(resolved.package().catalog().profile.name.as_str(), "debug");
     assert_eq!(resolved.package().catalog().toolchain.luau, "luau/0.731.0");
 
-    let bytes = store.read_asset(&id)?;
+    let authenticated = store.read_authenticated_asset(&id)?;
+    let bytes = authenticated.bytes();
     assert_ne!(
         bytes.as_ref(),
         b"local function answer() return 42 end\nreturn answer()\n"
     );
-    let bytecode = Bytecode::from_bytes(bytes.to_vec());
+    assert_eq!(authenticated.record(), resolved.record());
+    assert_eq!(authenticated.package_hash(), resolved.package().hash());
+    assert_eq!(
+        authenticated.signing_key_id(),
+        resolved.package().signing_key_id()
+    );
+    let bytecode = VerifiedBytecode::from_authenticated_asset(
+        authenticated,
+        CompileOptions {
+            debug: DebugLevel::Full,
+            ..CompileOptions::default()
+        },
+    )?;
     let values = Runtime::new()?.execute_bytecode("scripts/answer", &bytecode)?;
     assert!(matches!(
         values.as_slice(),
         [Value::Number(value)] if value.to_bits() == 42.0_f64.to_bits()
     ));
+    Ok(())
+}
+
+#[test]
+fn rejects_authenticated_non_luau_content_as_executable_bytecode() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.asset(
+        "scripts/not-bytecode",
+        "simulation",
+        "not-bytecode.bin",
+        b"authenticated but not executable",
+    )?;
+    let request = fixture.request("pak000", &["scripts/not-bytecode"])?;
+    let _result = fixture.pipeline.cook(&request)?;
+
+    let store = fixture.open_store()?;
+    let id = AssetId::from_str("scripts/not-bytecode")?;
+    let authenticated = store.read_authenticated_asset(&id)?;
+    let Err(error) =
+        VerifiedBytecode::from_authenticated_asset(authenticated, CompileOptions::default())
+    else {
+        anyhow::bail!("a signed opaque blob became executable bytecode");
+    };
+
+    assert_eq!(
+        error,
+        blackflower_scripting_luau::Error::InvalidBytecodeAssetKind {
+            actual: AssetKind::Blob,
+        }
+    );
     Ok(())
 }
 
@@ -1718,6 +1818,49 @@ fn renaming_a_package_changes_the_asset_set_hash() -> anyhow::Result<()> {
     fs::rename(cooked.path, renamed)?;
     let second = fixture.open_store()?.asset_set_hash();
     assert_ne!(first, second);
+    Ok(())
+}
+
+#[test]
+fn deployment_pinned_asset_set_rejects_rename_and_signed_rollback() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.asset("fixtures/example", "shared", "example.bin", b"first")?;
+    let first = fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+    let old_package = fs::read(&first.path)?;
+
+    fixture.asset("fixtures/example", "shared", "example.bin", b"current")?;
+    let current = fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["fixtures/example"])?)?;
+    let current_package = fs::read(&current.path)?;
+    let trust_store = fixture.trust_store()?;
+    let expected = fixture.open_store()?.asset_set_hash();
+    let _verified = AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store)?;
+    assert!(matches!(
+        AssetPackage::open_verified(
+            &current.path,
+            &PackageName::from_str("pak100")?,
+            current.package_hash,
+            &trust_store,
+        ),
+        Err(Error::PackageNameMismatch { .. })
+    ));
+
+    fs::write(&current.path, old_package)?;
+    assert!(matches!(
+        AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store),
+        Err(Error::AssetSetHashMismatch { .. })
+    ));
+
+    fs::write(&current.path, current_package)?;
+    let renamed = fixture.package_dir().join("pak100.squashfs");
+    fs::rename(&current.path, renamed)?;
+    assert!(matches!(
+        AssetStore::open_dir_verified(fixture.package_dir(), expected, &trust_store),
+        Err(Error::AssetSetHashMismatch { .. })
+    ));
     Ok(())
 }
 

@@ -32,3 +32,17 @@ fn duplicate_marker_is_rejected() -> Result<(), Error> {
     assert_eq!(result, Err(Error::DuplicateMarker));
     Ok(())
 }
+
+#[test]
+fn marker_count_must_fit_the_remaining_metadata_bytes() {
+    let mut bytes = vec![0_u8; 20];
+    bytes[0..2].copy_from_slice(&super::METADATA_SCHEMA.to_le_bytes());
+    bytes[4..8].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+    bytes[16] = b'x';
+
+    assert_eq!(
+        ClipMetadata::decode(&bytes),
+        Err(Error::InvalidClipMetadata)
+    );
+}

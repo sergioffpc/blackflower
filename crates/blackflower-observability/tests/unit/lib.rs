@@ -51,4 +51,5 @@ fn foreground_capture_is_explicit_and_bounded() {
     assert!(config.foreground_logs_enabled());
     assert_eq!(config.foreground_log_capacity, Some(128));
     assert_eq!(config.foreground_log_level, ForegroundLogLevel::Debug);
+    assert!(super::create_formatted_log_output(&config).is_none());
 }

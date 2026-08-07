@@ -11,11 +11,12 @@ use crate::error::{Error, UpdateError};
 use crate::ffi::{self, Status};
 use crate::ids::{BodyId, CharacterId, WorldKey};
 use crate::raycast::{RayHit, hit_from_raw};
-use crate::types::{BodySettings, StepDelta, validate_rotation, validate_vector};
+use crate::types::{BodySettings, validate_rotation, validate_vector};
 
 const DEFAULT_MAX_BODIES: u32 = 1_024;
 const DEFAULT_MAX_BODY_PAIRS: u32 = 1_024;
 const DEFAULT_MAX_CONTACT_CONSTRAINTS: u32 = 1_024;
+const FIXED_TICK_DELTA_SECONDS: f32 = f32::from_bits(0x3b88_8889);
 
 static NEXT_WORLD_KEY: AtomicU64 = AtomicU64::new(1);
 
@@ -339,16 +340,16 @@ impl World {
     }
 
     /// Optimize the broad phase after adding a large batch of bodies.
-    pub fn optimize_broad_phase(&mut self) {
-        ffi::optimize_broad_phase(self.pointer);
+    pub fn optimize_broad_phase(&mut self) -> Result<(), Error> {
+        ffi::optimize_broad_phase(self.pointer).map_err(map_status)
     }
 
-    /// Advance the physics simulation.
-    pub fn step(&mut self, delta: StepDelta, collision_steps: NonZeroU32) -> Result<(), Error> {
+    /// Advance the physics simulation by exactly one authoritative 240 Hz tick.
+    pub fn step(&mut self, collision_steps: NonZeroU32) -> Result<(), Error> {
         let collision_steps = i32::try_from(collision_steps.get())
             .map_err(|_error| Error::CollisionStepCountTooLarge(collision_steps.get()))?;
-        let update_errors =
-            ffi::update(self.pointer, delta.as_seconds(), collision_steps).map_err(map_status)?;
+        let update_errors = ffi::update(self.pointer, FIXED_TICK_DELTA_SECONDS, collision_steps)
+            .map_err(map_status)?;
         if update_errors == 0 {
             Ok(())
         } else {
@@ -390,6 +391,9 @@ const fn map_world_initialization(status: Status) -> Error {
     match status {
         Status::InvalidArgument => Error::InvalidWorldConfiguration,
         Status::InitializationFailed => Error::WorldInitialization,
+        Status::OutOfMemory => Error::OutOfMemory,
+        Status::NativeFailure => Error::NativeFailure,
+        Status::ConfigurationMismatch => Error::NativeConfigurationMismatch,
         Status::BodyCapacityExhausted
         | Status::BodyNotFound
         | Status::CharacterNotFound
@@ -406,6 +410,9 @@ const fn map_status(status: Status) -> Error {
         Status::CharacterNotFound => Error::CharacterNotFound,
         Status::BodyOwnedByCharacter => Error::BodyOwnedByCharacter,
         Status::ShapeCreationFailed => Error::ShapeCreationFailed,
+        Status::OutOfMemory => Error::OutOfMemory,
+        Status::NativeFailure => Error::NativeFailure,
+        Status::ConfigurationMismatch => Error::NativeConfigurationMismatch,
         Status::InvalidArgument | Status::InitializationFailed | Status::ContractViolation => {
             Error::NativeContract
         }

@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use blackflower_networking::{MINIMUM_QUIC_DATAGRAM_BYTES, decode_datagram};
@@ -10,11 +10,13 @@ use bytes::Bytes;
 use crate::config::{AdmissionLimits, ClientEndpointConfig, ServerEndpointConfig};
 use crate::{QuicError, client_config, server_config, validate_alpn};
 
-/// Dedicated-server Quinn endpoint with mandatory Retry and per-origin limits.
+/// Dedicated-server Quinn endpoint with mandatory stateless Retry and bounded admission.
 #[derive(Debug)]
 pub struct QuicServer {
     endpoint: quinn::Endpoint,
-    origins: OriginLimiter,
+    retry_tokens: RetryTokenBucket,
+    validated_origins: ValidatedOriginLimiter,
+    connections: Arc<EstablishedConnectionCapacity>,
     pending: tokio::task::JoinSet<(IpAddr, Result<quinn::Connection, quinn::ConnectionError>)>,
     retries_sent: u64,
 }
@@ -27,7 +29,11 @@ impl QuicServer {
         let endpoint = quinn::Endpoint::server(server, config.bind_address)?;
         Ok(Self {
             endpoint,
-            origins: OriginLimiter::new(config.admission_limits),
+            retry_tokens: RetryTokenBucket::new(config.admission_limits, Instant::now()),
+            validated_origins: ValidatedOriginLimiter::new(config.admission_limits),
+            connections: Arc::new(EstablishedConnectionCapacity::new(
+                config.admission_limits.connections_global.get(),
+            )),
             pending: tokio::task::JoinSet::new(),
             retries_sent: 0,
         })
@@ -61,10 +67,14 @@ impl QuicServer {
                     let (origin, connection) = completed
                         .ok_or(QuicError::EndpointClosed)?
                         .map_err(|_join| QuicError::TransportTask)?;
-                    self.origins.finish_pending(origin);
+                    self.validated_origins.finish_pending(origin);
                     let connection = connection?;
                     validate_connection(&connection)?;
-                    return Ok(ServerConnection::new(connection));
+                    let Some(permit) = self.connections.try_acquire() else {
+                        connection.close(quinn::VarInt::from_u32(0), b"connection capacity");
+                        continue;
+                    };
+                    return Ok(ServerConnection::new(connection, permit));
                 }
                 incoming = self.endpoint.accept() => {
                     let incoming = incoming.ok_or(QuicError::EndpointClosed)?;
@@ -75,17 +85,18 @@ impl QuicServer {
     }
 
     fn start_handshake(&mut self, incoming: quinn::Incoming) -> Result<(), QuicError> {
-        let origin = incoming.remote_address().ip();
         if !incoming.remote_address_validated() {
-            if !self.origins.record_attempt(origin, Instant::now()) {
-                incoming.refuse();
+            if !self.retry_tokens.try_take(Instant::now()) {
+                incoming.ignore();
                 return Ok(());
             }
             incoming.retry().map_err(|_error| QuicError::Retry)?;
             self.retries_sent = self.retries_sent.saturating_add(1);
             return Ok(());
         }
-        if !self.origins.begin_pending(origin) {
+
+        let origin = incoming.remote_address().ip();
+        if !self.connections.has_capacity() || !self.validated_origins.begin_pending(origin) {
             incoming.refuse();
             return Ok(());
         }
@@ -108,12 +119,12 @@ pub struct QuicClient {
 }
 
 impl QuicClient {
-    /// Bind the client UDP endpoint and install exactly the service CA roots.
+    /// Bind the client UDP endpoint and install exactly one service CA root.
     pub fn bind(config: ClientEndpointConfig) -> Result<Self, QuicError> {
         if config.server_name.is_empty() {
             return Err(QuicError::Configuration("server name is empty"));
         }
-        let client = client_config(config.trust_roots)?;
+        let client = client_config(config.trust_root)?;
         let mut endpoint = quinn::Endpoint::client(config.bind_address)?;
         endpoint.set_default_client_config(client);
         Ok(Self {
@@ -156,14 +167,16 @@ pub struct ServerConnection {
     pub(crate) inner: quinn::Connection,
     pub(crate) control_claimed: Arc<AtomicBool>,
     pub(crate) bootstrap_active: Arc<AtomicBool>,
+    _capacity: Arc<EstablishedConnectionPermit>,
 }
 
 impl ServerConnection {
-    fn new(inner: quinn::Connection) -> Self {
+    fn new(inner: quinn::Connection, capacity: Arc<EstablishedConnectionPermit>) -> Self {
         Self {
             inner,
             control_claimed: Arc::new(AtomicBool::new(false)),
             bootstrap_active: Arc::new(AtomicBool::new(false)),
+            _capacity: capacity,
         }
     }
 
@@ -173,7 +186,7 @@ impl ServerConnection {
     }
 
     /// Receive one validated common-header application DATAGRAM.
-    pub async fn read_datagram(&self) -> Result<Vec<u8>, QuicError> {
+    pub async fn read_datagram(&self) -> Result<Bytes, QuicError> {
         read_datagram(&self.inner).await
     }
 
@@ -222,7 +235,7 @@ impl ClientConnection {
     }
 
     /// Receive one validated common-header application DATAGRAM.
-    pub async fn read_datagram(&self) -> Result<Vec<u8>, QuicError> {
+    pub async fn read_datagram(&self) -> Result<Bytes, QuicError> {
         read_datagram(&self.inner).await
     }
 
@@ -291,10 +304,10 @@ fn validate_datagram(connection: &quinn::Connection, bytes: &[u8]) -> Result<(),
     Ok(())
 }
 
-async fn read_datagram(connection: &quinn::Connection) -> Result<Vec<u8>, QuicError> {
+async fn read_datagram(connection: &quinn::Connection) -> Result<Bytes, QuicError> {
     let bytes = connection.read_datagram().await?;
     let _decoded = decode_datagram(&bytes)?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn udp_bytes(connection: &quinn::Connection) -> UdpByteStats {
@@ -308,49 +321,104 @@ fn udp_bytes(connection: &quinn::Connection) -> UdpByteStats {
 fn validate_limits(limits: AdmissionLimits) -> Result<(), QuicError> {
     if limits.window.is_zero() {
         Err(QuicError::Configuration("admission window is zero"))
+    } else if limits.pending_per_origin > limits.pending_global {
+        Err(QuicError::Configuration(
+            "per-origin handshake limit exceeds global handshake limit",
+        ))
     } else {
         Ok(())
     }
 }
 
+/// Constant-size global budget for stateless Retry responses.
 #[derive(Debug)]
-struct OriginLimiter {
-    limits: AdmissionLimits,
-    attempts: BTreeMap<IpAddr, VecDeque<Instant>>,
+struct RetryTokenBucket {
+    capacity: u32,
+    available: u32,
+    refill_window_nanos: u128,
+    refill_remainder: u128,
+    updated_at: Instant,
+}
+
+impl RetryTokenBucket {
+    fn new(limits: AdmissionLimits, now: Instant) -> Self {
+        let capacity = limits.attempts_per_window.get();
+        Self {
+            capacity,
+            available: capacity,
+            refill_window_nanos: limits.window.as_nanos(),
+            refill_remainder: 0,
+            updated_at: now,
+        }
+    }
+
+    fn try_take(&mut self, now: Instant) -> bool {
+        self.refill(now);
+        if self.available == 0 {
+            false
+        } else {
+            self.available -= 1;
+            true
+        }
+    }
+
+    fn refill(&mut self, now: Instant) {
+        let Some(elapsed) = now.checked_duration_since(self.updated_at) else {
+            return;
+        };
+        self.updated_at = now;
+
+        if self.available == self.capacity {
+            self.refill_remainder = 0;
+            return;
+        }
+
+        let numerator = elapsed
+            .as_nanos()
+            .saturating_mul(u128::from(self.capacity))
+            .saturating_add(self.refill_remainder);
+        let added = numerator / self.refill_window_nanos;
+        self.refill_remainder = numerator % self.refill_window_nanos;
+
+        let missing = self.capacity - self.available;
+        if added >= u128::from(missing) {
+            self.available = self.capacity;
+            self.refill_remainder = 0;
+        } else {
+            self.available += u32::try_from(added).unwrap_or(missing);
+        }
+    }
+}
+
+/// Per-origin state created only after QUIC has validated the source address.
+#[derive(Debug)]
+struct ValidatedOriginLimiter {
+    pending_per_origin: usize,
+    pending_global: usize,
+    pending_total: usize,
     pending: BTreeMap<IpAddr, usize>,
 }
 
-impl OriginLimiter {
+impl ValidatedOriginLimiter {
     fn new(limits: AdmissionLimits) -> Self {
         Self {
-            limits,
-            attempts: BTreeMap::new(),
+            pending_per_origin: limits.pending_per_origin.get(),
+            pending_global: limits.pending_global.get(),
+            pending_total: 0,
             pending: BTreeMap::new(),
         }
     }
 
-    fn record_attempt(&mut self, origin: IpAddr, now: Instant) -> bool {
-        for attempts in self.attempts.values_mut() {
-            prune_attempts(attempts, now, self.limits.window);
-        }
-        self.attempts
-            .retain(|_origin, attempts| !attempts.is_empty());
-        let attempts = self.attempts.entry(origin).or_default();
-        if attempts.len()
-            >= usize::try_from(self.limits.attempts_per_window.get()).unwrap_or(usize::MAX)
-        {
+    fn begin_pending(&mut self, origin: IpAddr) -> bool {
+        if self.pending_total >= self.pending_global {
             return false;
         }
-        attempts.push_back(now);
-        true
-    }
-
-    fn begin_pending(&mut self, origin: IpAddr) -> bool {
         let pending = self.pending.entry(origin).or_default();
-        if *pending >= self.limits.pending_per_origin.get() {
+        if *pending >= self.pending_per_origin {
             false
         } else {
             *pending += 1;
+            self.pending_total += 1;
             true
         }
     }
@@ -359,6 +427,7 @@ impl OriginLimiter {
         let mut remove = false;
         if let Some(pending) = self.pending.get_mut(&origin) {
             *pending = pending.saturating_sub(1);
+            self.pending_total = self.pending_total.saturating_sub(1);
             remove = *pending == 0;
         }
         if remove {
@@ -367,11 +436,48 @@ impl OriginLimiter {
     }
 }
 
-fn prune_attempts(attempts: &mut VecDeque<Instant>, now: Instant, window: Duration) {
-    while attempts.front().is_some_and(|then| {
-        now.checked_duration_since(*then)
-            .is_some_and(|elapsed| elapsed >= window)
-    }) {
-        let _expired = attempts.pop_front();
+/// Endpoint-wide established-connection counter shared with connection handles.
+#[derive(Debug)]
+struct EstablishedConnectionCapacity {
+    limit: usize,
+    active: AtomicUsize,
+}
+
+impl EstablishedConnectionCapacity {
+    const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            active: AtomicUsize::new(0),
+        }
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.active.load(Ordering::Acquire) < self.limit
+    }
+
+    fn try_acquire(self: &Arc<Self>) -> Option<Arc<EstablishedConnectionPermit>> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < self.limit).then_some(active + 1)
+            })
+            .ok()?;
+        Some(Arc::new(EstablishedConnectionPermit {
+            capacity: Arc::clone(self),
+        }))
     }
 }
+
+#[derive(Debug)]
+struct EstablishedConnectionPermit {
+    capacity: Arc<EstablishedConnectionCapacity>,
+}
+
+impl Drop for EstablishedConnectionPermit {
+    fn drop(&mut self) {
+        self.capacity.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/unit/endpoint.rs"]
+mod tests;

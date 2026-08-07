@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -61,11 +62,11 @@ impl<'navmesh> QueryBuilder<'navmesh> {
         let max_straight_path_points = result_capacity(self.max_straight_path_points)?;
         let pointer = ffi::create_query(self.navmesh.pointer, self.max_nodes.get())
             .map_err(map_query_initialization)?;
+        let scratch = QueryScratch::new(max_path_polygons, max_straight_path_points);
         Ok(Query {
             pointer,
             navmesh: self.navmesh,
-            max_path_polygons,
-            max_straight_path_points,
+            scratch: RefCell::new(scratch),
             not_send_sync: PhantomData,
         })
     }
@@ -232,9 +233,34 @@ impl RaycastHit {
 pub struct Query<'navmesh> {
     pointer: ffi::QueryPtr,
     navmesh: &'navmesh NavMesh,
-    max_path_polygons: usize,
-    max_straight_path_points: usize,
+    scratch: RefCell<QueryScratch>,
     not_send_sync: PhantomData<Rc<()>>,
+}
+
+struct QueryScratch {
+    corridor: Vec<u32>,
+    straight: StraightPathScratch,
+    visited: Vec<u32>,
+}
+
+impl QueryScratch {
+    fn new(max_path_polygons: usize, max_straight_path_points: usize) -> Self {
+        Self {
+            corridor: vec![0; max_path_polygons],
+            straight: StraightPathScratch {
+                positions: vec![ffi::raw::BFNavigationVec3::default(); max_straight_path_points],
+                flags: vec![0; max_straight_path_points],
+                polygons: vec![0; max_straight_path_points],
+            },
+            visited: vec![0; max_path_polygons],
+        }
+    }
+}
+
+struct StraightPathScratch {
+    positions: Vec<ffi::raw::BFNavigationVec3>,
+    flags: Vec<u8>,
+    polygons: Vec<u32>,
 }
 
 impl Query<'_> {
@@ -281,7 +307,10 @@ impl Query<'_> {
         let end = self
             .nearest_point_validated(end, half_extents, filter)?
             .ok_or(Error::EndPolygonNotFound)?;
-        let mut corridor = vec![0; self.max_path_polygons];
+        let mut scratch = self.scratch.borrow_mut();
+        let QueryScratch {
+            corridor, straight, ..
+        } = &mut *scratch;
         let (corridor_count, details) = ffi::find_path(
             self.pointer,
             start.polygon.raw,
@@ -289,11 +318,11 @@ impl Query<'_> {
             start.position,
             end.position,
             filter,
-            &mut corridor,
+            corridor,
         )
         .map_err(map_query)?;
         reject_path_details(details)?;
-        corridor.truncate(corridor_count);
+        let corridor = &corridor[..corridor_count];
         let Some(&last_polygon) = corridor.last() else {
             return Err(Error::NativeContract);
         };
@@ -306,9 +335,10 @@ impl Query<'_> {
         } else {
             end.position
         };
-        let points = self.straight_path(start.position, straight_end, &corridor)?;
+        let points = self.straight_path(start.position, straight_end, corridor, straight)?;
         let corridor = corridor
-            .into_iter()
+            .iter()
+            .copied()
             .map(|raw| self.polygon_ref(raw))
             .collect();
         Ok(Path {
@@ -335,14 +365,14 @@ impl Query<'_> {
         let start = self
             .nearest_point_validated(start, half_extents, filter)?
             .ok_or(Error::StartPolygonNotFound)?;
-        let mut visited = vec![0; self.max_path_polygons];
+        let mut scratch = self.scratch.borrow_mut();
         let (visited_count, details, result) = ffi::raycast(
             self.pointer,
             start.polygon.raw,
             start.position,
             end,
             filter,
-            &mut visited,
+            &mut scratch.visited,
         )
         .map_err(map_query)?;
         if details.out_of_nodes() {
@@ -359,7 +389,7 @@ impl Query<'_> {
             return Err(Error::NativeContract);
         }
 
-        visited.truncate(visited_count);
+        let visited = &scratch.visited[..visited_count];
         let hit = result.fraction <= 1.0;
         let fraction = if hit { result.fraction } else { 1.0 };
         let edge_index = if hit {
@@ -375,7 +405,8 @@ impl Query<'_> {
             edge_index,
             path_cost: result.path_cost,
             visited: visited
-                .into_iter()
+                .iter()
+                .copied()
                 .map(|raw| self.polygon_ref(raw))
                 .collect(),
         })
@@ -405,20 +436,17 @@ impl Query<'_> {
         start: Vec3A,
         end: Vec3A,
         corridor: &[u32],
+        scratch: &mut StraightPathScratch,
     ) -> Result<Vec<PathPoint>, Error> {
-        let mut positions =
-            vec![ffi::raw::BFNavigationVec3::default(); self.max_straight_path_points];
-        let mut flags = vec![0; self.max_straight_path_points];
-        let mut polygons = vec![0; self.max_straight_path_points];
         let (count, details) = ffi::find_straight_path(
             self.pointer,
             start,
             end,
             corridor,
             ffi::StraightPathBuffers {
-                points: &mut positions,
-                flags: &mut flags,
-                polygons: &mut polygons,
+                points: &mut scratch.positions,
+                flags: &mut scratch.flags,
+                polygons: &mut scratch.polygons,
             },
         )
         .map_err(map_query)?;
@@ -431,11 +459,12 @@ impl Query<'_> {
 
         let mut points = Vec::with_capacity(count);
         for index in 0..count {
-            let polygon = (polygons[index] != 0).then(|| self.polygon_ref(polygons[index]));
+            let polygon =
+                (scratch.polygons[index] != 0).then(|| self.polygon_ref(scratch.polygons[index]));
             points.push(PathPoint {
-                position: ffi::safe_vec(positions[index]),
+                position: ffi::safe_vec(scratch.positions[index]),
                 polygon,
-                kind: path_point_kind(flags[index]),
+                kind: path_point_kind(scratch.flags[index]),
             });
         }
         Ok(points)

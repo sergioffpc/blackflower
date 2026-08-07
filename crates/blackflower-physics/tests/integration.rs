@@ -1,6 +1,6 @@
 use blackflower_physics::{
     BodySettings, CharacterSettings, CompoundShapeChild, ContactEventKind, Error, GroundState,
-    MAX_CONVEX_HULL_POINTS, MotionType, Shape, StepDelta, World, jolt_version,
+    MAX_CONVEX_HULL_POINTS, MotionType, Shape, World, jolt_version,
 };
 use glam::{Quat, Vec3A};
 use std::num::NonZeroU32;
@@ -24,9 +24,10 @@ fn world_steps_a_dynamic_sphere() -> Result<(), Error> {
         .with_position(Vec3A::new(0.0, 2.0, 0.0))?;
     let sphere = world.create_body(sphere)?;
     world.set_linear_velocity(sphere, Vec3A::new(0.0, -5.0, 0.0))?;
+    world.optimize_broad_phase()?;
 
     let initial_position = world.position(sphere)?;
-    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    world.step(NonZeroU32::MIN)?;
     let stepped_position = world.position(sphere)?;
 
     assert!(world.is_alive(sphere)?);
@@ -57,10 +58,6 @@ fn safe_values_reject_invalid_native_inputs() -> Result<(), Error> {
     assert_eq!(
         settings_with_rotation(Quat::from_xyzw(0.0, 0.0, 0.0, 2.0)),
         Err(Error::InvalidRotation),
-    );
-    assert_eq!(
-        StepDelta::from_seconds(f32::INFINITY),
-        Err(Error::InvalidStepDelta),
     );
     assert_eq!(
         CharacterSettings::new(Shape::sphere(0.5)?),
@@ -127,7 +124,7 @@ fn convex_hulls_support_dynamic_bodies_and_rays() -> Result<(), Error> {
         .ok_or(Error::NativeContract)?;
     assert_eq!(hit.body, body);
 
-    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    world.step(NonZeroU32::MIN)?;
     assert!(world.position(body)?.y < 2.0);
     Ok(())
 }
@@ -248,7 +245,7 @@ fn contact_events_capture_manifold_geometry() -> Result<(), Error> {
             .with_position(Vec3A::new(0.0, 0.4, 0.0))?,
     )?;
 
-    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    world.step(NonZeroU32::MIN)?;
     let contacts = world.contact_events()?;
     let contact = contacts
         .iter()
@@ -261,7 +258,7 @@ fn contact_events_capture_manifold_geometry() -> Result<(), Error> {
     assert!(!manifold.points.is_empty());
 
     world.destroy_body(sphere)?;
-    world.step(StepDelta::from_seconds(1.0 / 60.0)?, NonZeroU32::MIN)?;
+    world.step(NonZeroU32::MIN)?;
     let removed = world
         .contact_events()?
         .into_iter()
@@ -318,10 +315,8 @@ fn rigid_body_character_reports_ground_state_and_owns_its_body() -> Result<(), E
             .with_position(Vec3A::new(0.0, 2.0, 0.0))?,
     )?;
     world.set_character_linear_velocity(character, Vec3A::new(1.0, 0.0, 0.0))?;
-    let delta = StepDelta::from_seconds(1.0 / 60.0)?;
-
-    for _step in 0..120 {
-        world.step(delta, NonZeroU32::MIN)?;
+    for _step in 0..480 {
+        world.step(NonZeroU32::MIN)?;
         world.refresh_character_ground_state(character, 0.05)?;
     }
     let state = world.character_state(character)?;

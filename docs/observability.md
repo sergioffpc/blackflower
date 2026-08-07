@@ -52,10 +52,8 @@ metrics because wall-clock pacing is outside `SimulationWorld`.
 ## Logging
 
 Compact colored text is the default for every executable. `LogFormat::Pretty`
-selects a colored multi-line format for interactive diagnosis.
-`LogFormat::Json` remains available for production ingestion and never contains
-ANSI color sequences. `RUST_LOG` controls filtering, with `info` as the
-fallback.
+selects a colored multi-line format for interactive diagnosis. `RUST_LOG`
+controls filtering, with `info` as the fallback.
 
 Levels have stable meanings:
 
@@ -85,17 +83,30 @@ payloads, or full IP addresses. Player identifiers must be pseudonymous.
 
 ## Foreground diagnostics
 
-`blackflower-server --foreground` runs the Black Ink Ratatui dashboard on an
-interactive terminal. Its six panels are:
+`blackflower-server --foreground` runs the Ratatui diagnostics dashboard on an
+interactive terminal. Its eight panels are:
 
 | Key | Panel | Signals |
 | --- | --- | --- |
 | `1` | Overview | Process, simulation, world, network, and recent logs |
 | `2` | Logs | Structured tracing events, capture/view levels, regex, scrolling, and drop health |
 | `3` | Simulation | Tick budget, rates, histogram percentiles, outcomes, and phase executions |
-| `4` | Network | QUIC health, RTT, queues, traffic, drops, voice, and snapshot actions |
-| `5` | World | ECS gauges/ticks and authoritative acoustics activity |
-| `6` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
+| `4` | Transport | QUIC health, application UDP throughput, queues, drops, and protocol violations |
+| `5` | Sessions | Connection, clock, input, resynchronization, and voice lifecycle |
+| `6` | Replication | Bootstrap sizes, snapshot actions, acknowledgements, and transfer queues |
+| `7` | World | ECS gauges/ticks and authoritative acoustics activity |
+| `8` | Host | CPU, memory, filesystems, disk/network I/O, and current-process resources |
+
+Network queue gauges are process-wide sums of each live connection's bounded
+queue contribution. The server clock gauge is the maximum uncertainty reported
+by synchronized peers, accompanied by synchronized and unsynchronized session
+counts. Input, snapshot, and resynchronization counters use bounded lifecycle
+actions so client submissions/applications/requests remain distinct from server
+acceptance/sends/acknowledgements/starts.
+
+Transport throughput is derived from `blackflower_network_udp_bytes_total`, not
+from host-interface counters. The `node_network_*` families remain confined to
+Host so unrelated traffic on the machine is not presented as game traffic.
 
 The UI polls `http://<metrics_bind_address>/metrics` once per second on a
 dedicated worker. It parses the same Prometheus exposition available to an
@@ -104,16 +115,51 @@ external collector; it does not read a world, scheduler, recorder handle, or
 retried without affecting the server. Missing series render as `—`, counter
 resets do not produce a false rate, and histories are bounded to 60 samples.
 
-Foreground logging is a second bounded, lossy output of the process tracing
-subscriber. Formatted terminal logging is suppressed while the alternate
-screen is active so it cannot corrupt the UI. `--log-level` sets both the
-initial capture and view thresholds. On the Logs panel, `l` changes only the
-view threshold, `L` changes capture, `/` compiles a regex over target, message,
-and structured fields, `p` pauses/resumes following, `End` resumes following,
-and `c` clears the local 10,000-event buffer. Regexes are compiled only when
-edited, not for each record. Release builds statically disable `DEBUG` and
-`TRACE` through the workspace tracing configuration even if a foreground
-threshold requests them.
+`blackflower-agent --foreground` follows the same isolation and bounded-log
+rules. Its nine panels are Overview, Logs, Agents, Sensorium, Decisions,
+Session, Prediction, Navigation, and Host. The process defaults to
+`127.0.0.1:9001` so one local server and one agent can expose metrics
+simultaneously; deployments running multiple processes must assign distinct
+loopback ports.
+
+Aggregate agent health, decision/inference timing, perception size, navigation,
+fallback, budget, memory, and diagnostic-drop signals come from the loopback
+Prometheus endpoint. Per-agent status, sensorium, memory, and decision detail is
+not encoded in high-cardinality metrics or routine logs. An established
+`AgentRuntime` may publish those immutable records through a dedicated bounded,
+lossy, process-local channel using non-blocking sends. The terminal owns its
+bounded history and is read-only. If the executable is still the process-only
+shell, or a real controller has not emitted a record, the agent panels state
+that explicitly rather than presenting synthetic activity.
+
+`blackflower --foreground` keeps the native `winit` client on the main thread
+and runs its terminal dashboard beside it. Its seven panels are Overview, Logs,
+Session, Prediction, Runtime/World, Presentation, and Host. The client defaults
+to `127.0.0.1:9002`; closing either the native application or the dashboard
+requests an orderly shutdown of the other. Missing harness or renderer series
+are reported as unavailable rather than inferred from window activity.
+
+Prediction reports the executable's current bootstrap-only contract instead of
+rendering absent `PredictionWorld` series. Runtime/World displays the
+process-wide ECS view emitted by the live client presentation world. It remains
+read-only and does not inspect the world directly.
+
+Reusable terminal-only state lives in `blackflower-observability-tui`, a
+sibling extension of `blackflower-observability`. The core observability crate
+therefore remains independent of Ratatui and executable-specific page models;
+each executable owns the mapping from its metric families to its panels.
+
+Foreground logging is a bounded, lossy output of the process tracing
+subscriber. Foreground configuration does not create the formatted log writer
+or install its layer, so process logs cannot write to stdout or stderr before,
+during, or after the alternate screen. Capture and view thresholds start at
+`INFO`, with no regex, and are configured only inside the Logs panel: `l`
+changes the view threshold, `L` changes capture, `/` compiles a regex over
+target, message, and structured fields, and `Escape` clears it. `p`
+pauses/resumes following, `End` resumes following, and `c` clears the local
+10,000-event buffer. Regexes are compiled only when edited, not for each record.
+Release builds statically disable `DEBUG` and `TRACE` through the workspace
+tracing configuration even if a foreground threshold requests them.
 
 The capture producer never waits for the UI. Full-queue records are discarded
 and counted by
@@ -158,6 +204,11 @@ The initial domain metrics are:
 | `blackflower_world_simulation_system_executions_total{phase}` | Authoritative system executions aggregated by phase |
 | `blackflower_world_simulation_tick_duration_seconds` | Authoritative tick compute time |
 | `blackflower_world_simulation_deadline_misses_total` | Tick compute time above the fixed-step budget |
+| `blackflower_server_simulation_scheduler_wait_seconds` | Wait requested by the server pacer before a scheduled tick |
+| `blackflower_server_simulation_scheduler_tick_lag_seconds` | Tick-start lag behind the scheduled deadline |
+| `blackflower_server_simulation_scheduler_catch_up_depth_ticks` | Current whole tick intervals behind schedule |
+| `blackflower_server_simulation_scheduler_catch_up_ticks_total` | Ticks started at least one whole interval behind schedule |
+| `blackflower_server_simulation_scheduler_deadline_pressure_ratio` | Scheduled interval consumed by start lag plus tick compute time |
 | `blackflower_world_prediction_ticks_total{pass,result}` | Forward and re-simulated prediction outcomes |
 | `blackflower_world_prediction_tick_duration_seconds{pass}` | Prediction tick compute time |
 | `blackflower_world_prediction_reconciliations_total{result,reason}` | Reconciliation decisions |
@@ -166,6 +217,11 @@ The initial domain metrics are:
 | `blackflower_world_presentation_frames_total{result}` | Presentation frame outcomes |
 | `blackflower_world_presentation_frame_duration_seconds` | Presentation compute time |
 | `blackflower_world_presentation_frame_delta_seconds` | Validated variable frame delta |
+
+Scheduler deadline pressure is intentionally not clamped: `1.0` means the tick
+completed at the next nominal deadline and values above `1.0` expose accumulated
+lag. Compute deadline misses remain separate so operators can distinguish an
+expensive simulation tick from an otherwise healthy tick that started late.
 
 ### Embedded host collector
 
@@ -199,6 +255,11 @@ VM statistics remain outside this portable embedded collector.
 `blackflower_observability_host_collection_duration_seconds` reports the latest
 sampling cost. Metrics unavailable on a platform are omitted rather than
 reported as invented zeroes.
+
+The embedded Prometheus registry expires every counter, gauge, and histogram
+series after five minutes without an update. This bounds stale label cardinality
+when short-lived network interfaces, container mounts, or hardware sensors
+disappear; continuously sampled host series remain resident.
 
 At 240 Hz, an authoritative tick has a theoretical wall-clock budget of about
 4.17 ms. Alert policy should prioritize sustained deadline misses, tick lag,

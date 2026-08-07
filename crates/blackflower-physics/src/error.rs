@@ -1,9 +1,18 @@
 /// Errors produced while configuring or using a physics world.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    /// Jolt could not allocate or initialize a physics world.
+    /// Jolt could not initialize a physics world.
     #[error("Jolt physics world initialization failed")]
     WorldInitialization,
+    /// A native physics allocation failed.
+    #[error("native Jolt allocation failed")]
+    OutOfMemory,
+    /// Jolt or the native wrapper raised an unexpected exception.
+    #[error("unexpected native Jolt failure")]
+    NativeFailure,
+    /// The Jolt archive and wrapper headers were built with different configurations.
+    #[error("native Jolt configuration does not match the wrapper headers")]
+    NativeConfigurationMismatch,
     /// The world configuration exceeds a Jolt limit.
     #[error("invalid Jolt physics world configuration")]
     InvalidWorldConfiguration,
@@ -13,9 +22,6 @@ pub enum Error {
     /// A collision-step count does not fit the Jolt C++ API.
     #[error("collision-step count {0} exceeds the Jolt limit")]
     CollisionStepCountTooLarge(u32),
-    /// A step delta must be finite and strictly positive.
-    #[error("step delta must be finite and strictly positive")]
-    InvalidStepDelta,
     /// A vector must contain only finite components.
     #[error("vector components must be finite")]
     InvalidVector,

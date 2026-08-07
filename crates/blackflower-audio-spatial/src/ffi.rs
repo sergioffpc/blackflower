@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw calls into the statically linked Steam Audio C API are isolated in this private module"
 )]
-#![allow(
-    clippy::multiple_unsafe_ops_per_block,
-    clippy::undocumented_unsafe_blocks,
-    reason = "all unsafe operations are confined to the reviewed Steam Audio FFI boundary"
-)]
-
 use std::ptr::NonNull;
 
 use glam::Vec3A;
@@ -36,6 +30,11 @@ use crate::{
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Steam Audio headers"
 )]
 pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/steam_audio_bindings.rs"));
@@ -89,16 +88,26 @@ impl Drop for ProbeArrayGuard {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ProbeBatchPtr(NonNull<raw::_IPLProbeBatch_t>);
 
-// Steam Audio documents its API objects as reference-counted and usable from
-// multiple threads. Safe methods still require `&mut` for stateful effects.
+// SAFETY: Steam Audio context objects are reference-counted and documented as
+// usable across threads; the safe layer owns every retained reference.
 unsafe impl Send for ContextPtr {}
+// SAFETY: shared context operations are supported by Steam Audio and the safe
+// layer does not expose mutable references through this opaque pointer.
 unsafe impl Sync for ContextPtr {}
+// SAFETY: HRTFs are immutable reference-counted datasets after construction.
 unsafe impl Send for HrtfPtr {}
+// SAFETY: HRTFs are immutable reference-counted datasets after construction.
 unsafe impl Sync for HrtfPtr {}
+// SAFETY: effect state may move between threads, while safe processing requires
+// exclusive ownership and therefore prevents concurrent calls.
 unsafe impl Send for BinauralEffectPtr {}
+// SAFETY: the Embree device is reference-counted and documented for concurrent use.
 unsafe impl Send for EmbreeDevicePtr {}
+// SAFETY: the Embree device is reference-counted and documented for concurrent use.
 unsafe impl Sync for EmbreeDevicePtr {}
+// SAFETY: committed probe batches are immutable reference-counted datasets.
 unsafe impl Send for ProbeBatchPtr {}
+// SAFETY: committed probe batches are immutable reference-counted datasets.
 unsafe impl Sync for ProbeBatchPtr {}
 
 pub(crate) fn create_context() -> Result<ContextPtr, Status> {
@@ -111,6 +120,8 @@ pub(crate) fn create_context() -> Result<ContextPtr, Status> {
         flags: 0,
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `settings` is fully initialized and `pointer` is a valid, uniquely
+    // writable out-parameter.
     let status = unsafe { raw::iplContextCreate(&raw mut settings, &raw mut pointer) };
     check(status)?;
     NonNull::new(pointer)
@@ -120,11 +131,15 @@ pub(crate) fn create_context() -> Result<ContextPtr, Status> {
 
 pub(crate) fn destroy_context(context: ContextPtr) {
     let mut pointer = context.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained reference exactly once;
+    // Steam Audio nulls the local pointer slot.
     unsafe { raw::iplContextRelease(&raw mut pointer) };
 }
 
 pub(crate) fn create_embree_device(context: ContextPtr) -> Result<EmbreeDevicePtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context is live, the optional settings pointer is null by API
+    // contract, and `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::iplEmbreeDeviceCreate(context.0.as_ptr(), std::ptr::null_mut(), &raw mut pointer)
     };
@@ -136,6 +151,7 @@ pub(crate) fn create_embree_device(context: ContextPtr) -> Result<EmbreeDevicePt
 
 pub(crate) fn destroy_embree_device(device: EmbreeDevicePtr) {
     let mut pointer = device.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained reference exactly once.
     unsafe { raw::iplEmbreeDeviceRelease(&raw mut pointer) };
 }
 
@@ -145,6 +161,8 @@ pub(crate) fn create_scene(
 ) -> Result<ScenePtr, Status> {
     let mut settings = scene_settings(embree);
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context and optional Embree device are live, `settings` is
+    // initialized, and `pointer` is uniquely writable.
     let status =
         unsafe { raw::iplSceneCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer) };
     check(status)?;
@@ -161,6 +179,8 @@ pub(crate) fn load_scene(
     let serialized = create_serialized_object(context, Some(bytes))?;
     let mut settings = scene_settings(embree);
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: all handles are live, settings remain readable, optional callbacks
+    // are null as documented, and `pointer` is uniquely writable.
     let status = unsafe {
         raw::iplSceneLoad(
             context.0.as_ptr(),
@@ -180,6 +200,8 @@ pub(crate) fn load_scene(
 
 pub(crate) fn save_scene(context: ContextPtr, scene: ScenePtr) -> Result<Vec<u8>, Status> {
     let serialized = create_serialized_object(context, None)?;
+    // SAFETY: both handles are live and the serialized object is the uniquely
+    // owned destination for this save operation.
     unsafe { raw::iplSceneSave(scene.0.as_ptr(), serialized.0.as_ptr()) };
     let bytes = serialized_object_bytes(serialized);
     destroy_serialized_object(serialized);
@@ -188,10 +210,12 @@ pub(crate) fn save_scene(context: ContextPtr, scene: ScenePtr) -> Result<Vec<u8>
 
 pub(crate) fn destroy_scene(scene: ScenePtr) {
     let mut pointer = scene.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained scene reference exactly once.
     unsafe { raw::iplSceneRelease(&raw mut pointer) };
 }
 
 pub(crate) fn commit_scene(scene: ScenePtr) {
+    // SAFETY: the scene is live and the safe owner serializes scene mutation/commit.
     unsafe { raw::iplSceneCommit(scene.0.as_ptr()) };
 }
 
@@ -224,6 +248,8 @@ pub(crate) fn create_static_mesh(
         materials: materials.as_mut_ptr(),
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the scene is live; all geometry/material slices referenced by
+    // `settings` remain readable for their checked counts; `pointer` is writable.
     let status =
         unsafe { raw::iplStaticMeshCreate(scene.0.as_ptr(), &raw mut settings, &raw mut pointer) };
     check(status)?;
@@ -234,14 +260,17 @@ pub(crate) fn create_static_mesh(
 
 pub(crate) fn destroy_static_mesh(mesh: StaticMeshPtr) {
     let mut pointer = mesh.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained mesh reference exactly once.
     unsafe { raw::iplStaticMeshRelease(&raw mut pointer) };
 }
 
 pub(crate) fn add_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
+    // SAFETY: both handles are live and the safe scene owner serializes mutation.
     unsafe { raw::iplStaticMeshAdd(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
 pub(crate) fn remove_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
+    // SAFETY: both handles are live and the safe scene owner serializes mutation.
     unsafe { raw::iplStaticMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
@@ -257,6 +286,8 @@ pub(crate) fn create_instanced_mesh(
         },
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: both scenes are live, `settings` is fully initialized, and
+    // `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::iplInstancedMeshCreate(scene.0.as_ptr(), &raw mut settings, &raw mut pointer)
     };
@@ -268,14 +299,17 @@ pub(crate) fn create_instanced_mesh(
 
 pub(crate) fn destroy_instanced_mesh(mesh: InstancedMeshPtr) {
     let mut pointer = mesh.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained instance reference exactly once.
     unsafe { raw::iplInstancedMeshRelease(&raw mut pointer) };
 }
 
 pub(crate) fn add_instanced_mesh(scene: ScenePtr, mesh: InstancedMeshPtr) {
+    // SAFETY: both handles are live and the safe scene owner serializes mutation.
     unsafe { raw::iplInstancedMeshAdd(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
 pub(crate) fn remove_instanced_mesh(scene: ScenePtr, mesh: InstancedMeshPtr) {
+    // SAFETY: both handles are live and the safe scene owner serializes mutation.
     unsafe { raw::iplInstancedMeshRemove(mesh.0.as_ptr(), scene.0.as_ptr()) };
 }
 
@@ -284,6 +318,8 @@ pub(crate) fn update_instanced_mesh_transform(
     mesh: InstancedMeshPtr,
     transform: [[f32; 4]; 4],
 ) {
+    // SAFETY: both handles are live, the instance belongs to the scene, and the
+    // safe scene owner serializes transform mutation.
     unsafe {
         raw::iplInstancedMeshUpdateTransform(
             mesh.0.as_ptr(),
@@ -311,6 +347,8 @@ pub(crate) fn generate_uniform_floor_probes(
             elements: transform.rows(),
         },
     };
+    // SAFETY: the probe array and scene are live, `params` is fully initialized,
+    // and the safe owner serializes probe-array mutation.
     unsafe {
         raw::iplProbeArrayGenerateProbes(
             probe_array.0.0.as_ptr(),
@@ -318,11 +356,13 @@ pub(crate) fn generate_uniform_floor_probes(
             &raw mut params,
         );
     }
+    // SAFETY: the probe array is live and generation completed before this query.
     let count = unsafe { raw::iplProbeArrayGetNumProbes(probe_array.0.0.as_ptr()) };
     let count = usize::try_from(count).map_err(|_error| Status::ContractViolation)?;
     let mut probes = Vec::with_capacity(count);
     for index in 0..count {
         let index = i32::try_from(index).map_err(|_error| Status::ContractViolation)?;
+        // SAFETY: `index` is within the count returned by this live probe array.
         let sphere = unsafe { raw::iplProbeArrayGetProbe(probe_array.0.0.as_ptr(), index) };
         probes.push(
             AcousticProbe::new(
@@ -333,10 +373,13 @@ pub(crate) fn generate_uniform_floor_probes(
         );
     }
     let batch = create_probe_batch(context)?;
+    // SAFETY: both handles are live and the batch is exclusively owned while
+    // adding the generated array.
     unsafe {
         raw::iplProbeBatchAddProbeArray(batch.0.as_ptr(), probe_array.0.0.as_ptr());
-        raw::iplProbeBatchCommit(batch.0.as_ptr());
     }
+    // SAFETY: the batch is live, exclusively owned, and all probe additions are complete.
+    unsafe { raw::iplProbeBatchCommit(batch.0.as_ptr()) };
     Ok((batch, probes))
 }
 
@@ -371,6 +414,8 @@ pub(crate) fn bake_reflections(
         openCLDevice: std::ptr::null_mut(),
         radeonRaysDevice: std::ptr::null_mut(),
     };
+    // SAFETY: all handles are live, `params` remains readable, callbacks are
+    // absent as documented for reflections baking, and the call is synchronous.
     unsafe {
         raw::iplReflectionsBakerBake(
             context.0.as_ptr(),
@@ -399,6 +444,8 @@ pub(crate) fn bake_pathing(
         pathRange: settings.path_range,
         numThreads: native_u32(settings.num_threads),
     };
+    // SAFETY: all handles are live, `params` remains readable, the callback is
+    // ABI-compatible and does not dereference user data, and the call is synchronous.
     unsafe {
         // Steam Audio 4.8.1 documents this callback as optional, but its
         // path-baker worker invokes it unconditionally.
@@ -418,6 +465,7 @@ pub(crate) fn probe_batch_data_size(
     identifier: BakedDataIdentifier,
 ) -> usize {
     let mut identifier = raw_identifier(identifier);
+    // SAFETY: the batch is live and `identifier` is a fully initialized input record.
     unsafe { raw::iplProbeBatchGetDataSize(batch.0.as_ptr(), &raw mut identifier) }
 }
 
@@ -426,6 +474,8 @@ pub(crate) fn save_probe_batch(
     batch: ProbeBatchPtr,
 ) -> Result<Vec<u8>, Status> {
     let serialized = create_serialized_object(context, None)?;
+    // SAFETY: both handles are live and the serialized object is the uniquely
+    // owned destination for this save operation.
     unsafe { raw::iplProbeBatchSave(batch.0.as_ptr(), serialized.0.as_ptr()) };
     let bytes = serialized_object_bytes(serialized);
     destroy_serialized_object(serialized);
@@ -435,6 +485,8 @@ pub(crate) fn save_probe_batch(
 pub(crate) fn load_probe_batch(context: ContextPtr, bytes: &[u8]) -> Result<ProbeBatchPtr, Status> {
     let serialized = create_serialized_object(context, Some(bytes))?;
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: both input handles are live and `pointer` is a valid, uniquely
+    // writable out-parameter.
     let status = unsafe {
         raw::iplProbeBatchLoad(context.0.as_ptr(), serialized.0.as_ptr(), &raw mut pointer)
     };
@@ -446,11 +498,13 @@ pub(crate) fn load_probe_batch(context: ContextPtr, bytes: &[u8]) -> Result<Prob
 }
 
 pub(crate) fn probe_batch_count(batch: ProbeBatchPtr) -> Result<usize, ()> {
+    // SAFETY: the probe batch is live and committed before shared queries.
     usize::try_from(unsafe { raw::iplProbeBatchGetNumProbes(batch.0.as_ptr()) }).map_err(drop)
 }
 
 pub(crate) fn destroy_probe_batch(batch: ProbeBatchPtr) {
     let mut pointer = batch.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained batch reference exactly once.
     unsafe { raw::iplProbeBatchRelease(&raw mut pointer) };
 }
 
@@ -468,6 +522,8 @@ pub(crate) fn create_default_hrtf(
         normType: raw::IPL_HRTFNORMTYPE_NONE,
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context is live, both settings records are initialized, and
+    // `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::iplHRTFCreate(
             context.0.as_ptr(),
@@ -484,6 +540,7 @@ pub(crate) fn create_default_hrtf(
 
 pub(crate) fn destroy_hrtf(hrtf: HrtfPtr) {
     let mut pointer = hrtf.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained HRTF reference exactly once.
     unsafe { raw::iplHRTFRelease(&raw mut pointer) };
 }
 
@@ -497,6 +554,8 @@ pub(crate) fn create_binaural_effect(
         hrtf: hrtf.0.as_ptr(),
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: context and HRTF handles are live, settings are initialized, and
+    // `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::iplBinauralEffectCreate(
             context.0.as_ptr(),
@@ -513,10 +572,12 @@ pub(crate) fn create_binaural_effect(
 
 pub(crate) fn destroy_binaural_effect(effect: BinauralEffectPtr) {
     let mut pointer = effect.0.as_ptr();
+    // SAFETY: this releases the safe owner's retained effect reference exactly once.
     unsafe { raw::iplBinauralEffectRelease(&raw mut pointer) };
 }
 
 pub(crate) fn reset_binaural_effect(effect: BinauralEffectPtr) {
+    // SAFETY: the effect is live and the safe owner provides exclusive access.
     unsafe { raw::iplBinauralEffectReset(effect.0.as_ptr()) };
 }
 
@@ -552,6 +613,8 @@ pub(crate) fn apply_binaural_effect(
         hrtf: hrtf.0.as_ptr(),
         peakDelays: std::ptr::null_mut(),
     };
+    // SAFETY: effect and HRTF handles are live, channel pointer tables reference
+    // buffers sized for the configured frame, and effect access is exclusive.
     let state = unsafe {
         raw::iplBinauralEffectApply(
             effect.0.as_ptr(),
@@ -575,11 +638,14 @@ pub(crate) fn get_binaural_tail(
         numSamples: audio.raw_frame_size(),
         data: output_channels.as_mut_ptr(),
     };
+    // SAFETY: the effect is live, output channel pointers reference writable
+    // frame-sized buffers, and effect access is exclusive.
     let state = unsafe { raw::iplBinauralEffectGetTail(effect.0.as_ptr(), &raw mut output_buffer) };
     tail_state(state)
 }
 
 pub(crate) fn binaural_tail_size(effect: BinauralEffectPtr) -> i32 {
+    // SAFETY: the effect is live and this query does not mutate its processing state.
     unsafe { raw::iplBinauralEffectGetTailSize(effect.0.as_ptr()) }
 }
 
@@ -632,6 +698,8 @@ fn create_serialized_object(
     });
     let mut settings = raw::IPLSerializedObjectSettings { data, size };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context is live, optional input bytes remain readable for
+    // `size`, and `pointer` is a valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::iplSerializedObjectCreate(context.0.as_ptr(), &raw mut settings, &raw mut pointer)
     };
@@ -642,21 +710,28 @@ fn create_serialized_object(
 }
 
 fn serialized_object_bytes(serialized: SerializedObjectPtr) -> Result<Vec<u8>, Status> {
+    // SAFETY: the serialized object is live and owns its byte storage.
     let size = unsafe { raw::iplSerializedObjectGetSize(serialized.0.as_ptr()) };
+    // SAFETY: the serialized object is live and owns its byte storage.
     let data = unsafe { raw::iplSerializedObjectGetData(serialized.0.as_ptr()) };
     if size == 0 || data.is_null() {
         return Err(Status::ContractViolation);
     }
+    // SAFETY: the non-null pointer above addresses `size` bytes owned by the
+    // still-live serialized object; the bytes are copied before release.
     Ok(unsafe { std::slice::from_raw_parts(data, size) }.to_vec())
 }
 
 fn destroy_serialized_object(serialized: SerializedObjectPtr) {
     let mut pointer = serialized.0.as_ptr();
+    // SAFETY: this releases the uniquely owned serialized-object reference once.
     unsafe { raw::iplSerializedObjectRelease(&raw mut pointer) };
 }
 
 fn create_probe_array(context: ContextPtr) -> Result<ProbeArrayPtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context is live and `pointer` is a valid, uniquely writable
+    // out-parameter.
     let status = unsafe { raw::iplProbeArrayCreate(context.0.as_ptr(), &raw mut pointer) };
     check(status)?;
     NonNull::new(pointer)
@@ -666,11 +741,14 @@ fn create_probe_array(context: ContextPtr) -> Result<ProbeArrayPtr, Status> {
 
 fn destroy_probe_array(array: ProbeArrayPtr) {
     let mut pointer = array.0.as_ptr();
+    // SAFETY: this releases the uniquely owned probe-array reference once.
     unsafe { raw::iplProbeArrayRelease(&raw mut pointer) };
 }
 
 fn create_probe_batch(context: ContextPtr) -> Result<ProbeBatchPtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the context is live and `pointer` is a valid, uniquely writable
+    // out-parameter.
     let status = unsafe { raw::iplProbeBatchCreate(context.0.as_ptr(), &raw mut pointer) };
     check(status)?;
     NonNull::new(pointer)

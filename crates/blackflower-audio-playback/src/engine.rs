@@ -14,7 +14,7 @@ use kira::track::{TrackBuilder, TrackHandle};
 use kira::{AudioManager, AudioManagerSettings, Frame, Tween};
 
 use crate::decoder::KiraStreamDecoder;
-use crate::hrtf::{DirectionHandle, HrtfBuilder};
+use crate::hrtf::{DirectionHandle, HrtfBuilder, HrtfRuntime};
 use crate::{Error, INTERNAL_BUFFER_SIZE};
 use blackflower_acoustics::PropagationDescriptor;
 
@@ -93,6 +93,9 @@ pub enum AudioEvent {
 pub struct AudioEngine {
     manager: AudioManager<DefaultBackend>,
     two_d_track: TrackHandle,
+    // Rust drops fields in declaration order, so Kira tears down every voice
+    // effect before the shared native context and HRTF are released.
+    hrtf: Arc<HrtfRuntime>,
     settings: AudioEngineSettings,
     next_voice: u64,
     next_order: u64,
@@ -101,11 +104,12 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    /// Open the default CPAL output device.
+    /// Open the default CPAL output device and initialize shared HRTF state.
     pub fn new(settings: AudioEngineSettings) -> Result<Self, Error> {
         if settings.max_voices == 0 {
             return Err(Error::InvalidField("max_voices"));
         }
+        let hrtf = Arc::new(HrtfRuntime::new()?);
         let mut manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings {
             internal_buffer_size: INTERNAL_BUFFER_SIZE,
             ..AudioManagerSettings::default()
@@ -117,6 +121,7 @@ impl AudioEngine {
         Ok(Self {
             manager,
             two_d_track,
+            hrtf,
             settings,
             next_voice: 1,
             next_order: 1,
@@ -153,16 +158,8 @@ impl AudioEngine {
                 None,
             ),
             Spatialization::Hrtf => {
-                let mut builder = TrackBuilder::new()
-                    .sound_capacity(1)
-                    .persist_until_sounds_finish(true);
-                let direction =
-                    builder.add_effect(HrtfBuilder::new(params.direction, params.propagation));
-                let mut track = self
-                    .manager
-                    .add_sub_track(builder)
-                    .map_err(|_error| Error::ResourceLimit)?;
-                let handle = play_on_track(&mut track, media, gain_db, event.loop_region)?;
+                let (handle, track, direction) =
+                    self.play_hrtf(media, event.loop_region, gain_db, params)?;
                 (handle, Some(track), Some(direction))
             }
         };
@@ -180,6 +177,29 @@ impl AudioEngine {
         });
         self.events.push_back(AudioEvent::Started(voice_id));
         Ok(voice_id)
+    }
+
+    fn play_hrtf(
+        &mut self,
+        media: &AudioAsset,
+        loop_region: Option<LoopRegion>,
+        gain_db: f32,
+        params: PlaybackParams,
+    ) -> Result<(VoiceHandle, TrackHandle, DirectionHandle), Error> {
+        let mut builder = TrackBuilder::new()
+            .sound_capacity(1)
+            .persist_until_sounds_finish(true);
+        let direction = builder.add_effect(HrtfBuilder::new(
+            &self.hrtf,
+            params.direction,
+            params.propagation,
+        )?);
+        let mut track = self
+            .manager
+            .add_sub_track(builder)
+            .map_err(|_error| Error::ResourceLimit)?;
+        let handle = play_on_track(&mut track, media, gain_db, loop_region)?;
+        Ok((handle, track, direction))
     }
 
     /// Stop a live voice.

@@ -12,6 +12,7 @@ use crate::{
 
 /// Maximum decoded component operations in one incremental snapshot.
 pub const MAX_DELTA_OPERATIONS: usize = 65_536;
+const MIN_DELTA_OPERATION_BYTES: usize = 12;
 
 /// One canonical component-level replication operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +149,9 @@ impl SnapshotDelta {
             usize::try_from(decoder.u32()?).map_err(|_error| DeltaError::IntegerOutOfRange)?;
         if count > MAX_DELTA_OPERATIONS {
             return Err(DeltaError::TooManyOperations { actual: count });
+        }
+        if count > decoder.remaining() / MIN_DELTA_OPERATION_BYTES {
+            return Err(crate::SnapshotError::Truncated.into());
         }
         let mut operations = Vec::with_capacity(count);
         for _index in 0..count {
@@ -411,14 +415,14 @@ fn apply_operation(
             let entity_state = entities
                 .get_mut(entity)
                 .ok_or(DeltaError::MissingEntity { entity: *entity })?;
-            entity_state.components.insert(*component, state.clone());
+            entity_state.insert_component(*component, state.clone());
             Ok(())
         }
         DeltaOperation::RemoveComponent { entity, component } => {
             let entity_state = entities
                 .get_mut(entity)
                 .ok_or(DeltaError::MissingEntity { entity: *entity })?;
-            if entity_state.components.remove(component).is_none() {
+            if entity_state.remove_component(*component).is_none() {
                 Err(DeltaError::MissingComponent {
                     entity: *entity,
                     component: *component,
@@ -484,9 +488,8 @@ fn decode_operation(decoder: &mut Decoder<'_>) -> Result<DeltaOperation, DeltaEr
             })
         }
         2 => {
-            let mut components = decode_entity(decoder, 1)?.components;
-            let (component, state) = components
-                .pop_first()
+            let (component, state) = decode_entity(decoder, 1)?
+                .into_first_component()
                 .ok_or(DeltaError::IntegerOutOfRange)?;
             Ok(DeltaOperation::Update {
                 entity,

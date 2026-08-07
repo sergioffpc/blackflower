@@ -208,15 +208,7 @@ fn toolchain_identity() -> ToolchainIdentity {
 }
 
 fn steam_audio_identity() -> String {
-    format!(
-        "steam-audio/{}.{}.{}@{};bfac={};{}",
-        blackflower_audio_spatial::STEAM_AUDIO_VERSION.0,
-        blackflower_audio_spatial::STEAM_AUDIO_VERSION.1,
-        blackflower_audio_spatial::STEAM_AUDIO_VERSION.2,
-        blackflower_cooker_acoustics::STEAM_AUDIO_REVISION,
-        blackflower_audio_spatial::ACOUSTIC_ASSET_SCHEMA,
-        blackflower_cooker_acoustics::COOKER_RECIPE,
-    )
+    blackflower_audio_spatial::steam_audio_acoustics_identity()
 }
 
 fn build_catalog(

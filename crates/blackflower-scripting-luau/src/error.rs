@@ -19,6 +19,20 @@ pub enum Error {
     /// Luau could not generate native code for a loaded chunk.
     #[error("Luau native code generation failed")]
     NativeCodegenCompilation,
+    /// Authenticated content has a runtime kind other than Luau bytecode.
+    #[error("authenticated asset is {actual:?}, not Luau bytecode")]
+    InvalidBytecodeAssetKind {
+        /// Authenticated catalog kind supplied by the asset package.
+        actual: blackflower_assets::AssetKind,
+    },
+    /// Authenticated bytecode was cooked for another Luau toolchain.
+    #[error("Luau bytecode toolchain mismatch: expected `{expected}`, found `{actual}`")]
+    IncompatibleBytecodeToolchain {
+        /// Exact linked Luau toolchain identity.
+        expected: String,
+        /// Toolchain identity authenticated by the asset catalog.
+        actual: String,
+    },
     /// The native compiler or VM could not allocate memory.
     #[error("Luau allocation failed")]
     OutOfMemory,

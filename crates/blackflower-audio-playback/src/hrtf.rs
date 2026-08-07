@@ -4,14 +4,36 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use blackflower_acoustics::PropagationDescriptor;
 use blackflower_audio_media::AUDIO_SAMPLE_RATE;
 use blackflower_audio_spatial::{
-    AudioSettings, BinauralEffect, BinauralParams, Context, DirectEffect, PathEffect,
+    AudioSettings, BinauralEffect, BinauralParams, Context, DirectEffect, Hrtf, PathEffect,
     PropagationExchange, Vec3A,
 };
 use kira::Frame;
 use kira::effect::{Effect, EffectBuilder};
 use kira::info::Info;
 
-use crate::INTERNAL_BUFFER_SIZE;
+use crate::{Error, INTERNAL_BUFFER_SIZE};
+
+pub(crate) struct HrtfRuntime {
+    context: Context,
+    hrtf: Hrtf,
+}
+
+impl HrtfRuntime {
+    pub(crate) fn new() -> Result<Self, Error> {
+        let frame_size = u32::try_from(INTERNAL_BUFFER_SIZE)
+            .map_err(|_error| Error::InvalidField("internal_buffer_size"))?;
+        let settings = AudioSettings::new(AUDIO_SAMPLE_RATE, frame_size)?;
+        let context = Context::new()?;
+        let hrtf = context.create_default_hrtf(settings)?;
+        Ok(Self { context, hrtf })
+    }
+
+    fn create_binaural_effect(&self) -> Result<BinauralEffect, Error> {
+        self.context
+            .create_binaural_effect(&self.hrtf)
+            .map_err(Error::from)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct DirectionHandle {
@@ -41,8 +63,7 @@ impl DirectionHandle {
 pub(crate) struct HrtfBuilder {
     direction: Arc<[AtomicU32; 3]>,
     propagation: Option<Arc<PropagationExchange>>,
-    context: Option<Context>,
-    effect: Option<BinauralEffect>,
+    effect: BinauralEffect,
     direct: Option<DirectEffect>,
     path: Option<PathEffect>,
     mono: Vec<f32>,
@@ -52,10 +73,13 @@ pub(crate) struct HrtfBuilder {
 }
 
 impl HrtfBuilder {
-    pub(crate) fn new(direction: [f32; 3], propagation: Option<PropagationDescriptor>) -> Self {
+    pub(crate) fn new(
+        runtime: &HrtfRuntime,
+        direction: [f32; 3],
+        propagation: Option<PropagationDescriptor>,
+    ) -> Result<Self, Error> {
         let exchange = propagation.map(|value| Arc::new(PropagationExchange::new(value)));
-        let (context, effect) = create_binaural_effect();
-        Self {
+        Ok(Self {
             direction: Arc::new(direction.map(|value| AtomicU32::new(value.to_bits()))),
             direct: exchange
                 .as_ref()
@@ -64,33 +88,13 @@ impl HrtfBuilder {
                 .as_ref()
                 .and_then(|_exchange| PathEffect::new(INTERNAL_BUFFER_SIZE).ok()),
             propagation: exchange,
-            context,
-            effect,
+            effect: runtime.create_binaural_effect()?,
             mono: vec![0.0; INTERNAL_BUFFER_SIZE],
             scratch: vec![0.0; INTERNAL_BUFFER_SIZE],
             left: vec![0.0; INTERNAL_BUFFER_SIZE],
             right: vec![0.0; INTERNAL_BUFFER_SIZE],
-        }
+        })
     }
-}
-
-fn create_binaural_effect() -> (Option<Context>, Option<BinauralEffect>) {
-    let Ok(frame_size) = u32::try_from(INTERNAL_BUFFER_SIZE) else {
-        return (None, None);
-    };
-    let Ok(settings) = AudioSettings::new(AUDIO_SAMPLE_RATE, frame_size) else {
-        return (None, None);
-    };
-    let Ok(mut context) = Context::new() else {
-        return (None, None);
-    };
-    let Ok(hrtf) = context.create_default_hrtf(settings) else {
-        return (Some(context), None);
-    };
-    let Ok(effect) = context.create_binaural_effect(&hrtf) else {
-        return (Some(context), None);
-    };
-    (Some(context), Some(effect))
 }
 
 impl EffectBuilder for HrtfBuilder {
@@ -106,7 +110,6 @@ impl EffectBuilder for HrtfBuilder {
                 direction: self.direction,
                 propagation: self.propagation,
                 enabled: false,
-                _context: self.context,
                 effect: self.effect,
                 direct: self.direct,
                 path: self.path,
@@ -124,8 +127,7 @@ struct HrtfEffect {
     direction: Arc<[AtomicU32; 3]>,
     propagation: Option<Arc<PropagationExchange>>,
     enabled: bool,
-    _context: Option<Context>,
-    effect: Option<BinauralEffect>,
+    effect: BinauralEffect,
     direct: Option<DirectEffect>,
     path: Option<PathEffect>,
     mono: Vec<f32>,
@@ -146,13 +148,12 @@ impl HrtfEffect {
 
 impl Effect for HrtfEffect {
     fn init(&mut self, sample_rate: u32, internal_buffer_size: usize) {
-        self.enabled = sample_rate == AUDIO_SAMPLE_RATE
-            && internal_buffer_size == INTERNAL_BUFFER_SIZE
-            && self.effect.is_some();
+        self.enabled =
+            sample_rate == AUDIO_SAMPLE_RATE && internal_buffer_size == INTERNAL_BUFFER_SIZE;
     }
 
     fn on_change_sample_rate(&mut self, sample_rate: u32) {
-        self.enabled = sample_rate == AUDIO_SAMPLE_RATE && self.effect.is_some();
+        self.enabled = sample_rate == AUDIO_SAMPLE_RATE;
     }
 
     fn process(&mut self, input: &mut [Frame], _dt: f64, _info: &Info) {
@@ -161,10 +162,6 @@ impl Effect for HrtfEffect {
             return;
         }
         let Some(params) = self.direction() else {
-            input.fill(Frame::ZERO);
-            return;
-        };
-        let Some(effect) = self.effect.as_mut() else {
             input.fill(Frame::ZERO);
             return;
         };
@@ -189,7 +186,8 @@ impl Effect for HrtfEffect {
                 return;
             }
         }
-        if effect
+        if self
+            .effect
             .process_mono(params, &self.mono, &mut self.left, &mut self.right)
             .is_err()
         {

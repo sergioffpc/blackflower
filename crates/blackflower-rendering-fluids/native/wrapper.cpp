@@ -10,7 +10,6 @@ namespace {
 
 struct Buffer {
     BFFlowResourceId id;
-    bool alive;
     Buffer* next;
 };
 
@@ -24,12 +23,12 @@ struct BufferTransient {
 
 struct BufferAcquire {
     BufferTransient* transient;
+    Buffer* buffer;
     BufferAcquire* next;
 };
 
 struct Texture {
     BFFlowResourceId id;
-    bool alive;
     Texture* next;
 };
 
@@ -42,18 +41,17 @@ struct TextureTransient {
 
 struct TextureAcquire {
     TextureTransient* transient;
+    Texture* texture;
     TextureAcquire* next;
 };
 
 struct Sampler {
     BFFlowResourceId id;
-    bool alive;
     Sampler* next;
 };
 
 struct Pipeline {
     BFFlowResourceId id;
-    bool alive;
     Pipeline* next;
 };
 
@@ -100,6 +98,18 @@ void release_list(T*& head) {
         delete head;
         head = next;
     }
+}
+
+template <typename T>
+T** find_node_link(T*& head, T* target) {
+    T** link = &head;
+    while (*link != nullptr) {
+        if (*link == target) {
+            return link;
+        }
+        link = &(*link)->next;
+    }
+    return nullptr;
 }
 
 void mark_failed(BFFlowContext* context) {
@@ -174,7 +184,7 @@ NvFlowBuffer* create_buffer(
         mark_failed(context);
         return nullptr;
     }
-    Buffer* buffer = prepend(context->buffers, id, true);
+    Buffer* buffer = prepend(context->buffers, id);
     if (buffer == nullptr) {
         context->callbacks.destroy_buffer(context->callbacks.userdata, id);
         mark_failed(context);
@@ -185,10 +195,27 @@ NvFlowBuffer* create_buffer(
 void destroy_buffer(NvFlowContext* native, NvFlowBuffer* opaque) {
     BFFlowContext* context = cast_context(native);
     Buffer* buffer = reinterpret_cast<Buffer*>(opaque);
-    if (buffer != nullptr && buffer->alive) {
-        context->callbacks.destroy_buffer(context->callbacks.userdata, buffer->id);
-        buffer->alive = false;
+    Buffer** link = find_node_link(context->buffers, buffer);
+    if (link == nullptr) {
+        return;
     }
+    *link = buffer->next;
+    for (BufferTransient* transient = context->buffer_transients;
+         transient != nullptr;
+         transient = transient->next) {
+        if (transient->buffer == buffer) {
+            transient->buffer = nullptr;
+        }
+    }
+    for (BufferAcquire* acquire = context->buffer_acquires;
+         acquire != nullptr;
+         acquire = acquire->next) {
+        if (acquire->buffer == buffer) {
+            acquire->buffer = nullptr;
+        }
+    }
+    context->callbacks.destroy_buffer(context->callbacks.userdata, buffer->id);
+    delete buffer;
 }
 
 NvFlowBufferTransient* register_buffer_transient(
@@ -245,7 +272,7 @@ NvFlowBufferAcquire* enqueue_acquire_buffer(
     NvFlowBufferTransient* opaque) {
     BFFlowContext* context = cast_context(native);
     BufferTransient* transient = reinterpret_cast<BufferTransient*>(opaque);
-    BufferAcquire* acquire = prepend(context->buffer_acquires, transient);
+    BufferAcquire* acquire = prepend(context->buffer_acquires, transient, nullptr);
     if (acquire == nullptr) {
         mark_failed(context);
     }
@@ -253,14 +280,18 @@ NvFlowBufferAcquire* enqueue_acquire_buffer(
 }
 
 NvFlowBool32 get_acquired_buffer(
-    NvFlowContext*,
+    NvFlowContext* native,
     NvFlowBufferAcquire* opaque,
     NvFlowBuffer** out_buffer) {
+    BFFlowContext* context = cast_context(native);
     BufferAcquire* acquire = reinterpret_cast<BufferAcquire*>(opaque);
-    if (acquire == nullptr || acquire->transient == nullptr || out_buffer == nullptr) {
+    BufferAcquire** link = find_node_link(context->buffer_acquires, acquire);
+    if (link == nullptr || acquire->buffer == nullptr || out_buffer == nullptr) {
         return NV_FLOW_FALSE;
     }
-    *out_buffer = reinterpret_cast<NvFlowBuffer*>(acquire->transient->buffer);
+    *link = acquire->next;
+    *out_buffer = reinterpret_cast<NvFlowBuffer*>(acquire->buffer);
+    delete acquire;
     return NV_FLOW_TRUE;
 }
 
@@ -339,7 +370,7 @@ NvFlowTexture* create_texture(NvFlowContext* native, const NvFlowTextureDesc* de
         mark_failed(context);
         return nullptr;
     }
-    Texture* texture = prepend(context->textures, id, true);
+    Texture* texture = prepend(context->textures, id);
     if (texture == nullptr) {
         context->callbacks.destroy_texture(context->callbacks.userdata, id);
         mark_failed(context);
@@ -350,10 +381,27 @@ NvFlowTexture* create_texture(NvFlowContext* native, const NvFlowTextureDesc* de
 void destroy_texture(NvFlowContext* native, NvFlowTexture* opaque) {
     BFFlowContext* context = cast_context(native);
     Texture* texture = reinterpret_cast<Texture*>(opaque);
-    if (texture != nullptr && texture->alive) {
-        context->callbacks.destroy_texture(context->callbacks.userdata, texture->id);
-        texture->alive = false;
+    Texture** link = find_node_link(context->textures, texture);
+    if (link == nullptr) {
+        return;
     }
+    *link = texture->next;
+    for (TextureTransient* transient = context->texture_transients;
+         transient != nullptr;
+         transient = transient->next) {
+        if (transient->texture == texture) {
+            transient->texture = nullptr;
+        }
+    }
+    for (TextureAcquire* acquire = context->texture_acquires;
+         acquire != nullptr;
+         acquire = acquire->next) {
+        if (acquire->texture == texture) {
+            acquire->texture = nullptr;
+        }
+    }
+    context->callbacks.destroy_texture(context->callbacks.userdata, texture->id);
+    delete texture;
 }
 
 NvFlowTextureTransient* register_texture_transient(
@@ -409,7 +457,7 @@ NvFlowTextureAcquire* enqueue_acquire_texture(
     NvFlowTextureTransient* opaque) {
     BFFlowContext* context = cast_context(native);
     TextureTransient* transient = reinterpret_cast<TextureTransient*>(opaque);
-    TextureAcquire* acquire = prepend(context->texture_acquires, transient);
+    TextureAcquire* acquire = prepend(context->texture_acquires, transient, nullptr);
     if (acquire == nullptr) {
         mark_failed(context);
     }
@@ -417,14 +465,18 @@ NvFlowTextureAcquire* enqueue_acquire_texture(
 }
 
 NvFlowBool32 get_acquired_texture(
-    NvFlowContext*,
+    NvFlowContext* native,
     NvFlowTextureAcquire* opaque,
     NvFlowTexture** out_texture) {
+    BFFlowContext* context = cast_context(native);
     TextureAcquire* acquire = reinterpret_cast<TextureAcquire*>(opaque);
-    if (acquire == nullptr || acquire->transient == nullptr || out_texture == nullptr) {
+    TextureAcquire** link = find_node_link(context->texture_acquires, acquire);
+    if (link == nullptr || acquire->texture == nullptr || out_texture == nullptr) {
         return NV_FLOW_FALSE;
     }
-    *out_texture = reinterpret_cast<NvFlowTexture*>(acquire->transient->texture);
+    *link = acquire->next;
+    *out_texture = reinterpret_cast<NvFlowTexture*>(acquire->texture);
+    delete acquire;
     return NV_FLOW_TRUE;
 }
 
@@ -457,7 +509,7 @@ NvFlowSampler* create_sampler(NvFlowContext* native, const NvFlowSamplerDesc* de
         mark_failed(context);
         return nullptr;
     }
-    Sampler* sampler = prepend(context->samplers, id, true);
+    Sampler* sampler = prepend(context->samplers, id);
     if (sampler == nullptr) {
         context->callbacks.destroy_sampler(context->callbacks.userdata, id);
         mark_failed(context);
@@ -478,10 +530,13 @@ NvFlowSampler* get_default_sampler(NvFlowContext* native) {
 void destroy_sampler(NvFlowContext* native, NvFlowSampler* opaque) {
     BFFlowContext* context = cast_context(native);
     Sampler* sampler = reinterpret_cast<Sampler*>(opaque);
-    if (sampler != nullptr && sampler->alive) {
-        context->callbacks.destroy_sampler(context->callbacks.userdata, sampler->id);
-        sampler->alive = false;
+    Sampler** link = find_node_link(context->samplers, sampler);
+    if (link == nullptr) {
+        return;
     }
+    *link = sampler->next;
+    context->callbacks.destroy_sampler(context->callbacks.userdata, sampler->id);
+    delete sampler;
 }
 
 NvFlowComputePipeline* create_compute_pipeline(
@@ -522,7 +577,7 @@ NvFlowComputePipeline* create_compute_pipeline(
         mark_failed(context);
         return nullptr;
     }
-    Pipeline* pipeline = prepend(context->pipelines, id, true);
+    Pipeline* pipeline = prepend(context->pipelines, id);
     if (pipeline == nullptr) {
         context->callbacks.destroy_compute_pipeline(context->callbacks.userdata, id);
         mark_failed(context);
@@ -533,10 +588,13 @@ NvFlowComputePipeline* create_compute_pipeline(
 void destroy_compute_pipeline(NvFlowContext* native, NvFlowComputePipeline* opaque) {
     BFFlowContext* context = cast_context(native);
     Pipeline* pipeline = reinterpret_cast<Pipeline*>(opaque);
-    if (pipeline != nullptr && pipeline->alive) {
-        context->callbacks.destroy_compute_pipeline(context->callbacks.userdata, pipeline->id);
-        pipeline->alive = false;
+    Pipeline** link = find_node_link(context->pipelines, pipeline);
+    if (link == nullptr) {
+        return;
     }
+    *link = pipeline->next;
+    context->callbacks.destroy_compute_pipeline(context->callbacks.userdata, pipeline->id);
+    delete pipeline;
 }
 
 BFFlowResourceId buffer_id(NvFlowBufferTransient* opaque) {
@@ -713,25 +771,54 @@ bool callbacks_valid(const BFFlowBackendCallbacks& callbacks) {
 
 void destroy_remaining_resources(BFFlowContext* context) {
     for (Pipeline* value = context->pipelines; value != nullptr; value = value->next) {
-        if (value->alive) {
-            context->callbacks.destroy_compute_pipeline(context->callbacks.userdata, value->id);
-        }
+        context->callbacks.destroy_compute_pipeline(context->callbacks.userdata, value->id);
     }
     for (Sampler* value = context->samplers; value != nullptr; value = value->next) {
-        if (value->alive) {
-            context->callbacks.destroy_sampler(context->callbacks.userdata, value->id);
-        }
+        context->callbacks.destroy_sampler(context->callbacks.userdata, value->id);
     }
     for (Texture* value = context->textures; value != nullptr; value = value->next) {
-        if (value->alive) {
-            context->callbacks.destroy_texture(context->callbacks.userdata, value->id);
-        }
+        context->callbacks.destroy_texture(context->callbacks.userdata, value->id);
     }
     for (Buffer* value = context->buffers; value != nullptr; value = value->next) {
-        if (value->alive) {
-            context->callbacks.destroy_buffer(context->callbacks.userdata, value->id);
+        context->callbacks.destroy_buffer(context->callbacks.userdata, value->id);
+    }
+}
+
+void retire_flush_handles(BFFlowContext* context) {
+    for (BufferAcquire* acquire = context->buffer_acquires;
+         acquire != nullptr;
+         acquire = acquire->next) {
+        if (acquire->transient != nullptr) {
+            acquire->buffer = acquire->transient->buffer;
+            acquire->transient = nullptr;
         }
     }
+    for (TextureAcquire* acquire = context->texture_acquires;
+         acquire != nullptr;
+         acquire = acquire->next) {
+        if (acquire->transient != nullptr) {
+            acquire->texture = acquire->transient->texture;
+            acquire->transient = nullptr;
+        }
+    }
+    release_list(context->texture_transients);
+    release_list(context->buffer_transients);
+}
+
+void flush_optimized_context(BFFlowContext* context) {
+    context->opt_interface->flush(context->opt);
+    retire_flush_handles(context);
+}
+
+void release_context_storage(BFFlowContext* context) {
+    retire_flush_handles(context);
+    destroy_remaining_resources(context);
+    release_list(context->pipelines);
+    release_list(context->samplers);
+    release_list(context->texture_acquires);
+    release_list(context->textures);
+    release_list(context->buffer_acquires);
+    release_list(context->buffers);
 }
 
 } // namespace
@@ -820,6 +907,8 @@ int32_t bf_flow_context_create(
         &context->flow_context);
     if (context->flow_interface == nullptr || context->flow_context == nullptr) {
         context->opt_interface->destroy(context->opt);
+        context->opt = nullptr;
+        release_context_storage(context);
         delete context;
         return BF_FLOW_STATUS_ALLOCATION_FAILED;
     }
@@ -833,16 +922,9 @@ void bf_flow_context_destroy(BFFlowContext* context) {
     }
     if (context->opt != nullptr) {
         context->opt_interface->destroy(context->opt);
+        context->opt = nullptr;
     }
-    destroy_remaining_resources(context);
-    release_list(context->pipelines);
-    release_list(context->samplers);
-    release_list(context->texture_acquires);
-    release_list(context->texture_transients);
-    release_list(context->textures);
-    release_list(context->buffer_acquires);
-    release_list(context->buffer_transients);
-    release_list(context->buffers);
+    release_context_storage(context);
     delete context;
 }
 
@@ -851,7 +933,7 @@ int32_t bf_flow_context_flush(BFFlowContext* context) {
         return BF_FLOW_STATUS_NULL_POINTER;
     }
     context->backend_failed = false;
-    context->opt_interface->flush(context->opt);
+    flush_optimized_context(context);
     return context->backend_failed ? BF_FLOW_STATUS_BACKEND_FAILED : BF_FLOW_STATUS_OK;
 }
 
@@ -887,13 +969,13 @@ int32_t bf_flow_context_validate_upload(BFFlowContext* context, uint64_t size_in
     void* mapped = context->flow_interface->mapBuffer(context->flow_context, buffer);
     if (mapped == nullptr) {
         context->flow_interface->destroyBuffer(context->flow_context, buffer);
-        context->opt_interface->flush(context->opt);
+        flush_optimized_context(context);
         return BF_FLOW_STATUS_BACKEND_FAILED;
     }
     std::memset(mapped, 0, static_cast<size_t>(size_in_bytes));
     context->flow_interface->unmapBuffer(context->flow_context, buffer);
     context->flow_interface->destroyBuffer(context->flow_context, buffer);
-    context->opt_interface->flush(context->opt);
+    flush_optimized_context(context);
     return context->backend_failed ? BF_FLOW_STATUS_BACKEND_FAILED : BF_FLOW_STATUS_OK;
 }
 

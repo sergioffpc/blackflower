@@ -22,7 +22,11 @@ pub enum Library {
     Coroutine,
     /// Table construction and transformation helpers.
     Table,
-    /// String matching and transformation helpers.
+    /// Bounded string inspection and transformation helpers.
+    ///
+    /// Pattern matching, formatting, and binary packing are excluded because
+    /// Luau implements them as non-preemptible native calls. The remaining
+    /// operations reject string arguments or results larger than 64 KiB.
     String,
     /// Deterministically seeded mathematical helpers.
     Math,
@@ -129,7 +133,7 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Set the deterministic `math.random` seed.
+    /// Set the default deterministic `math.random` seed restored per evaluation.
     #[must_use]
     pub const fn with_random_seed(mut self, random_seed: i32) -> Self {
         self.random_seed = random_seed;
@@ -173,7 +177,7 @@ impl RuntimeConfig {
         self
     }
 
-    /// The deterministic `math.random` seed.
+    /// Default deterministic `math.random` seed restored per evaluation.
     #[must_use]
     pub const fn random_seed(self) -> i32 {
         self.random_seed

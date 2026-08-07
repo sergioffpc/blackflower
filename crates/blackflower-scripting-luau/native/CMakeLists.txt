@@ -7,6 +7,11 @@ foreach(input ROOT COMPILER_LIBRARY AST_LIBRARY BYTECODE_LIBRARY CODEGEN_LIBRARY
         message(FATAL_ERROR "Missing BLACKFLOWER_LUAU_${input}")
     endif()
 endforeach()
+foreach(input USE_LONGJMP IDSIZE VECTOR_SIZE VECTOR_DOUBLE)
+    if(NOT DEFINED BLACKFLOWER_LUA_${input})
+        message(FATAL_ERROR "Missing BLACKFLOWER_LUA_${input}")
+    endif()
+endforeach()
 
 foreach(pair
     "Compiler;COMPILER"
@@ -28,7 +33,10 @@ endforeach()
 target_compile_definitions(
     Luau.VM
     INTERFACE
-    LUA_USE_LONGJMP=1
+    LUA_USE_LONGJMP=${BLACKFLOWER_LUA_USE_LONGJMP}
+    LUA_IDSIZE=${BLACKFLOWER_LUA_IDSIZE}
+    LUA_VECTOR_SIZE=${BLACKFLOWER_LUA_VECTOR_SIZE}
+    LUA_VECTOR_DOUBLE=${BLACKFLOWER_LUA_VECTOR_DOUBLE}
     "LUA_API=extern \"C\""
 )
 target_compile_definitions(

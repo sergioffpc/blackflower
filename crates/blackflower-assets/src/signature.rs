@@ -27,6 +27,11 @@ const IO_BUFFER_LENGTH: usize = 64 * 1024;
 const IO_BUFFER_LENGTH_U64: u64 = 64 * 1024;
 
 /// Public keys that an executable permits to sign asset packages.
+///
+/// Key trust authenticates provenance, not deployment freshness. Production
+/// runtimes must additionally use [`crate::AssetStore::open_dir_verified`] or
+/// [`crate::AssetPackage::open_verified`] with identities from trusted
+/// deployment metadata.
 #[derive(Clone, Default)]
 pub struct AssetTrustStore {
     keys: BTreeMap<AssetKeyId, VerifyingKey>,

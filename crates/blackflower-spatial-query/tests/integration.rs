@@ -31,7 +31,13 @@ fn segment_hits_are_bounded_and_ordered() -> Result<(), Box<dyn std::error::Erro
     assert!((hits[0].distance() - 1.0).abs() < 0.001);
     assert_eq!(hits[1].primitive_id().0, 0);
     assert!((hits[1].distance() - 2.0).abs() < 0.001);
+    let closest = scene
+        .closest_hit(Vec3A::ZERO, Vec3A::new(3.0, 0.0, 0.0))?
+        .ok_or("closest hit was missing")?;
+    assert_eq!(closest.primitive_id().0, 1);
+    assert!((closest.distance() - 1.0).abs() < 0.001);
     assert!(scene.is_occluded(Vec3A::ZERO, Vec3A::new(3.0, 0.0, 0.0))?);
+    assert!(!scene.is_occluded(Vec3A::ZERO, Vec3A::new(0.0, 3.0, 0.0))?);
     Ok(())
 }
 

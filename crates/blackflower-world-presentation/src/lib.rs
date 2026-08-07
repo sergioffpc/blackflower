@@ -9,14 +9,21 @@
 //! own client-only state, but must treat captured simulation state as immutable.
 
 mod audio;
+mod movement;
 mod pipeline;
+mod scene;
 mod systems;
 mod telemetry;
 mod types;
 mod world;
 
 pub use audio::{AudioCommand, AudioCommandBatch, PresentationAudioError};
+pub use movement::{
+    MovementProxy, MovementSampleKind, MovementSourceId, PresentationMovementError,
+    PresentationMovementSample,
+};
 pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
+pub use scene::{LocalVisualBinding, PresentationSceneError, PresentationViewport};
 pub use systems::{
     BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
     EvaluateAnimationPosesSystem, PrepareFrameSystem, PrepareViewsAndListenersSystem,

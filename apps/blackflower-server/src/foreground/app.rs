@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
+
 use super::ForegroundConfig;
-use super::logs::LogState;
-use super::metrics::{MetricStore, MetricsPoller};
 use super::render;
 
 const DRAW_INTERVAL: Duration = Duration::from_millis(100);
@@ -19,9 +21,6 @@ pub enum ForegroundError {
     /// The metrics polling worker could not be started.
     #[error("failed to start foreground metrics poller")]
     MetricsPoller(#[source] io::Error),
-    /// The initial log regex is invalid.
-    #[error("invalid foreground log regex")]
-    LogRegex(#[source] regex::Error),
     /// The terminal backend failed.
     #[error("foreground terminal failed")]
     Terminal(#[source] io::Error),
@@ -33,17 +32,21 @@ pub(crate) enum Page {
     Overview,
     Logs,
     Simulation,
-    Network,
+    Transport,
+    Sessions,
+    Replication,
     World,
     Host,
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Overview,
         Self::Logs,
         Self::Simulation,
-        Self::Network,
+        Self::Transport,
+        Self::Sessions,
+        Self::Replication,
         Self::World,
         Self::Host,
     ];
@@ -53,7 +56,9 @@ impl Page {
             Self::Overview => "Overview",
             Self::Logs => "Logs",
             Self::Simulation => "Simulation",
-            Self::Network => "Network",
+            Self::Transport => "Transport",
+            Self::Sessions => "Sessions",
+            Self::Replication => "Replication",
             Self::World => "World",
             Self::Host => "Host",
         }
@@ -64,7 +69,9 @@ impl Page {
             Self::Overview => "Ovr",
             Self::Logs => "Logs",
             Self::Simulation => "Sim",
-            Self::Network => "Net",
+            Self::Transport => "Xport",
+            Self::Sessions => "Sess",
+            Self::Replication => "Repl",
             Self::World => "World",
             Self::Host => "Host",
         }
@@ -75,9 +82,11 @@ impl Page {
             Self::Overview => 0,
             Self::Logs => 1,
             Self::Simulation => 2,
-            Self::Network => 3,
-            Self::World => 4,
-            Self::Host => 5,
+            Self::Transport => 3,
+            Self::Sessions => 4,
+            Self::Replication => 5,
+            Self::World => 6,
+            Self::Host => 7,
         }
     }
 
@@ -93,8 +102,8 @@ impl Page {
 #[derive(Debug, Default)]
 pub(crate) struct Histories {
     pub(crate) tick_p95_micros: History,
-    pub(crate) network_receive_bytes: History,
-    pub(crate) network_transmit_bytes: History,
+    pub(crate) transport_upstream_bytes: History,
+    pub(crate) transport_downstream_bytes: History,
 }
 
 #[derive(Debug, Default)]
@@ -126,6 +135,7 @@ pub(crate) struct App {
     pub(crate) histories: Histories,
     pub(crate) show_help: bool,
     poller: MetricsPoller,
+    shutdown_requested: Arc<AtomicBool>,
     should_quit: bool,
 }
 
@@ -133,13 +143,7 @@ impl App {
     pub(crate) fn new(config: ForegroundConfig) -> Result<Self, ForegroundError> {
         let poller =
             MetricsPoller::start(config.metrics_address).map_err(ForegroundError::MetricsPoller)?;
-        let logs = LogState::new(
-            config.log_receiver,
-            config.log_control,
-            config.initial_view_level,
-            config.initial_log_regex.as_deref(),
-        )
-        .map_err(ForegroundError::LogRegex)?;
+        let logs = LogState::new(config.log_receiver, config.log_control);
         Ok(Self {
             service_name: config.service_name,
             service_version: config.service_version,
@@ -151,12 +155,13 @@ impl App {
             histories: Histories::default(),
             show_help: false,
             poller,
+            shutdown_requested: config.shutdown_requested,
             should_quit: false,
         })
     }
 
     pub(crate) fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !self.should_quit {
+        while !self.should_quit && !self.shutdown_requested.load(Ordering::Acquire) {
             self.drain_inputs();
             terminal.draw(|frame| render::draw(frame, self))?;
             if event::poll(DRAW_INTERVAL)? {
@@ -187,12 +192,22 @@ impl App {
                 .tick_p95_micros
                 .push(u64::try_from(micros).unwrap_or(u64::MAX));
         }
-        if let Some(rate) = self.metrics.rate("node_network_receive_bytes_total") {
-            self.histories.network_receive_bytes.push(rate_to_u64(rate));
-        }
-        if let Some(rate) = self.metrics.rate("node_network_transmit_bytes_total") {
+        if let Some(rate) = self.metrics.rate_with_label(
+            "blackflower_network_udp_bytes_total",
+            "direction",
+            "upstream",
+        ) {
             self.histories
-                .network_transmit_bytes
+                .transport_upstream_bytes
+                .push(rate_to_u64(rate));
+        }
+        if let Some(rate) = self.metrics.rate_with_label(
+            "blackflower_network_udp_bytes_total",
+            "direction",
+            "downstream",
+        ) {
+            self.histories
+                .transport_downstream_bytes
                 .push(rate_to_u64(rate));
         }
     }
@@ -229,9 +244,11 @@ impl App {
             KeyCode::Char('1') => self.page = Page::Overview,
             KeyCode::Char('2') => self.page = Page::Logs,
             KeyCode::Char('3') => self.page = Page::Simulation,
-            KeyCode::Char('4') => self.page = Page::Network,
-            KeyCode::Char('5') => self.page = Page::World,
-            KeyCode::Char('6') => self.page = Page::Host,
+            KeyCode::Char('4') => self.page = Page::Transport,
+            KeyCode::Char('5') => self.page = Page::Sessions,
+            KeyCode::Char('6') => self.page = Page::Replication,
+            KeyCode::Char('7') => self.page = Page::World,
+            KeyCode::Char('8') => self.page = Page::Host,
             _ if self.page == Page::Logs => self.handle_log_key(key),
             _ => {}
         }

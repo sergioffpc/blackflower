@@ -4,6 +4,7 @@ mod canonical_toml;
 mod cook;
 mod coordinate_system;
 mod gltf_source;
+mod keys;
 mod manifest;
 mod mesh_cooker;
 mod model_cooker;
@@ -23,6 +24,7 @@ use blackflower_assets::{
 use clap::{Parser, Subcommand};
 
 use crate::cook::{CookRequest, Pipeline};
+use crate::keys::{KeysArgs, run_keys};
 use crate::network_gate::{NetworkGateArgs, run_network_gate};
 
 /// Runs the repository's developer task command.
@@ -34,6 +36,7 @@ pub fn run() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.command {
         Command::Assets(command) => run_assets(&args.workspace_root, command.command),
+        Command::Keys(command) => run_keys(&args.workspace_root, command),
         Command::NetworkGate(command) => run_network_gate(&args.workspace_root, command),
     }
 }
@@ -50,6 +53,8 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Assets(AssetsArgs),
+    /// Generate local TLS and asset-signing keys with OpenSSL.
+    Keys(KeysArgs),
     /// Run a deterministic reduced or soak network impairment gate.
     NetworkGate(NetworkGateArgs),
 }

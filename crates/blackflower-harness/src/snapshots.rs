@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use blackflower_networking::{
-    MAX_SNAPSHOT_CHUNKS, ProjectionDigest, ProtocolRevision, SimulationTick, SnapshotAppliedAck,
-    SnapshotChunk, StateBootstrapHeader,
+    DropReason, MAX_SNAPSHOT_CHUNKS, ProjectionDigest, ProtocolRevision, SimulationTick,
+    SnapshotAppliedAck, SnapshotChunk, StateBootstrapHeader, record_drop,
 };
 use blackflower_networking_replication::{
     DeltaError, MAX_SENT_SNAPSHOTS, Snapshot, SnapshotDelta, SnapshotError, SnapshotReassembler,
@@ -76,7 +76,15 @@ impl SnapshotInbox {
     ) -> Result<Option<Vec<u8>>, SnapshotInboxError> {
         let tick = chunk.snapshot_tick;
         if let Some(pending) = self.pending.get_mut(&tick) {
-            let completed = pending.reassembler.push(chunk, now)?;
+            let completed = match pending.reassembler.push(chunk, now) {
+                Ok(completed) => completed,
+                Err(error @ SnapshotError::ReassemblyExpired) => {
+                    drop(self.pending.remove(&tick));
+                    record_drop(DropReason::Deadline);
+                    return Err(error.into());
+                }
+                Err(error) => return Err(error.into()),
+            };
             if completed.is_some() {
                 drop(self.pending.remove(&tick));
             }
@@ -86,6 +94,7 @@ impl SnapshotInbox {
             && let Some(oldest) = self.pending.keys().next().copied()
         {
             drop(self.pending.remove(&oldest));
+            record_drop(DropReason::Superseded);
         }
         self.pending.insert(
             tick,
@@ -103,6 +112,7 @@ impl SnapshotInbox {
     ) -> Result<Option<AppliedSnapshot>, SnapshotInboxError> {
         let tick = SnapshotTick::new(metadata.tick.get());
         if self.latest.is_some_and(|latest| tick < latest) {
+            record_drop(DropReason::Late);
             return Ok(None);
         }
         if let Some(stored) = self.history.get(&tick) {

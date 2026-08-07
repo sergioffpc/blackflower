@@ -1,12 +1,10 @@
 use std::time::Duration;
 
 use crate::{
-    AdmissionClaims, ConnectionEpoch, MAX_ADMISSION_TICKET_BYTES, MAX_RESUME_TOKEN_BYTES, MatchId,
-    PlayerId, SessionId, WireError,
+    AdmissionClaims, ConnectionEpoch, MAX_RESUME_TOKEN_BYTES, MatchId, PlayerId, SessionId,
+    WireError,
 };
 
-/// Maximum admission-ticket lifetime enforced by the session authority.
-pub const ADMISSION_TICKET_LIFETIME: Duration = Duration::from_secs(60);
 /// Reconnect interval during which a one-use resume token may be consumed.
 pub const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
 
@@ -52,17 +50,13 @@ pub enum AuthorityError {
     Unavailable,
 }
 
-/// External authority boundary for admission and reconnect credentials.
+/// External authority boundary for session identity and reconnect credentials.
 ///
-/// Implementations must make each consume operation atomic across all server
-/// instances. Matchmaking, signing, and CA operation remain outside networking.
+/// Ordinary admission is deliberately credential-free until authentication and
+/// matchmaking are composed. Resume-token consumption remains atomic.
 pub trait SessionAuthority {
-    /// Atomically consume a short-lived one-use admission ticket.
-    fn consume_admission(
-        &mut self,
-        ticket: &[u8],
-        now: Duration,
-    ) -> Result<AdmissionClaims, AuthorityError>;
+    /// Assign identities to one protocol-compatible connection.
+    fn admit(&mut self, now: Duration) -> Result<AdmissionClaims, AuthorityError>;
 
     /// Issue the next opaque one-use token for an admitted active session.
     fn issue_resume(
@@ -77,11 +71,6 @@ pub trait SessionAuthority {
         token: &[u8],
         now: Duration,
     ) -> Result<ResumeClaims, AuthorityError>;
-}
-
-/// Validate the protocol-level admission ticket bound before authority work.
-pub fn validate_admission_ticket(ticket: &[u8]) -> Result<(), AuthorityError> {
-    validate_opaque(ticket, MAX_ADMISSION_TICKET_BYTES)
 }
 
 /// Validate the protocol-level resume token bound before authority work.

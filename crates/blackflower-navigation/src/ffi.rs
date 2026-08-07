@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw Detour calls and pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Detour FFI boundary"
-)]
-
 use std::ptr::NonNull;
 
 use glam::Vec3A;
@@ -32,6 +26,11 @@ use crate::navmesh::NavMeshParams;
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
+)]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Detour wrapper headers"
 )]
 pub(crate) mod raw {
     include!(concat!(env!("OUT_DIR"), "/recastnavigation_bindings.rs"));
@@ -87,16 +86,20 @@ pub(crate) struct Raycast {
 }
 
 pub(crate) fn recastnavigation_version() -> (u32, u32, u32) {
+    // SAFETY: this wrapper query takes no pointers and returns a value record.
     let version = unsafe { raw::bf_navigation_recast_version() };
     (version.major, version.minor, version.patch)
 }
 
 pub(crate) fn detour_navmesh_version() -> u32 {
+    // SAFETY: this wrapper query takes no pointers and returns a value.
     unsafe { raw::bf_navigation_detour_navmesh_version() }
 }
 
 pub(crate) fn create_single_tile(data: &[u8]) -> Result<NavMeshPtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `data` is readable for its supplied length and `pointer` is a
+    // valid, uniquely writable out-parameter.
     let status = unsafe {
         raw::bf_navigation_navmesh_create_single_tile(data.as_ptr(), data.len(), &raw mut pointer)
     };
@@ -115,6 +118,8 @@ pub(crate) fn create_tiled(params: NavMeshParams) -> Result<NavMeshPtr, Status> 
         max_polygons_per_tile: params.max_polygons_per_tile.get(),
     };
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: `params` is a fully initialized input record and `pointer` is a
+    // valid, uniquely writable out-parameter.
     let status =
         unsafe { raw::bf_navigation_navmesh_create_tiled(&raw const params, &raw mut pointer) };
     check(status)?;
@@ -124,11 +129,15 @@ pub(crate) fn create_tiled(params: NavMeshParams) -> Result<NavMeshPtr, Status> 
 }
 
 pub(crate) fn destroy_navmesh(navmesh: NavMeshPtr) {
+    // SAFETY: ownership of this live navmesh is transferred here and the safe
+    // owner has destroyed all queries before invoking the matching destructor.
     unsafe { raw::bf_navigation_navmesh_destroy(navmesh.0.as_ptr()) };
 }
 
 pub(crate) fn add_tile(navmesh: NavMeshPtr, data: &[u8]) -> Result<u32, Status> {
     let mut reference = 0;
+    // SAFETY: the navmesh is live, `data` remains readable for its supplied
+    // length, and `reference` is uniquely writable.
     let status = unsafe {
         raw::bf_navigation_navmesh_add_tile(
             navmesh.0.as_ptr(),
@@ -147,6 +156,7 @@ pub(crate) fn add_tile(navmesh: NavMeshPtr, data: &[u8]) -> Result<u32, Status> 
 }
 
 pub(crate) fn remove_tile(navmesh: NavMeshPtr, reference: u32) -> Result<(), Status> {
+    // SAFETY: the navmesh is live and the wrapper validates the opaque tile reference.
     let status = unsafe { raw::bf_navigation_navmesh_remove_tile(navmesh.0.as_ptr(), reference) };
     check(status)
 }
@@ -157,6 +167,8 @@ pub(crate) fn replace_tile(
     data: &[u8],
 ) -> Result<u32, Status> {
     let mut replaced_reference = 0;
+    // SAFETY: the navmesh is live, the wrapper validates `reference`, `data` is
+    // readable for its supplied length, and the output slot is uniquely writable.
     let status = unsafe {
         raw::bf_navigation_navmesh_replace_tile(
             navmesh.0.as_ptr(),
@@ -176,6 +188,8 @@ pub(crate) fn replace_tile(
 
 pub(crate) fn create_query(navmesh: NavMeshPtr, max_nodes: u32) -> Result<QueryPtr, Status> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the navmesh remains live for the query lifetime and `pointer` is
+    // a valid, uniquely writable out-parameter.
     let status =
         unsafe { raw::bf_navigation_query_create(navmesh.0.as_ptr(), max_nodes, &raw mut pointer) };
     check(status)?;
@@ -185,6 +199,8 @@ pub(crate) fn create_query(navmesh: NavMeshPtr, max_nodes: u32) -> Result<QueryP
 }
 
 pub(crate) fn destroy_query(query: QueryPtr) {
+    // SAFETY: ownership of this live query is transferred here and it is
+    // destroyed exactly once by its safe owner.
     unsafe { raw::bf_navigation_query_destroy(query.0.as_ptr()) };
 }
 
@@ -196,6 +212,8 @@ pub(crate) fn find_nearest_point(
 ) -> Result<Option<Nearest>, Status> {
     let mut nearest = raw::BFNavigationNearestPoint::default();
     let filter = raw_filter(filter);
+    // SAFETY: the query is live and tied to its navmesh; input records remain
+    // readable and `nearest` is uniquely writable for the call.
     let status = unsafe {
         raw::bf_navigation_query_find_nearest_point(
             query.0.as_ptr(),
@@ -223,6 +241,8 @@ pub(crate) fn closest_point_on_polygon(
     position: Vec3A,
 ) -> Result<Nearest, Status> {
     let mut closest = raw::BFNavigationNearestPoint::default();
+    // SAFETY: the query is live, the wrapper validates `polygon`, and `closest`
+    // is a uniquely writable output record.
     let status = unsafe {
         raw::bf_navigation_query_closest_point_on_polygon(
             query.0.as_ptr(),
@@ -256,6 +276,8 @@ pub(crate) fn find_path(
     let filter = raw_filter(filter);
     let mut count = 0;
     let mut details = 0;
+    // SAFETY: the query is live, the wrapper validates polygon references, the
+    // path buffer is writable for `capacity`, and scalar outputs are distinct.
     let status = unsafe {
         raw::bf_navigation_query_find_path(
             query.0.as_ptr(),
@@ -296,6 +318,8 @@ pub(crate) fn find_straight_path(
     let capacity = u32::try_from(buffers.points.len()).map_err(|_error| Status::InvalidArgument)?;
     let mut count = 0;
     let mut details = 0;
+    // SAFETY: the query is live, `corridor` is readable for `path_count`, the
+    // three disjoint output buffers share the checked capacity, and scalar outputs are distinct.
     let status = unsafe {
         raw::bf_navigation_query_find_straight_path(
             query.0.as_ptr(),
@@ -329,6 +353,8 @@ pub(crate) fn raycast(
     let mut count = 0;
     let mut details = 0;
     let mut result = raw::BFNavigationRaycastResult::default();
+    // SAFETY: the query is live, the wrapper validates `start_polygon`, the
+    // visited buffer is writable for `capacity`, and all output records are distinct.
     let status = unsafe {
         raw::bf_navigation_query_raycast(
             query.0.as_ptr(),

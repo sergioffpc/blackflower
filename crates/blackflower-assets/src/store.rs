@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::error::io_error;
 use crate::{
     AssetAudience, AssetId, AssetKind, AssetPackage, AssetReader, AssetRecord, AssetSetHash,
-    AssetTrustStore, Bytes, CookingProfileIdentity, Error, PackageName,
+    AssetTrustStore, AuthenticatedAsset, Bytes, CookingProfileIdentity, Error, PackageName,
 };
 
 const ASSET_SET_SCHEMA: u32 = 1;
@@ -21,7 +21,9 @@ pub struct AssetStore {
 }
 
 impl AssetStore {
-    /// Opens every direct `.squashfs` child and validates the resulting overlay.
+    /// Opens an overlay without a deployment-pinned package-set identity.
+    ///
+    /// This development/audit route is absent from ordinary runtime builds.
     ///
     /// Package data remains lazy. Packages are stored in ascending ASCII
     /// filename order and resolution searches them in reverse.
@@ -30,12 +32,17 @@ impl AssetStore {
     ///
     /// Returns an error for filesystem failures, invalid package names or
     /// contents, incompatible overrides, or unresolved winning dependencies.
+    #[cfg(feature = "unversioned-loading")]
     pub fn open_dir(path: impl AsRef<Path>, trust_store: &AssetTrustStore) -> Result<Self, Error> {
-        let directory = path.as_ref().to_path_buf();
+        Self::open_dir_unversioned(path.as_ref(), trust_store)
+    }
+
+    fn open_dir_unversioned(path: &Path, trust_store: &AssetTrustStore) -> Result<Self, Error> {
+        let directory = path.to_path_buf();
         let paths = discover_packages(&directory)?;
         let mut packages = Vec::with_capacity(paths.len());
         for package_path in paths {
-            packages.push(AssetPackage::open(package_path, trust_store)?);
+            packages.push(AssetPackage::open_unversioned(&package_path, trust_store)?);
         }
         validate_profiles(&packages)?;
         validate_overrides(&packages)?;
@@ -56,13 +63,13 @@ impl AssetStore {
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`Self::open_dir`] or an identity mismatch.
+    /// Returns an error for an invalid package overlay or identity mismatch.
     pub fn open_dir_verified(
         path: impl AsRef<Path>,
         expected: AssetSetHash,
         trust_store: &AssetTrustStore,
     ) -> Result<Self, Error> {
-        let store = Self::open_dir(path, trust_store)?;
+        let store = Self::open_dir_unversioned(path.as_ref(), trust_store)?;
         if store.hash != expected {
             return Err(Error::AssetSetHashMismatch {
                 expected,
@@ -130,6 +137,18 @@ impl AssetStore {
             .resolve(id)
             .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
         resolved.package.read_asset(id)
+    }
+
+    /// Reads and authenticates the complete winning object and its provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the asset is absent, corrupt, or cannot be read.
+    pub fn read_authenticated_asset(&self, id: &AssetId) -> Result<AuthenticatedAsset, Error> {
+        let resolved = self
+            .resolve(id)
+            .ok_or_else(|| Error::AssetNotFound(id.clone()))?;
+        resolved.package.read_authenticated_asset(id)
     }
 }
 
@@ -264,6 +283,9 @@ fn validate_dependency_kind(
     dependency_record: &AssetRecord,
 ) -> Result<(), Error> {
     match record.kind {
+        AssetKind::Map if dependency_record.kind != AssetKind::Model => Err(
+            dependency_kind_mismatch(record, dependency, AssetKind::Model, dependency_record.kind),
+        ),
         AssetKind::AnimationClip if dependency_record.kind != AssetKind::Skeleton => {
             Err(dependency_kind_mismatch(
                 record,
@@ -341,7 +363,8 @@ fn validate_dependency_kind(
                 ),
             })
         }
-        AssetKind::Blob
+        AssetKind::Map
+        | AssetKind::Blob
         | AssetKind::LuauBytecode
         | AssetKind::ShaderModule
         | AssetKind::Texture2d

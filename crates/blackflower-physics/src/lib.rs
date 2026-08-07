@@ -16,7 +16,7 @@ pub use error::{Error, UpdateError};
 pub use ids::{BodyId, CharacterId, SubShapeId};
 pub use raycast::RayHit;
 pub use shape::{CompoundShapeChild, MAX_CONVEX_HULL_POINTS, Shape};
-pub use types::{BodySettings, MotionType, StepDelta};
+pub use types::{BodySettings, MotionType};
 pub use world::{World, WorldBuilder};
 
 /// The Jolt Physics version compiled into this crate.

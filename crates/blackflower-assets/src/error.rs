@@ -98,6 +98,16 @@ pub enum Error {
         /// Identity calculated from the package bytes.
         actual: crate::PackageHash,
     },
+    /// A package was opened under a name other than its deployment identity.
+    #[error("package name mismatch for `{path}`: expected {expected}, found {actual}")]
+    PackageNameMismatch {
+        /// Package path that was opened.
+        path: PathBuf,
+        /// Name authorized by deployment metadata.
+        expected: PackageName,
+        /// Name derived from the actual filename.
+        actual: PackageName,
+    },
     /// The file did not end in a supported Blackflower signature footer.
     #[error("invalid asset package signature footer in `{path}`: {reason}")]
     InvalidSignatureFooter {

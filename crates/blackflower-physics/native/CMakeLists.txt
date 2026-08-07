@@ -20,6 +20,7 @@ target_compile_definitions(
     Jolt
     INTERFACE
     JPH_CROSS_PLATFORM_DETERMINISTIC
+    BF_JOLT_STRICT_FLOAT=1
     "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>"
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
@@ -41,12 +42,20 @@ target_compile_features(blackflower_physics_wrapper PRIVATE cxx_std_17)
 target_link_libraries(blackflower_physics_wrapper PRIVATE Jolt)
 
 if(MSVC)
-    target_compile_options(blackflower_physics_wrapper PRIVATE /GR-)
+    target_compile_options(
+        blackflower_physics_wrapper
+        PRIVATE
+        /EHsc
+        /GR-
+        /fp:strict
+    )
 else()
     target_compile_options(
         blackflower_physics_wrapper
         PRIVATE
-        -fno-exceptions
+        -fexceptions
+        -ffp-contract=off
+        -fno-fast-math
         -fno-rtti
     )
 endif()

@@ -88,10 +88,13 @@ across the safe Rust and native C ABI boundaries:
   `NativeModules` limits compilation to modules marked with `--!native`;
   `AllModules` allows every loaded module.
 
-The `Bytecode` wrapper retains the options used to compile it. Authenticated
-cooked content must use `Bytecode::from_bytes_with_options` so the runtime can
-apply the matching native-codegen policy. Coverage remains disabled by the
-asset cooker.
+The `VerifiedBytecode` wrapper retains the options used to compile it. It can
+only be produced directly by the pinned compiler or reconstructed through
+`VerifiedBytecode::from_authenticated_asset`. The latter requires an
+`AuthenticatedAsset` produced by `blackflower-assets` after package-signature,
+catalog-kind, object-length, and content-hash verification. Raw bytes cannot
+construct executable bytecode through the safe API. Coverage remains disabled
+by the asset cooker.
 
 ## Debugging
 
@@ -168,19 +171,32 @@ assert!(runtime.native_codegen_memory_usage().current_bytes > 0);
 `Runtime::last_native_codegen_stats` reports the most recent chunk, while
 `Runtime::native_codegen_memory_usage` reports current, peak, and configured
 executable-memory usage. A zero budget keeps the interpreter-only default.
+Native codegen is not admissible in authoritative simulation or prediction;
+those dependency trees exclude this crate entirely.
 
 Runtime initialization excludes `os` and `debug`; no filesystem, network, or
 module loader is registered. Builtin libraries are frozen through
-`luaL_sandbox`, each runtime receives a writable sandbox global table, and
-`math.random` is seeded explicitly.
+`luaL_sandbox`. Every evaluation receives a new writable global table before
+its bytecode is loaded, so globals cannot leak across evaluations. `math.random`
+is reseeded for every evaluation; `Runtime::execute_seeded` and
+`Runtime::execute_bytecode_seeded` accept the host-derived evaluation seed.
 
-`RuntimeConfig::default()` limits each VM to 16 MiB and restores 100,000 fuel
-units before every execution. Fuel counts interruptible VM safepoints such as
+`RuntimeConfig::default()` limits each VM to 16 MiB, restores the configured
+default random seed, and restores 100,000 fuel units before every execution.
+Fuel counts interruptible VM safepoints such as
 loop back-edges and calls rather than individual bytecode instructions. The
 allocator rejects growth above the configured ceiling; `Runtime::memory_usage`
 reports current, peak, and limit values. Exhaustion is reported as
 `Error::ExecutionLimit` or `Error::OutOfMemory`, and the runtime remains usable
 for subsequent chunks.
+
+Fuel is not a wall-clock deadline and cannot interrupt a native Luau builtin
+already in progress. The sandbox therefore removes pattern matching,
+formatting, and binary packing from the `String` library, and caps the remaining
+string operations at 64 KiB per argument and result. `string.rep` checks its
+result size before allocating. Hostile or third-party scripts still require a
+killable process worker with a wall-clock deadline, scheduled outside the
+deterministic simulation tick; an in-process thread cannot be safely killed.
 
 The library policy is an allowlist. It can remove any of the safe standard
 libraries supported by the crate, but it can never enable `os`, `debug`,
@@ -191,9 +207,11 @@ the exact Luau/content compatibility identity and be rejected by consumers
 using another VM version.
 
 The asset cooker reads compile options from the selected versioned cooking
-profile and emits `luau_bytecode` assets. Runtime composition can reconstruct
-the safe owned wrapper with `Bytecode::from_bytes`; the VM validates the
-bytecode version and structure when the chunk is loaded.
+profile and emits `luau_bytecode` assets. Runtime composition reconstructs
+`VerifiedBytecode` from the authenticated asset and the matching authenticated
+profile options. The pinned Luau loader is not treated as a verifier for
+untrusted bytecode: although it checks the bytecode version, its deserializer
+assumes compiler-produced structure.
 
 The VM memory ceiling does not cover the standalone C++ compiler used by
 `compile`. Cook untrusted source in a separately constrained worker and run

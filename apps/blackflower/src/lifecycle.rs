@@ -1,4 +1,4 @@
-/// Process-facing state of the native client shell.
+/// Process-facing state of the native client application.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ClientLifecycleState {
     /// The event loop has not delivered its first resume event.

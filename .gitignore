@@ -1,5 +1,7 @@
 /target
+/fuzz/target/
 /.idea
+/.local-network/
 
 .DS_Store
 __pycache__/

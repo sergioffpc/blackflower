@@ -10,6 +10,12 @@ pub const VELOCITY_UNITS_PER_METER_PER_SECOND: f64 = 100.0;
 pub struct QuantizedPosition([i32; 3]);
 
 impl QuantizedPosition {
+    /// Construct a position from canonical signed-centimetre codes.
+    #[must_use]
+    pub const fn from_codes(codes: [i32; 3]) -> Self {
+        Self(codes)
+    }
+
     /// Quantize a finite metre-space position using signed centimetres.
     pub fn quantize(position_meters: [f64; 3]) -> Result<Self, QuantizationError> {
         Ok(Self([
@@ -38,6 +44,12 @@ impl QuantizedPosition {
 pub struct QuantizedVelocity([i16; 3]);
 
 impl QuantizedVelocity {
+    /// Construct a velocity from canonical signed-centimetre-per-second codes.
+    #[must_use]
+    pub const fn from_codes(codes: [i16; 3]) -> Self {
+        Self(codes)
+    }
+
     /// Quantize a finite velocity using signed centimetres per second.
     pub fn quantize(meters_per_second: [f64; 3]) -> Result<Self, QuantizationError> {
         Ok(Self([
@@ -66,6 +78,12 @@ impl QuantizedVelocity {
 pub struct QuantizedAngle(u16);
 
 impl QuantizedAngle {
+    /// Construct an angle from its canonical unsigned full-turn code.
+    #[must_use]
+    pub const fn from_code(code: u16) -> Self {
+        Self(code)
+    }
+
     /// Quantize radians modulo one full turn.
     pub fn quantize(radians: f64) -> Result<Self, QuantizationError> {
         if !radians.is_finite() {
@@ -97,6 +115,23 @@ pub struct QuantizedQuaternion {
 }
 
 impl QuantizedQuaternion {
+    /// Validate and construct one canonical smallest-three encoding.
+    pub fn try_from_parts(
+        largest_index: u8,
+        components: [i16; 3],
+    ) -> Result<Self, QuantizationError> {
+        let candidate = Self {
+            largest_index,
+            components,
+        };
+        let reconstructed = candidate.dequantize()?;
+        if Self::quantize(reconstructed)? == candidate {
+            Ok(candidate)
+        } else {
+            Err(QuantizationError::NonCanonicalQuaternion)
+        }
+    }
+
     /// Normalize and encode a quaternion, canonicalizing the omitted term positive.
     pub fn quantize(quaternion: [f64; 4]) -> Result<Self, QuantizationError> {
         if !quaternion.into_iter().all(f64::is_finite) {
@@ -180,6 +215,9 @@ pub enum QuantizationError {
     /// Smallest-three omitted index is outside zero through three.
     #[error("smallest-three quaternion index is invalid")]
     InvalidQuaternionIndex,
+    /// Smallest-three bytes do not use the unique canonical encoding.
+    #[error("smallest-three quaternion encoding is not canonical")]
+    NonCanonicalQuaternion,
 }
 
 fn position_code(value: f64) -> Result<i32, QuantizationError> {

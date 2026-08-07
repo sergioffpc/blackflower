@@ -50,3 +50,18 @@ fn rejects_non_finite_matrices() {
     matrix[0] = f32::NAN;
     assert!(NodeTransform::matrix(matrix).is_err());
 }
+
+#[test]
+fn declared_counts_must_fit_the_remaining_model_bytes() {
+    let mut nodes = Vec::from(*b"BFMODEL\0");
+    nodes.extend_from_slice(&1_u32.to_le_bytes());
+    nodes.extend_from_slice(&u32::MAX.to_le_bytes());
+    nodes.extend_from_slice(&0_u32.to_le_bytes());
+    assert!(ModelAsset::from_bytes(Bytes::from(nodes)).is_err());
+
+    let mut attachments = Vec::from(*b"BFMODEL\0");
+    attachments.extend_from_slice(&1_u32.to_le_bytes());
+    attachments.extend_from_slice(&0_u32.to_le_bytes());
+    attachments.extend_from_slice(&u32::MAX.to_le_bytes());
+    assert!(ModelAsset::from_bytes(Bytes::from(attachments)).is_err());
+}

@@ -3,17 +3,15 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use blackflower_ecs::{Error, PhaseId, RunError, TickDelta, World};
 
-use crate::telemetry;
-use crate::telemetry::TickObservation;
-use crate::{PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick, systems};
-
 /// Predicted simulation ticks executed per second.
 pub const PREDICTION_TICK_RATE_HZ: u64 = 240;
 
-/// Fixed duration, in seconds, of one predicted simulation tick.
-pub const PREDICTION_TICK_DELTA_SECONDS: f32 = 1.0 / 240.0;
+/// Pinned binary32 duration of one predicted simulation tick.
+pub const PREDICTION_TICK_DELTA_SECONDS: f32 = f32::from_bits(0x3b88_8889);
 
-const _: () = assert!(PREDICTION_TICK_RATE_HZ == 240);
+use crate::telemetry;
+use crate::telemetry::TickObservation;
+use crate::{PredictionPass, PredictionPhase, PredictionPipeline, PredictionTick, systems};
 
 const FORWARD_PASS: u8 = 0;
 const RESIMULATION_PASS: u8 = 1;
@@ -101,6 +99,7 @@ pub struct PredictionWorld {
     tick_delta: TickDelta,
     current_tick: PredictionTick,
     execution_context: PredictionExecutionContext,
+    fault: Option<PredictionError>,
 }
 
 impl PredictionWorld {
@@ -122,6 +121,7 @@ impl PredictionWorld {
             tick_delta,
             current_tick: PredictionTick::ZERO,
             execution_context,
+            fault: None,
         })
     }
 
@@ -167,6 +167,18 @@ impl PredictionWorld {
         self.execution_context.clone()
     }
 
+    /// Whether a failed tick requires a complete authoritative state restore.
+    #[must_use]
+    pub const fn is_faulted(&self) -> bool {
+        self.fault.is_some()
+    }
+
+    /// Return the failure that stopped this prediction timeline.
+    #[must_use]
+    pub const fn fault(&self) -> Option<&PredictionError> {
+        self.fault.as_ref()
+    }
+
     /// Advance the prediction pipeline by exactly one fixed tick.
     #[cfg_attr(
         feature = "tracing",
@@ -185,6 +197,9 @@ impl PredictionWorld {
         )
     )]
     pub fn tick(&mut self, pass: PredictionPass) -> Result<bool, PredictionError> {
+        if let Some(error) = &self.fault {
+            return Err(error.clone());
+        }
         let Some(next_tick) = self.current_tick.checked_next() else {
             telemetry::tick_rejected(pass, "tick_overflow");
             return Err(PredictionError::TickOverflow);
@@ -206,7 +221,9 @@ impl PredictionWorld {
             }
             Err(error) => {
                 self.execution_context.set(previous_execution);
-                Err(PredictionError::Run(error))
+                let error = PredictionError::Run(error);
+                self.fault = Some(error.clone());
+                Err(error)
             }
         };
         observation.finish(&result);
@@ -217,9 +234,11 @@ impl PredictionWorld {
     ///
     /// This changes only prediction bookkeeping. The caller must restore every
     /// predicted simulation component to the matching authoritative state before
-    /// re-simulating subsequent inputs.
+    /// calling this method and re-simulating subsequent inputs. A complete restore
+    /// also clears a fail-stop condition caused by a previous partial tick.
     pub fn restore_tick_for_reconciliation(&mut self, tick: PredictionTick) {
         self.current_tick = tick;
+        self.fault = None;
         self.execution_context.set(PredictionExecution {
             tick,
             pass: PredictionPass::Resimulation,

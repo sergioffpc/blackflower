@@ -5,6 +5,7 @@ use blackflower_networking::StateBootstrapHeader;
 use blackflower_networking_quic::{
     BootstrapTransfer, ClientNetworkHandle, NetworkEvent, QuicError,
 };
+use bytes::Bytes;
 
 /// Inbound transport fact consumed by the shared client harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,7 +13,7 @@ pub enum ClientTransportEvent {
     /// One reliable session-control frame.
     SessionControl(Vec<u8>),
     /// One validated application datagram.
-    Datagram(Vec<u8>),
+    Datagram(Bytes),
     /// One complete reliable full-state transfer.
     Bootstrap {
         /// Canonical bootstrap header.
@@ -42,8 +43,14 @@ pub trait ClientTransport {
     /// Replace the unsent input datagram with the newest exact value.
     fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
 
+    /// Queue one bounded time-synchronization request datagram.
+    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
+
     /// Poll one transport fact without blocking.
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error>;
+
+    /// Publish transport-owned process telemetry when the implementation has it.
+    fn record_metrics(&mut self) {}
 }
 
 impl ClientTransport for ClientNetworkHandle {
@@ -57,8 +64,16 @@ impl ClientTransport for ClientNetworkHandle {
         ClientNetworkHandle::set_latest_input(self, datagram)
     }
 
+    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+        self.try_send_time_sync(datagram)
+    }
+
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error> {
         self.try_receive().map(|event| event.map(Into::into))
+    }
+
+    fn record_metrics(&mut self) {
+        ClientNetworkHandle::record_metrics(self);
     }
 }
 

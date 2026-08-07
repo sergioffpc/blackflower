@@ -3,14 +3,22 @@
 `blackflower-world-simulation` turns canonical in-memory actor inputs into sealed
 authoritative state and in-memory tick outputs at 240 Hz.
 
+The initial concrete gameplay slice owns controllable actor movement and
+absolute view orientation. A canonical control covers four ticks, drives a
+fixed five-metre-per-second flat-ground controller, retains the last control for
+the twelve-tick grace window, and then neutralizes movement while preserving
+orientation. Sealed actor state exposes transform, velocity, grounded state,
+and the latest applied input identity through a transport-neutral frame.
+
 Every fixed-step tick advances the ordered `SimulationPipeline` through these
 phases:
 
 1. `PrepareTick` opens the tick and activates scheduled commits;
 2. `CaptureTickInputs` captures a canonical immutable input set;
 3. `DeriveActorActions` derives deterministic actor actions;
-4. `ResolveHistoricalCommands` resolves bounded read-only rewind and projectile
-   catch-up commands into current-tick facts;
+4. `ResolveHistoricalCommands` is the ordered extension point for bounded
+   read-only rewind and projectile catch-up commands; revision 1 registers no
+   discrete command schema and its resolver systems are currently no-ops;
 5. `SolveRigidBodyDynamics` advances characters, rigid bodies, constraints, and
    collision response;
 6. `SolvePhysicalPhenomena` advances ballistics, material responses,

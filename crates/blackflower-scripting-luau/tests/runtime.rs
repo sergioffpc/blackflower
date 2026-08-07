@@ -79,7 +79,7 @@ fn compiler_options_change_bytecode_without_changing_results() -> TestResult {
 }
 
 #[test]
-fn preserves_runtime_globals_between_chunks() -> TestResult {
+fn isolates_runtime_globals_between_evaluations() -> TestResult {
     let mut runtime = Runtime::new()?;
     assert!(
         runtime
@@ -90,20 +90,27 @@ fn preserves_runtime_globals_between_chunks() -> TestResult {
             .is_empty()
     );
     assert_eq!(
-        runtime.execute("call-policy.luau", "return decide()")?,
-        vec![Value::from("advance")]
+        runtime.execute("inspect-policy.luau", "return decide == nil")?,
+        vec![Value::Boolean(true)]
     );
     Ok(())
 }
 
 #[test]
-fn initializes_random_with_an_explicit_seed() -> TestResult {
-    let mut first = Runtime::with_seed(91)?;
-    let mut second = Runtime::with_seed(91)?;
+fn restores_random_seed_for_every_evaluation() -> TestResult {
+    let mut runtime = Runtime::with_seed(91)?;
     let source = "return math.random(), math.random(1, 1000)";
+    let first = runtime.execute("first-random.luau", source)?;
+    assert_eq!(first, runtime.execute("second-random.luau", source)?);
+
+    let seeded = runtime.execute_seeded("seeded-random.luau", source, 7)?;
     assert_eq!(
-        first.execute("first-random.luau", source)?,
-        second.execute("second-random.luau", source)?
+        seeded,
+        runtime.execute_seeded("same-seeded-random.luau", source, 7)?
+    );
+    assert_ne!(
+        seeded,
+        runtime.execute_seeded("other-seeded-random.luau", source, 8)?
     );
     Ok(())
 }
@@ -199,6 +206,51 @@ fn interrupts_execution_when_fuel_is_exhausted() -> TestResult {
 }
 
 #[test]
+fn excludes_non_preemptible_string_builtins() -> TestResult {
+    let mut runtime = Runtime::new()?;
+
+    assert_eq!(
+        runtime.execute(
+            "string-policy.luau",
+            "return string.find == nil, string.match == nil, string.gmatch == nil, \
+             string.gsub == nil, string.format == nil, string.pack == nil, \
+             string.packsize == nil, string.unpack == nil"
+        )?,
+        vec![Value::Boolean(true); 8]
+    );
+    Ok(())
+}
+
+#[test]
+fn bounds_native_string_operations_before_expansion() -> TestResult {
+    let mut runtime = Runtime::new()?;
+
+    let repetition = runtime.execute(
+        "bounded-string-repetition.luau",
+        "return string.rep(\"abcd\", 16_385)",
+    );
+    assert!(matches!(
+        repetition,
+        Err(Error::Runtime(message)) if message.contains("string result exceeds sandbox limit")
+    ));
+
+    let oversized_input = "x".repeat(65_537);
+    let transformation = runtime.execute(
+        "bounded-string-transformation.luau",
+        &format!("return string.upper(\"{oversized_input}\")"),
+    );
+    assert!(matches!(
+        transformation,
+        Err(Error::Runtime(message)) if message.contains("string argument exceeds sandbox limit")
+    ));
+    assert_eq!(
+        runtime.execute("after-string-limit.luau", "return string.upper(\"ok\")")?,
+        vec![Value::from("OK")]
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_vm_allocations_above_the_memory_limit() -> TestResult {
     const MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
 
@@ -211,7 +263,7 @@ fn rejects_vm_allocations_above_the_memory_limit() -> TestResult {
     assert_eq!(
         runtime.execute(
             "memory-limit.luau",
-            "return string.rep(\"x\", 8 * 1024 * 1024)"
+            "local value = buffer.create(8 * 1024 * 1024) return buffer.len(value)"
         ),
         Err(Error::OutOfMemory)
     );

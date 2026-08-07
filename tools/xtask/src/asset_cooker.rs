@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, bail};
-use blackflower_assets::{AssetAudience, AssetId, AssetKind, Bytes, ContentHash, RecipeHash};
+use blackflower_assets::{
+    AssetAudience, AssetId, AssetKind, Bytes, ContentHash, MAP_ASSET_SCHEMA, MapAsset, RecipeHash,
+};
 use blackflower_audio_media::{
     Attenuation, Concurrency, LoopRegion, SoundEvent, Spatialization, cook_clip, cook_stream,
 };
@@ -12,7 +14,8 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 
 use crate::acoustic_cooker;
 use crate::manifest::{
-    AssetSource, AudioSpatializationManifest, LoadedAsset, Repository, SoundEventManifest,
+    AssetSource, AudioSpatializationManifest, LoadedAsset, LoadedMap, Repository,
+    SoundEventManifest,
 };
 use crate::mesh_cooker;
 use crate::model_cooker;
@@ -59,35 +62,28 @@ pub(crate) fn cook_assets(
         let Some(id) = pending
             .iter()
             .find(|id| {
-                repository.assets.get(*id).is_some_and(|asset| {
-                    asset
-                        .manifest
-                        .dependencies()
+                (repository.assets.contains_key(*id) || repository.maps.contains_key(*id))
+                    && repository
+                        .dependencies(id)
                         .iter()
                         .all(|dependency| cooked.contains_key(dependency))
-                })
             })
             .cloned()
         else {
             bail!("selected asset dependency graph cannot be cooked");
         };
-        let source = repository
-            .assets
-            .get(&id)
-            .with_context(|| format!("missing selected asset `{id}`"))?;
-        let payload = cook_asset(repository, source, profile, &cooked)
-            .with_context(|| format!("failed to cook asset `{id}`"))?;
-        let dependencies = source.manifest.dependencies();
-        let content_hash = ContentHash::hash_bytes(&payload.bytes);
-        let recipe_hash = recipe_hash(
-            source,
-            profile,
-            payload.derived_source_hash.as_ref(),
-            &dependencies,
-            &cooked,
-        )?;
-        cooked.insert(
-            id.clone(),
+        let cooked_asset = if let Some(source) = repository.assets.get(&id) {
+            let payload = cook_asset(repository, source, profile, &cooked)
+                .with_context(|| format!("failed to cook asset `{id}`"))?;
+            let dependencies = source.manifest.dependencies();
+            let content_hash = ContentHash::hash_bytes(&payload.bytes);
+            let recipe_hash = recipe_hash(
+                source,
+                profile,
+                payload.derived_source_hash.as_ref(),
+                &dependencies,
+                &cooked,
+            )?;
             CookedAsset {
                 kind: source.manifest.kind(),
                 audience: source.manifest.audience,
@@ -95,11 +91,47 @@ pub(crate) fn cook_assets(
                 bytes: payload.bytes,
                 content_hash,
                 recipe_hash,
-            },
-        );
+            }
+        } else {
+            let map = repository
+                .maps
+                .get(&id)
+                .with_context(|| format!("missing selected map `{id}`"))?;
+            cook_map(map, &cooked)?
+        };
+        cooked.insert(id.clone(), cooked_asset);
         pending.remove(&id);
     }
     Ok(cooked)
+}
+
+fn cook_map(
+    map: &LoadedMap,
+    cooked: &BTreeMap<AssetId, CookedAsset>,
+) -> anyhow::Result<CookedAsset> {
+    let player_model = cooked
+        .get(&map.player_model)
+        .with_context(|| format!("map player model `{}` was not cooked", map.player_model))?;
+    let bytes = Bytes::from(MapAsset::new(map.player_model.clone()).to_bytes());
+    let content_hash = ContentHash::hash_bytes(&bytes);
+    let mut hasher = CanonicalHasher::new(b"blackflower.map-recipe.v1");
+    hasher.u32(map.schema);
+    hasher.text(map.id.as_str());
+    hasher.text(&map.source_relative);
+    hasher.bytes(map.source_hash.as_bytes());
+    hasher.text(&map.scene);
+    hasher.text(map.player_model.as_str());
+    hasher.bytes(player_model.content_hash.as_bytes());
+    hasher.text(env!("CARGO_PKG_VERSION"));
+    hasher.u32(MAP_ASSET_SCHEMA);
+    Ok(CookedAsset {
+        kind: AssetKind::Map,
+        audience: AssetAudience::Shared,
+        dependencies: vec![map.player_model.clone()],
+        bytes,
+        content_hash,
+        recipe_hash: RecipeHash::from_bytes(*hasher.finish().as_bytes()),
+    })
 }
 
 #[allow(

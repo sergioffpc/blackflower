@@ -8,6 +8,7 @@ pub const AOI_ENTRY_RADIUS_METERS: f64 = 512.0;
 pub const AOI_MINIMUM_HYSTERESIS_METERS: f64 = 16.0;
 /// Time horizon multiplied by maximum speed for dynamic hysteresis.
 pub const AOI_HYSTERESIS_SECONDS: f64 = 0.5;
+const AOI_INDEX_CELL_METERS: f64 = AOI_ENTRY_RADIUS_METERS;
 
 /// Validated world-space position used by replication interest management.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,12 +31,22 @@ impl Position {
         self.0
     }
 
-    fn distance(self, other: Self) -> f64 {
+    fn distance_squared(self, other: Self) -> f64 {
         let [self_x, self_y, self_z] = self.0;
         let [other_x, other_y, other_z] = other.0;
-        (self_x - other_x)
-            .hypot(self_y - other_y)
-            .hypot(self_z - other_z)
+        (self_x - other_x).mul_add(
+            self_x - other_x,
+            (self_y - other_y).mul_add(self_y - other_y, (self_z - other_z) * (self_z - other_z)),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SpatialCell([i64; 3]);
+
+impl SpatialCell {
+    fn containing(position: Position) -> Self {
+        Self(position.coordinates().map(cell_coordinate))
     }
 }
 
@@ -82,6 +93,7 @@ impl SourceEntity {
 pub struct ReplicationSource {
     tick: SnapshotTick,
     entities: BTreeMap<ReplicatedEntityId, SourceEntity>,
+    spatial_index: BTreeMap<SpatialCell, Vec<ReplicatedEntityId>>,
 }
 
 impl ReplicationSource {
@@ -97,9 +109,17 @@ impl ReplicationSource {
                 return Err(AoiError::DuplicateEntity { entity: id });
             }
         }
+        let mut spatial_index = BTreeMap::<SpatialCell, Vec<ReplicatedEntityId>>::new();
+        for entity in ordered.values() {
+            spatial_index
+                .entry(SpatialCell::containing(entity.position()))
+                .or_default()
+                .push(entity.id());
+        }
         Ok(Self {
             tick,
             entities: ordered,
+            spatial_index,
         })
     }
 
@@ -113,6 +133,47 @@ impl ReplicationSource {
     pub fn entities(&self) -> impl ExactSizeIterator<Item = &SourceEntity> + DoubleEndedIterator {
         self.entities.values()
     }
+
+    fn collect_candidates(
+        &self,
+        center: Position,
+        radius: f64,
+        output: &mut Vec<ReplicatedEntityId>,
+    ) {
+        output.clear();
+        let [x, y, z] = center.coordinates();
+        let minimum = SpatialCell([x - radius, y - radius, z - radius].map(cell_coordinate));
+        let maximum = SpatialCell([x + radius, y + radius, z + radius].map(cell_coordinate));
+        let widths = std::array::from_fn::<u128, 3, _>(|axis| {
+            u128::from(maximum.0[axis].abs_diff(minimum.0[axis])).saturating_add(1)
+        });
+        let cell_count = widths.into_iter().fold(1_u128, u128::saturating_mul);
+        let occupied_count = self.spatial_index.len() as u128;
+        if cell_count <= occupied_count {
+            for cell_x in minimum.0[0]..=maximum.0[0] {
+                for cell_y in minimum.0[1]..=maximum.0[1] {
+                    for cell_z in minimum.0[2]..=maximum.0[2] {
+                        if let Some(entities) = self
+                            .spatial_index
+                            .get(&SpatialCell([cell_x, cell_y, cell_z]))
+                        {
+                            output.extend_from_slice(entities);
+                        }
+                    }
+                }
+            }
+        } else {
+            for (cell, entities) in self.spatial_index.range(minimum..=maximum) {
+                if cell.0[1] >= minimum.0[1]
+                    && cell.0[1] <= maximum.0[1]
+                    && cell.0[2] >= minimum.0[2]
+                    && cell.0[2] <= maximum.0[2]
+                {
+                    output.extend_from_slice(entities);
+                }
+            }
+        }
+    }
 }
 
 /// Stateful spherical AOI with fixed entry radius and speed-aware exit hysteresis.
@@ -121,6 +182,8 @@ pub struct AoiTracker {
     center: Position,
     maximum_speed_meters_per_second: f64,
     inside: BTreeSet<ReplicatedEntityId>,
+    next_inside: BTreeSet<ReplicatedEntityId>,
+    candidates: Vec<ReplicatedEntityId>,
 }
 
 impl AoiTracker {
@@ -131,6 +194,8 @@ impl AoiTracker {
             center,
             maximum_speed_meters_per_second,
             inside: BTreeSet::new(),
+            next_inside: BTreeSet::new(),
+            candidates: Vec::new(),
         })
     }
 
@@ -172,21 +237,30 @@ impl AoiTracker {
     ) -> Snapshot {
         let exit_radius = self.exit_radius();
         let mut projected = BTreeMap::new();
-        let mut next_inside = BTreeSet::new();
-        for (id, entity) in &source.entities {
-            let radius = if self.inside.contains(id) {
+        self.next_inside.clear();
+        source.collect_candidates(self.center, exit_radius, &mut self.candidates);
+        self.candidates.extend(always_relevant.iter().copied());
+        self.candidates.sort_unstable();
+        self.candidates.dedup();
+        for id in self.candidates.iter().copied() {
+            let Some(entity) = source.entities.get(&id) else {
+                continue;
+            };
+            let radius = if self.inside.contains(&id) {
                 exit_radius
             } else {
                 AOI_ENTRY_RADIUS_METERS
             };
-            let relevant =
-                always_relevant.contains(id) || self.center.distance(entity.position()) <= radius;
+            let relevant = always_relevant.contains(&id)
+                || self.center.distance_squared(entity.position()) <= radius * radius;
             if relevant {
-                next_inside.insert(*id);
-                projected.insert(*id, entity.state().clone());
+                self.next_inside.insert(id);
+                projected.insert(id, entity.state().clone());
             }
         }
-        self.inside = next_inside;
+        self.candidates.clear();
+        std::mem::swap(&mut self.inside, &mut self.next_inside);
+        self.next_inside.clear();
         Snapshot::from_ordered(source.tick(), projected)
     }
 }
@@ -217,4 +291,12 @@ fn validate_speed(value: f64) -> Result<(), AoiError> {
     } else {
         Err(AoiError::InvalidMaximumSpeed { value })
     }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "flooring a finite world coordinate to an integer grid cell is the intended quantization"
+)]
+fn cell_coordinate(value: f64) -> i64 {
+    (value / AOI_INDEX_CELL_METERS).floor() as i64
 }

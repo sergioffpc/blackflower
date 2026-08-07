@@ -7,7 +7,7 @@ mod handles;
 mod streams;
 
 pub use config::{
-    ALPN_PROTOCOL, AdmissionLimits, BOOTSTRAP_DEADLINE, ClientEndpointConfig, ClientTrustRoots,
+    ALPN_PROTOCOL, AdmissionLimits, BOOTSTRAP_DEADLINE, ClientEndpointConfig, ClientTrustRoot,
     ServerEndpointConfig, ServerTlsConfig,
 };
 pub use endpoint::{ClientConnection, QuicClient, QuicServer, ServerConnection, UdpByteStats};

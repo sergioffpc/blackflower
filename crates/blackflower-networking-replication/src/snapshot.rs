@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use blackflower_networking::{
@@ -23,7 +24,7 @@ pub const SNAPSHOT_REASSEMBLY_DEADLINE: Duration = Duration::from_micros(66_700)
 pub struct ComponentState {
     sample_tick: ComponentSampleTick,
     priority: ReplicationPriority,
-    bytes: Vec<u8>,
+    bytes: Arc<[u8]>,
 }
 
 impl ComponentState {
@@ -41,7 +42,7 @@ impl ComponentState {
         Ok(Self {
             sample_tick,
             priority,
-            bytes,
+            bytes: bytes.into(),
         })
     }
 
@@ -67,7 +68,7 @@ impl ComponentState {
 /// Canonically ordered components of one projected entity.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EntityState {
-    pub(crate) components: BTreeMap<ComponentId, ComponentState>,
+    components: Arc<BTreeMap<ComponentId, ComponentState>>,
 }
 
 impl EntityState {
@@ -87,7 +88,7 @@ impl EntityState {
             });
         }
         Ok(Self {
-            components: ordered,
+            components: Arc::new(ordered),
         })
     }
 
@@ -105,7 +106,21 @@ impl EntityState {
     }
 
     pub(crate) fn from_ordered(components: BTreeMap<ComponentId, ComponentState>) -> Self {
-        Self { components }
+        Self {
+            components: Arc::new(components),
+        }
+    }
+
+    pub(crate) fn insert_component(&mut self, id: ComponentId, state: ComponentState) {
+        Arc::make_mut(&mut self.components).insert(id, state);
+    }
+
+    pub(crate) fn remove_component(&mut self, id: ComponentId) -> Option<ComponentState> {
+        Arc::make_mut(&mut self.components).remove(&id)
+    }
+
+    pub(crate) fn into_first_component(self) -> Option<(ComponentId, ComponentState)> {
+        Arc::unwrap_or_clone(self.components).pop_first()
     }
 }
 
@@ -185,11 +200,34 @@ pub struct ProjectionView {
 }
 
 /// Canonically ordered full client projection at one authoritative tick.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Snapshot {
     tick: SnapshotTick,
     entities: BTreeMap<ReplicatedEntityId, EntityState>,
+    digest: OnceLock<(ProtocolRevision, ProjectionDigest)>,
 }
+
+impl Clone for Snapshot {
+    fn clone(&self) -> Self {
+        let digest = OnceLock::new();
+        if let Some(cached) = self.digest.get() {
+            let _already_set = digest.set(*cached);
+        }
+        Self {
+            tick: self.tick,
+            entities: self.entities.clone(),
+            digest,
+        }
+    }
+}
+
+impl PartialEq for Snapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.tick == other.tick && self.entities == other.entities
+    }
+}
+
+impl Eq for Snapshot {}
 
 /// Mutable construction surface that carries unchanged component sample ticks.
 #[derive(Debug, Clone)]
@@ -240,7 +278,7 @@ impl SnapshotBuilder {
             .entities
             .get_mut(&entity)
             .ok_or(SnapshotError::MissingEntity { entity })?;
-        entity_state.components.insert(component, state);
+        entity_state.insert_component(component, state);
         Ok(())
     }
 
@@ -254,7 +292,7 @@ impl SnapshotBuilder {
             .entities
             .get_mut(&entity)
             .ok_or(SnapshotError::MissingEntity { entity })?;
-        entity_state.components.remove(&component);
+        let _removed = entity_state.remove_component(component);
         Ok(())
     }
 
@@ -289,6 +327,7 @@ impl Snapshot {
         Ok(Self {
             tick,
             entities: ordered,
+            digest: OnceLock::new(),
         })
     }
 
@@ -344,6 +383,17 @@ impl Snapshot {
         Ok(bytes)
     }
 
+    /// Serialize once and cache the digest of those exact canonical bytes.
+    pub fn encode_with_digest(
+        &self,
+        revision: ProtocolRevision,
+    ) -> Result<(Vec<u8>, ProjectionDigest), SnapshotError> {
+        let bytes = self.encode()?;
+        let digest = projection_digest(revision, SimulationTick::new(self.tick.get()), &bytes);
+        let _already_set = self.digest.set((revision, digest));
+        Ok((bytes, digest))
+    }
+
     /// Decode one exact canonical projection with bounds checked before allocation.
     pub fn decode(bytes: &[u8]) -> Result<Self, SnapshotError> {
         if bytes.len() > MAX_BOOTSTRAP_BYTES {
@@ -364,23 +414,33 @@ impl Snapshot {
             }
         }
         decoder.finish()?;
-        Ok(Self { tick, entities })
+        Ok(Self {
+            tick,
+            entities,
+            digest: OnceLock::new(),
+        })
     }
 
     /// Compute the domain-separated digest of the reconstructed canonical bytes.
     pub fn digest(&self, revision: ProtocolRevision) -> Result<ProjectionDigest, SnapshotError> {
-        Ok(projection_digest(
-            revision,
-            SimulationTick::new(self.tick.get()),
-            &self.encode()?,
-        ))
+        if let Some((cached_revision, digest)) = self.digest.get()
+            && *cached_revision == revision
+        {
+            return Ok(*digest);
+        }
+        let (_bytes, digest) = self.encode_with_digest(revision)?;
+        Ok(digest)
     }
 
     pub(crate) fn from_ordered(
         tick: SnapshotTick,
         entities: BTreeMap<ReplicatedEntityId, EntityState>,
     ) -> Self {
-        Self { tick, entities }
+        Self {
+            tick,
+            entities,
+            digest: OnceLock::new(),
+        }
     }
 
     pub(crate) fn ordered(&self) -> &BTreeMap<ReplicatedEntityId, EntityState> {
@@ -716,6 +776,10 @@ impl<'a> Decoder<'a> {
         Ok(u64::from_le_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]))
+    }
+
+    pub(crate) fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.cursor)
     }
 
     fn count_u16(&mut self, maximum: usize) -> Result<usize, SnapshotError> {

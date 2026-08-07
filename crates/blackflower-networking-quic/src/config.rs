@@ -16,15 +16,22 @@ pub const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(10);
 const DATAGRAM_RECEIVE_BUFFER_BYTES: usize = 2 * 1_024 * 1_024;
 const DATAGRAM_SEND_BUFFER_BYTES: usize = 1_024 * 1_024;
 
-/// Required finite admission limits applied independently per source address.
+/// Required finite limits for global Retry and validated handshakes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdmissionLimits {
-    /// Maximum accepted incoming attempts in each rolling interval.
+    /// Capacity of the global stateless-Retry token bucket.
+    ///
+    /// The bucket starts full and refills this many tokens per [`Self::window`].
     pub attempts_per_window: NonZeroU32,
-    /// Rolling rate-limit interval.
+    /// Interval over which the global Retry bucket refills to capacity.
     pub window: Duration,
-    /// Maximum simultaneous handshakes from one source address.
+    /// Maximum simultaneous handshakes from one validated source address.
     pub pending_per_origin: NonZeroUsize,
+    /// Maximum simultaneous address-validated handshakes across the endpoint,
+    /// enforced before allocating any new per-origin state.
+    pub pending_global: NonZeroUsize,
+    /// Maximum simultaneous established connections owned by the endpoint.
+    pub connections_global: NonZeroUsize,
 }
 
 /// Consumed server TLS material; client certificates are never requested.
@@ -41,17 +48,15 @@ pub struct ServerEndpointConfig {
     pub bind_address: SocketAddr,
     /// Service-CA leaf certificate and key.
     pub tls: ServerTlsConfig,
-    /// Explicit per-origin admission limits.
+    /// Explicit Retry, handshake, and established-connection admission limits.
     pub admission_limits: AdmissionLimits,
 }
 
-/// Service-CA trust set containing the current and optional next root.
+/// Service-CA trust set used to authenticate the dedicated server.
 #[derive(Debug, Clone)]
-pub struct ClientTrustRoots {
-    /// Current service root.
+pub struct ClientTrustRoot {
+    /// Current service root. Rotation requires reconnecting with a new configuration.
     pub current: CertificateDer<'static>,
-    /// Next service root during an overlap rotation window.
-    pub next: Option<CertificateDer<'static>>,
 }
 
 /// Low-level client endpoint configuration.
@@ -63,8 +68,8 @@ pub struct ClientEndpointConfig {
     pub server_address: SocketAddr,
     /// DNS name verified against the short-lived service leaf.
     pub server_name: String,
-    /// Current and optional next service CA roots.
-    pub trust_roots: ClientTrustRoots,
+    /// Current service CA root.
+    pub trust_root: ClientTrustRoot,
 }
 
 pub(crate) fn server_config(tls: ServerTlsConfig) -> Result<quinn::ServerConfig, QuicError> {
@@ -84,12 +89,9 @@ pub(crate) fn server_config(tls: ServerTlsConfig) -> Result<quinn::ServerConfig,
     Ok(config)
 }
 
-pub(crate) fn client_config(roots: ClientTrustRoots) -> Result<quinn::ClientConfig, QuicError> {
+pub(crate) fn client_config(root: ClientTrustRoot) -> Result<quinn::ClientConfig, QuicError> {
     let mut root_store = rustls::RootCertStore::empty();
-    root_store.add(roots.current)?;
-    if let Some(next) = roots.next {
-        root_store.add(next)?;
-    }
+    root_store.add(root.current)?;
     let mut crypto =
         rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_root_certificates(root_store)

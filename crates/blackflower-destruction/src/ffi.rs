@@ -3,12 +3,6 @@
     unsafe_op_in_unsafe_fn,
     reason = "all raw Blast calls and native pointer materialization are isolated in this private module"
 )]
-#![allow(
-    clippy::undocumented_unsafe_blocks,
-    clippy::multiple_unsafe_ops_per_block,
-    reason = "all unsafe operations are confined to the reviewed Blast FFI boundary"
-)]
-
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
@@ -36,6 +30,11 @@ use crate::{
     clippy::useless_transmute,
     reason = "bindgen-generated code mirrors C layouts and is not maintained by hand"
 )]
+#[allow(
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    reason = "bindgen output is generated from the pinned Blast wrapper headers"
+)]
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/blast_bindings.rs"));
 }
@@ -47,16 +46,20 @@ pub(crate) type NativeBond = raw::BFDestructionBondDesc;
 pub(crate) type NativeFracture = raw::BFDestructionFractureData;
 
 pub(crate) fn blast_version() -> &'static str {
+    // SAFETY: the wrapper returns either null or a process-lifetime version string.
     let pointer = unsafe { raw::bf_destruction_blast_version() };
     if pointer.is_null() {
         return "unknown";
     }
+    // SAFETY: the non-null pointer above addresses the wrapper's NUL-terminated
+    // process-lifetime version string.
     unsafe { CStr::from_ptr(pointer) }
         .to_str()
         .unwrap_or("unknown")
 }
 
 pub(crate) fn stress_supported() -> bool {
+    // SAFETY: this capability query takes no pointers and returns a scalar flag.
     unsafe { raw::bf_destruction_stress_supported() != 0 }
 }
 
@@ -67,6 +70,8 @@ pub(crate) fn create_asset(
     let chunk_count = u32::try_from(chunks.len()).map_err(|_error| Error::InvalidChunk)?;
     let bond_count = u32::try_from(bonds.len()).map_err(|_error| Error::InvalidBond)?;
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: both input slices remain readable for their checked counts (with
+    // null used only for an empty bond slice) and `pointer` is uniquely writable.
     let status = unsafe {
         raw::bf_destruction_asset_create(
             chunks.as_ptr(),
@@ -85,22 +90,28 @@ pub(crate) fn create_asset(
 }
 
 pub(crate) fn destroy_asset(pointer: AssetPointer) {
+    // SAFETY: ownership of this live asset is transferred here after all
+    // dependent families have been destroyed.
     unsafe { raw::bf_destruction_asset_destroy(pointer.as_ptr()) };
 }
 
 pub(crate) fn asset_chunk_count(pointer: AssetPointer) -> u32 {
+    // SAFETY: `AssetPointer` can only contain a live, immutable native asset.
     unsafe { raw::bf_destruction_asset_chunk_count(pointer.as_ptr()) }
 }
 
 pub(crate) fn asset_bond_count(pointer: AssetPointer) -> u32 {
+    // SAFETY: `AssetPointer` can only contain a live, immutable native asset.
     unsafe { raw::bf_destruction_asset_bond_count(pointer.as_ptr()) }
 }
 
 pub(crate) fn asset_support_chunk_count(pointer: AssetPointer) -> u32 {
+    // SAFETY: `AssetPointer` can only contain a live, immutable native asset.
     unsafe { raw::bf_destruction_asset_support_chunk_count(pointer.as_ptr()) }
 }
 
 pub(crate) fn asset_graph_node_count(pointer: AssetPointer) -> u32 {
+    // SAFETY: `AssetPointer` can only contain a live, immutable native asset.
     unsafe { raw::bf_destruction_asset_graph_node_count(pointer.as_ptr()) }
 }
 
@@ -110,6 +121,8 @@ pub(crate) fn create_family(
     initial_chunk_health: f32,
 ) -> Result<FamilyPointer, Error> {
     let mut pointer = std::ptr::null_mut();
+    // SAFETY: the asset remains live for family creation and `pointer` is a
+    // valid, uniquely writable out-parameter; the wrapper validates health values.
     let status = unsafe {
         raw::bf_destruction_family_create(
             asset.as_ptr(),
@@ -123,13 +136,18 @@ pub(crate) fn create_family(
 }
 
 pub(crate) fn destroy_family(pointer: FamilyPointer) {
+    // SAFETY: ownership of this live family is transferred here and it is
+    // destroyed exactly once by its safe owner.
     unsafe { raw::bf_destruction_family_destroy(pointer.as_ptr()) };
 }
 
 pub(crate) fn actor_ids(pointer: FamilyPointer) -> Result<Vec<ActorId>, Error> {
+    // SAFETY: the family is live and the count query does not retain pointers.
     let capacity = unsafe { raw::bf_destruction_family_actor_count(pointer.as_ptr()) };
     let mut values = zeroed_u32(capacity)?;
     let mut count = 0u32;
+    // SAFETY: the family is live, `values` is writable for `capacity` entries
+    // (or null at zero capacity), and `count` is uniquely writable.
     let status = unsafe {
         raw::bf_destruction_family_actor_ids(
             pointer.as_ptr(),
@@ -150,6 +168,8 @@ pub(crate) fn visible_chunks(
 ) -> Result<Vec<u32>, Error> {
     let mut values = zeroed_u32(capacity)?;
     let mut count = 0u32;
+    // SAFETY: the family is live, the wrapper validates `actor`, `values` is
+    // writable for `capacity` entries, and `count` is uniquely writable.
     let status = unsafe {
         raw::bf_destruction_family_visible_chunks(
             pointer.as_ptr(),
@@ -171,6 +191,8 @@ pub(crate) fn apply_fracture(
     capacity: u32,
 ) -> Result<Vec<FractureEvent>, Error> {
     let command_count = u32::try_from(commands.len()).map_err(|_error| Error::NativeContract)?;
+    // SAFETY: the family is live, commands are null only when empty or readable
+    // for `command_count`, and `collect_events` supplies valid bounded outputs.
     collect_events(capacity, |events, out_count| unsafe {
         raw::bf_destruction_family_apply_fracture(
             pointer.as_ptr(),
@@ -195,6 +217,8 @@ pub(crate) fn split_actor(
 ) -> Result<Vec<ActorId>, Error> {
     let mut values = zeroed_u32(capacity)?;
     let mut count = 0u32;
+    // SAFETY: the family is live, the wrapper validates `actor`, `values` is
+    // writable for `capacity` entries, and `count` is uniquely writable.
     let status = unsafe {
         raw::bf_destruction_family_split_actor(
             pointer.as_ptr(),
@@ -224,6 +248,8 @@ pub(crate) fn enable_stress(
         shear_elastic_limit: settings.shear_elastic_limit,
         shear_fatal_limit: settings.shear_fatal_limit,
     };
+    // SAFETY: the family is live and `native` remains readable for the call;
+    // the safe API validates settings and density before reaching this adapter.
     check(unsafe { raw::bf_destruction_family_enable_stress(pointer.as_ptr(), &native, density) })
 }
 
@@ -237,6 +263,8 @@ pub(crate) fn stress_add_force(
         ForceMode::Force => raw::BF_DESTRUCTION_FORCE,
         ForceMode::Acceleration => raw::BF_DESTRUCTION_ACCELERATION,
     };
+    // SAFETY: the family is live and the typed node/mode values are passed by
+    // value; the wrapper validates that the node belongs to the stress graph.
     check(unsafe {
         raw::bf_destruction_family_stress_add_force(
             pointer.as_ptr(),
@@ -248,6 +276,7 @@ pub(crate) fn stress_add_force(
 }
 
 pub(crate) fn stress_update(pointer: FamilyPointer) -> Result<(), Error> {
+    // SAFETY: the family is live and the safe owner serializes stress mutation.
     check(unsafe { raw::bf_destruction_family_stress_update(pointer.as_ptr()) })
 }
 
@@ -256,6 +285,8 @@ pub(crate) fn apply_stress(
     actor: ActorId,
     capacity: u32,
 ) -> Result<Vec<FractureEvent>, Error> {
+    // SAFETY: the family is live, the wrapper validates `actor`, and
+    // `collect_events` supplies valid output storage bounded by `capacity`.
     collect_events(capacity, |events, out_count| unsafe {
         raw::bf_destruction_family_apply_stress(
             pointer.as_ptr(),
@@ -269,6 +300,8 @@ pub(crate) fn apply_stress(
 
 pub(crate) fn stress_stats(pointer: FamilyPointer) -> Result<StressStats, Error> {
     let mut native = raw::BFDestructionStressStats::default();
+    // SAFETY: the family is live and `native` is a valid, uniquely writable
+    // output record.
     check(unsafe { raw::bf_destruction_family_stress_stats(pointer.as_ptr(), &mut native) })?;
     Ok(StressStats {
         frame_count: native.frame_count,

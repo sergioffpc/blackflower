@@ -35,9 +35,29 @@ fn calculates_histogram_quantiles() -> Result<(), String> {
         samples,
     };
 
-    let quantile = snapshot.histogram_quantile("tick", 0.5);
-    assert_eq!(quantile, Some(0.001));
+    assert_eq!(snapshot.histogram_quantile("tick", 0.5), Some(0.001));
     assert_eq!(snapshot.histogram_quantile("tick", 0.99), Some(0.002));
+    Ok(())
+}
+
+#[test]
+fn reads_exported_summary_quantiles() -> Result<(), String> {
+    let samples = parse_prometheus(
+        "network_rtt{quantile=\"0.5\"} 0.004\n\
+         network_rtt{quantile=\"0.95\"} 0.012\n\
+         network_rtt_sum 0.016\n\
+         network_rtt_count 2\n",
+    )?;
+    let snapshot = super::MetricSnapshot {
+        collected_at: std::time::Instant::now(),
+        samples,
+    };
+
+    assert_eq!(snapshot.histogram_quantile("network_rtt", 0.5), Some(0.004));
+    assert_eq!(
+        snapshot.histogram_quantile("network_rtt", 0.95),
+        Some(0.012)
+    );
     Ok(())
 }
 

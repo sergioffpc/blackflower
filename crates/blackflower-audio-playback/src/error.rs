@@ -9,6 +9,8 @@ pub enum Error {
     ResourceLimit,
     #[error("audio media failed: {0}")]
     Media(#[from] blackflower_audio_media::Error),
+    #[error("spatial audio failed: {0}")]
+    Spatial(#[from] blackflower_audio_spatial::Error),
     #[error("audio asset `{0}` is missing or has the wrong kind")]
     MissingAsset(blackflower_assets::AssetId),
     #[error("voice was rejected by priority or concurrency policy")]

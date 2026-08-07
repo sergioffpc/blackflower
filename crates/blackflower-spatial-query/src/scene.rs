@@ -120,14 +120,18 @@ impl Scene {
 
     /// Return the closest surface crossing, if any.
     pub fn closest_hit(&self, start: Vec3A, end: Vec3A) -> Result<Option<SurfaceHit>, Error> {
-        let mut hits = Vec::with_capacity(1);
-        self.intersect_segment(start, end, 1, &mut hits)?;
-        Ok(hits.pop())
+        if !start.is_finite() || !end.is_finite() {
+            return Err(Error::ContractViolation);
+        }
+        ffi::closest_hit(self.pointer, start, end)
     }
 
     /// Whether any surface crosses the segment.
     pub fn is_occluded(&self, start: Vec3A, end: Vec3A) -> Result<bool, Error> {
-        self.closest_hit(start, end).map(|hit| hit.is_some())
+        if !start.is_finite() || !end.is_finite() {
+            return Err(Error::ContractViolation);
+        }
+        ffi::is_occluded(self.pointer, start, end)
     }
 }
 

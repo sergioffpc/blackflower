@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use blackflower_networking::{ProjectionDigest, ProtocolRevision, SnapshotAppliedAck};
 
@@ -12,7 +13,7 @@ pub const MAX_SENT_SNAPSHOTS: usize = 32;
 pub struct BaselineTracker {
     revision: ProtocolRevision,
     acknowledged: Option<SentSnapshot>,
-    pending: BTreeMap<SnapshotTick, SentSnapshot>,
+    pending: BTreeMap<SnapshotTick, PendingSnapshot>,
 }
 
 impl BaselineTracker {
@@ -29,7 +30,9 @@ impl BaselineTracker {
     /// Return the exact applied snapshot used as the next delta baseline.
     #[must_use]
     pub fn baseline(&self) -> Option<&Snapshot> {
-        self.acknowledged.as_ref().map(|sent| &sent.snapshot)
+        self.acknowledged
+            .as_ref()
+            .map(|sent| sent.snapshot.as_ref())
     }
 
     /// Return the latest acknowledged tick.
@@ -55,14 +58,51 @@ impl BaselineTracker {
         &mut self,
         snapshot: Snapshot,
     ) -> Result<Option<SnapshotTick>, BaselineError> {
+        let delta = SnapshotDelta::between(&snapshot, self.baseline())?;
+        self.record_sent_delta(snapshot, delta)
+    }
+
+    /// Retain a sent snapshot using the exact delta already built for transport.
+    pub fn record_sent_delta(
+        &mut self,
+        snapshot: Snapshot,
+        delta: SnapshotDelta,
+    ) -> Result<Option<SnapshotTick>, BaselineError> {
         let tick = snapshot.tick();
         if let Some(latest) = self.latest_tick()
             && tick <= latest
         {
             return Err(BaselineError::NonIncreasingSnapshot { tick, latest });
         }
+        if delta.tick() != tick || delta.baseline() != self.acknowledged_tick() {
+            return Err(BaselineError::DeltaDoesNotMatchBaseline {
+                snapshot: tick,
+                delta: delta.tick(),
+                expected_baseline: self.acknowledged_tick(),
+                actual_baseline: delta.baseline(),
+            });
+        }
         let digest = snapshot.digest(self.revision)?;
-        self.pending.insert(tick, SentSnapshot { snapshot, digest });
+        if let Some(previous_tick) = self
+            .pending
+            .last_key_value()
+            .map(|(&previous_tick, _pending)| previous_tick)
+            && let Some(previous) = self.pending.get_mut(&previous_tick)
+        {
+            previous.snapshot = None;
+        }
+        self.pending.insert(
+            tick,
+            PendingSnapshot {
+                baseline: self
+                    .acknowledged
+                    .as_ref()
+                    .map(|sent| Arc::clone(&sent.snapshot)),
+                delta,
+                snapshot: Some(snapshot),
+                digest,
+            },
+        );
         Ok(self.evict_oldest_pending())
     }
 
@@ -95,9 +135,15 @@ impl BaselineTracker {
             .pending
             .remove(&tick)
             .ok_or(BaselineError::UnknownAcknowledgement { tick })?;
+        let snapshot = promoted
+            .snapshot
+            .map_or_else(|| promoted.delta.apply(promoted.baseline.as_deref()), Ok)?;
         self.pending
             .retain(|pending_tick, _snapshot| *pending_tick > tick);
-        self.acknowledged = Some(promoted);
+        self.acknowledged = Some(SentSnapshot {
+            snapshot: Arc::new(snapshot),
+            digest: promoted.digest,
+        });
         Ok(())
     }
 
@@ -128,7 +174,15 @@ impl BaselineTracker {
 
 #[derive(Debug, Clone)]
 struct SentSnapshot {
-    snapshot: Snapshot,
+    snapshot: Arc<Snapshot>,
+    digest: ProjectionDigest,
+}
+
+#[derive(Debug, Clone)]
+struct PendingSnapshot {
+    baseline: Option<Arc<Snapshot>>,
+    delta: SnapshotDelta,
+    snapshot: Option<Snapshot>,
     digest: ProjectionDigest,
 }
 
@@ -142,6 +196,20 @@ pub enum BaselineError {
         tick: SnapshotTick,
         /// Latest retained or acknowledged tick.
         latest: SnapshotTick,
+    },
+    /// A caller supplied a delta for a different snapshot or acknowledged baseline.
+    #[error(
+        "snapshot {snapshot} delta {delta} uses baseline {actual_baseline:?}, expected {expected_baseline:?}"
+    )]
+    DeltaDoesNotMatchBaseline {
+        /// Snapshot being retained.
+        snapshot: SnapshotTick,
+        /// Tick represented by the supplied delta.
+        delta: SnapshotTick,
+        /// Exact currently acknowledged baseline.
+        expected_baseline: Option<SnapshotTick>,
+        /// Baseline declared by the supplied delta.
+        actual_baseline: Option<SnapshotTick>,
     },
     /// An acknowledgement moved behind the current baseline.
     #[error("acknowledgement tick {tick} is older than baseline tick {acknowledged}")]

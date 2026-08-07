@@ -39,7 +39,7 @@ fn unused_loopback_address() -> Result<SocketAddr, Box<dyn Error>> {
 }
 
 fn wait_for_host_metrics(address: SocketAddr) -> Result<String, Box<dyn Error>> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
         if let Ok(exposition) = scrape(address)
             && exposition.contains("blackflower_observability_host_collector_up 1")

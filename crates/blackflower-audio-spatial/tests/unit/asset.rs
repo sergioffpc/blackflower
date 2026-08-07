@@ -1,8 +1,9 @@
 use super::{
     AcousticEnvironment, AcousticProbe, AcousticScene, AcousticZone, BakedDataIdentifier,
-    BakedLayer, ProbeBatch,
+    BakedLayer, ProbeBatch, validate_authenticated_scene_contract,
 };
 use crate::Vec3A;
+use blackflower_assets::AssetKind;
 
 #[test]
 fn scene_and_probe_formats_round_trip_and_reject_corruption() -> Result<(), crate::Error> {
@@ -54,4 +55,18 @@ fn environment_is_sorted_and_strict() -> Result<(), crate::Error> {
     };
     assert!(error.to_string().contains("schema is unsupported"));
     Ok(())
+}
+
+#[test]
+fn native_scene_loading_requires_authenticated_kind_and_toolchain() {
+    let expected = crate::steam_audio_acoustics_identity();
+    assert!(validate_authenticated_scene_contract(AssetKind::AcousticScene, &expected).is_ok());
+    assert!(matches!(
+        validate_authenticated_scene_contract(AssetKind::Blob, &expected),
+        Err(crate::Error::InvalidAcousticSceneAssetKind { .. })
+    ));
+    assert!(matches!(
+        validate_authenticated_scene_contract(AssetKind::AcousticScene, "steam-audio/old"),
+        Err(crate::Error::IncompatibleAcousticSceneToolchain { .. })
+    ));
 }

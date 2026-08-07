@@ -2,6 +2,7 @@
 
 #include <Jolt/Jolt.h>
 
+#include <Jolt/ConfigurationString.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
@@ -25,8 +26,12 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <tuple>
@@ -34,7 +39,21 @@
 #include <utility>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
+
 using namespace JPH;
+
+extern "C" const char *bf_jolt_archive_configuration() noexcept;
+extern "C" uint32_t bf_jolt_archive_strict_float() noexcept;
+
+#if !defined(JPH_CROSS_PLATFORM_DETERMINISTIC)
+#error "Blackflower requires Jolt cross-platform deterministic mode"
+#endif
+#if !defined(BF_JOLT_STRICT_FLOAT) || BF_JOLT_STRICT_FLOAT != 1
+#error "Blackflower requires the pinned strict floating-point mode"
+#endif
 
 static_assert(
     BF_PHYSICS_MAX_CONVEX_HULL_POINTS == ConvexHullShape::cMaxPointsInHull,
@@ -86,12 +105,96 @@ public:
 std::mutex runtime_mutex;
 uint32_t runtime_references = 0;
 
+// Jolt's class-specific operator new forwards directly to these callbacks. Throw here so an
+// allocation failure reaches the guarded C ABI instead of returning a null object allocation.
+void *throwing_allocate(size_t size) {
+    void *block = std::malloc(size);
+    if (block == nullptr) {
+        throw std::bad_alloc();
+    }
+    return block;
+}
+
+void *throwing_reallocate(void *block, size_t, size_t new_size) {
+    void *new_block = std::realloc(block, new_size);
+    if (new_block == nullptr) {
+        throw std::bad_alloc();
+    }
+    return new_block;
+}
+
+void throwing_free(void *block) noexcept {
+    std::free(block);
+}
+
+void *throwing_aligned_allocate(size_t size, size_t alignment) {
+    void *block = nullptr;
+#if defined(_MSC_VER)
+    block = _aligned_malloc(size, alignment);
+#else
+    if (posix_memalign(&block, alignment, size) != 0) {
+        block = nullptr;
+    }
+#endif
+    if (block == nullptr) {
+        throw std::bad_alloc();
+    }
+    return block;
+}
+
+void throwing_aligned_free(void *block) noexcept {
+#if defined(_MSC_VER)
+    _aligned_free(block);
+#else
+    std::free(block);
+#endif
+}
+
+void register_throwing_allocator() noexcept {
+    Allocate = throwing_allocate;
+    Reallocate = throwing_reallocate;
+    Free = throwing_free;
+    AlignedAllocate = throwing_aligned_allocate;
+    AlignedFree = throwing_aligned_free;
+}
+
+bool jolt_configuration_matches() noexcept {
+    static const bool matches = [] {
+        const char *archive = bf_jolt_archive_configuration();
+        return archive != nullptr
+            && std::strcmp(archive, GetConfigurationString()) == 0
+            && bf_jolt_archive_strict_float() == BF_JOLT_STRICT_FLOAT;
+    }();
+    return matches;
+}
+
+template <typename Function>
+int32_t guarded(Function &&function) noexcept {
+    if (!jolt_configuration_matches()) {
+        return BF_PHYSICS_STATUS_CONFIGURATION_MISMATCH;
+    }
+    try {
+        return std::forward<Function>(function)();
+    } catch (const std::bad_alloc &) {
+        return BF_PHYSICS_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return BF_PHYSICS_STATUS_NATIVE_FAILURE;
+    }
+}
+
 void acquire_runtime() {
     std::lock_guard lock(runtime_mutex);
     if (runtime_references == 0) {
-        RegisterDefaultAllocator();
-        Factory::sInstance = new Factory();
-        RegisterTypes();
+        register_throwing_allocator();
+        std::unique_ptr<Factory> factory(new Factory());
+        Factory::sInstance = factory.get();
+        try {
+            RegisterTypes();
+        } catch (...) {
+            Factory::sInstance = nullptr;
+            throw;
+        }
+        factory.release();
     }
     ++runtime_references;
 }
@@ -247,44 +350,52 @@ bool contact_less(const ContactRecord &first, const ContactRecord &second) {
 class ContactRecorder final : public ContactListener {
 public:
     void BeginStep() {
+        failure_.store(BF_PHYSICS_STATUS_OK, std::memory_order_relaxed);
         std::lock_guard lock(mutex_);
         records_.clear();
     }
 
-    void FinishStep() {
+    int32_t FinishStep() {
         std::lock_guard lock(mutex_);
         for (ContactRecord &record : records_) {
             std::sort(record.points.begin(), record.points.end(), point_less);
             record.event.point_count = static_cast<uint32_t>(record.points.size());
         }
         std::sort(records_.begin(), records_.end(), contact_less);
+        return failure_.load(std::memory_order_relaxed);
     }
 
     void OnContactAdded(
         const Body &body1,
         const Body &body2,
         const ContactManifold &manifold,
-        ContactSettings &settings) override {
-        Record(BF_PHYSICS_CONTACT_ADDED, body1, body2, manifold, settings);
+        ContactSettings &settings) noexcept override {
+        RecordGuarded(BF_PHYSICS_CONTACT_ADDED, body1, body2, manifold, settings);
     }
 
     void OnContactPersisted(
         const Body &body1,
         const Body &body2,
         const ContactManifold &manifold,
-        ContactSettings &settings) override {
-        Record(BF_PHYSICS_CONTACT_PERSISTED, body1, body2, manifold, settings);
+        ContactSettings &settings) noexcept override {
+        RecordGuarded(BF_PHYSICS_CONTACT_PERSISTED, body1, body2, manifold, settings);
     }
 
-    void OnContactRemoved(const SubShapeIDPair &pair) override {
-        ContactRecord record {};
-        record.event.kind = BF_PHYSICS_CONTACT_REMOVED;
-        record.event.body1_id = pair.GetBody1ID().GetIndexAndSequenceNumber();
-        record.event.body2_id = pair.GetBody2ID().GetIndexAndSequenceNumber();
-        record.event.sub_shape1_id = pair.GetSubShapeID1().GetValue();
-        record.event.sub_shape2_id = pair.GetSubShapeID2().GetValue();
-        std::lock_guard lock(mutex_);
-        records_.push_back(std::move(record));
+    void OnContactRemoved(const SubShapeIDPair &pair) noexcept override {
+        try {
+            ContactRecord record {};
+            record.event.kind = BF_PHYSICS_CONTACT_REMOVED;
+            record.event.body1_id = pair.GetBody1ID().GetIndexAndSequenceNumber();
+            record.event.body2_id = pair.GetBody2ID().GetIndexAndSequenceNumber();
+            record.event.sub_shape1_id = pair.GetSubShapeID1().GetValue();
+            record.event.sub_shape2_id = pair.GetSubShapeID2().GetValue();
+            std::lock_guard lock(mutex_);
+            records_.push_back(std::move(record));
+        } catch (const std::bad_alloc &) {
+            RecordFailure(BF_PHYSICS_STATUS_OUT_OF_MEMORY);
+        } catch (...) {
+            RecordFailure(BF_PHYSICS_STATUS_NATIVE_FAILURE);
+        }
     }
 
     uint32_t Count() const {
@@ -296,6 +407,30 @@ public:
     }
 
 private:
+    void RecordGuarded(
+        uint32_t kind,
+        const Body &body1,
+        const Body &body2,
+        const ContactManifold &manifold,
+        const ContactSettings &settings) noexcept {
+        try {
+            Record(kind, body1, body2, manifold, settings);
+        } catch (const std::bad_alloc &) {
+            RecordFailure(BF_PHYSICS_STATUS_OUT_OF_MEMORY);
+        } catch (...) {
+            RecordFailure(BF_PHYSICS_STATUS_NATIVE_FAILURE);
+        }
+    }
+
+    void RecordFailure(int32_t status) noexcept {
+        int32_t expected = BF_PHYSICS_STATUS_OK;
+        failure_.compare_exchange_strong(
+            expected,
+            status,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed);
+    }
+
     void Record(
         uint32_t kind,
         const Body &body1,
@@ -327,6 +462,7 @@ private:
 
     mutable std::mutex mutex_;
     std::vector<ContactRecord> records_;
+    std::atomic<int32_t> failure_ {BF_PHYSICS_STATUS_OK};
 };
 
 int32_t require_body(const BFPhysicsWorld *world, BodyID body_id);
@@ -351,7 +487,7 @@ struct BFPhysicsWorld {
         system.SetContactListener(&contact_recorder);
     }
 
-    ~BFPhysicsWorld() {
+    ~BFPhysicsWorld() noexcept(false) {
         system.SetContactListener(nullptr);
         for (const auto &entry : characters) {
             Character *character = entry.second;
@@ -385,10 +521,7 @@ int32_t store_shape(ShapeRefC shape, BFPhysicsShape **out_shape) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
     *out_shape = nullptr;
-    BFPhysicsShape *wrapper = new (std::nothrow) BFPhysicsShape(std::move(shape));
-    if (wrapper == nullptr) {
-        return BF_PHYSICS_STATUS_INITIALIZATION_FAILED;
-    }
+    BFPhysicsShape *wrapper = new BFPhysicsShape(std::move(shape));
     *out_shape = wrapper;
     return BF_PHYSICS_STATUS_OK;
 }
@@ -472,7 +605,7 @@ int32_t create_body(
 
 } // namespace
 
-extern "C" BFPhysicsVersion bf_physics_jolt_version() {
+extern "C" BFPhysicsVersion bf_physics_jolt_version() noexcept {
     return BFPhysicsVersion {
         JPH_VERSION_MAJOR,
         JPH_VERSION_MINOR,
@@ -480,18 +613,24 @@ extern "C" BFPhysicsVersion bf_physics_jolt_version() {
     };
 }
 
-extern "C" int32_t bf_physics_shape_create_sphere(
+static int32_t impl_bf_physics_shape_create_sphere(
     float radius,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (!std::isfinite(radius) || radius <= 0.0F) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
     return store_shape(ShapeRefC(new SphereShape(radius)), out_shape);
 }
 
-extern "C" int32_t bf_physics_shape_create_box(
+static int32_t impl_bf_physics_shape_create_box(
     BFPhysicsVec3 half_extent,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (!finite(half_extent) || half_extent.x <= 0.0F || half_extent.y <= 0.0F
         || half_extent.z <= 0.0F) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
@@ -501,10 +640,13 @@ extern "C" int32_t bf_physics_shape_create_box(
         out_shape);
 }
 
-extern "C" int32_t bf_physics_shape_create_capsule(
+static int32_t impl_bf_physics_shape_create_capsule(
     float half_height,
     float radius,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (!std::isfinite(half_height) || !std::isfinite(radius) || half_height <= 0.0F
         || radius <= 0.0F) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
@@ -514,10 +656,13 @@ extern "C" int32_t bf_physics_shape_create_capsule(
         out_shape);
 }
 
-extern "C" int32_t bf_physics_shape_create_convex_hull(
+static int32_t impl_bf_physics_shape_create_convex_hull(
     const BFPhysicsVec3 *points,
     uint32_t point_count,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (points == nullptr || point_count < 4
         || point_count > BF_PHYSICS_MAX_CONVEX_HULL_POINTS) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
@@ -533,10 +678,13 @@ extern "C" int32_t bf_physics_shape_create_convex_hull(
     return store_shape(ConvexHullShapeSettings(jolt_points).Create(), out_shape);
 }
 
-extern "C" int32_t bf_physics_shape_create_compound(
+static int32_t impl_bf_physics_shape_create_compound(
     const BFPhysicsCompoundChild *children,
     uint32_t child_count,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (children == nullptr || child_count == 0) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
@@ -555,12 +703,15 @@ extern "C" int32_t bf_physics_shape_create_compound(
     return store_shape(settings.Create(), out_shape);
 }
 
-extern "C" int32_t bf_physics_shape_create_triangle_mesh(
+static int32_t impl_bf_physics_shape_create_triangle_mesh(
     const BFPhysicsVec3 *vertices,
     uint32_t vertex_count,
     const BFPhysicsTriangle *triangles,
     uint32_t triangle_count,
     BFPhysicsShape **out_shape) {
+    if (out_shape != nullptr) {
+        *out_shape = nullptr;
+    }
     if (vertices == nullptr || vertex_count < 3 || triangles == nullptr || triangle_count == 0) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
@@ -591,16 +742,18 @@ extern "C" int32_t bf_physics_shape_create_triangle_mesh(
     return store_shape(settings.Create(), out_shape);
 }
 
-extern "C" void bf_physics_shape_destroy(BFPhysicsShape *shape) {
+static int32_t impl_bf_physics_shape_destroy(BFPhysicsShape *shape) {
     delete shape;
+    return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_create(
+static int32_t impl_bf_physics_world_create(
     const BFPhysicsWorldConfig *config,
     BFPhysicsWorld **out_world) {
     if (config == nullptr || out_world == nullptr) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
+    *out_world = nullptr;
     if (config->max_bodies == 0 || config->max_bodies > PhysicsSystem::cMaxBodiesLimit
         || config->max_body_pairs == 0
         || config->max_body_pairs > PhysicsSystem::cMaxBodyPairsLimit
@@ -611,28 +764,32 @@ extern "C" int32_t bf_physics_world_create(
     }
 
     acquire_runtime();
-    BFPhysicsWorld *world = new (std::nothrow) BFPhysicsWorld(*config);
-    if (world == nullptr) {
+    try {
+        *out_world = new BFPhysicsWorld(*config);
+    } catch (...) {
         release_runtime();
-        return BF_PHYSICS_STATUS_INITIALIZATION_FAILED;
+        throw;
     }
-    *out_world = world;
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" void bf_physics_world_destroy(BFPhysicsWorld *world) {
+static int32_t impl_bf_physics_world_destroy(BFPhysicsWorld *world) {
     if (world == nullptr) {
-        return;
+        return BF_PHYSICS_STATUS_OK;
     }
     delete world;
     release_runtime();
+    return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_create_body(
+static int32_t impl_bf_physics_world_create_body(
     BFPhysicsWorld *world,
     const BFPhysicsBodySettings *settings,
     const BFPhysicsShape *shape,
     uint32_t *out_body_id) {
+    if (out_body_id != nullptr) {
+        *out_body_id = UINT32_MAX;
+    }
     return create_body(
         world,
         settings,
@@ -640,7 +797,7 @@ extern "C" int32_t bf_physics_world_create_body(
         out_body_id);
 }
 
-extern "C" int32_t bf_physics_world_destroy_body(BFPhysicsWorld *world, uint32_t body_id) {
+static int32_t impl_bf_physics_world_destroy_body(BFPhysicsWorld *world, uint32_t body_id) {
     if (world == nullptr) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
@@ -658,7 +815,7 @@ extern "C" int32_t bf_physics_world_destroy_body(BFPhysicsWorld *world, uint32_t
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_exists(
+static int32_t impl_bf_physics_world_body_exists(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     uint8_t *out_exists) {
@@ -669,7 +826,7 @@ extern "C" int32_t bf_physics_world_body_exists(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_is_active(
+static int32_t impl_bf_physics_world_body_is_active(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     uint8_t *out_active) {
@@ -685,7 +842,7 @@ extern "C" int32_t bf_physics_world_body_is_active(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_position(
+static int32_t impl_bf_physics_world_body_position(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 *out_position) {
@@ -701,7 +858,7 @@ extern "C" int32_t bf_physics_world_body_position(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_rotation(
+static int32_t impl_bf_physics_world_body_rotation(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsQuat *out_rotation) {
@@ -717,7 +874,7 @@ extern "C" int32_t bf_physics_world_body_rotation(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_set_body_rotation(
+static int32_t impl_bf_physics_world_set_body_rotation(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsQuat rotation) {
@@ -736,7 +893,7 @@ extern "C" int32_t bf_physics_world_set_body_rotation(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_linear_velocity(
+static int32_t impl_bf_physics_world_body_linear_velocity(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 *out_velocity) {
@@ -752,7 +909,7 @@ extern "C" int32_t bf_physics_world_body_linear_velocity(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_set_body_linear_velocity(
+static int32_t impl_bf_physics_world_set_body_linear_velocity(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 velocity) {
@@ -773,7 +930,7 @@ extern "C" int32_t bf_physics_world_set_body_linear_velocity(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_body_angular_velocity(
+static int32_t impl_bf_physics_world_body_angular_velocity(
     const BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 *out_velocity) {
@@ -789,7 +946,7 @@ extern "C" int32_t bf_physics_world_body_angular_velocity(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_set_body_angular_velocity(
+static int32_t impl_bf_physics_world_set_body_angular_velocity(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 velocity) {
@@ -808,7 +965,7 @@ extern "C" int32_t bf_physics_world_set_body_angular_velocity(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_force(
+static int32_t impl_bf_physics_world_add_body_force(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 force) {
@@ -827,7 +984,7 @@ extern "C" int32_t bf_physics_world_add_body_force(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_force_at_point(
+static int32_t impl_bf_physics_world_add_body_force_at_point(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 force,
@@ -847,7 +1004,7 @@ extern "C" int32_t bf_physics_world_add_body_force_at_point(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_torque(
+static int32_t impl_bf_physics_world_add_body_torque(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 torque) {
@@ -866,7 +1023,7 @@ extern "C" int32_t bf_physics_world_add_body_torque(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_impulse(
+static int32_t impl_bf_physics_world_add_body_impulse(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 impulse) {
@@ -885,7 +1042,7 @@ extern "C" int32_t bf_physics_world_add_body_impulse(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_impulse_at_point(
+static int32_t impl_bf_physics_world_add_body_impulse_at_point(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 impulse,
@@ -905,7 +1062,7 @@ extern "C" int32_t bf_physics_world_add_body_impulse_at_point(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_add_body_angular_impulse(
+static int32_t impl_bf_physics_world_add_body_angular_impulse(
     BFPhysicsWorld *world,
     uint32_t body_id,
     BFPhysicsVec3 impulse) {
@@ -924,13 +1081,14 @@ extern "C" int32_t bf_physics_world_add_body_angular_impulse(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_create_character(
+static int32_t impl_bf_physics_world_create_character(
     BFPhysicsWorld *world,
     const BFPhysicsCharacterSettings *settings,
     uint32_t *out_character_id) {
     if (world == nullptr || settings == nullptr || out_character_id == nullptr) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
+    *out_character_id = UINT32_MAX;
     if (!valid_character_settings(*settings)) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
@@ -951,26 +1109,36 @@ extern "C" int32_t bf_physics_world_create_character(
     character_settings.mFriction = settings->friction;
     character_settings.mGravityFactor = settings->gravity_factor;
     character_settings.mMaxSlopeAngle = settings->max_slope_angle_radians;
-    Character *character = new Character(
+    std::unique_ptr<Character> character(new Character(
         &character_settings,
         to_rvec3(settings->position),
         to_quat(settings->rotation),
         0,
-        &world->system);
+        &world->system));
     const BodyID body_id = character->GetBodyID();
     if (body_id.IsInvalid()) {
-        delete character;
         return BF_PHYSICS_STATUS_BODY_CAPACITY_EXHAUSTED;
     }
 
     character->AddToPhysicsSystem(activation(*settings));
     const uint32_t raw_id = body_id.GetIndexAndSequenceNumber();
-    world->characters.emplace(raw_id, character);
+    try {
+        const auto [entry, inserted] = world->characters.emplace(raw_id, character.get());
+        if (!inserted) {
+            character->RemoveFromPhysicsSystem();
+            return BF_PHYSICS_STATUS_NATIVE_FAILURE;
+        }
+        (void)entry;
+    } catch (...) {
+        character->RemoveFromPhysicsSystem();
+        throw;
+    }
     *out_character_id = raw_id;
+    character.release();
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_destroy_character(
+static int32_t impl_bf_physics_world_destroy_character(
     BFPhysicsWorld *world,
     uint32_t character_id) {
     if (world == nullptr) {
@@ -987,7 +1155,7 @@ extern "C" int32_t bf_physics_world_destroy_character(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_set_character_linear_velocity(
+static int32_t impl_bf_physics_world_set_character_linear_velocity(
     BFPhysicsWorld *world,
     uint32_t character_id,
     BFPhysicsVec3 velocity) {
@@ -1006,7 +1174,7 @@ extern "C" int32_t bf_physics_world_set_character_linear_velocity(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_refresh_character_ground_state(
+static int32_t impl_bf_physics_world_refresh_character_ground_state(
     BFPhysicsWorld *world,
     uint32_t character_id,
     float max_separation_distance) {
@@ -1025,7 +1193,7 @@ extern "C" int32_t bf_physics_world_refresh_character_ground_state(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_character_state(
+static int32_t impl_bf_physics_world_character_state(
     const BFPhysicsWorld *world,
     uint32_t character_id,
     BFPhysicsCharacterState *out_state) {
@@ -1053,7 +1221,7 @@ extern "C" int32_t bf_physics_world_character_state(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_contact_event_count(
+static int32_t impl_bf_physics_world_contact_event_count(
     const BFPhysicsWorld *world,
     uint32_t *out_count) {
     if (world == nullptr || out_count == nullptr) {
@@ -1063,7 +1231,7 @@ extern "C" int32_t bf_physics_world_contact_event_count(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_contact_event(
+static int32_t impl_bf_physics_world_contact_event(
     const BFPhysicsWorld *world,
     uint32_t event_index,
     BFPhysicsContactEvent *out_event) {
@@ -1078,7 +1246,7 @@ extern "C" int32_t bf_physics_world_contact_event(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_contact_point(
+static int32_t impl_bf_physics_world_contact_point(
     const BFPhysicsWorld *world,
     uint32_t event_index,
     uint32_t point_index,
@@ -1094,7 +1262,7 @@ extern "C" int32_t bf_physics_world_contact_point(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_cast_ray(
+static int32_t impl_bf_physics_world_cast_ray(
     const BFPhysicsWorld *world,
     BFPhysicsVec3 origin,
     BFPhysicsVec3 displacement,
@@ -1131,13 +1299,15 @@ extern "C" int32_t bf_physics_world_cast_ray(
     return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" void bf_physics_world_optimize_broad_phase(BFPhysicsWorld *world) {
-    if (world != nullptr) {
-        world->system.OptimizeBroadPhase();
+static int32_t impl_bf_physics_world_optimize_broad_phase(BFPhysicsWorld *world) {
+    if (world == nullptr) {
+        return BF_PHYSICS_STATUS_NULL_POINTER;
     }
+    world->system.OptimizeBroadPhase();
+    return BF_PHYSICS_STATUS_OK;
 }
 
-extern "C" int32_t bf_physics_world_update(
+static int32_t impl_bf_physics_world_update(
     BFPhysicsWorld *world,
     float delta_seconds,
     int32_t collision_steps,
@@ -1145,6 +1315,7 @@ extern "C" int32_t bf_physics_world_update(
     if (world == nullptr || out_update_errors == nullptr) {
         return BF_PHYSICS_STATUS_NULL_POINTER;
     }
+    *out_update_errors = 0;
     if (!std::isfinite(delta_seconds) || delta_seconds <= 0.0F || collision_steps <= 0) {
         return BF_PHYSICS_STATUS_INVALID_ARGUMENT;
     }
@@ -1154,6 +1325,182 @@ extern "C" int32_t bf_physics_world_update(
         collision_steps,
         &world->temp_allocator,
         &world->job_system));
-    world->contact_recorder.FinishStep();
-    return BF_PHYSICS_STATUS_OK;
+    return world->contact_recorder.FinishStep();
 }
+
+#define BF_PHYSICS_GUARDED_ENTRY(name, parameters, arguments) \
+    extern "C" int32_t name parameters noexcept { \
+        return guarded([&]() -> int32_t { return impl_##name arguments; }); \
+    }
+
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_sphere,
+    (float radius, BFPhysicsShape **out_shape),
+    (radius, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_box,
+    (BFPhysicsVec3 half_extent, BFPhysicsShape **out_shape),
+    (half_extent, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_capsule,
+    (float half_height, float radius, BFPhysicsShape **out_shape),
+    (half_height, radius, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_convex_hull,
+    (const BFPhysicsVec3 *points, uint32_t point_count, BFPhysicsShape **out_shape),
+    (points, point_count, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_compound,
+    (const BFPhysicsCompoundChild *children, uint32_t child_count, BFPhysicsShape **out_shape),
+    (children, child_count, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_create_triangle_mesh,
+    (const BFPhysicsVec3 *vertices,
+     uint32_t vertex_count,
+     const BFPhysicsTriangle *triangles,
+     uint32_t triangle_count,
+     BFPhysicsShape **out_shape),
+    (vertices, vertex_count, triangles, triangle_count, out_shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_shape_destroy,
+    (BFPhysicsShape *shape),
+    (shape))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_create,
+    (const BFPhysicsWorldConfig *config, BFPhysicsWorld **out_world),
+    (config, out_world))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_destroy,
+    (BFPhysicsWorld *world),
+    (world))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_create_body,
+    (BFPhysicsWorld *world,
+     const BFPhysicsBodySettings *settings,
+     const BFPhysicsShape *shape,
+     uint32_t *out_body_id),
+    (world, settings, shape, out_body_id))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_destroy_body,
+    (BFPhysicsWorld *world, uint32_t body_id),
+    (world, body_id))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_exists,
+    (const BFPhysicsWorld *world, uint32_t body_id, uint8_t *out_exists),
+    (world, body_id, out_exists))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_is_active,
+    (const BFPhysicsWorld *world, uint32_t body_id, uint8_t *out_active),
+    (world, body_id, out_active))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_position,
+    (const BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 *out_position),
+    (world, body_id, out_position))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_rotation,
+    (const BFPhysicsWorld *world, uint32_t body_id, BFPhysicsQuat *out_rotation),
+    (world, body_id, out_rotation))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_set_body_rotation,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsQuat rotation),
+    (world, body_id, rotation))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_linear_velocity,
+    (const BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 *out_velocity),
+    (world, body_id, out_velocity))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_set_body_linear_velocity,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 velocity),
+    (world, body_id, velocity))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_body_angular_velocity,
+    (const BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 *out_velocity),
+    (world, body_id, out_velocity))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_set_body_angular_velocity,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 velocity),
+    (world, body_id, velocity))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_force,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 force),
+    (world, body_id, force))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_force_at_point,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 force, BFPhysicsVec3 point),
+    (world, body_id, force, point))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_torque,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 torque),
+    (world, body_id, torque))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_impulse,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 impulse),
+    (world, body_id, impulse))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_impulse_at_point,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 impulse, BFPhysicsVec3 point),
+    (world, body_id, impulse, point))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_add_body_angular_impulse,
+    (BFPhysicsWorld *world, uint32_t body_id, BFPhysicsVec3 impulse),
+    (world, body_id, impulse))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_create_character,
+    (BFPhysicsWorld *world,
+     const BFPhysicsCharacterSettings *settings,
+     uint32_t *out_character_id),
+    (world, settings, out_character_id))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_destroy_character,
+    (BFPhysicsWorld *world, uint32_t character_id),
+    (world, character_id))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_set_character_linear_velocity,
+    (BFPhysicsWorld *world, uint32_t character_id, BFPhysicsVec3 velocity),
+    (world, character_id, velocity))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_refresh_character_ground_state,
+    (BFPhysicsWorld *world, uint32_t character_id, float max_separation_distance),
+    (world, character_id, max_separation_distance))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_character_state,
+    (const BFPhysicsWorld *world,
+     uint32_t character_id,
+     BFPhysicsCharacterState *out_state),
+    (world, character_id, out_state))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_contact_event_count,
+    (const BFPhysicsWorld *world, uint32_t *out_count),
+    (world, out_count))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_contact_event,
+    (const BFPhysicsWorld *world, uint32_t event_index, BFPhysicsContactEvent *out_event),
+    (world, event_index, out_event))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_contact_point,
+    (const BFPhysicsWorld *world,
+     uint32_t event_index,
+     uint32_t point_index,
+     BFPhysicsContactPoint *out_point),
+    (world, event_index, point_index, out_point))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_cast_ray,
+    (const BFPhysicsWorld *world,
+     BFPhysicsVec3 origin,
+     BFPhysicsVec3 displacement,
+     uint8_t *out_has_hit,
+     BFPhysicsRayHit *out_hit),
+    (world, origin, displacement, out_has_hit, out_hit))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_optimize_broad_phase,
+    (BFPhysicsWorld *world),
+    (world))
+BF_PHYSICS_GUARDED_ENTRY(
+    bf_physics_world_update,
+    (BFPhysicsWorld *world,
+     float delta_seconds,
+     int32_t collision_steps,
+     uint32_t *out_update_errors),
+    (world, delta_seconds, collision_steps, out_update_errors))
+
+#undef BF_PHYSICS_GUARDED_ENTRY

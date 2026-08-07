@@ -7,8 +7,14 @@ license.workspace = true
 publish.workspace = true
 links = "phonon"
 
+[features]
+default = []
+# Trusted offline cooker access to freshly serialized Steam Audio scenes.
+cooking = []
+
 [dependencies]
 blackflower-acoustics.workspace = true
+blackflower-assets.workspace = true
 
 blake3.workspace = true
 glam.workspace = true

@@ -54,7 +54,7 @@ fn context_selects_embree_only_when_compiled_for_the_target() -> Result<(), Erro
 #[test]
 fn default_hrtf_spatializes_a_mono_impulse() -> Result<(), Error> {
     let settings = test_settings()?;
-    let mut context = Context::new()?;
+    let context = Context::new()?;
     let hrtf = context.create_default_hrtf(settings)?;
     let mut effect = context.create_binaural_effect(&hrtf)?;
     let mut input = [0.0; FRAME_SIZE];
@@ -84,7 +84,7 @@ fn safe_api_rejects_invalid_directions_and_frame_lengths() -> Result<(), Error> 
     ));
 
     let settings = test_settings()?;
-    let mut context = Context::new()?;
+    let context = Context::new()?;
     let hrtf = context.create_default_hrtf(settings)?;
     let mut effect = context.create_binaural_effect(&hrtf)?;
     let input = [0.0; FRAME_SIZE - 1];
@@ -198,6 +198,7 @@ fn acoustic_scene_rejects_invalid_materials_and_geometry() -> Result<(), Error> 
 }
 
 #[test]
+#[cfg(feature = "cooking")]
 fn cooked_scene_and_probe_assets_round_trip_through_steam_audio() -> Result<(), Error> {
     let mut context = Context::new()?;
     let mut scene = context.create_serializable_scene()?;
@@ -222,7 +223,7 @@ fn cooked_scene_and_probe_assets_round_trip_through_steam_audio() -> Result<(), 
 
     let scene_asset = scene.to_acoustic_asset(4, 2, 1)?;
     let decoded_scene = AcousticScene::from_bytes(scene_asset.bytes())?;
-    let loaded_scene = context.load_acoustic_scene(&decoded_scene)?;
+    let loaded_scene = context.load_cooked_acoustic_scene(&decoded_scene)?;
     let volume = ProbeVolumeTransform::new([
         [4.0, 0.0, 0.0, 0.0],
         [0.0, 2.0, 0.0, 1.0],

@@ -1,7 +1,9 @@
 # blackflower-world-prediction
 
-`blackflower-world-prediction` advances deterministic client-side simulation at
-240 Hz and reconciles predicted state with authoritative server snapshots.
+`blackflower-world-prediction` advances fixed-step client-side prediction at
+240 Hz and reconciles it with authoritative server snapshots. ARM64 clients and
+x86-64 servers are allowed in the same session; continuous state is compared
+with gameplay-owned tolerances instead of requiring bit-identical results.
 
 Every predicted tick uses the same `PredictionPipeline` in either
 `PredictionPass::Forward` or `PredictionPass::Resimulation`. Its phases are:
@@ -22,10 +24,11 @@ Every predicted tick uses the same `PredictionPipeline` in either
 The authoritative reconciliation flow is:
 
 1. find the locally predicted state for the authoritative snapshot tick;
-2. compare the predicted and authoritative state subsets;
-3. if they match, discard obsolete prediction and input history;
-4. if they differ, validate the re-simulation bound and every required input
-   before mutating the prediction world;
+2. compare discrete fields exactly and continuous fields with explicit
+   domain-specific tolerances;
+3. if the state is within policy, discard obsolete prediction and input history;
+4. if correction is required, validate the re-simulation bound and every
+   required input before mutating the prediction world;
 5. restore the authoritative state, replace the prediction history at that
    tick, and discard later predicted states;
 6. run the same prediction pipeline in `Resimulation` for each subsequent

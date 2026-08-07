@@ -4,23 +4,19 @@ use std::time::Duration;
 
 use blackflower_networking::{
     AdmissionClaims, ClientSession, CompatibilityContract, ConnectionEpoch, MatchId, PlayerId,
-    ProtocolRevision, RequiredContentSetId, SessionId, SimulationCompatibilityId, SimulationTick,
+    ProtocolRevision, SessionId, SimulationTick,
 };
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|operations: &[u8]| {
     let contract = CompatibilityContract {
         protocol_revision: ProtocolRevision::V1,
-        simulation_compatibility_id: SimulationCompatibilityId::from_bytes([1; 32]),
-        required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
     };
     let claims = AdmissionClaims {
         session_id: SessionId::from_bytes([3; 16]),
         player_id: PlayerId::from_bytes([4; 16]),
         match_id: MatchId::from_bytes([5; 16]),
         protocol_revision: ProtocolRevision::V1,
-        simulation_compatibility_id: contract.simulation_compatibility_id,
-        required_content_set_id: contract.required_content_set_id,
     };
     let mut session = ClientSession::new(contract, ConnectionEpoch::new(1));
     for (index, operation) in operations.iter().copied().enumerate() {
@@ -30,7 +26,7 @@ fuzz_target!(|operations: &[u8]| {
                 let _result = session.secure();
             }
             1 => {
-                let _result = session.authenticate();
+                let _result = session.negotiate();
             }
             2 => {
                 let _result = session.accept_claims(&claims);
