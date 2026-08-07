@@ -109,7 +109,7 @@ every terminal panel.
 ## Related documentation
 
 - [Workspace overview](../../README.md)
-- [End-to-end client-server movement flow](../../docs/client-server/README.md)
+- [End-to-end client-server movement flow](../../docs/client-server.md)
 - [Shared client and bot harness](../../crates/blackflower-harness/README.md)
 - [Presentation world](../../crates/blackflower-world-presentation/README.md)
 - [Observability](../../docs/observability.md)
