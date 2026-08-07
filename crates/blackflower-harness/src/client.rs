@@ -114,6 +114,15 @@ where
         self.input.set_binding(binding);
     }
 
+    /// Begin a fresh consecutive control-tick run after a local pacing discontinuity.
+    ///
+    /// Input identities remain monotonic. Only redundant control frames from the
+    /// previous run are discarded, allowing the next accepted submission to
+    /// choose a new future execution tick.
+    pub fn reset_control_timeline(&mut self) {
+        self.input.reset_control_timeline();
+    }
+
     /// Install a boundary trace sink that records every accepted submission.
     ///
     /// The sink observes the same information a fair client has (perceived

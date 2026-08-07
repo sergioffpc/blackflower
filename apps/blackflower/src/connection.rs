@@ -1,20 +1,21 @@
 use std::convert::Infallible;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use blackflower_assets::AssetStore;
 use blackflower_ecs::TickDelta;
 use blackflower_harness::{
-    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction, ClientView, PredictionUpdate,
+    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction as _, ClientView,
 };
-use blackflower_networking::{ControlFrame, SimulationTick};
-use blackflower_networking_protocol::v1::ProtocolComponent;
+use blackflower_networking::SessionState;
 use blackflower_networking_quic::{
     ClientEndpointConfig, ClientNetworkHandle, QuicClient, QuicError,
 };
-use blackflower_networking_replication::Snapshot;
 use blackflower_world_presentation::{FrameIndex, PresentationWorld};
 
+use crate::controls::NativeMovementControls;
+use crate::input::InputSnapshot;
+use crate::prediction::{ClientMovementPrediction, PredictedMovementState};
 use crate::runtime::{ApplicationRuntime, HarnessPresentationRuntime, PresentationBridge};
 
 /// Complete transport and session inputs for the native network client.
@@ -33,9 +34,10 @@ pub struct ConnectedClient {
     _installed_assets: AssetStore,
     runtime: HarnessPresentationRuntime<
         ClientNetworkHandle,
-        SnapshotPrediction,
+        ClientMovementPrediction,
         NetworkPresentationBridge,
     >,
+    controls: NativeMovementControls,
 }
 
 impl ConnectedClient {
@@ -44,21 +46,50 @@ impl ConnectedClient {
         let endpoint = QuicClient::bind(config.endpoint)?;
         let connection = endpoint.connect().await?;
         let transport = connection.spawn_io().await?;
-        let harness = ClientHarness::new(transport, SnapshotPrediction::default(), config.harness)
-            .map_err(ClientConnectionError::Harness)?;
+        let prediction = ClientMovementPrediction::new()
+            .map_err(|error| ClientConnectionError::Prediction(anyhow::Error::new(error)))?;
+        let harness = ClientHarness::new(transport, prediction, config.harness)
+            .map_err(|error| ClientConnectionError::Harness(anyhow::Error::new(error)))?;
         let runtime = HarnessPresentationRuntime::new(harness, NetworkPresentationBridge)
             .map_err(ClientConnectionError::Composition)?;
         Ok(Self {
             _endpoint: endpoint,
             _installed_assets: config.installed_assets,
             runtime,
+            controls: NativeMovementControls::default(),
         })
+    }
+
+    fn submit_movement_control(&mut self, input: &InputSnapshot) -> Result<()> {
+        if self.runtime.harness().view().session_state() != SessionState::Active {
+            self.controls.reset();
+            return Ok(());
+        }
+        let current_tick = self.runtime.harness().prediction().current_tick();
+        let Some(prepared) = self.controls.prepare(current_tick, input)? else {
+            return Ok(());
+        };
+        let execute_tick = prepared.submission.execute_tick;
+        if prepared.reset_timeline {
+            self.runtime.harness_mut().reset_control_timeline();
+        }
+        let _sequence = self
+            .runtime
+            .harness_mut()
+            .submit_control(prepared.submission)
+            .context("native movement control submission failed")?;
+        self.controls.commit(execute_tick);
+        Ok(())
     }
 }
 
 impl ApplicationRuntime for ConnectedClient {
-    fn frame(&mut self, now: Duration, delta: TickDelta) -> Result<bool> {
-        self.runtime.frame(now, delta)
+    fn frame(&mut self, now: Duration, delta: TickDelta, input: &InputSnapshot) -> Result<bool> {
+        let should_continue = self.runtime.frame(now, delta)?;
+        if should_continue {
+            self.submit_movement_control(input)?;
+        }
+        Ok(should_continue)
     }
 
     fn current_frame(&self) -> FrameIndex {
@@ -66,65 +97,21 @@ impl ApplicationRuntime for ConnectedClient {
     }
 }
 
-#[derive(Debug, Default)]
-struct SnapshotPrediction {
-    tick: SimulationTick,
-    state: Option<Snapshot>,
-}
-
-impl ClientPrediction for SnapshotPrediction {
-    type State = Snapshot;
-    type Error = SnapshotPredictionError;
-
-    fn current_tick(&self) -> SimulationTick {
-        self.tick
-    }
-
-    fn bootstrap(&mut self, snapshot: &Snapshot) -> Result<PredictionUpdate, Self::Error> {
-        validate_snapshot(snapshot)?;
-        let tick = SimulationTick::new(snapshot.tick().get());
-        self.tick = tick;
-        self.state = Some(snapshot.clone());
-        Ok(PredictionUpdate::Bootstrapped { tick })
-    }
-
-    fn apply_snapshot(&mut self, snapshot: &Snapshot) -> Result<PredictionUpdate, Self::Error> {
-        validate_snapshot(snapshot)?;
-        let tick = SimulationTick::new(snapshot.tick().get());
-        self.tick = self.tick.max(tick);
-        self.state = Some(snapshot.clone());
-        Ok(PredictionUpdate::Converged { tick })
-    }
-
-    fn queue_control(&mut self, _frame: &ControlFrame) -> Result<(), Self::Error> {
-        Err(SnapshotPredictionError::PredictionUnavailable)
-    }
-
-    fn advance_to(&mut self, target: SimulationTick) -> Result<(), Self::Error> {
-        self.tick = self.tick.max(target);
-        Ok(())
-    }
-
-    fn predicted_state(&self) -> Option<&Self::State> {
-        self.state.as_ref()
-    }
-}
-
 struct NetworkPresentationBridge;
 
-impl PresentationBridge<Snapshot> for NetworkPresentationBridge {
+impl PresentationBridge<PredictedMovementState> for NetworkPresentationBridge {
     type Error = Infallible;
 
     fn capture(
         &mut self,
         _presentation: &mut PresentationWorld,
-        view: ClientView<'_, Snapshot>,
+        view: ClientView<'_, PredictedMovementState>,
         events: &[ClientEvent],
     ) -> Result<(), Self::Error> {
         for event in events {
             log_client_event(event);
         }
-        let _latest_authoritative = view.authoritative();
+        let _latest_prediction = view.predicted();
         Ok(())
     }
 }
@@ -182,29 +169,11 @@ pub enum ClientConnectionError {
     Transport(#[from] QuicError),
     /// Shared client session initialization failed.
     #[error("client harness initialization failed")]
-    Harness(#[source] blackflower_harness::ClientHarnessError<QuicError, SnapshotPredictionError>),
+    Harness(#[source] anyhow::Error),
+    /// Concrete movement prediction world initialization failed.
+    #[error("client movement prediction initialization failed")]
+    Prediction(#[source] anyhow::Error),
     /// Presentation-world composition failed.
     #[error("connected client composition failed")]
     Composition(#[source] anyhow::Error),
-}
-
-/// Snapshot validation failure before the real prediction driver is installed.
-#[derive(Debug, thiserror::Error)]
-pub enum SnapshotPredictionError {
-    /// A component does not belong to the negotiated v1 schema or is non-canonical.
-    #[error("authoritative snapshot contains an invalid v1 component")]
-    InvalidComponent(#[source] blackflower_networking_protocol::v1::ProtocolError),
-    /// Local forward prediction is not installed yet.
-    #[error("local forward prediction is not installed")]
-    PredictionUnavailable,
-}
-
-fn validate_snapshot(snapshot: &Snapshot) -> Result<(), SnapshotPredictionError> {
-    for (_entity, state) in snapshot.entities() {
-        for (id, component) in state.components() {
-            ProtocolComponent::decode(id, component.bytes())
-                .map_err(SnapshotPredictionError::InvalidComponent)?;
-        }
-    }
-    Ok(())
 }

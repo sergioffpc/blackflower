@@ -15,6 +15,10 @@ presentation loop.
 - Establish authenticated QUIC, negotiate the compiled protocol revision, and
   verify the server-selected map against locally signed asset packages before
   running the shared `ClientHarness` beside presentation.
+- Map captured WASD and relative mouse input into canonical schema-v1 controls
+  at 60 Hz and submit them through the shared harness.
+- Run client movement prediction at 240 Hz and reconcile authoritative state
+  with explicit position, velocity, and orientation tolerances.
 - Initialize client observability and health reporting.
 - Optionally run a terminal dashboard beside the native window.
 
@@ -36,12 +40,14 @@ already configured `ClientHarness`. On every client update, the shared harness
 is advanced first; its immutable client view and emitted events are then
 captured by the presentation bridge before the presentation frame runs.
 
-The built-in connected path validates and retains schema-v1 authoritative
-movement snapshots. Local device-to-control mapping and forward prediction are
-not installed yet, so this path does not submit gameplay controls. Concrete
-prediction, reconciliation, renderer proxies, and renderer submission remain
-integration boundaries. The window emits redraw requests, but this application
-does not yet submit a render frame to a renderer.
+The built-in connected path validates schema-v1 authoritative movement
+snapshots, maps captured WASD and mouse input to consecutive four-tick control
+frames, advances `PredictionWorld`, and restores plus re-simulates when the
+server state falls outside the protocol-v1 margins. Position may differ by up
+to 2 cm, velocity by 5 cm/s, and orientation by 0.5 degrees; controlled entity
+and grounded state still compare exactly. Renderer proxies and renderer
+submission remain integration boundaries. The window emits redraw requests,
+but this application does not yet submit a render frame to a renderer.
 
 ## Run
 
@@ -66,9 +72,9 @@ Left-click requests cursor capture; `Escape`, focus loss, suspension, and
 application exit release it.
 
 The dashboard exposes Overview, Logs, Session, Prediction, Runtime/World,
-Presentation, and Host panels. Prediction explicitly reports the current
-authoritative-snapshot-only boundary; Runtime/World shows the live presentation world's ECS
-state. It reads the process-local Prometheus endpoint at `127.0.0.1:9002`;
+Presentation, and Host panels. Prediction reports the active prediction mode,
+tick latency, and reconciliation outcomes; Runtime/World shows the live
+presentation world's ECS state. It reads the process-local Prometheus endpoint at `127.0.0.1:9002`;
 missing session or renderer signals remain visibly unconfigured. Closing the
 native window or pressing `q`/`Ctrl-C` in the terminal stops both sides and
 restores the terminal.
@@ -87,8 +93,10 @@ Run the client unit and integration tests from the repository root:
 cargo test --package blackflower --locked
 ```
 
-The tests cover input snapshot semantics, window lifecycle transitions, frame
-clock behavior, the harness-to-presentation handoff, and every terminal panel.
+The tests cover input snapshot semantics, native movement-control mapping,
+forward prediction and tolerance-based reconciliation, window lifecycle
+transitions, frame-clock behavior, the harness-to-presentation handoff, and
+every terminal panel.
 
 ## Related documentation
 

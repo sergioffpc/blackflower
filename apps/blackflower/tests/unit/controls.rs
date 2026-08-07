@@ -1,0 +1,69 @@
+use std::error::Error as StdError;
+
+use blackflower_networking::SimulationTick;
+use blackflower_networking_protocol::v1::MovementControl;
+use winit::event::ElementState;
+use winit::keyboard::{KeyCode, PhysicalKey};
+
+use crate::input::{InputContext, InputState};
+
+use super::NativeMovementControls;
+
+type TestResult = Result<(), Box<dyn StdError>>;
+
+#[test]
+fn gameplay_mapping_normalizes_diagonal_movement_and_updates_view() -> TestResult {
+    let mut input = InputState::default();
+    input.set_focused(true);
+    input.set_context(InputContext::GameplayCaptured);
+    press(&mut input, KeyCode::KeyW);
+    press(&mut input, KeyCode::KeyD);
+    input.raw_mouse_motion((20.0, -10.0));
+
+    let mut controls = NativeMovementControls::default();
+    let prepared = controls
+        .prepare(SimulationTick::new(5), &input.take_snapshot())?
+        .ok_or("control was not scheduled")?;
+    let control = MovementControl::decode(&prepared.submission.payload)?;
+
+    assert_eq!(prepared.submission.execute_tick, SimulationTick::new(12));
+    assert!(!prepared.reset_timeline);
+    assert!((control.movement()[0] - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.0001);
+    assert!((control.movement()[1] - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.0001);
+    assert!(control.view_yaw().dequantize() > 6.0);
+    assert!(control.view_pitch().dequantize() > 0.0);
+    Ok(())
+}
+
+#[test]
+fn user_interface_input_is_neutral_and_stalled_cadence_restarts() -> TestResult {
+    let mut input = InputState::default();
+    input.set_focused(true);
+    press(&mut input, KeyCode::KeyW);
+
+    let mut controls = NativeMovementControls::default();
+    let first = controls
+        .prepare(SimulationTick::new(8), &input.take_snapshot())?
+        .ok_or("first control was not scheduled")?;
+    let first_tick = first.submission.execute_tick;
+    let first_control = MovementControl::decode(&first.submission.payload)?;
+    assert_vector_close(first_control.movement(), [0.0; 2]);
+    controls.commit(first_tick);
+
+    let restarted = controls
+        .prepare(SimulationTick::new(40), &input.take_snapshot())?
+        .ok_or("restart control was not scheduled")?;
+    assert!(restarted.reset_timeline);
+    assert_eq!(restarted.submission.execute_tick, SimulationTick::new(44));
+    Ok(())
+}
+
+fn press(input: &mut InputState, key: KeyCode) {
+    input.keyboard_input(PhysicalKey::Code(key), ElementState::Pressed, false);
+}
+
+fn assert_vector_close(actual: [f64; 2], expected: [f64; 2]) {
+    for (actual, expected) in actual.into_iter().zip(expected) {
+        assert!((actual - expected).abs() < f64::EPSILON);
+    }
+}

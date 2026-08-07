@@ -9,6 +9,8 @@ use blackflower_harness::{
 use blackflower_networking::SimulationTick;
 use blackflower_world_presentation::{FrameIndex, PresentationWorld};
 
+use crate::input::InputSnapshot;
+
 const TARGET_FRAME_SECONDS: f32 = 1.0 / 60.0;
 const MINIMUM_FRAME_SECONDS: f32 = 1.0 / 1_000_000.0;
 const MAXIMUM_FRAME_SECONDS: f32 = 0.25;
@@ -98,6 +100,11 @@ where
         self.harness
             .update(now, authoritative_tick)
             .context("client harness update failed")?;
+        if self.harness.view().session_state() == blackflower_networking::SessionState::Active {
+            self.harness
+                .advance_prediction_to(authoritative_tick)
+                .context("client prediction advance failed")?;
+        }
         let events = drain_client_events(&mut self.harness);
         self.bridge
             .capture(&mut self.presentation, self.harness.view(), &events)
@@ -145,7 +152,7 @@ where
 }
 
 pub(crate) trait ApplicationRuntime {
-    fn frame(&mut self, now: Duration, delta: TickDelta) -> Result<bool>;
+    fn frame(&mut self, now: Duration, delta: TickDelta, input: &InputSnapshot) -> Result<bool>;
 
     fn current_frame(&self) -> FrameIndex;
 }
@@ -156,7 +163,7 @@ where
     P: ClientPrediction + 'static,
     B: PresentationBridge<P::State> + 'static,
 {
-    fn frame(&mut self, now: Duration, delta: TickDelta) -> Result<bool> {
+    fn frame(&mut self, now: Duration, delta: TickDelta, _input: &InputSnapshot) -> Result<bool> {
         Self::frame(self, now, delta)
     }
 

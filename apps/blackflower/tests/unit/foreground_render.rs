@@ -51,7 +51,7 @@ fn overview_identifies_native_client_boundaries() -> Result<(), Box<dyn Error>> 
 }
 
 #[test]
-fn prediction_panel_reports_the_snapshot_only_contract() -> Result<(), Box<dyn Error>> {
+fn prediction_panel_reports_the_movement_prediction_contract() -> Result<(), Box<dyn Error>> {
     let mut app = test_app()?;
     app.page = Page::Prediction;
     let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
@@ -59,17 +59,17 @@ fn prediction_panel_reports_the_snapshot_only_contract() -> Result<(), Box<dyn E
     let rendered = rendered_text(&terminal);
 
     for expected in [
-        "Authoritative snapshot state",
-        "SNAPSHOT ONLY",
+        "Movement prediction",
+        "FORWARD + RESIMULATION",
         "PredictionWorld",
-        "not instantiated",
-        "schema v1 decoded",
+        "WASD + mouse @ 60 Hz",
+        "tolerance based",
+        "Prediction tick p95",
+        "Reconciliation outcomes",
         "Operational boundary",
     ] {
         assert!(rendered.contains(expected), "missing {expected}");
     }
-    assert!(!rendered.contains("Prediction tick p95"));
-    assert!(!rendered.contains("Reconciliation outcomes"));
     Ok(())
 }
 

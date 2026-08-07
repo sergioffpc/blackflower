@@ -19,6 +19,8 @@ pub struct ClientCapabilities {
     pub native_application: bool,
     /// Whether an established shared client harness was supplied.
     pub session_configured: bool,
+    /// Whether the built-in movement prediction and reconciliation path is running.
+    pub prediction_configured: bool,
     /// Whether the client-only presentation world is running.
     pub presentation_configured: bool,
     /// Whether a renderer backend is submitting presentation frames.
@@ -26,12 +28,13 @@ pub struct ClientCapabilities {
 }
 
 impl ClientCapabilities {
-    /// Describe the snapshot-only client with an established shared harness.
+    /// Describe the connected client with its built-in movement prediction path.
     #[must_use]
     pub const fn connected() -> Self {
         Self {
             native_application: true,
             session_configured: true,
+            prediction_configured: true,
             presentation_configured: true,
             renderer_configured: false,
         }

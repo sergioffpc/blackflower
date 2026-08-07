@@ -356,6 +356,7 @@ dependencies = [
  "blackflower-observability-tui",
  "blackflower-world-prediction",
  "blackflower-world-presentation",
+ "bytemuck",
  "clap",
  "image",
  "ratatui",

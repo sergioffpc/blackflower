@@ -365,9 +365,10 @@ impl ClientApplication {
 
         let now = Instant::now();
         let delta = self.frame_clock.delta(now)?;
+        let input = self.input.take_snapshot();
         if !self
             .runtime
-            .frame(now.duration_since(self.started), delta)?
+            .frame(now.duration_since(self.started), delta, &input)?
         {
             self.begin_shutdown(event_loop, "presentation_stopped");
             return Ok(());

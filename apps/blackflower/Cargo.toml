@@ -24,6 +24,7 @@ blackflower-world-prediction = { workspace = true, features = ["observability"] 
 blackflower-world-presentation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
+bytemuck.workspace = true
 clap.workspace = true
 image.workspace = true
 ratatui.workspace = true

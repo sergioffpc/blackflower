@@ -148,6 +148,10 @@ fn draw_overview(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 configured(app.capabilities.session_configured),
             ),
             (
+                "Movement prediction",
+                configured(app.capabilities.prediction_configured),
+            ),
+            (
                 "Presentation",
                 configured(app.capabilities.presentation_configured),
             ),
@@ -241,7 +245,10 @@ fn draw_frame_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     0.95,
                 )),
             ),
-            ("Prediction", "not configured".to_owned()),
+            (
+                "Prediction",
+                configured(app.capabilities.prediction_configured),
+            ),
             (
                 "Renderer backend",
                 configured(app.capabilities.renderer_configured),
@@ -450,67 +457,75 @@ fn draw_network_history(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn draw_prediction(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let rows =
-        Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(area);
+    let rows = Layout::vertical([Constraint::Length(9), Constraint::Min(8)]).split(area);
     let columns = halves(rows[0]);
     draw_prediction_contract(frame, columns[0]);
-    draw_snapshot_activity(frame, columns[1], app);
-    draw_prediction_boundary(frame, rows[1]);
+    draw_prediction_activity(frame, columns[1], app);
+    let columns = halves(rows[1]);
+    draw_series(
+        frame,
+        columns[0],
+        "Reconciliation outcomes",
+        &app.metrics,
+        "blackflower_world_prediction_reconciliations_total",
+        &["result", "reason"],
+        true,
+    );
+    draw_prediction_boundary(frame, columns[1]);
 }
 
 fn draw_prediction_contract(frame: &mut Frame<'_>, area: Rect) {
     draw_key_values(
         frame,
         area,
-        "Authoritative snapshot state",
+        "Movement prediction",
         vec![
-            ("Mode", "SNAPSHOT ONLY".to_owned()),
-            ("PredictionWorld", "not instantiated".to_owned()),
-            ("Gameplay state", "schema v1 decoded".to_owned()),
-            ("Gameplay controls", "not submitted".to_owned()),
-            ("Reconciliation", "unavailable".to_owned()),
+            ("Mode", "FORWARD + RESIMULATION".to_owned()),
+            ("PredictionWorld", "configured".to_owned()),
+            ("Gameplay state", "movement schema v1".to_owned()),
+            ("Controls", "WASD + mouse @ 60 Hz".to_owned()),
+            ("Reconciliation", "tolerance based".to_owned()),
         ],
     );
 }
 
-fn draw_snapshot_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_prediction_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Snapshot activity",
+        "Prediction activity",
         vec![
-            ("Harness", configured(app.capabilities.session_configured)),
             (
-                "Connections",
-                format_number(app.metrics.value("blackflower_network_connections")),
+                "Configured",
+                configured(app.capabilities.prediction_configured),
             ),
             (
-                "Snapshots applied",
+                "Prediction ticks",
                 format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_network_snapshots_total",
-                        "action",
-                        "applied",
-                    ),
+                    app.metrics.rate("blackflower_world_prediction_ticks_total"),
                     "/s",
                 ),
             ),
             (
-                "Resync requests",
+                "Prediction tick p95",
+                format_millis(app.metrics.histogram_quantile(
+                    "blackflower_world_prediction_tick_duration_seconds",
+                    0.95,
+                )),
+            ),
+            (
+                "Reconciliations",
                 format_rate(
-                    app.metrics.rate_with_label(
-                        "blackflower_network_resync_total",
-                        "action",
-                        "requested",
-                    ),
+                    app.metrics
+                        .rate("blackflower_world_prediction_reconciliations_total"),
                     "/s",
                 ),
             ),
             (
-                "Clock uncertainty",
+                "Resimulated p95",
                 format_number(
                     app.metrics
-                        .value("blackflower_network_clock_uncertainty_ticks"),
+                        .histogram_quantile("blackflower_world_prediction_resimulated_ticks", 0.95),
                 ),
             ),
         ],
@@ -520,9 +535,10 @@ fn draw_snapshot_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_prediction_boundary(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from("This client validates and retains authoritative schema-v1 movement state."),
-            Line::from("Device-to-control mapping and local forward prediction are not installed."),
-            Line::from("Reconciliation and resimulation metrics are therefore not expected."),
+            Line::from("Continuous state reconciles by protocol-v1 margins, not bit identity:"),
+            Line::from("position <= 2 cm · velocity <= 5 cm/s · orientation <= 0.5°."),
+            Line::from("Controlled entity and grounded state remain exact comparisons."),
+            Line::from("Input is neutral outside focused gameplay cursor capture."),
         ])
         .style(text_style())
         .block(panel("Operational boundary"))
