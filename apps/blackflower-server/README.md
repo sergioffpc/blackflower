@@ -16,6 +16,9 @@ shutdown, and an optional foreground diagnostics dashboard.
 - Optionally bind the real QUIC supervisor with finite handshake/connection
   caps, exact protocol negotiation, server-owned map/content readiness,
   bootstrap, clock sync, and activation.
+- Assign one controllable actor after content readiness, deliver validated v1
+  movement controls through bounded in-memory ingress, and project sealed
+  authoritative state at 30 Hz.
 - Provide reusable replication, scheduling, input, resynchronization, and
   voice-session composition in the library crate.
 
@@ -27,12 +30,12 @@ also starts the QUIC listener. The included `LoopbackSessionAuthority` assigns
 credential-free process-local identities and is intentionally restricted to
 loopback; authentication and matchmaking remain future composition boundaries.
 
-The listener currently sends an empty bootstrap and does not supply gameplay
-command schemas or project admitted peers into concrete ECS components. Those
-gameplay inputs remain outside networking. The `blackflower_server` library
-exposes `DedicatedServerNetwork` and `NetworkPeer` for that composition while
-preserving bounded ingress, connection admission, compatibility checks,
-applied-snapshot acknowledgement, and replication scheduling.
+The listener sends a server-authorized control binding followed by a real
+owner-projected movement bootstrap. Canonical movement and absolute orientation
+are applied by `SimulationWorld`; transform, velocity, grounded state, and the
+last committed input sequence are then projected through schema v1. Discrete
+gameplay commands, character collision, acceleration, and richer locomotion
+remain future gameplay work.
 
 ## Run
 

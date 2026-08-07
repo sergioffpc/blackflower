@@ -14,7 +14,8 @@ pub const SIMULATION_TICK_DELTA_SECONDS: f32 = f32::from_bits(0x3b88_8889);
 use crate::telemetry::TickObservation;
 use crate::types::SimulationTickOverflow;
 use crate::{
-    SIMULATION_TICK_RATE_HZ, SimulationPhase, SimulationPipeline, SimulationTick, systems,
+    ActorId, MovementControl, MovementError, MovementFrame, SIMULATION_TICK_RATE_HZ,
+    SimulationPhase, SimulationPipeline, SimulationTick, movement::MovementRuntime, systems,
     telemetry,
 };
 
@@ -23,6 +24,7 @@ const _: () = assert!(SIMULATION_TICK_RATE_HZ == 240);
 #[derive(Debug)]
 struct ExecutionState {
     tick: AtomicU64,
+    movement: Mutex<MovementRuntime>,
     acoustics: Mutex<Option<AcousticWorld>>,
     acoustic_mode: AcousticMode,
 }
@@ -80,6 +82,7 @@ impl SimulationExecutionContext {
         Self {
             state: Arc::new(ExecutionState {
                 tick: AtomicU64::new(SimulationTick::ZERO.get()),
+                movement: Mutex::new(MovementRuntime::default()),
                 acoustics: Mutex::new(None),
                 acoustic_mode: config.acoustics,
             }),
@@ -120,6 +123,28 @@ impl SimulationExecutionContext {
 
     fn acoustics_required(&self) -> bool {
         self.state.acoustic_mode == AcousticMode::Required
+    }
+
+    fn movement_lock(&self) -> Result<MutexGuard<'_, MovementRuntime>, MovementRuntimeError> {
+        self.state
+            .movement
+            .lock()
+            .map_err(|_error| MovementRuntimeError::Poisoned)
+    }
+
+    pub(crate) fn capture_movement_inputs(&self) -> Result<(), MovementRuntimeError> {
+        self.movement_lock()?.capture(self.current().tick);
+        Ok(())
+    }
+
+    pub(crate) fn derive_movement(&self) -> Result<(), MovementRuntimeError> {
+        self.movement_lock()?.derive();
+        Ok(())
+    }
+
+    pub(crate) fn advance_movement(&self) -> Result<(), MovementRuntimeError> {
+        self.movement_lock()?.advance();
+        Ok(())
     }
 
     pub(crate) fn capture_acoustic_tick(&self) -> Result<(), AcousticRuntimeError> {
@@ -273,6 +298,37 @@ impl SimulationWorld {
         self.execution_context.clone()
     }
 
+    /// Create one controllable actor before its state is exposed to a client.
+    pub fn spawn_movement_actor(&mut self, actor: ActorId) -> Result<(), MovementRuntimeError> {
+        self.execution_context.movement_lock()?.spawn(actor)?;
+        Ok(())
+    }
+
+    /// Remove one controllable actor and all of its pending controls.
+    pub fn despawn_movement_actor(&mut self, actor: ActorId) -> Result<bool, MovementRuntimeError> {
+        Ok(self.execution_context.movement_lock()?.despawn(actor))
+    }
+
+    /// Queue one canonical four-tick movement control for a future tick.
+    pub fn submit_movement_control(
+        &mut self,
+        control: MovementControl,
+    ) -> Result<bool, MovementRuntimeError> {
+        let completed_tick = self.current_tick();
+        Ok(self
+            .execution_context
+            .movement_lock()?
+            .submit(control, completed_tick)?)
+    }
+
+    /// Clone the latest sealed actor-ordered movement frame.
+    pub fn movement_frame(&self) -> Result<MovementFrame, MovementRuntimeError> {
+        Ok(self
+            .execution_context
+            .movement_lock()?
+            .frame(self.current_tick()))
+    }
+
     /// Whether a failed tick left this ECS world unsafe for further simulation.
     #[must_use]
     pub const fn is_faulted(&self) -> bool {
@@ -409,4 +465,15 @@ impl SimulationWorld {
 
         result
     }
+}
+
+/// Failure while exchanging movement state with the authoritative runtime.
+#[derive(Debug, thiserror::Error)]
+pub enum MovementRuntimeError {
+    /// A previous movement system panicked while owning its state.
+    #[error("authoritative movement state lock is poisoned")]
+    Poisoned,
+    /// Actor lifecycle or canonical movement validation failed.
+    #[error(transparent)]
+    Movement(#[from] MovementError),
 }

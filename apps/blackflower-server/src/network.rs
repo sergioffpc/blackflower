@@ -340,6 +340,14 @@ impl NetworkPeer {
         Ok(self.session.advance(current)?)
     }
 
+    /// Assign or replace the controlled object for this application session.
+    pub fn send_control_binding(
+        &self,
+        binding: blackflower_networking::ControlBinding,
+    ) -> Result<(), PeerError> {
+        self.send_control(SessionControlMessage::ControlBinding(binding))
+    }
+
     /// Build, frame, queue, and retain one incremental component snapshot.
     pub fn queue_snapshot(&mut self, snapshot: Snapshot, now: Duration) -> Result<(), PeerError> {
         let delta = self.baselines.build_delta(&snapshot)?;

@@ -15,6 +15,7 @@ blackflower-assets = { workspace = true, features = ["signing", "unversioned-loa
 blackflower-ecs.workspace = true
 blackflower-harness.workspace = true
 blackflower-networking.workspace = true
+blackflower-networking-protocol.workspace = true
 blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true

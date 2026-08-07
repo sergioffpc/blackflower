@@ -7,12 +7,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use blackflower_harness::{ClientHarness, ClientHarnessConfig, ClientPrediction, PredictionUpdate};
+use blackflower_harness::{
+    ClientHarness, ClientHarnessConfig, ClientPrediction, ControlSubmission, PredictionUpdate,
+};
 use blackflower_networking::{
     AdmissionClaims, AuthorityError, BudgetTier, CompatibilityContract, ConnectionEpoch,
     ContentManifest, IssuedResumeToken, MapId, MatchId, PlayerId, ProtocolRevision,
     RequiredContentSetId, ResumeClaims, SessionAuthority, SessionControlMessage, SessionId,
     SessionState,
+};
+use blackflower_networking_protocol::v1::{
+    MovementControl, OWNER_PREDICTION_STATE_COMPONENT_ID, OwnerPredictionState,
+    TRANSFORM_COMPONENT_ID, Transform,
 };
 use blackflower_networking_quic::{
     AdmissionLimits, ClientEndpointConfig, ClientNetworkHandle, ClientTrustRoot, NetworkEvent,
@@ -103,23 +109,66 @@ async fn real_harness_reaches_active_through_the_server_supervisor() -> TestResu
         },
     )?;
     let started = Instant::now();
+    wait_until_active(&mut harness, &simulation, started).await?;
+    submit_and_wait_for_movement(&mut harness, &simulation, started).await?;
+
+    stop.store(true, Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(1), server_task).await???;
+    let _exit = simulation.shutdown()?;
+    Ok(())
+}
+
+async fn wait_until_active(
+    harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
+    simulation: &SimulationHost,
+    started: Instant,
+) -> TestResult {
     tokio::time::timeout(Duration::from_secs(4), async {
         loop {
-            harness.update(
-                started.elapsed(),
-                blackflower_networking::SimulationTick::new(simulation.completed_ticks()),
-            )?;
+            update_harness(harness, simulation, started)?;
             if harness.view().session_state() == SessionState::Active {
                 return Ok::<_, Box<dyn StdError>>(());
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
-    .await??;
+    .await?
+}
 
-    stop.store(true, Ordering::Release);
-    tokio::time::timeout(Duration::from_secs(1), server_task).await???;
-    let _exit = simulation.shutdown()?;
+async fn submit_and_wait_for_movement(
+    harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
+    simulation: &SimulationHost,
+    started: Instant,
+) -> TestResult {
+    let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    let submitted = harness.submit_control(ControlSubmission {
+        execute_tick: blackflower_networking::SimulationTick::new(next_control_tick(
+            simulation.completed_ticks(),
+        )),
+        payload: control.encode().to_vec(),
+        commands: Vec::new(),
+    })?;
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            update_harness(harness, simulation, started)?;
+            if movement_was_applied(harness.view().authoritative(), submitted)? {
+                return Ok::<_, Box<dyn StdError>>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?
+}
+
+fn update_harness(
+    harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
+    simulation: &SimulationHost,
+    started: Instant,
+) -> TestResult {
+    harness.update(
+        started.elapsed(),
+        blackflower_networking::SimulationTick::new(simulation.completed_ticks()),
+    )?;
     Ok(())
 }
 
@@ -149,9 +198,7 @@ impl ClientPrediction for EmptyPrediction {
         &mut self,
         _frame: &blackflower_networking::ControlFrame,
     ) -> Result<(), Self::Error> {
-        Err(io::Error::other(
-            "empty prediction does not accept gameplay controls",
-        ))
+        Ok(())
     }
 
     fn advance_to(
@@ -174,9 +221,6 @@ impl EmptyPrediction {
         snapshot: &Snapshot,
         bootstrap: bool,
     ) -> Result<PredictionUpdate, io::Error> {
-        if !snapshot.is_empty() {
-            return Err(io::Error::other("expected an empty bootstrap snapshot"));
-        }
         self.tick = blackflower_networking::SimulationTick::new(snapshot.tick().get());
         self.state = Some(self.tick);
         if bootstrap {
@@ -185,6 +229,36 @@ impl EmptyPrediction {
             Ok(PredictionUpdate::Converged { tick: self.tick })
         }
     }
+}
+
+fn next_control_tick(completed_tick: u64) -> u64 {
+    completed_tick.saturating_add(7) / 4 * 4
+}
+
+fn movement_was_applied(
+    snapshot: Option<&Snapshot>,
+    submitted: blackflower_networking::InputSequence,
+) -> TestResult<bool> {
+    let Some(snapshot) = snapshot else {
+        return Ok(false);
+    };
+    for (_entity, state) in snapshot.entities() {
+        let Some(owner) = state.get(OWNER_PREDICTION_STATE_COMPONENT_ID) else {
+            continue;
+        };
+        let owner = OwnerPredictionState::decode(owner.bytes())?;
+        if owner.acknowledged_input() != Some(submitted) {
+            continue;
+        }
+        let transform = state
+            .get(TRANSFORM_COMPONENT_ID)
+            .ok_or("owner snapshot is missing transform")?;
+        let position = Transform::decode(transform.bytes())?
+            .position()
+            .dequantize();
+        return Ok(position[2] < 0.0);
+    }
+    Ok(false)
 }
 
 async fn assert_admission_messages(

@@ -10,6 +10,7 @@ mod admission;
 pub mod foreground;
 mod network;
 mod network_runtime;
+mod projection;
 mod simulation;
 
 pub use admission::LoopbackSessionAuthority;
@@ -18,4 +19,7 @@ pub use network::{
     InputIngress, NetworkPeer, PeerError, ResumeOutcome,
 };
 pub use network_runtime::{ServerNetworkRuntime, ServerNetworkRuntimeError};
-pub use simulation::{SimulationExit, SimulationHost, SimulationHostError, SimulationStatus};
+pub use projection::{SimulationProjectionError, project_movement_frame};
+pub use simulation::{
+    SimulationExit, SimulationHost, SimulationHostError, SimulationIngressError, SimulationStatus,
+};

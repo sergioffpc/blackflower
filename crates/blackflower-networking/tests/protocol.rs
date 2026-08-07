@@ -6,12 +6,12 @@ use std::time::Duration;
 use blackflower_networking::{
     AdmissionClaims, BandwidthScheduler, BudgetTier, ClientSession, ClockFilter, ClockSafety,
     ClockSample, CommandId, CommandTimingClass, CompatibilityContract, ConnectionEpoch,
-    ContentManifest, ControlFrame, DatagramHeader, Deduplication, DeduplicationError,
-    DiscreteCommand, FlowId, FlowSequence, InputDeduplicator, InputHealth, InputSequence, MapId,
-    MatchEgressBudget, MatchId, NetworkQueues, PlayerId, ProjectionDigest, ProtocolRevision,
-    RequiredContentSetId, SessionControlMessage, SessionId, SessionState, SimulationTick,
-    SnapshotAppliedAck, TimeSyncSchedule, TrafficClass, TrafficDirection, WireError,
-    activation_tick, classify_command, decode_datagram, decode_input_datagram,
+    ContentManifest, ControlBinding, ControlFrame, DatagramHeader, Deduplication,
+    DeduplicationError, DiscreteCommand, FlowId, FlowSequence, InputDeduplicator, InputHealth,
+    InputSequence, MapId, MatchEgressBudget, MatchId, NetworkQueues, PlayerId, ProjectionDigest,
+    ProtocolRevision, RequiredContentSetId, SessionControlMessage, SessionId, SessionState,
+    SimulationTick, SnapshotAppliedAck, TimeSyncSchedule, TrafficClass, TrafficDirection,
+    WireError, activation_tick, classify_command, decode_datagram, decode_input_datagram,
     decode_stream_preamble, encode_control_message, encode_datagram, encode_input_datagram,
     encode_stream_preamble, input_health,
 };
@@ -85,6 +85,22 @@ fn admission_accepted_carries_a_nonzero_server_assigned_epoch() -> TestResult {
             connection_epoch: ConnectionEpoch::new(0),
         }),
         Err(WireError::InvalidValue("connection epoch"))
+    );
+    Ok(())
+}
+
+#[test]
+fn server_control_binding_has_stable_exact_bytes() -> TestResult {
+    let message = SessionControlMessage::ControlBinding(ControlBinding {
+        control_epoch: 0x0102_0304,
+        controlled_entity: NonZeroU64::new(0x0102_0304_0506_0708)
+            .ok_or("controlled entity must be non-zero")?,
+    });
+    let encoded = encode_control_message(&message)?;
+    assert_eq!(encoded, [16, 12, 4, 3, 2, 1, 8, 7, 6, 5, 4, 3, 2, 1,]);
+    assert_eq!(
+        blackflower_networking::decode_control_message(&encoded)?,
+        message
     );
     Ok(())
 }

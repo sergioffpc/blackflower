@@ -925,8 +925,8 @@ fn activate_scheduled_commits(_execution_context: &SimulationExecutionContext) -
     Ok(())
 }
 
-fn capture_canonical_actor_inputs(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Capture the already selected hold, neutral, or canonical actor input for this tick.
+fn capture_canonical_actor_inputs(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.capture_movement_inputs()?;
     Ok(())
 }
 
@@ -937,8 +937,8 @@ fn capture_eligible_discrete_commands(
     Ok(())
 }
 
-fn derive_locomotion_actions(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Derive deterministic locomotion intents from captured actor inputs.
+fn derive_locomotion_actions(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.derive_movement()?;
     Ok(())
 }
 
@@ -988,8 +988,8 @@ fn apply_rigid_body_inputs(_execution_context: &SimulationExecutionContext) -> S
     Ok(())
 }
 
-fn advance_rigid_body_world(_execution_context: &SimulationExecutionContext) -> SystemResult {
-    // Advance the rigid-body world exactly once using the authoritative tick delta.
+fn advance_rigid_body_world(execution_context: &SimulationExecutionContext) -> SystemResult {
+    execution_context.advance_movement()?;
     Ok(())
 }
 

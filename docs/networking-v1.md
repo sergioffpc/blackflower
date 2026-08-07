@@ -100,6 +100,10 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   `AdmissionAccepted` MUST carry the non-zero server-assigned
   `connection_epoch` that both peers use for every datagram on the accepted
   connection.
+- **NET-SESSION-003B**: after content readiness, the server MUST assign a
+  `ControlBinding` containing a non-reusing control generation and the non-zero
+  replicated actor identity. The client MUST use that exact pair for input;
+  another identity or generation is a session violation.
 - **NET-CONTENT-001**: after protocol negotiation, the server MUST send a
   `ContentManifest` containing the selected portable `MapId` and exact
   `RequiredContentSetId` derived from its signed package store.
@@ -152,6 +156,10 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   MUST become neutral and release held edges. A separate 240-tick input
   failsafe MUST be retained. Five seconds without authenticated application
   traffic closes the connection.
+- **NET-INPUT-004**: the dedicated-server adapter MUST validate revision-1
+  movement bytes before crossing the bounded in-memory simulation ingress. The
+  simulation consumes no datagrams or protocol codecs and publishes sealed
+  transport-neutral movement state for projection at 30 Hz.
 - **NET-CMD-001**: maximum lateness is eight ticks for movement and jump, 12 for
   interaction, 24 for reload/equip/use, 32 for `RewindRay`, and 16 for
   `CatchUpBallistic`. `CurrentTickOnly` accepts no lateness. Future commands

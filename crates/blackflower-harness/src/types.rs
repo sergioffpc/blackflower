@@ -1,12 +1,10 @@
-use std::net::SocketAddr;
-use std::num::NonZeroU64;
-
 use blackflower_networking::{
     AdmissionRejectReason, CommandDisposition, CommandId, CommandTimingClass,
     CompatibilityContract, ContentManifest, RequiredContentSetId, SessionState, SimulationTick,
 };
 use blackflower_networking_replication::Snapshot;
 use bytes::Bytes;
+use std::net::SocketAddr;
 
 use crate::{PredictionUpdate, SnapshotWindow};
 
@@ -17,15 +15,6 @@ pub struct ClientHarnessConfig {
     pub compatibility: CompatibilityContract,
     /// Exact signed package-set identity installed locally.
     pub installed_content_set_id: RequiredContentSetId,
-}
-
-/// Current server-authorized object controlled by this client session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ControlBinding {
-    /// Generation incremented whenever the controlled object changes.
-    pub control_epoch: u32,
-    /// Non-zero replicated identity owned by the session.
-    pub controlled_entity: NonZeroU64,
 }
 
 /// One source-neutral canonical control submission.
@@ -68,6 +57,8 @@ pub enum ClientEvent {
         /// Exact signed package-set identity installed locally.
         installed: RequiredContentSetId,
     },
+    /// The server assigned or replaced this session's controlled object.
+    ControlBound(blackflower_networking::ControlBinding),
     /// A replacement reconnect token was issued.
     ResumeIssued {
         /// Opaque one-use token bytes.

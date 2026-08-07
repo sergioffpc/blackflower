@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use winit::event_loop::{ControlFlow, EventLoop};
 
-/// Run an established bootstrap-only network client on the native event loop.
+/// Run an established authoritative-snapshot client on the native event loop.
 pub fn run_connected(client: ConnectedClient) -> Result<()> {
     run_application(ClientApplication::with_runtime(Box::new(client), None)?)
 }

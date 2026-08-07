@@ -21,8 +21,9 @@ presentation loop.
 ## Integration boundary
 
 The executable always establishes QUIC, negotiates the protocol and content,
-performs eight-sample clock synchronization, applies an empty bootstrap, and
-reaches the shared session's `Active` state. The server address defaults to
+performs eight-sample clock synchronization, applies the authoritative movement
+bootstrap, accepts the server-assigned control binding, and reaches the shared
+session's `Active` state. The server address defaults to
 `127.0.0.1:4433`; there is no offline or local-shell mode.
 
 After protocol negotiation, the server sends `ContentManifest` with its selected
@@ -35,9 +36,10 @@ already configured `ClientHarness`. On every client update, the shared harness
 is advanced first; its immutable client view and emitted events are then
 captured by the presentation bridge before the presentation frame runs.
 
-The built-in connected path is deliberately bootstrap-only: non-empty gameplay
-state and controls are rejected until the component/control schema is composed.
-Concrete gameplay prediction, command encoding, and renderer submission remain
+The built-in connected path validates and retains schema-v1 authoritative
+movement snapshots. Local device-to-control mapping and forward prediction are
+not installed yet, so this path does not submit gameplay controls. Concrete
+prediction, reconciliation, renderer proxies, and renderer submission remain
 integration boundaries. The window emits redraw requests, but this application
 does not yet submit a render frame to a renderer.
 
@@ -65,7 +67,7 @@ application exit release it.
 
 The dashboard exposes Overview, Logs, Session, Prediction, Runtime/World,
 Presentation, and Host panels. Prediction explicitly reports the current
-bootstrap-only boundary; Runtime/World shows the live presentation world's ECS
+authoritative-snapshot-only boundary; Runtime/World shows the live presentation world's ECS
 state. It reads the process-local Prometheus endpoint at `127.0.0.1:9002`;
 missing session or renderer signals remain visibly unconfigured. Closing the
 native window or pressing `q`/`Ctrl-C` in the terminal stops both sides and

@@ -14,6 +14,7 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 blackflower-acoustics.workspace = true
 blackflower-assets = { workspace = true, features = ["signing", "unversioned-loading"] }
 blackflower-networking.workspace = true
+blackflower-networking-protocol.workspace = true
 blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true

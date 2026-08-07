@@ -4,12 +4,17 @@
 //! [`SimulationPipeline`]. [`SimulationWorld`] owns the ECS world and advances
 //! that pipeline at the fixed simulation delta.
 
+mod movement;
 mod pipeline;
 mod systems;
 mod telemetry;
 mod types;
 mod world;
 
+pub use movement::{
+    ActorId, ActorMovementState, MOVEMENT_SPEED_METERS_PER_SECOND, MovementControl, MovementError,
+    MovementFrame,
+};
 pub use pipeline::{
     CONTROL_FRAME_INTERVAL_TICKS, CONTROL_FRAME_RATE_HZ, INPUT_FAILSAFE_TICKS, INPUT_GRACE_TICKS,
     SIMULATION_TICK_RATE_HZ, SNAPSHOT_INTERVAL_TICKS, SNAPSHOT_RATE_HZ, SimulationPhase,
@@ -23,6 +28,6 @@ pub use systems::{
 };
 pub use types::SimulationTick;
 pub use world::{
-    AcousticMode, AcousticRuntimeError, SIMULATION_TICK_DELTA_SECONDS, SimulationExecution,
-    SimulationExecutionContext, SimulationWorld, SimulationWorldConfig,
+    AcousticMode, AcousticRuntimeError, MovementRuntimeError, SIMULATION_TICK_DELTA_SECONDS,
+    SimulationExecution, SimulationExecutionContext, SimulationWorld, SimulationWorldConfig,
 };

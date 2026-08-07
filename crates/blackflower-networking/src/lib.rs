@@ -25,8 +25,8 @@ pub use clock::{
 };
 pub use control::{
     AdmissionClaims, AdmissionRejectReason, CommandDisposition, ContentManifest,
-    ContentRejectReason, MAX_RESUME_TOKEN_BYTES, ResyncReason, SessionControlMessage,
-    decode_control_message, encode_control_message,
+    ContentRejectReason, ControlBinding, MAX_RESUME_TOKEN_BYTES, ResyncReason,
+    SessionControlMessage, decode_control_message, encode_control_message,
 };
 pub use datagram_link::{DatagramLinkEndpoint, DatagramLinkError, InMemoryDatagramLink};
 pub use datagrams::{

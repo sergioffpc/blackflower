@@ -51,7 +51,7 @@ fn overview_identifies_native_client_boundaries() -> Result<(), Box<dyn Error>> 
 }
 
 #[test]
-fn prediction_panel_reports_the_bootstrap_only_contract() -> Result<(), Box<dyn Error>> {
+fn prediction_panel_reports_the_snapshot_only_contract() -> Result<(), Box<dyn Error>> {
     let mut app = test_app()?;
     app.page = Page::Prediction;
     let mut terminal = Terminal::new(TestBackend::new(120, 40))?;
@@ -59,10 +59,11 @@ fn prediction_panel_reports_the_bootstrap_only_contract() -> Result<(), Box<dyn 
     let rendered = rendered_text(&terminal);
 
     for expected in [
-        "Bootstrap-only prediction",
-        "BOOTSTRAP ONLY",
+        "Authoritative snapshot state",
+        "SNAPSHOT ONLY",
         "PredictionWorld",
         "not instantiated",
+        "schema v1 decoded",
         "Operational boundary",
     ] {
         assert!(rendered.contains(expected), "missing {expected}");

@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use crate::codec::{Reader, Writer};
 use crate::wire::{MAX_CONTROL_MESSAGE_BYTES, WireError, decode_frame, encode_frame};
 use crate::{
@@ -28,6 +30,15 @@ pub struct ContentManifest {
     pub map_id: MapId,
     /// Exact ordered package-set identity required by the server.
     pub required_content_set_id: RequiredContentSetId,
+}
+
+/// Server-authorized controlled object and its non-reusing generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlBinding {
+    /// Generation incremented whenever the controlled object changes.
+    pub control_epoch: u32,
+    /// Non-zero replicated identity owned by this session.
+    pub controlled_entity: NonZeroU64,
 }
 
 /// Stable reason why the client cannot enter the server-selected map.
@@ -178,6 +189,8 @@ pub enum SessionControlMessage {
     },
     /// Schedule the newly synchronized client for activation.
     ActivateAt { tick: SimulationTick },
+    /// Assign the object whose controls this session may submit.
+    ControlBinding(ControlBinding),
     /// Ask for a bounded full-state resynchronization.
     ResyncRequest { reason: ResyncReason },
     /// Present a one-use reconnect token on a fresh connection.
@@ -220,6 +233,7 @@ const CLOCK_SYNCHRONIZED: u8 = 12;
 const CONTENT_MANIFEST: u8 = 13;
 const CONTENT_READY: u8 = 14;
 const CONTENT_REJECTED: u8 = 15;
+const CONTROL_BINDING: u8 = 16;
 
 /// Encode one framed reliable session-control message.
 pub fn encode_control_message(message: &SessionControlMessage) -> Result<Vec<u8>, WireError> {
@@ -280,6 +294,9 @@ fn encode_control_payload(message: &SessionControlMessage) -> Result<(u8, Vec<u8
             encode_bootstrap_applied(*bootstrap_id, *snapshot_tick, digest),
         )),
         SessionControlMessage::ActivateAt { tick } => Ok(encode_activate_at(*tick)),
+        SessionControlMessage::ControlBinding(binding) => {
+            Ok((CONTROL_BINDING, encode_control_binding(*binding)))
+        }
         SessionControlMessage::ResyncRequest { reason } => Ok(encode_resync_request(*reason)),
         SessionControlMessage::ResumeRequest { token } => {
             encode_resume_token(RESUME_REQUEST, token, None)
@@ -381,6 +398,9 @@ fn decode_control_payload(
         ACTIVATE_AT => Ok(SessionControlMessage::ActivateAt {
             tick: SimulationTick::new(reader.u64()?),
         }),
+        CONTROL_BINDING => Ok(SessionControlMessage::ControlBinding(
+            decode_control_binding(reader)?,
+        )),
         RESYNC_REQUEST => Ok(SessionControlMessage::ResyncRequest {
             reason: ResyncReason::try_from(reader.u8()?)?,
         }),
@@ -395,6 +415,23 @@ fn decode_control_payload(
         }),
         value => Err(WireError::UnknownMessage(value)),
     }
+}
+
+fn encode_control_binding(binding: ControlBinding) -> Vec<u8> {
+    let mut writer = Writer::with_capacity(12);
+    writer.u32(binding.control_epoch);
+    writer.u64(binding.controlled_entity.get());
+    writer.finish()
+}
+
+fn decode_control_binding(reader: &mut Reader<'_>) -> Result<ControlBinding, WireError> {
+    let control_epoch = reader.u32()?;
+    let controlled_entity = NonZeroU64::new(reader.u64()?)
+        .ok_or(WireError::InvalidValue("controlled entity is zero"))?;
+    Ok(ControlBinding {
+        control_epoch,
+        controlled_entity,
+    })
 }
 
 fn encode_resume_token(

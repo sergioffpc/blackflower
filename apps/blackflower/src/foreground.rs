@@ -26,7 +26,7 @@ pub struct ClientCapabilities {
 }
 
 impl ClientCapabilities {
-    /// Describe the bootstrap-only client with an established shared harness.
+    /// Describe the snapshot-only client with an established shared harness.
     #[must_use]
     pub const fn connected() -> Self {
         Self {

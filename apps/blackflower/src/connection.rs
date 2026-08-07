@@ -8,6 +8,7 @@ use blackflower_harness::{
     ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction, ClientView, PredictionUpdate,
 };
 use blackflower_networking::{ControlFrame, SimulationTick};
+use blackflower_networking_protocol::v1::ProtocolComponent;
 use blackflower_networking_quic::{
     ClientEndpointConfig, ClientNetworkHandle, QuicClient, QuicError,
 };
@@ -16,7 +17,7 @@ use blackflower_world_presentation::{FrameIndex, PresentationWorld};
 
 use crate::runtime::{ApplicationRuntime, HarnessPresentationRuntime, PresentationBridge};
 
-/// Complete transport and session inputs for the bootstrap-only native client.
+/// Complete transport and session inputs for the native network client.
 pub struct ClientConnectionConfig {
     /// QUIC address, service name, and exact service-CA trust roots.
     pub endpoint: ClientEndpointConfig,
@@ -26,14 +27,14 @@ pub struct ClientConnectionConfig {
     pub installed_assets: AssetStore,
 }
 
-/// Established bootstrap-only client kept alive beside the native event loop.
+/// Established network client kept alive beside the native event loop.
 pub struct ConnectedClient {
     _endpoint: QuicClient,
     _installed_assets: AssetStore,
     runtime: HarnessPresentationRuntime<
         ClientNetworkHandle,
-        BootstrapPrediction,
-        BootstrapPresentationBridge,
+        SnapshotPrediction,
+        NetworkPresentationBridge,
     >,
 }
 
@@ -43,9 +44,9 @@ impl ConnectedClient {
         let endpoint = QuicClient::bind(config.endpoint)?;
         let connection = endpoint.connect().await?;
         let transport = connection.spawn_io().await?;
-        let harness = ClientHarness::new(transport, BootstrapPrediction::default(), config.harness)
+        let harness = ClientHarness::new(transport, SnapshotPrediction::default(), config.harness)
             .map_err(ClientConnectionError::Harness)?;
-        let runtime = HarnessPresentationRuntime::new(harness, BootstrapPresentationBridge)
+        let runtime = HarnessPresentationRuntime::new(harness, NetworkPresentationBridge)
             .map_err(ClientConnectionError::Composition)?;
         Ok(Self {
             _endpoint: endpoint,
@@ -66,41 +67,41 @@ impl ApplicationRuntime for ConnectedClient {
 }
 
 #[derive(Debug, Default)]
-struct BootstrapPrediction {
-    state: Option<BootstrapState>,
+struct SnapshotPrediction {
+    tick: SimulationTick,
+    state: Option<Snapshot>,
 }
 
-impl ClientPrediction for BootstrapPrediction {
-    type State = BootstrapState;
-    type Error = BootstrapPredictionError;
+impl ClientPrediction for SnapshotPrediction {
+    type State = Snapshot;
+    type Error = SnapshotPredictionError;
 
     fn current_tick(&self) -> SimulationTick {
-        self.state
-            .map_or(SimulationTick::new(0), |state| state.tick)
+        self.tick
     }
 
     fn bootstrap(&mut self, snapshot: &Snapshot) -> Result<PredictionUpdate, Self::Error> {
-        ensure_empty_snapshot(snapshot)?;
+        validate_snapshot(snapshot)?;
         let tick = SimulationTick::new(snapshot.tick().get());
-        self.state = Some(BootstrapState { tick });
+        self.tick = tick;
+        self.state = Some(snapshot.clone());
         Ok(PredictionUpdate::Bootstrapped { tick })
     }
 
     fn apply_snapshot(&mut self, snapshot: &Snapshot) -> Result<PredictionUpdate, Self::Error> {
-        ensure_empty_snapshot(snapshot)?;
+        validate_snapshot(snapshot)?;
         let tick = SimulationTick::new(snapshot.tick().get());
-        self.state = Some(BootstrapState { tick });
+        self.tick = self.tick.max(tick);
+        self.state = Some(snapshot.clone());
         Ok(PredictionUpdate::Converged { tick })
     }
 
     fn queue_control(&mut self, _frame: &ControlFrame) -> Result<(), Self::Error> {
-        Err(BootstrapPredictionError::GameplayUnavailable)
+        Err(SnapshotPredictionError::PredictionUnavailable)
     }
 
     fn advance_to(&mut self, target: SimulationTick) -> Result<(), Self::Error> {
-        if let Some(state) = self.state.as_mut() {
-            state.tick = state.tick.max(target);
-        }
+        self.tick = self.tick.max(target);
         Ok(())
     }
 
@@ -109,35 +110,21 @@ impl ClientPrediction for BootstrapPrediction {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BootstrapState {
-    tick: SimulationTick,
-}
+struct NetworkPresentationBridge;
 
-struct BootstrapPresentationBridge;
-
-impl PresentationBridge<BootstrapState> for BootstrapPresentationBridge {
+impl PresentationBridge<Snapshot> for NetworkPresentationBridge {
     type Error = Infallible;
 
     fn capture(
         &mut self,
         _presentation: &mut PresentationWorld,
-        view: ClientView<'_, BootstrapState>,
+        view: ClientView<'_, Snapshot>,
         events: &[ClientEvent],
     ) -> Result<(), Self::Error> {
         for event in events {
             log_client_event(event);
         }
-        if view
-            .authoritative()
-            .is_some_and(|snapshot| !snapshot.is_empty())
-        {
-            tracing::error!(
-                target: "blackflower_client",
-                event_name = "bootstrap_projection_rejected",
-                "bootstrap-only client received gameplay entities",
-            );
-        }
+        let _latest_authoritative = view.authoritative();
         Ok(())
     }
 }
@@ -168,6 +155,13 @@ fn log_client_event(event: &ClientEvent) {
             tick = tick.get(),
             "application session activated",
         ),
+        ClientEvent::ControlBound(binding) => tracing::info!(
+            target: "blackflower_client",
+            event_name = "network_control_bound",
+            control_epoch = binding.control_epoch,
+            controlled_entity = binding.controlled_entity.get(),
+            "server assigned the controlled actor",
+        ),
         ClientEvent::AdmissionRejected(_)
         | ClientEvent::ResumeIssued { .. }
         | ClientEvent::CommandDisposition { .. }
@@ -180,7 +174,7 @@ fn log_client_event(event: &ClientEvent) {
     }
 }
 
-/// Failure while establishing the bootstrap-only native client.
+/// Failure while establishing the native network client.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientConnectionError {
     /// QUIC endpoint setup, handshake, or bounded task startup failed.
@@ -188,27 +182,29 @@ pub enum ClientConnectionError {
     Transport(#[from] QuicError),
     /// Shared client session initialization failed.
     #[error("client harness initialization failed")]
-    Harness(#[source] blackflower_harness::ClientHarnessError<QuicError, BootstrapPredictionError>),
+    Harness(#[source] blackflower_harness::ClientHarnessError<QuicError, SnapshotPredictionError>),
     /// Presentation-world composition failed.
     #[error("connected client composition failed")]
     Composition(#[source] anyhow::Error),
 }
 
-/// Bootstrap-only prediction cannot decode gameplay state or controls.
+/// Snapshot validation failure before the real prediction driver is installed.
 #[derive(Debug, thiserror::Error)]
-pub enum BootstrapPredictionError {
-    /// Gameplay entities require the concrete gameplay component schema.
-    #[error("bootstrap-only prediction received gameplay state")]
-    GameplayState,
-    /// Controls require the concrete gameplay control schema.
-    #[error("bootstrap-only prediction cannot accept gameplay controls")]
-    GameplayUnavailable,
+pub enum SnapshotPredictionError {
+    /// A component does not belong to the negotiated v1 schema or is non-canonical.
+    #[error("authoritative snapshot contains an invalid v1 component")]
+    InvalidComponent(#[source] blackflower_networking_protocol::v1::ProtocolError),
+    /// Local forward prediction is not installed yet.
+    #[error("local forward prediction is not installed")]
+    PredictionUnavailable,
 }
 
-fn ensure_empty_snapshot(snapshot: &Snapshot) -> Result<(), BootstrapPredictionError> {
-    if snapshot.is_empty() {
-        Ok(())
-    } else {
-        Err(BootstrapPredictionError::GameplayState)
+fn validate_snapshot(snapshot: &Snapshot) -> Result<(), SnapshotPredictionError> {
+    for (_entity, state) in snapshot.entities() {
+        for (id, component) in state.components() {
+            ProtocolComponent::decode(id, component.bytes())
+                .map_err(SnapshotPredictionError::InvalidComponent)?;
+        }
     }
+    Ok(())
 }

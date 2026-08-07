@@ -3,6 +3,13 @@
 `blackflower-world-simulation` turns canonical in-memory actor inputs into sealed
 authoritative state and in-memory tick outputs at 240 Hz.
 
+The initial concrete gameplay slice owns controllable actor movement and
+absolute view orientation. A canonical control covers four ticks, drives a
+fixed five-metre-per-second flat-ground controller, retains the last control for
+the twelve-tick grace window, and then neutralizes movement while preserving
+orientation. Sealed actor state exposes transform, velocity, grounded state,
+and the latest applied input identity through a transport-neutral frame.
+
 Every fixed-step tick advances the ordered `SimulationPipeline` through these
 phases:
 

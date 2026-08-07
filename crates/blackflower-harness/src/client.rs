@@ -300,6 +300,7 @@ where
                 length,
             }),
             SessionControlMessage::ActivateAt { tick } => self.activation_scheduled(tick),
+            SessionControlMessage::ControlBinding(binding) => self.control_bound(binding),
             SessionControlMessage::ResumeIssued {
                 token,
                 expires_in_millis,
@@ -307,19 +308,7 @@ where
             SessionControlMessage::CommandDisposition {
                 command_id,
                 disposition,
-            } => {
-                if !matches!(
-                    disposition,
-                    blackflower_networking::CommandDisposition::Queued { .. }
-                ) {
-                    self.input.acknowledge_command(command_id);
-                }
-                self.events.push_back(ClientEvent::CommandDisposition {
-                    command_id,
-                    disposition,
-                });
-                Ok(())
-            }
+            } => self.command_disposition(command_id, disposition),
             SessionControlMessage::Closing { code } => self.server_closing(code),
             SessionControlMessage::AdmissionRequest { .. }
             | SessionControlMessage::ContentReady(_)
@@ -331,6 +320,33 @@ where
                 Err(ClientHarnessError::UnexpectedControlMessage)
             }
         }
+    }
+
+    fn control_bound(
+        &mut self,
+        binding: blackflower_networking::ControlBinding,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        self.input.set_binding(binding);
+        self.events.push_back(ClientEvent::ControlBound(binding));
+        Ok(())
+    }
+
+    fn command_disposition(
+        &mut self,
+        command_id: blackflower_networking::CommandId,
+        disposition: blackflower_networking::CommandDisposition,
+    ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
+        if !matches!(
+            disposition,
+            blackflower_networking::CommandDisposition::Queued { .. }
+        ) {
+            self.input.acknowledge_command(command_id);
+        }
+        self.events.push_back(ClientEvent::CommandDisposition {
+            command_id,
+            disposition,
+        });
+        Ok(())
     }
 
     fn resume_issued(

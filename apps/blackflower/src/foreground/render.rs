@@ -241,7 +241,7 @@ fn draw_frame_summary(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     0.95,
                 )),
             ),
-            ("Prediction", "bootstrap-only".to_owned()),
+            ("Prediction", "not configured".to_owned()),
             (
                 "Renderer backend",
                 configured(app.capabilities.renderer_configured),
@@ -454,7 +454,7 @@ fn draw_prediction(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Layout::vertical([Constraint::Percentage(45), Constraint::Percentage(55)]).split(area);
     let columns = halves(rows[0]);
     draw_prediction_contract(frame, columns[0]);
-    draw_bootstrap_activity(frame, columns[1], app);
+    draw_snapshot_activity(frame, columns[1], app);
     draw_prediction_boundary(frame, rows[1]);
 }
 
@@ -462,22 +462,22 @@ fn draw_prediction_contract(frame: &mut Frame<'_>, area: Rect) {
     draw_key_values(
         frame,
         area,
-        "Bootstrap-only prediction",
+        "Authoritative snapshot state",
         vec![
-            ("Mode", "BOOTSTRAP ONLY".to_owned()),
+            ("Mode", "SNAPSHOT ONLY".to_owned()),
             ("PredictionWorld", "not instantiated".to_owned()),
-            ("Gameplay state", "empty snapshots only".to_owned()),
-            ("Gameplay controls", "unavailable".to_owned()),
+            ("Gameplay state", "schema v1 decoded".to_owned()),
+            ("Gameplay controls", "not submitted".to_owned()),
             ("Reconciliation", "unavailable".to_owned()),
         ],
     );
 }
 
-fn draw_bootstrap_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+fn draw_snapshot_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
     draw_key_values(
         frame,
         area,
-        "Bootstrap activity",
+        "Snapshot activity",
         vec![
             ("Harness", configured(app.capabilities.session_configured)),
             (
@@ -520,9 +520,9 @@ fn draw_bootstrap_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_prediction_boundary(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from("This client currently tracks server tick and content activation only."),
-            Line::from("Gameplay entities and control prediction require the concrete component schema."),
-            Line::from("Prediction timing, reconciliation, and resimulation metrics are therefore not expected."),
+            Line::from("This client validates and retains authoritative schema-v1 movement state."),
+            Line::from("Device-to-control mapping and local forward prediction are not installed."),
+            Line::from("Reconciliation and resimulation metrics are therefore not expected."),
         ])
         .style(text_style())
         .block(panel("Operational boundary"))

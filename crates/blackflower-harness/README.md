@@ -8,7 +8,8 @@ events.
 `ClientHarness` owns the application session above QUIC, protocol negotiation,
 server-selected map/content readiness, resume transitions, full bootstrap and
 incremental snapshot reconstruction, applied snapshot acknowledgements,
-control/command identities, input redundancy, prediction coordination,
+server-assigned control bindings, control/command identities, input redundancy,
+prediction coordination,
 reconciliation, and hard-resync requests. It never collects devices, renders
 presentation, or makes bot decisions.
 

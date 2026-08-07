@@ -8,6 +8,7 @@ mod trace;
 mod transport;
 mod types;
 
+pub use blackflower_networking::ControlBinding;
 pub use blackflower_world_prediction::{
     AbsoluteTolerance, AngularTolerance, PredictionDriver, PredictionPass,
     PredictionStateComparison, ToleranceError,
@@ -21,6 +22,5 @@ pub use snapshots::{SnapshotInboxError as ClientSnapshotError, SnapshotWindow};
 pub use trace::{TraceObserver, TraceRecord};
 pub use transport::{ClientTransport, ClientTransportEvent};
 pub use types::{
-    ClientEvent, ClientHarnessConfig, ClientView, CommandSubmission, ControlBinding,
-    ControlSubmission,
+    ClientEvent, ClientHarnessConfig, ClientView, CommandSubmission, ControlSubmission,
 };
