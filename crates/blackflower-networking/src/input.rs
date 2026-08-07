@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
     CommandId, CommandTimingClass, ControlFrame, DiscreteCommand, InputSequence, ProtocolRevision,
@@ -59,6 +59,8 @@ pub enum Deduplication {
     New,
     /// Identity and every canonical byte match the retained value.
     Duplicate,
+    /// Identity predates the newest accepted control and is no longer retained.
+    Stale,
 }
 
 /// Conflicting use of an idempotency identity is a protocol violation.
@@ -76,7 +78,10 @@ pub enum DeduplicationError {
 #[derive(Debug, Clone)]
 pub struct InputDeduplicator {
     controls: BTreeMap<InputSequence, ControlIdentity>,
+    control_order: VecDeque<InputSequence>,
+    newest_control: Option<InputSequence>,
     commands: BTreeMap<CommandId, CommandIdentity>,
+    command_order: VecDeque<CommandId>,
     capacity: usize,
 }
 
@@ -92,7 +97,10 @@ impl InputDeduplicator {
     pub fn new(capacity: usize) -> Self {
         Self {
             controls: BTreeMap::new(),
+            control_order: VecDeque::new(),
+            newest_control: None,
             commands: BTreeMap::new(),
+            command_order: VecDeque::new(),
             capacity,
         }
     }
@@ -109,9 +117,17 @@ impl InputDeduplicator {
         match self.controls.get(&frame.sequence) {
             Some(retained) if retained == &identity => Ok(Deduplication::Duplicate),
             Some(_retained) => Err(DeduplicationError::ConflictingInput(frame.sequence)),
+            None if self
+                .newest_control
+                .is_some_and(|newest| frame.sequence <= newest) =>
+            {
+                Ok(Deduplication::Stale)
+            }
             None => {
                 self.controls.insert(frame.sequence, identity);
-                evict_oldest(&mut self.controls, self.capacity);
+                self.control_order.push_back(frame.sequence);
+                self.newest_control = Some(frame.sequence);
+                evict_oldest(&mut self.controls, &mut self.control_order, self.capacity);
                 Ok(Deduplication::New)
             }
         }
@@ -128,7 +144,8 @@ impl InputDeduplicator {
             Some(_retained) => Err(DeduplicationError::ConflictingCommand(command.command_id)),
             None => {
                 self.commands.insert(command.command_id, identity);
-                evict_oldest(&mut self.commands, self.capacity);
+                self.command_order.push_back(command.command_id);
+                evict_oldest(&mut self.commands, &mut self.command_order, self.capacity);
                 Ok(Deduplication::New)
             }
         }
@@ -328,8 +345,15 @@ const fn is_temporal(class: CommandTimingClass) -> bool {
     )
 }
 
-fn evict_oldest<Key: Ord, Value>(values: &mut BTreeMap<Key, Value>, capacity: usize) {
+fn evict_oldest<Key: Copy + Ord, Value>(
+    values: &mut BTreeMap<Key, Value>,
+    order: &mut VecDeque<Key>,
+    capacity: usize,
+) {
     while values.len() > capacity {
-        let _removed = values.pop_first();
+        let Some(oldest) = order.pop_front() else {
+            break;
+        };
+        drop(values.remove(&oldest));
     }
 }

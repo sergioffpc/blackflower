@@ -169,12 +169,18 @@ async fn nat_rebinding_emits_a_validated_path_change_and_preserves_datagrams() -
 async fn an_untrusted_service_ca_is_rejected() -> TestResult {
     let trusted = service_fixture("unused.test")?;
     let untrusted = service_fixture("blackflower.test")?;
+    let current_root = untrusted.root.clone();
     let mut server = QuicServer::bind(server_config(untrusted)?)?;
     let address = server.local_addr()?;
     let server_task = tokio::spawn(async move { server.accept().await });
     let client = QuicClient::bind(client_config(address, "blackflower.test", trusted.root))?;
     assert!(client.connect().await.is_err());
-    server_task.abort();
+
+    let compatible = QuicClient::bind(client_config(address, "blackflower.test", current_root))?;
+    let client_connection = compatible.connect().await?;
+    let server_connection = server_task.await??;
+    client_connection.close(0, b"test complete");
+    server_connection.close(0, b"test complete");
     Ok(())
 }
 

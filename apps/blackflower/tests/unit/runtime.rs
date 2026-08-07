@@ -57,6 +57,25 @@ fn harness_view_is_captured_before_presentation_advances() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn stopped_transport_is_captured_once_and_stops_the_runtime() -> TestResult {
+    let transport = TestTransport {
+        events: VecDeque::from([ClientTransportEvent::TransportStopped]),
+        ..TestTransport::default()
+    };
+    let harness = ClientHarness::new(transport, TestPrediction::default(), harness_config())?;
+    let mut runtime = HarnessPresentationRuntime::new(harness, TestBridge::default())?;
+
+    assert!(!runtime.frame(
+        Duration::from_millis(1),
+        TickDelta::from_seconds(1.0 / 60.0)?,
+    )?);
+    assert_eq!(runtime.bridge().session_state, Some(SessionState::Closing));
+    assert_eq!(runtime.bridge().event_count, 1);
+    assert_eq!(runtime.presentation().current_frame().get(), 1);
+    Ok(())
+}
+
 fn harness_config() -> ClientHarnessConfig {
     ClientHarnessConfig {
         compatibility: CompatibilityContract {

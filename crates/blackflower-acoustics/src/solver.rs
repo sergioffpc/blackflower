@@ -14,6 +14,8 @@ use crate::{
     SOUND_SPEED_MM_PER_SECOND, SoundEmission,
 };
 
+const MAX_PORTAL_ROUTE_EXPANSIONS: usize = 1_000_000;
+
 /// Fixed-capacity release profile for one authoritative acoustic world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcousticWorldSettings {
@@ -275,7 +277,7 @@ impl AcousticWorld {
             &prefab_map,
             &active_states,
         )?;
-        let portal_routes = build_portal_routes(&topology, &scene, settings.max_paths_per_pair);
+        let portal_routes = build_portal_routes(&topology, &scene, settings.max_paths_per_pair)?;
         let receiver_group_capacity = topology.zones().len().saturating_add(1);
         Ok(Self {
             settings,
@@ -935,8 +937,9 @@ fn build_portal_routes(
     topology: &AcousticTopology,
     scene: &AcousticSimulationScene,
     max_paths: usize,
-) -> BTreeMap<(u32, u32), Vec<CachedPortalRoute>> {
+) -> Result<BTreeMap<(u32, u32), Vec<CachedPortalRoute>>, Error> {
     let mut cache = BTreeMap::new();
+    let mut expansions = 0_usize;
     for start in topology.zones() {
         for end in topology.zones() {
             if start.id == end.id {
@@ -954,6 +957,12 @@ fn build_portal_routes(
             let mut completed = Vec::new();
             while let Some(route) = pending.pop() {
                 for (portal_index, portal) in topology.portals().iter().enumerate() {
+                    expansions = expansions
+                        .checked_add(1)
+                        .ok_or(Error::ResourceLimit("portal route expansions"))?;
+                    if expansions > MAX_PORTAL_ROUTE_EXPANSIONS {
+                        return Err(Error::ResourceLimit("portal route expansions"));
+                    }
                     let next = if portal.zone_a == route.zone {
                         Some(portal.zone_b)
                     } else if portal.zone_b == route.zone {
@@ -992,13 +1001,21 @@ fn build_portal_routes(
                         .cmp(&left.length_mm)
                         .then_with(|| right.visited.cmp(&left.visited))
                 });
+                if completed.len() >= max_paths {
+                    completed.sort_by(compare_routes);
+                    completed.truncate(max_paths);
+                    let cutoff = completed
+                        .last()
+                        .map_or(u64::MAX, |candidate| candidate.length_mm);
+                    if pending
+                        .last()
+                        .is_none_or(|candidate| candidate.length_mm > cutoff)
+                    {
+                        break;
+                    }
+                }
             }
-            completed.sort_by(|left, right| {
-                left.length_mm
-                    .cmp(&right.length_mm)
-                    .then_with(|| right.gain.peak().cmp(&left.gain.peak()))
-                    .then_with(|| left.portal_indices.cmp(&right.portal_indices))
-            });
+            completed.sort_by(compare_routes);
             completed.truncate(max_paths);
             let routes = completed
                 .into_iter()
@@ -1017,7 +1034,14 @@ fn build_portal_routes(
             }
         }
     }
-    cache
+    Ok(cache)
+}
+
+fn compare_routes(left: &RouteSearch, right: &RouteSearch) -> std::cmp::Ordering {
+    left.length_mm
+        .cmp(&right.length_mm)
+        .then_with(|| right.gain.peak().cmp(&left.gain.peak()))
+        .then_with(|| left.portal_indices.cmp(&right.portal_indices))
 }
 
 fn zone_edge_length(

@@ -65,8 +65,8 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
 
     /// Accept one address-validated connection and start bounded Tokio I/O tasks.
     pub async fn accept(&mut self, now: Duration) -> Result<NetworkPeer, PeerError> {
-        let epoch = self.allocate_epoch()?;
         let connection = self.endpoint.accept().await?;
+        let epoch = self.allocate_epoch()?;
         let handle = connection.spawn_io().await?;
         let mut session = ServerSession::new(self.contract, epoch);
         session.secure()?;
@@ -129,8 +129,25 @@ impl<A: SessionAuthority> DedicatedServerNetwork<A> {
         now: Duration,
     ) -> Result<ResumeOutcome, PeerError> {
         blackflower_networking::validate_resume_token(token)?;
-        let claims = self.authority.consume_resume(token, now)?;
-        peer.session.reconnect(claims.connection_epoch)?;
+        let claims = self
+            .authority
+            .consume_resume(token, peer.session.connection_epoch(), now)?;
+        peer.session.accept_resume_claims(&claims)?;
+        let admission = AdmissionClaims {
+            session_id: claims.session_id,
+            player_id: claims.player_id,
+            match_id: claims.match_id,
+            protocol_revision: self.contract.protocol_revision,
+        };
+        let next_resume = self.authority.issue_resume(&admission, now)?;
+        peer.send_control(SessionControlMessage::AdmissionAccepted {
+            claims: admission,
+            connection_epoch: claims.connection_epoch,
+        })?;
+        peer.send_control(SessionControlMessage::ResumeIssued {
+            token: next_resume.token,
+            expires_in_millis: millis_until(now, next_resume.expires_at),
+        })?;
         Ok(ResumeOutcome {
             invalidate_session: claims.session_id,
             claims,
@@ -411,8 +428,11 @@ impl NetworkPeer {
             return Err(PeerError::WrongInputFlow);
         }
         let input = decode_input_datagram(decoded.payload)?;
+        let mut snapshot_applied = false;
         if let Some(ack) = input.applied_snapshot {
+            let previous = self.baselines.acknowledged_tick();
             self.baselines.acknowledge(ack)?;
+            snapshot_applied = previous.is_none_or(|tick| tick.get() < ack.snapshot_tick.get());
             record_snapshot(SnapshotAction::Acknowledged);
         }
         let frames = self.new_frames(&input.frames)?;
@@ -421,6 +441,7 @@ impl NetworkPeer {
         Ok(InputIngress {
             control_epoch: input.control_epoch,
             controlled_entity: input.controlled_entity,
+            snapshot_applied,
             frames,
             commands,
         })
@@ -548,7 +569,7 @@ impl NetworkPeer {
 
     fn new_frames(&mut self, frames: &[ControlFrame]) -> Result<Vec<ControlFrame>, PeerError> {
         let mut accepted = Vec::new();
-        for frame in frames {
+        for frame in frames.iter().rev() {
             if self.inputs.observe_control(frame)? == Deduplication::New {
                 accepted.push(frame.clone());
             }
@@ -619,6 +640,8 @@ pub struct InputIngress {
     pub control_epoch: u32,
     /// Non-zero controlled replicated identity.
     pub controlled_entity: std::num::NonZeroU64,
+    /// Whether this datagram advanced the application-applied snapshot baseline.
+    pub snapshot_applied: bool,
     /// New exact canonical frames; redundant duplicates are omitted.
     pub frames: Vec<ControlFrame>,
     /// New commands with no gameplay execution performed by networking.

@@ -68,8 +68,13 @@ impl QuicServer {
                         .ok_or(QuicError::EndpointClosed)?
                         .map_err(|_join| QuicError::TransportTask)?;
                     self.validated_origins.finish_pending(origin);
-                    let connection = connection?;
-                    validate_connection(&connection)?;
+                    let Ok(connection) = connection else {
+                        continue;
+                    };
+                    if validate_connection(&connection).is_err() {
+                        connection.close(quinn::VarInt::from_u32(1), b"incompatible transport");
+                        continue;
+                    }
                     let Some(permit) = self.connections.try_acquire() else {
                         connection.close(quinn::VarInt::from_u32(0), b"connection capacity");
                         continue;

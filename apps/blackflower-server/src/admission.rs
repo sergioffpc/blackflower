@@ -19,6 +19,7 @@ pub struct LoopbackSessionAuthority {
     resume_token: Vec<u8>,
     resume_expires_at: Option<Duration>,
     resume_available: bool,
+    next_resume_generation: u64,
 }
 
 impl LoopbackSessionAuthority {
@@ -32,6 +33,7 @@ impl LoopbackSessionAuthority {
             resume_token: Vec::new(),
             resume_expires_at: None,
             resume_available: false,
+            next_resume_generation: 1,
         }
     }
 }
@@ -57,11 +59,15 @@ impl SessionAuthority for LoopbackSessionAuthority {
         now: Duration,
     ) -> Result<IssuedResumeToken, AuthorityError> {
         let expires_at = now.saturating_add(RECONNECT_WINDOW);
-        self.resume_token = blake3::derive_key(
-            "blackflower.loopback.resume.v1",
-            claims.session_id.as_bytes(),
-        )
-        .to_vec();
+        let generation = self.next_resume_generation;
+        self.next_resume_generation = generation
+            .checked_add(1)
+            .ok_or(AuthorityError::Unavailable)?;
+        let mut material = [0_u8; 24];
+        material[..16].copy_from_slice(claims.session_id.as_bytes());
+        material[16..].copy_from_slice(&generation.to_le_bytes());
+        self.resume_token =
+            blake3::derive_key("blackflower.loopback.resume.v1", &material).to_vec();
         self.resume_claims = Some(*claims);
         self.resume_expires_at = Some(expires_at);
         self.resume_available = true;
@@ -74,6 +80,7 @@ impl SessionAuthority for LoopbackSessionAuthority {
     fn consume_resume(
         &mut self,
         token: &[u8],
+        connection_epoch: ConnectionEpoch,
         now: Duration,
     ) -> Result<ResumeClaims, AuthorityError> {
         validate_resume_token(token)?;
@@ -91,7 +98,7 @@ impl SessionAuthority for LoopbackSessionAuthority {
             session_id: claims.session_id,
             player_id: claims.player_id,
             match_id: claims.match_id,
-            connection_epoch: ConnectionEpoch::new(u32::MAX),
+            connection_epoch,
         })
     }
 }
@@ -102,3 +109,7 @@ fn derive_128(context: &'static str, identity: u64) -> [u8; 16] {
     bytes.copy_from_slice(&derived[..16]);
     bytes
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/admission.rs"]
+mod tests;

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use crate::{AdmissionClaims, ConnectionEpoch, ProtocolRevision, SimulationTick};
+use crate::{AdmissionClaims, ConnectionEpoch, ProtocolRevision, ResumeClaims, SimulationTick};
 
 /// Minimum activation lead after admission, in simulation ticks.
 pub const MINIMUM_ACTIVATION_LEAD_TICKS: u64 = 24;
@@ -195,11 +195,6 @@ macro_rules! session_api {
                 self.core.begin_resync(now)
             }
 
-            /// Return to synchronization after a reconnect with a fresh epoch.
-            pub fn reconnect(&mut self, epoch: ConnectionEpoch) -> Result<(), SessionError> {
-                self.core.reconnect(epoch)
-            }
-
             /// Permanently enter closing state.
             pub fn close(&mut self) -> Result<(), SessionError> {
                 self.core.transition(SessionState::Closing)
@@ -223,6 +218,64 @@ impl ClientSession {
         }
         self.core.accept_claims(claims)?;
         self.core.connection_epoch = connection_epoch;
+        Ok(())
+    }
+
+    /// Replace a stopped transport before the server validates the resume token.
+    pub fn begin_reconnect(&mut self) -> Result<(), SessionError> {
+        if !matches!(
+            self.core.state,
+            SessionState::Active | SessionState::Closing
+        ) {
+            return Err(SessionError::InvalidTransition {
+                from: self.core.state,
+                to: SessionState::Negotiating,
+            });
+        }
+        self.core.state = SessionState::Negotiating;
+        self.core.scheduled_activation = None;
+        Ok(())
+    }
+
+    /// Accept resumed identities and the fresh server-assigned connection generation.
+    pub fn accept_resume_claims(
+        &mut self,
+        claims: &AdmissionClaims,
+        connection_epoch: ConnectionEpoch,
+    ) -> Result<(), SessionError> {
+        if self.core.state != SessionState::Negotiating {
+            return Err(SessionError::InvalidTransition {
+                from: self.core.state,
+                to: SessionState::Synchronizing,
+            });
+        }
+        if !self.core.contract.matches(claims) {
+            return Err(SessionError::Incompatible);
+        }
+        if connection_epoch.get() <= self.core.connection_epoch.get() {
+            return Err(SessionError::StaleConnectionEpoch);
+        }
+        self.core.connection_epoch = connection_epoch;
+        self.core.state = SessionState::Synchronizing;
+        self.core.scheduled_activation = None;
+        Ok(())
+    }
+}
+
+impl ServerSession {
+    /// Accept authority-validated resume claims on this fresh connection.
+    pub fn accept_resume_claims(&mut self, claims: &ResumeClaims) -> Result<(), SessionError> {
+        if self.core.state != SessionState::Negotiating {
+            return Err(SessionError::InvalidTransition {
+                from: self.core.state,
+                to: SessionState::Synchronizing,
+            });
+        }
+        if claims.connection_epoch != self.core.connection_epoch {
+            return Err(SessionError::StaleConnectionEpoch);
+        }
+        self.core.state = SessionState::Synchronizing;
+        self.core.scheduled_activation = None;
         Ok(())
     }
 }
@@ -312,16 +365,6 @@ impl SessionCore {
         }
         self.resyncs.push_back(now);
         self.state = SessionState::Resynchronizing;
-        Ok(())
-    }
-
-    fn reconnect(&mut self, epoch: ConnectionEpoch) -> Result<(), SessionError> {
-        if epoch.get() <= self.connection_epoch.get() {
-            return Err(SessionError::StaleConnectionEpoch);
-        }
-        self.connection_epoch = epoch;
-        self.state = SessionState::Synchronizing;
-        self.scheduled_activation = None;
         Ok(())
     }
 }

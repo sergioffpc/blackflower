@@ -8,12 +8,12 @@ use blackflower_networking::{
     ClockSample, CommandId, CommandTimingClass, CompatibilityContract, ConnectionEpoch,
     ContentManifest, ControlBinding, ControlFrame, DatagramHeader, Deduplication,
     DeduplicationError, DiscreteCommand, FlowId, FlowSequence, InputDeduplicator, InputHealth,
-    InputSequence, MapId, MatchEgressBudget, MatchId, NetworkQueues, PlayerId, ProjectionDigest,
-    ProtocolRevision, RequiredContentSetId, SessionControlMessage, SessionId, SessionState,
-    SimulationTick, SnapshotAppliedAck, TimeSyncSchedule, TrafficClass, TrafficDirection,
-    WireError, activation_tick, classify_command, decode_datagram, decode_input_datagram,
-    decode_stream_preamble, encode_control_message, encode_datagram, encode_input_datagram,
-    encode_stream_preamble, input_health,
+    InputSequence, MapId, MatchEgressBudget, MatchId, NetworkQueues, OperationalState, PlayerId,
+    ProjectionDigest, ProtocolRevision, RequiredContentSetId, SessionControlMessage, SessionId,
+    SessionState, SimulationTick, SnapshotAppliedAck, TimeSyncSchedule, TrafficClass,
+    TrafficDirection, WireError, activation_tick, classify_command, decode_datagram,
+    decode_input_datagram, decode_stream_preamble, encode_control_message, encode_datagram,
+    encode_input_datagram, encode_stream_preamble, input_health, operational_state,
 };
 
 type TestResult = Result<(), Box<dyn StdError>>;
@@ -170,6 +170,57 @@ fn input_codec_and_deduplication_require_exact_redundant_bytes() -> TestResult {
 }
 
 #[test]
+fn deduplication_evicts_by_arrival_and_rejects_unretained_regressions() -> TestResult {
+    let mut controls = InputDeduplicator::new(2);
+    for sequence in [8, 9, 10] {
+        assert_eq!(
+            controls.observe_control(&ControlFrame {
+                sequence: InputSequence::new(sequence),
+                execute_tick: SimulationTick::new(sequence * 4),
+                payload: vec![u8::try_from(sequence)?],
+            })?,
+            Deduplication::New
+        );
+    }
+    assert_eq!(
+        controls.observe_control(&ControlFrame {
+            sequence: InputSequence::new(8),
+            execute_tick: SimulationTick::new(32),
+            payload: vec![99],
+        })?,
+        Deduplication::Stale
+    );
+
+    let command = |id, payload| DiscreteCommand {
+        command_id: CommandId::new(id),
+        origin_input_sequence: InputSequence::new(10),
+        execute_tick: SimulationTick::new(40),
+        view_tick: None,
+        timing_class: CommandTimingClass::CurrentTickOnly,
+        kind: 1,
+        payload: vec![payload],
+    };
+    let mut commands = InputDeduplicator::new(2);
+    assert_eq!(
+        commands.observe_command(&command(100, 1))?,
+        Deduplication::New
+    );
+    assert_eq!(
+        commands.observe_command(&command(101, 2))?,
+        Deduplication::New
+    );
+    assert_eq!(
+        commands.observe_command(&command(1, 3))?,
+        Deduplication::New
+    );
+    assert!(matches!(
+        commands.observe_command(&command(1, 4)),
+        Err(DeduplicationError::ConflictingCommand(id)) if id == CommandId::new(1)
+    ));
+    Ok(())
+}
+
+#[test]
 fn command_windows_and_input_failsafe_are_independent() {
     let command = DiscreteCommand {
         command_id: CommandId::new(1),
@@ -198,6 +249,41 @@ fn command_windows_and_input_failsafe_are_independent() {
     assert_eq!(
         input_health(SimulationTick::new(340), SimulationTick::new(100)),
         InputHealth::Failsafe
+    );
+}
+
+#[test]
+fn operational_state_prioritizes_authenticated_traffic_and_input_deadlines() {
+    let now = Duration::from_secs(10);
+    assert_eq!(
+        operational_state(
+            now,
+            Duration::from_secs(5),
+            Duration::from_secs(9),
+            Duration::from_secs(9),
+            false,
+        ),
+        OperationalState::ConnectionUnresponsive
+    );
+    assert_eq!(
+        operational_state(
+            now,
+            Duration::from_secs(9),
+            Duration::from_secs(9),
+            Duration::from_secs(8),
+            false,
+        ),
+        OperationalState::InputFailsafe
+    );
+    assert_eq!(
+        operational_state(
+            now,
+            Duration::from_secs(9),
+            Duration::from_secs(9),
+            Duration::from_millis(9_750),
+            false,
+        ),
+        OperationalState::SnapshotStalled
     );
 }
 
@@ -301,7 +387,12 @@ fn exact_compatibility_activation_and_resync_limit_drive_session_state() -> Test
     session.schedule_activation(SimulationTick::new(300), SimulationTick::new(324))?;
     assert!(session.advance(SimulationTick::new(324))?);
     assert!(session.begin_resync(Duration::from_secs(2)).is_err());
-    session.reconnect(ConnectionEpoch::new(2))?;
+    session.begin_reconnect()?;
+    assert_eq!(
+        session.accept_resume_claims(&claims(contract), ConnectionEpoch::new(1)),
+        Err(blackflower_networking::SessionError::StaleConnectionEpoch)
+    );
+    session.accept_resume_claims(&claims(contract), ConnectionEpoch::new(2))?;
     assert_eq!(session.state(), SessionState::Synchronizing);
     assert_eq!(session.connection_epoch(), ConnectionEpoch::new(2));
     assert_eq!(session.scheduled_activation(), None);

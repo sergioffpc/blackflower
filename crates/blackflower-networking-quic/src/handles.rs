@@ -119,7 +119,6 @@ impl ClientConnection {
 impl ServerConnection {
     /// Start Tokio I/O tasks and return the synchronous bounded server handle.
     pub async fn spawn_io(self) -> Result<ServerNetworkHandle, QuicError> {
-        let control_stream = self.accept_session_control().await?;
         let (control, control_receive) = control_channel();
         let (snapshots, snapshot_receive) = tokio_mpsc::channel(SNAPSHOT_CAPACITY);
         let (time_sync, time_sync_receive) = tokio_mpsc::channel(TIME_SYNC_CAPACITY);
@@ -127,9 +126,8 @@ impl ServerConnection {
         let bootstrap_pending = Arc::new(AtomicBool::new(false));
         let voice = SharedVoiceQueue::default();
         let (events_send, events) = event_channel();
-        spawn_control_tasks(
-            self.inner.clone(),
-            control_stream,
+        spawn_server_control_accept(
+            self.clone(),
             control_receive,
             Arc::clone(&control.queued_bytes),
             events_send.clone(),
@@ -160,6 +158,26 @@ impl ServerConnection {
             events,
         })
     }
+}
+
+fn spawn_server_control_accept(
+    connection: ServerConnection,
+    outbound: tokio_mpsc::Receiver<Vec<u8>>,
+    queued_bytes: Arc<Mutex<usize>>,
+    events: SharedEventSender,
+) {
+    tokio::spawn(async move {
+        match connection.accept_session_control().await {
+            Ok(stream) => spawn_control_tasks(
+                connection.inner.clone(),
+                stream,
+                outbound,
+                queued_bytes,
+                events,
+            ),
+            Err(_error) => stop_transport(&connection.inner, &events),
+        }
+    });
 }
 
 impl ClientNetworkHandle {

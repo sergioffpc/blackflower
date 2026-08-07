@@ -39,6 +39,7 @@ pub struct ClientHarness<T, P> {
     clock_ready_reported: bool,
     installed_content_set_id: blackflower_networking::RequiredContentSetId,
     content: Option<blackflower_networking::ContentManifest>,
+    reconnecting: bool,
     trace: Option<Box<dyn TraceObserver>>,
 }
 
@@ -81,6 +82,7 @@ where
             clock_ready_reported: false,
             installed_content_set_id: config.installed_content_set_id,
             content: None,
+            reconnecting: false,
             trace: None,
         })
     }
@@ -205,14 +207,18 @@ where
     pub fn reconnect(
         &mut self,
         transport: T,
-        epoch: blackflower_networking::ConnectionEpoch,
         token: Vec<u8>,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        self.session.reconnect(epoch)?;
+        self.session.begin_reconnect()?;
         self.transport = transport;
-        self.input.reconnect(epoch);
         self.pending_offer = None;
         self.pending_transfer = None;
+        self.clock.path_changed();
+        self.time_sync_schedule = None;
+        self.pending_time_sync.clear();
+        self.observed_time_sync = 0;
+        self.clock_ready_reported = false;
+        self.reconnecting = true;
         self.send_control(SessionControlMessage::ResumeRequest { token })
     }
 
@@ -548,8 +554,14 @@ where
         connection_epoch: blackflower_networking::ConnectionEpoch,
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        self.session
-            .accept_initial_claims(claims, connection_epoch)?;
+        if self.reconnecting {
+            self.session
+                .accept_resume_claims(claims, connection_epoch)?;
+            self.reconnecting = false;
+        } else {
+            self.session
+                .accept_initial_claims(claims, connection_epoch)?;
+        }
         self.input.reconnect(connection_epoch);
         self.time_sync_schedule = Some(TimeSyncSchedule::admission(now));
         Ok(())

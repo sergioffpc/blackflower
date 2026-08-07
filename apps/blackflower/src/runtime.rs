@@ -109,9 +109,13 @@ where
         self.bridge
             .capture(&mut self.presentation, self.harness.view(), &events)
             .context("client view capture failed")?;
-        self.presentation
+        let session_continues =
+            self.harness.view().session_state() != blackflower_networking::SessionState::Closing;
+        let presentation_continues = self
+            .presentation
             .frame(delta)
-            .context("presentation frame failed")
+            .context("presentation frame failed")?;
+        Ok(session_continues && presentation_continues)
     }
 
     /// Capture the current physical-pixel drawable area for the next frame.

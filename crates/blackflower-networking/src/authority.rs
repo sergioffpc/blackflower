@@ -69,6 +69,7 @@ pub trait SessionAuthority {
     fn consume_resume(
         &mut self,
         token: &[u8],
+        connection_epoch: ConnectionEpoch,
         now: Duration,
     ) -> Result<ResumeClaims, AuthorityError>;
 }
