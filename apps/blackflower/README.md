@@ -19,6 +19,8 @@ presentation loop.
   at 60 Hz and submit them through the shared harness.
 - Run client movement prediction at 240 Hz and reconcile authoritative state
   with explicit position, velocity, and orientation tolerances.
+- Schedule movement controls with the clock filter's adaptive 4–24 tick input
+  lead, returning to the conservative 12-tick lead after a QUIC path change.
 - Initialize client observability and health reporting.
 - Optionally run a terminal dashboard beside the native window.
 
@@ -107,6 +109,7 @@ every terminal panel.
 ## Related documentation
 
 - [Workspace overview](../../README.md)
+- [End-to-end client-server movement flow](../../docs/client-server/README.md)
 - [Shared client and bot harness](../../crates/blackflower-harness/README.md)
 - [Presentation world](../../crates/blackflower-world-presentation/README.md)
 - [Observability](../../docs/observability.md)

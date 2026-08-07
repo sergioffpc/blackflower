@@ -1,14 +1,15 @@
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 use blackflower_harness::ControlSubmission;
-use blackflower_networking::{MAX_FUTURE_COMMAND_TICKS, SimulationTick};
+use blackflower_networking::{
+    INITIAL_INPUT_LEAD_TICKS, INPUT_GRACE_TICKS, MAX_FUTURE_COMMAND_TICKS, SimulationTick,
+};
 use blackflower_networking_protocol::v1::MovementControl;
 use winit::keyboard::KeyCode;
 
 use crate::input::{InputContext, InputSnapshot};
 
 const CONTROL_TICKS: u64 = 4;
-const INITIAL_CONTROL_LEAD_TICKS: u64 = 4;
 const MOUSE_RADIANS_PER_UNIT: f64 = 0.0025;
 
 /// One prepared canonical control whose scheduler state is committed after submission.
@@ -30,10 +31,12 @@ impl NativeMovementControls {
     pub(crate) fn prepare(
         &mut self,
         current_tick: SimulationTick,
+        input_lead_ticks: u64,
         input: &InputSnapshot,
     ) -> Result<Option<PreparedMovementControl>, ControlMappingError> {
         self.update_view(input);
-        let Some((execute_tick, reset_timeline)) = self.schedule(current_tick)? else {
+        let Some((execute_tick, reset_timeline)) = self.schedule(current_tick, input_lead_ticks)?
+        else {
             return Ok(None);
         };
         let [move_right, move_forward] = movement_axes(input);
@@ -80,27 +83,25 @@ impl NativeMovementControls {
     fn schedule(
         &self,
         current_tick: SimulationTick,
+        input_lead_ticks: u64,
     ) -> Result<Option<(SimulationTick, bool)>, ControlMappingError> {
         let maximum = current_tick
             .get()
             .checked_add(MAX_FUTURE_COMMAND_TICKS)
             .ok_or(ControlMappingError::TickOverflow)?;
+        let desired = first_execution_tick(current_tick, input_lead_ticks, maximum)?;
         if let Some(next) = self.next_execute_tick
             && next > current_tick
         {
+            if next < desired {
+                let grace_bounded = desired
+                    .get()
+                    .min(next.get().saturating_add(INPUT_GRACE_TICKS));
+                return Ok(Some((SimulationTick::new(grace_bounded), true)));
+            }
             return Ok((next.get() <= maximum).then_some((next, false)));
         }
-        let first = align_up(
-            current_tick
-                .get()
-                .checked_add(INITIAL_CONTROL_LEAD_TICKS)
-                .ok_or(ControlMappingError::TickOverflow)?,
-            CONTROL_TICKS,
-        )?;
-        Ok(Some((
-            SimulationTick::new(first),
-            self.next_execute_tick.is_some(),
-        )))
+        Ok(Some((desired, self.next_execute_tick.is_some())))
     }
 }
 
@@ -143,6 +144,27 @@ fn align_up(value: u64, quantum: u64) -> Result<u64, ControlMappingError> {
         .map(|rounded| rounded / quantum * quantum)
         .ok_or(ControlMappingError::TickOverflow)
 }
+
+fn first_execution_tick(
+    current_tick: SimulationTick,
+    input_lead_ticks: u64,
+    maximum: u64,
+) -> Result<SimulationTick, ControlMappingError> {
+    let lead = input_lead_ticks.clamp(CONTROL_TICKS, MAX_FUTURE_COMMAND_TICKS);
+    let requested = current_tick
+        .get()
+        .checked_add(lead)
+        .ok_or(ControlMappingError::TickOverflow)?;
+    let aligned = align_up(requested, CONTROL_TICKS)?;
+    let bounded = if aligned > maximum {
+        maximum / CONTROL_TICKS * CONTROL_TICKS
+    } else {
+        aligned
+    };
+    Ok(SimulationTick::new(bounded))
+}
+
+const _: () = assert!(INITIAL_INPUT_LEAD_TICKS.is_multiple_of(CONTROL_TICKS));
 
 #[cfg(test)]
 #[path = "../tests/unit/controls.rs"]

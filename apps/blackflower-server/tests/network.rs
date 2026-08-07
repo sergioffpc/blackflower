@@ -141,9 +141,13 @@ async fn submit_and_wait_for_movement(
     started: Instant,
 ) -> TestResult {
     let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    let input_lead_ticks = harness.input_lead_ticks();
+    assert!((4..=24).contains(&input_lead_ticks));
+    assert!(input_lead_ticks.is_multiple_of(4));
     let submitted = harness.submit_control(ControlSubmission {
         execute_tick: blackflower_networking::SimulationTick::new(next_control_tick(
             simulation.completed_ticks(),
+            input_lead_ticks,
         )),
         payload: control.encode().to_vec(),
         commands: Vec::new(),
@@ -231,8 +235,14 @@ impl EmptyPrediction {
     }
 }
 
-fn next_control_tick(completed_tick: u64) -> u64 {
-    completed_tick.saturating_add(7) / 4 * 4
+fn next_control_tick(completed_tick: u64, input_lead_ticks: u64) -> u64 {
+    let maximum = completed_tick.saturating_add(24);
+    completed_tick
+        .saturating_add(input_lead_ticks)
+        .saturating_add(3)
+        .div_euclid(4)
+        .saturating_mul(4)
+        .min(maximum.div_euclid(4).saturating_mul(4))
 }
 
 fn movement_was_applied(

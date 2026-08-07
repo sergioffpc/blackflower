@@ -62,6 +62,8 @@ pub struct ClockFilter {
     samples: VecDeque<FilteredSample>,
     offset_micros: i128,
     uncertainty_micros: u64,
+    smoothed_rtt_micros: Option<u64>,
+    rtt_variance_micros: Option<u64>,
     consecutive_degraded: u8,
     last_sample_at: Option<Duration>,
     last_mapped_micros: u64,
@@ -81,6 +83,8 @@ impl ClockFilter {
             samples: VecDeque::with_capacity(usize::from(INITIAL_TIME_SYNC_SAMPLES)),
             offset_micros: 0,
             uncertainty_micros: ticks_to_micros(INITIAL_INPUT_LEAD_TICKS),
+            smoothed_rtt_micros: None,
+            rtt_variance_micros: None,
             consecutive_degraded: 0,
             last_sample_at: None,
             last_mapped_micros: 0,
@@ -90,6 +94,7 @@ impl ClockFilter {
     /// Add one validated exchange and update the minimum-delay estimate.
     pub fn observe(&mut self, sample: ClockSample, now: Duration) -> Result<(), ClockError> {
         let filtered = FilteredSample::try_from(sample)?;
+        self.update_rtt_estimate(filtered.delay_micros);
         if self.samples.len() == usize::from(INITIAL_TIME_SYNC_SAMPLES) {
             let _oldest = self.samples.pop_front();
         }
@@ -109,6 +114,30 @@ impl ClockFilter {
             self.consecutive_degraded = 0;
         }
         Ok(())
+    }
+
+    /// Return the bounded four-tick-aligned control lead for the current path.
+    #[must_use]
+    pub fn input_lead_ticks(&self) -> u64 {
+        let (Some(smoothed_rtt), Some(rtt_variance)) =
+            (self.smoothed_rtt_micros, self.rtt_variance_micros)
+        else {
+            return INITIAL_INPUT_LEAD_TICKS;
+        };
+        input_lead_ticks(
+            Duration::from_micros(smoothed_rtt),
+            Duration::from_micros(rtt_variance),
+        )
+    }
+
+    /// Discard path-specific samples while preserving monotonic clock mapping.
+    pub fn path_changed(&mut self) {
+        self.samples.clear();
+        self.uncertainty_micros = ticks_to_micros(INITIAL_INPUT_LEAD_TICKS);
+        self.smoothed_rtt_micros = None;
+        self.rtt_variance_micros = None;
+        self.consecutive_degraded = 0;
+        self.last_sample_at = None;
     }
 
     /// Map local monotonic time into the estimated server domain without reversal.
@@ -144,6 +173,19 @@ impl ClockFilter {
         } else {
             ClockSafety::Tracking
         }
+    }
+
+    fn update_rtt_estimate(&mut self, sample_micros: u64) {
+        let (Some(smoothed_rtt), Some(rtt_variance)) =
+            (self.smoothed_rtt_micros, self.rtt_variance_micros)
+        else {
+            self.smoothed_rtt_micros = Some(sample_micros);
+            self.rtt_variance_micros = Some(sample_micros / 2);
+            return;
+        };
+        let deviation = smoothed_rtt.abs_diff(sample_micros);
+        self.rtt_variance_micros = Some(weighted_average(rtt_variance, 3, deviation, 1, 4));
+        self.smoothed_rtt_micros = Some(weighted_average(smoothed_rtt, 7, sample_micros, 1, 8));
     }
 }
 
@@ -262,6 +304,12 @@ const fn micros_to_ticks_ceil(micros: u64) -> u64 {
 
 fn duration_micros_saturating(value: Duration) -> u64 {
     u64::try_from(value.as_micros()).unwrap_or(u64::MAX)
+}
+
+fn weighted_average(left: u64, left_weight: u64, right: u64, right_weight: u64, sum: u64) -> u64 {
+    let weighted =
+        u128::from(left) * u128::from(left_weight) + u128::from(right) * u128::from(right_weight);
+    u64::try_from(weighted / u128::from(sum)).unwrap_or(u64::MAX)
 }
 
 const fn align_up(value: u64, quantum: u64) -> u64 {

@@ -16,8 +16,9 @@ phases:
 1. `PrepareTick` opens the tick and activates scheduled commits;
 2. `CaptureTickInputs` captures a canonical immutable input set;
 3. `DeriveActorActions` derives deterministic actor actions;
-4. `ResolveHistoricalCommands` resolves bounded read-only rewind and projectile
-   catch-up commands into current-tick facts;
+4. `ResolveHistoricalCommands` is the ordered extension point for bounded
+   read-only rewind and projectile catch-up commands; revision 1 registers no
+   discrete command schema and its resolver systems are currently no-ops;
 5. `SolveRigidBodyDynamics` advances characters, rigid bodies, constraints, and
    collision response;
 6. `SolvePhysicalPhenomena` advances ballistics, material responses,

@@ -183,6 +183,12 @@ where
         Ok(blackflower_networking::server_micros_to_tick(server_micros))
     }
 
+    /// Return the adaptive future lead used to schedule canonical controls.
+    #[must_use]
+    pub fn input_lead_ticks(&self) -> u64 {
+        self.clock.input_lead_ticks()
+    }
+
     /// Ask the server for a bounded full-state resynchronization.
     pub fn request_resync(
         &mut self,
@@ -274,6 +280,7 @@ where
                 if let Some(schedule) = self.time_sync_schedule.as_mut() {
                     schedule.path_changed(now);
                 }
+                self.clock.path_changed();
                 self.pending_time_sync.clear();
                 self.observed_time_sync = 0;
                 self.clock_ready_reported = false;

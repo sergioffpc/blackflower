@@ -17,6 +17,7 @@ presentation.
 ## Contents
 
 - [Engine conventions](#engine-conventions)
+- [Client-server movement flow](docs/client-server/README.md)
 - [Workspace](#workspace)
 - [Running the applications](#running-the-applications)
 - [Cooking assets](#cooking-assets)

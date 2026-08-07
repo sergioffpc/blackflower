@@ -204,6 +204,7 @@ fn command_windows_and_input_failsafe_are_independent() {
 #[test]
 fn clock_filter_and_schedule_apply_admission_and_degraded_thresholds() -> TestResult {
     let mut filter = ClockFilter::new();
+    assert_eq!(filter.input_lead_ticks(), 12);
     filter.observe(
         ClockSample {
             client_send_micros: 1_000,
@@ -217,6 +218,7 @@ fn clock_filter_and_schedule_apply_admission_and_degraded_thresholds() -> TestRe
         filter.safety(Duration::from_millis(2)),
         ClockSafety::ActivationReady
     );
+    assert_eq!(filter.input_lead_ticks(), 4);
 
     let mut degraded = ClockFilter::new();
     for index in 0..3 {
@@ -247,6 +249,31 @@ fn clock_filter_and_schedule_apply_admission_and_degraded_thresholds() -> TestRe
     }
     assert!(!schedule.take_due(Duration::from_millis(1_800)));
     assert!(schedule.take_due(Duration::from_millis(2_700)));
+    Ok(())
+}
+
+#[test]
+fn clock_filter_derives_input_lead_from_path_rtt_and_resets_on_path_change() -> TestResult {
+    let mut filter = ClockFilter::new();
+    filter.observe(
+        ClockSample {
+            client_send_micros: 1_000,
+            server_receive_micros: 21_000,
+            server_send_micros: 21_000,
+            client_receive_micros: 41_000,
+        },
+        Duration::from_millis(41),
+    )?;
+    assert_eq!(filter.input_lead_ticks(), 16);
+
+    let mapped_before = filter.map_local_micros(50_000)?;
+    filter.path_changed();
+    assert_eq!(filter.input_lead_ticks(), 12);
+    assert_eq!(
+        filter.safety(Duration::from_millis(42)),
+        ClockSafety::Blocked
+    );
+    assert!(filter.map_local_micros(1)? >= mapped_before);
     Ok(())
 }
 

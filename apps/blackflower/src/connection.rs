@@ -79,7 +79,11 @@ impl ConnectedClient {
             return Ok(());
         }
         let current_tick = self.runtime.harness().prediction().current_tick();
-        let Some(prepared) = self.controls.prepare(current_tick, input)? else {
+        let input_lead_ticks = self.runtime.harness().input_lead_ticks();
+        let Some(prepared) = self
+            .controls
+            .prepare(current_tick, input_lead_ticks, input)?
+        else {
             return Ok(());
         };
         let execute_tick = prepared.submission.execute_tick;

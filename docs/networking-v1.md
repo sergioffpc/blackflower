@@ -143,7 +143,12 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
   uncertainty or after three seconds without a valid sample.
 - **NET-CLOCK-005**: input lead is four-tick aligned from
   `srtt / 2 + 2 * rttvar`, clamped to 4 through 24 ticks. The initial lead is 12
-  ticks.
+  ticks. The first valid network-delay sample initializes `srtt = sample` and
+  `rttvar = sample / 2`; later samples first set
+  `rttvar = (3 * rttvar + abs(srtt - sample)) / 4`, then
+  `srtt = (7 * srtt + sample) / 8`, using integer microseconds. A validated path
+  change MUST discard both estimates and restore the initial lead without
+  allowing mapped time to move backwards.
 
 ## Input and command ingress
 
