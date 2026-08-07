@@ -63,6 +63,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-harness` | Shared human/headless client session, replication, input, and prediction runtime |
 | `crates/blackflower-navigation` | Detour navmesh loading, pathfinding, and runtime queries |
 | `crates/blackflower-networking` | Shared networking primitives |
+| `crates/blackflower-networking-protocol` | Revision-specific component and movement wire schemas |
 | `crates/blackflower-networking-quic` | Low-level Quinn transport endpoints and bounded host queues |
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |

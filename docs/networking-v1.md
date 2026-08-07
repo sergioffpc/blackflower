@@ -164,6 +164,40 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 - **NET-PRED-001**: prediction and input history MUST retain 512 ticks. One
   reconciliation MUST NOT roll back more than 64 ticks.
 
+## Revision-1 movement and component schema
+
+- **NET-SCHEMA-001**: `blackflower-networking-protocol` MUST be the single
+  revision-specific source of component IDs, component codecs, movement-control
+  bytes, and prediction tolerances. Networking, replication, QUIC, ECS worlds,
+  and the shared harness MUST remain independent of this concrete schema.
+- **NET-SCHEMA-002**: component IDs 1 through 4 are respectively public
+  transform, public velocity, public character state, and owner-only prediction
+  state. They MUST NOT be derived from Rust type layout, registration order, or
+  a hash and MUST NOT be reused for another meaning.
+- **NET-SCHEMA-003**: transform is exactly 19 little-endian bytes: three signed
+  centimetre `i32` position codes, the canonical smallest-three omitted
+  quaternion index, and three signed `i16` quaternion codes. Velocity is exactly
+  three little-endian signed centimetre-per-second `i16` codes.
+- **NET-SCHEMA-004**: public character state is exactly one canonical boolean
+  `grounded` byte. Owner prediction state is exactly a presence byte followed by
+  a little-endian `u64` latest committed `InputSequence`; absence requires all
+  sequence bytes to be zero.
+- **NET-MOVE-001**: one revision-1 movement control is exactly eight
+  little-endian bytes: normalized local right and forward `i16` axes, absolute
+  full-turn yaw `u16`, and absolute pitch `i16` over the closed
+  `[-pi/2, pi/2]` range. The `i16` minimum is non-canonical for every signed
+  normalized field.
+- **NET-MOVE-002**: the two movement axes MUST remain inside the canonical unit
+  circle plus the single-code rounding envelope needed by normalized diagonals.
+  Missing input after the grace interval neutralizes both axes while retaining
+  the last accepted absolute orientation. Revision 1 defines no held buttons
+  and registers no discrete gameplay command kinds.
+- **NET-PRED-002**: continuous client prediction uses 2 cm position, 5 cm/s
+  velocity, and 0.5 degree shortest-arc orientation tolerances. Grounded state
+  and canonical identities compare exactly. These tolerances MUST NOT affect
+  canonical component bytes, projection digests, baselines, ordering, or state
+  hashes.
+
 ## Replication and interest
 
 - **NET-REPL-001**: `ReplicatedEntityId` MUST be non-zero, monotonically
@@ -264,6 +298,7 @@ QUIC primitive defines its own encoding. QUIC varints retain RFC 9000 encoding.
 | Requirements | Primary verification |
 | --- | --- |
 | `NET-WIRE-*`, `NET-INPUT-*`, `NET-CLOCK-*`, `NET-SESSION-*` | `crates/blackflower-networking/tests/protocol.rs` |
+| `NET-SCHEMA-*`, `NET-MOVE-*`, `NET-PRED-002` | `crates/blackflower-networking-protocol/tests/protocol.rs` |
 | `NET-REPL-*`, `NET-AOI-*`, `NET-SNAPSHOT-*` | `crates/blackflower-networking-replication/tests/replication.rs` |
 | `NET-QUIC-*`, `NET-TLS-*`, `NET-BOOT-*` | `crates/blackflower-networking-quic/tests/loopback.rs` |
 | loss, jitter, reorder, duplication, outage, MTU, NAT rebinding | `crates/blackflower-networking-quic/tests/udp_proxy.rs` and `loopback.rs` |

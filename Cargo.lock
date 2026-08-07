@@ -654,6 +654,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackflower-networking-protocol"
+version = "0.1.0"
+dependencies = [
+ "blackflower-networking",
+ "blackflower-networking-replication",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blackflower-networking-quic"
 version = "0.1.0"
 dependencies = [

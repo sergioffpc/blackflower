@@ -28,6 +28,7 @@ members = [
     "crates/blackflower-harness",
     "crates/blackflower-navigation",
     "crates/blackflower-networking",
+    "crates/blackflower-networking-protocol",
     "crates/blackflower-networking-quic",
     "crates/blackflower-networking-replication",
     "crates/blackflower-observability",
@@ -82,6 +83,7 @@ blackflower-gltf-metadata = { path = "crates/blackflower-gltf-metadata" }
 blackflower-harness = { path = "crates/blackflower-harness" }
 blackflower-navigation = { path = "crates/blackflower-navigation" }
 blackflower-networking = { path = "crates/blackflower-networking" }
+blackflower-networking-protocol = { path = "crates/blackflower-networking-protocol" }
 blackflower-networking-quic = { path = "crates/blackflower-networking-quic" }
 blackflower-networking-replication = { path = "crates/blackflower-networking-replication" }
 blackflower-observability = { path = "crates/blackflower-observability" }
