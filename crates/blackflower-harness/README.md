@@ -15,7 +15,7 @@ reconciliation, and hard-resync requests. It never collects devices, renders
 presentation, or makes bot decisions.
 
 See the [end-to-end client-server movement
-flow](../../docs/client-server/README.md) for the admission, prediction,
+flow](../../docs/client-server.md) for the admission, prediction,
 authoritative simulation, replication, and reconciliation sequence.
 
 `PredictionSession` reuses `blackflower-world-prediction` histories and
