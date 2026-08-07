@@ -4,7 +4,7 @@
 runtime VFS. Cooked assets live in deterministic SquashFS 4.0 packages.
 Applications open every package in one directory and resolve duplicate asset
 identifiers from the lexicographically greatest package name to the smallest.
-This gives later packages Quake-style override semantics without extracting or
+This gives later packages style override semantics without extracting or
 mounting their contents.
 
 Every package ends in a fixed Blackflower signature footer. The footer records
@@ -51,7 +51,7 @@ The profile identity, runtime asset kinds, and complete cooker toolchain
 identity remain under the unreleased catalog schema 1. Development changes do
 not advance this schema; the release process owns version changes.
 
-The pipeline supports opaque blobs, profile-configured Luau bytecode,
+The pipeline supports signed map descriptors, opaque blobs, profile-configured Luau bytecode,
 Naga-validated SPIR-V compiled from Slang, and semantic KTX2 textures cooked
 from PNG or OpenEXR. It also supports meshoptimizer-optimized static meshes
 with generated LOD chains, `.bfmodel` scene hierarchies with typed Mesh and
@@ -71,6 +71,13 @@ depends on scenes, probes, and `.bfactpl` topology. The shared `.bfacmat`,
 cooking and therefore does not force WAV, PCM, FLAC, `.bfaudio`, or
 `.bfsound` into a server package. These domain kinds do not change the package
 overlay contract.
+
+A cooked Map record is shared, has exactly one presentation Model dependency,
+and encodes that same `AssetId` in its strict schema-1 payload. `MapAsset::load`
+requires authenticated package provenance and rejects a catalog/payload
+mismatch, a missing dependency, or a dependency with the wrong kind or
+audience. This makes the server-selected `MapId` sufficient to resolve the
+client's initial visual binding without trusting loose authoring metadata.
 
 ## Optional hot reload
 

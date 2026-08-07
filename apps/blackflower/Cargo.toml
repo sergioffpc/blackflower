@@ -20,6 +20,7 @@ blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
+blackflower-rendering.workspace = true
 blackflower-world-prediction = { workspace = true, features = ["observability"] }
 blackflower-world-presentation = { workspace = true, features = ["observability"] }
 

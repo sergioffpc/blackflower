@@ -5,10 +5,9 @@ members = [
     "apps/blackflower",
     "apps/blackflower-agent",
     "apps/blackflower-server",
+    "crates/blackflower-acoustics",
     "crates/blackflower-animation",
     "crates/blackflower-animation-format",
-    "crates/blackflower-build",
-    "crates/blackflower-acoustics",
     "crates/blackflower-assets",
     "crates/blackflower-audio",
     "crates/blackflower-audio-capture",
@@ -16,8 +15,9 @@ members = [
     "crates/blackflower-audio-playback",
     "crates/blackflower-audio-spatial",
     "crates/blackflower-audio-voice",
-    "crates/blackflower-cooker-animation",
+    "crates/blackflower-build",
     "crates/blackflower-cooker-acoustics",
+    "crates/blackflower-cooker-animation",
     "crates/blackflower-cooker-navigation",
     "crates/blackflower-cooker-vfx",
     "crates/blackflower-cooker-volume",
@@ -40,14 +40,14 @@ members = [
     "crates/blackflower-rendering-particles",
     "crates/blackflower-rendering-textures",
     "crates/blackflower-rendering-volumes",
-    "crates/blackflower-shader-compiler",
     "crates/blackflower-scripting",
     "crates/blackflower-scripting-luau",
+    "crates/blackflower-shader-compiler",
+    "crates/blackflower-spatial-query",
     "crates/blackflower-vfx",
     "crates/blackflower-world-prediction",
     "crates/blackflower-world-presentation",
     "crates/blackflower-world-simulation",
-    "crates/blackflower-spatial-query",
     "tools/native",
     "tools/xtask",
 ]
@@ -107,12 +107,12 @@ blackflower-world-simulation = { path = "crates/blackflower-world-simulation" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 backhand = { version = "0.25.1", default-features = false, features = ["zstd"] }
 bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
-blake3 = { version = "1.8.5", default-features = false, features = ["std"] }
+blake3 = { version = "1.8.6", default-features = false, features = ["std"] }
 bytes = { version = "1.12.1", default-features = false }
 cpal = { version = "0.18.1", default-features = false }
 bytemuck = { version = "1.25.2", default-features = false, features = ["derive"] }
 cc = { version = "1.4.0", default-features = false }
-clap = { version = "4.6.5", default-features = false, features = ["derive", "help", "std", "usage"] }
+clap = { version = "4.6.6", default-features = false, features = ["derive", "help", "std", "usage"] }
 claxon = { version = "0.4.3", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }

@@ -63,3 +63,14 @@ fn bridge_clears_movement_when_prediction_is_absent() -> Result<()> {
     assert_eq!(local_movement_sample(None, &[])?, None);
     Ok(())
 }
+
+#[test]
+fn resource_registry_keeps_stable_logical_handles() -> Result<()> {
+    let mut registry = ClientResourceRegistry::default();
+    let player = AssetId::from_str("maps/bootstrap/player")?;
+    let other = AssetId::from_str("maps/bootstrap/other")?;
+    let player_handle = registry.resolve(&player)?;
+    assert_eq!(registry.resolve(&player)?, player_handle);
+    assert_ne!(registry.resolve(&other)?, player_handle);
+    Ok(())
+}

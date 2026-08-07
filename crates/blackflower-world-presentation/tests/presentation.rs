@@ -7,14 +7,14 @@ use blackflower_acoustics::{
     AcousticStructureVersion, AudibleSoundDelivery, BandEnergy, PropagationDescriptor,
 };
 use blackflower_ecs::{Component, Read, TickDelta, World};
-use blackflower_rendering::RenderFrameId;
+use blackflower_rendering::{RenderFrameId, ResourceHandle};
 use blackflower_world_presentation::{
     AudioCommand, BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
-    EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, MovementProxy, MovementSampleKind,
-    MovementSourceId, PrepareFrameSystem, PrepareViewsAndListenersSystem, PresentationError,
-    PresentationMovementSample, PresentationPhase, PresentationPipeline, PresentationWorld,
-    PublishFrameOutputsSystem, ResolveSceneGraphSystem, SampleRenderTimelineSystem,
-    UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
+    EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, LocalVisualBinding, MovementProxy,
+    MovementSampleKind, MovementSourceId, PrepareFrameSystem, PrepareViewsAndListenersSystem,
+    PresentationError, PresentationMovementSample, PresentationPhase, PresentationPipeline,
+    PresentationViewport, PresentationWorld, PublishFrameOutputsSystem, ResolveSceneGraphSystem,
+    SampleRenderTimelineSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -593,5 +593,36 @@ fn presentation_publishes_one_complete_latest_render_frame() -> TestResult {
         mailbox.take_latest()?.map(|frame| frame.id),
         Some(RenderFrameId::new(1))
     );
+    Ok(())
+}
+
+#[test]
+fn local_visual_binding_builds_instance_and_follow_camera() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let resource = ResourceHandle::new(19);
+    let source = MovementSourceId::new(41)?;
+    presentation.set_local_visual_binding(Some(LocalVisualBinding::new(resource)))?;
+    presentation.set_viewport(Some(PresentationViewport::new(1280, 720)?))?;
+    presentation.set_local_movement_sample(Some(movement_sample(
+        source,
+        [3.0, 4.0, 5.0],
+        [0.0, 0.0, 0.0, 1.0],
+        MovementSampleKind::Predicted,
+    )?))?;
+
+    assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+    let frame = presentation
+        .render_mailbox()
+        .take_latest()?
+        .ok_or_else(|| io::Error::other("render frame was not published"))?;
+    assert_eq!(frame.id, RenderFrameId::new(1));
+    assert_eq!(frame.views.len(), 1);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.views[0].viewport, [0, 0, 1280, 720]);
+    assert!(frame.views[0].view.into_iter().all(f32::is_finite));
+    assert!(frame.views[0].projection.into_iter().all(f32::is_finite));
+    assert_eq!(frame.instances[0].id, source.get());
+    assert_eq!(frame.instances[0].resource, resource);
+    assert_eq!(&frame.instances[0].transform[12..15], &[3.0, 4.0, 5.0]);
     Ok(())
 }

@@ -48,8 +48,12 @@ to 2 cm, velocity by 5 cm/s, and orientation by 0.5 degrees; controlled entity
 and grounded state still compare exactly. The bridge now copies predicted
 movement and orientation into a presentation-owned local proxy and smooths
 visual reconciliation corrections without mutating prediction. Model and
-camera binding plus concrete renderer submission remain integration boundaries;
-the window emits redraw requests but does not yet render that proxy.
+camera binding are resolved from the signed map descriptor: the model receives
+a stable logical `ResourceHandle`, the smoothed movement proxy becomes one
+`RenderInstance`, and a physical-pixel third-person `RenderView` follows it.
+The complete frame is published through the latest-wins mailbox. Concrete GPU
+resource loading and renderer submission remain integration boundaries; the
+window emits redraw requests but does not yet submit that frame to a backend.
 
 ## Run
 

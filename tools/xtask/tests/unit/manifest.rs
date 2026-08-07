@@ -20,7 +20,10 @@ fn map_manifest_selects_and_validates_typed_gltf_scene() -> anyhow::Result<()> {
         map.join("arena.gltf"),
         br#"{
             "asset": {"version": "2.0"},
-            "scenes": [{"name": "Arena", "nodes": [0]}],
+            "scenes": [
+                {"name": "Arena", "nodes": [0]},
+                {"name": "Player", "nodes": []}
+            ],
             "nodes": [{
                 "name": "North Spawn",
                 "extras": {"blackflower": {
@@ -38,8 +41,10 @@ schema = 1
 id = "maps/arena"
 source = "arena.gltf"
 scene = "Arena"
+player_model = "maps/arena/player"
 "#,
     )?;
+    write_player_model(&map)?;
 
     let repository = Repository::load(directory.path())?;
     let id = AssetId::from_str("maps/arena")?;
@@ -60,7 +65,10 @@ fn map_manifest_id_is_derived_from_its_maps_path() -> anyhow::Result<()> {
         map.join("arena.gltf"),
         br#"{
             "asset": {"version": "2.0"},
-            "scenes": [{"name": "Arena", "nodes": []}],
+            "scenes": [
+                {"name": "Arena", "nodes": []},
+                {"name": "Player", "nodes": []}
+            ],
             "nodes": []
         }"#,
     )?;
@@ -71,13 +79,32 @@ schema = 1
 id = "maps/wrong"
 source = "arena.gltf"
 scene = "Arena"
+player_model = "maps/arena/player"
 "#,
     )?;
+    write_player_model(&map)?;
 
     let Err(error) = Repository::load(directory.path()) else {
         anyhow::bail!("wrong map ID was accepted");
     };
     assert!(error.to_string().contains("must use ID `maps/arena`"));
+    Ok(())
+}
+
+fn write_player_model(map: &std::path::Path) -> anyhow::Result<()> {
+    fs::write(
+        map.join("player.asset.toml"),
+        r#"
+schema = 1
+id = "maps/arena/player"
+kind = "model"
+audience = "presentation"
+
+[model]
+source = "arena.gltf"
+scene = "Player"
+"#,
+    )?;
     Ok(())
 }
 

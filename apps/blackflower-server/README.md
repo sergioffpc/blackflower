@@ -77,10 +77,12 @@ cargo run --package blackflower-server --locked -- \
   --asset-trust-key .local-network/asset-signing-public.pem
 ```
 
-The server derives the exact content-set identity from those verified packages
-and sends it with `maps/bootstrap`. Then start the client with the matching
-command in the [client README](../blackflower/README.md). TLS and asset-signature
-verification remain enabled; there is no skip-verification development path.
+The package contains the signed `maps/bootstrap` descriptor and its player-model
+dependency. The server refuses to announce a map that cannot be loaded from the
+verified package set, derives the exact content-set identity, and sends both to
+the client. Then start the client with the matching command in the
+[client README](../blackflower/README.md). TLS and asset-signature verification
+remain enabled; there is no skip-verification development path.
 
 ### Foreground dashboard
 

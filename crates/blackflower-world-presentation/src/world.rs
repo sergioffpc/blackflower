@@ -12,6 +12,9 @@ use crate::audio::{
 use crate::movement::{
     MovementProxy, PresentationMovementError, PresentationMovementSample, PresentationMovementState,
 };
+use crate::scene::{
+    LocalVisualBinding, PresentationSceneError, PresentationSceneState, PresentationViewport,
+};
 use crate::telemetry;
 use crate::telemetry::FrameObservation;
 use crate::{FrameIndex, PresentationPhase, PresentationPipeline, systems};
@@ -22,6 +25,7 @@ struct ExecutionState {
     delta_seconds: AtomicU32,
     audio: Mutex<PresentationAudioState>,
     movement: Mutex<PresentationMovementState>,
+    scene: Mutex<PresentationSceneState>,
     render: Mutex<PresentationRenderState>,
     render_mailbox: Arc<LatestFrameMailbox>,
 }
@@ -55,6 +59,7 @@ impl FrameExecutionContext {
                 delta_seconds: AtomicU32::new(0.0_f32.to_bits()),
                 audio: Mutex::new(PresentationAudioState::default()),
                 movement: Mutex::new(PresentationMovementState::default()),
+                scene: Mutex::new(PresentationSceneState::default()),
                 render: Mutex::new(PresentationRenderState::default()),
                 render_mailbox: Arc::new(LatestFrameMailbox::default()),
             }),
@@ -101,9 +106,17 @@ impl FrameExecutionContext {
             .map_err(|_error| PresentationMovementError::StateUnavailable)
     }
 
+    fn scene(&self) -> Result<MutexGuard<'_, PresentationSceneState>, PresentationSceneError> {
+        self.state
+            .scene
+            .lock()
+            .map_err(|_error| PresentationSceneError::StateUnavailable)
+    }
+
     pub(crate) fn reset_frame_transient(&self) -> Result<(), PresentationOutputError> {
         self.audio()?.reset_transient();
         self.movement()?.begin_frame();
+        self.scene()?.begin_frame();
         self.state
             .render
             .lock()
@@ -142,6 +155,24 @@ impl FrameExecutionContext {
         Ok(())
     }
 
+    pub(crate) fn capture_scene_configuration(&self) -> Result<(), PresentationSceneError> {
+        self.scene()?.capture();
+        Ok(())
+    }
+
+    pub(crate) fn resolve_scene_output(&self) -> Result<(), PresentationSceneError> {
+        let movement = self
+            .movement()
+            .map_err(|_error| PresentationSceneError::StateUnavailable)?
+            .working();
+        self.scene()?.resolve(movement)
+    }
+
+    pub(crate) fn release_captured_scene(&self) -> Result<(), PresentationSceneError> {
+        self.scene()?.release_captured();
+        Ok(())
+    }
+
     fn commit_movement_frame(&self) -> Result<(), PresentationMovementError> {
         self.movement()?.commit_frame();
         Ok(())
@@ -168,7 +199,9 @@ impl FrameExecutionContext {
     }
 
     pub(crate) fn build_render_frame(&self) -> Result<(), PresentationOutputError> {
-        let frame = RenderFrame::empty(RenderFrameId::new(self.current().frame.get()));
+        let frame = self
+            .scene()?
+            .build_frame(RenderFrameId::new(self.current().frame.get()));
         self.state
             .render
             .lock()
@@ -209,6 +242,9 @@ pub enum PresentationOutputError {
     /// Presentation-owned local movement state rejected access.
     #[error(transparent)]
     Movement(#[from] PresentationMovementError),
+    /// Presentation-owned visual state could not be captured or resolved.
+    #[error(transparent)]
+    Scene(#[from] PresentationSceneError),
 }
 
 /// Failure while advancing a presentation frame.
@@ -312,6 +348,24 @@ impl PresentationWorld {
         sample: Option<PresentationMovementSample>,
     ) -> Result<(), PresentationMovementError> {
         self.execution_context.movement()?.set_pending(sample);
+        Ok(())
+    }
+
+    /// Replace the model binding captured by the next presentation frame.
+    pub fn set_local_visual_binding(
+        &self,
+        binding: Option<LocalVisualBinding>,
+    ) -> Result<(), PresentationSceneError> {
+        self.execution_context.scene()?.set_binding(binding);
+        Ok(())
+    }
+
+    /// Replace the physical-pixel viewport captured by the next frame.
+    pub fn set_viewport(
+        &self,
+        viewport: Option<PresentationViewport>,
+    ) -> Result<(), PresentationSceneError> {
+        self.execution_context.scene()?.set_viewport(viewport);
         Ok(())
     }
 

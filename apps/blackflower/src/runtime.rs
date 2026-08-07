@@ -7,7 +7,7 @@ use blackflower_harness::{
     ClientEvent, ClientHarness, ClientPrediction, ClientTransport, ClientView,
 };
 use blackflower_networking::SimulationTick;
-use blackflower_world_presentation::{FrameIndex, PresentationWorld};
+use blackflower_world_presentation::{FrameIndex, PresentationViewport, PresentationWorld};
 
 use crate::input::InputSnapshot;
 
@@ -114,6 +114,18 @@ where
             .context("presentation frame failed")
     }
 
+    /// Capture the current physical-pixel drawable area for the next frame.
+    pub fn set_viewport(&self, width: u32, height: u32) -> Result<()> {
+        let viewport = if width == 0 || height == 0 {
+            None
+        } else {
+            Some(PresentationViewport::new(width, height)?)
+        };
+        self.presentation
+            .set_viewport(viewport)
+            .context("presentation viewport update failed")
+    }
+
     /// Return the shared client harness.
     #[must_use]
     pub const fn harness(&self) -> &ClientHarness<T, P> {
@@ -152,6 +164,8 @@ where
 }
 
 pub(crate) trait ApplicationRuntime {
+    fn set_viewport(&mut self, width: u32, height: u32) -> Result<()>;
+
     fn frame(&mut self, now: Duration, delta: TickDelta, input: &InputSnapshot) -> Result<bool>;
 
     fn current_frame(&self) -> FrameIndex;
@@ -163,6 +177,10 @@ where
     P: ClientPrediction + 'static,
     B: PresentationBridge<P::State> + 'static,
 {
+    fn set_viewport(&mut self, width: u32, height: u32) -> Result<()> {
+        Self::set_viewport(self, width, height)
+    }
+
     fn frame(&mut self, now: Duration, delta: TickDelta, _input: &InputSnapshot) -> Result<bool> {
         Self::frame(self, now, delta)
     }

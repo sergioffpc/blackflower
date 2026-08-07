@@ -11,7 +11,7 @@ use blackflower_animation_format::{AnimationContainer, SkeletonContainer};
 use blackflower_assets::{
     AssetCatalog, AssetChangeKind, AssetId, AssetKind, AssetPackage, AssetReloadStatus,
     AssetSigningKey, AssetStore, AssetStoreManager, AssetStoreWatcher, AssetTrustStore,
-    AssetWatchEvent, Bytes, ContentHash, Error, PackageName, ProfileName, sign_package,
+    AssetWatchEvent, Bytes, ContentHash, Error, MapAsset, PackageName, ProfileName, sign_package,
 };
 use blackflower_audio_spatial::{AcousticEnvironment, AcousticScene, ProbeBatch};
 use blackflower_navigation::NavMeshAsset;
@@ -26,6 +26,63 @@ use crate::profile::CookingProfiles;
 use super::{CookRequest, Pipeline, build_catalog, toolchain_identity, write_package};
 
 const TEST_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+const BOOTSTRAP_GLTF: &str =
+    include_str!("../../../../assets/source/maps/bootstrap/bootstrap.gltf");
+
+#[test]
+fn map_selection_cooks_signed_descriptor_and_player_model_closure() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    let map = fixture.source.join("maps/bootstrap");
+    fs::create_dir_all(&map)?;
+    fs::write(map.join("bootstrap.gltf"), BOOTSTRAP_GLTF)?;
+    fs::write(
+        map.join("map.toml"),
+        r#"schema = 1
+id = "maps/bootstrap"
+source = "bootstrap.gltf"
+scene = "Map"
+player_model = "maps/bootstrap/player"
+"#,
+    )?;
+    fs::write(
+        map.join("player.asset.toml"),
+        r#"schema = 1
+id = "maps/bootstrap/player"
+kind = "model"
+audience = "presentation"
+
+[model]
+source = "bootstrap.gltf"
+scene = "Player"
+
+[[model.attachments]]
+node = "PlayerRoot"
+asset = "maps/bootstrap/player-mesh"
+"#,
+    )?;
+    fs::write(
+        map.join("player-mesh.asset.toml"),
+        r#"schema = 1
+id = "maps/bootstrap/player-mesh"
+kind = "mesh"
+audience = "presentation"
+
+[mesh]
+source = "bootstrap.gltf"
+mesh = "PlayerMesh"
+"#,
+    )?;
+
+    fixture
+        .pipeline
+        .cook(&fixture.request("pak000", &["maps/bootstrap"])?)?;
+    let store = fixture.open_store()?;
+    let id = AssetId::from_str("maps/bootstrap")?;
+    let descriptor = MapAsset::load(&store, &id)?;
+    assert_eq!(descriptor.player_model().as_str(), "maps/bootstrap/player");
+    assert_eq!(store.packages()[0].catalog().assets.len(), 3);
+    Ok(())
+}
 
 impl Pipeline {
     fn new(profiles_root: PathBuf, source_root: PathBuf, target_root: PathBuf) -> Self {

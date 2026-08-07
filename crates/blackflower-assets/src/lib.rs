@@ -4,6 +4,7 @@ mod catalog;
 mod error;
 mod hash;
 mod id;
+mod map;
 mod package;
 #[cfg(feature = "hot-reload")]
 mod reload;
@@ -22,6 +23,7 @@ pub use hash::{
     AssetKeyId, AssetSetHash, ContentHash, PackageHash, PackagePayloadHash, ProfileHash, RecipeHash,
 };
 pub use id::{AssetId, PackageName, ProfileName};
+pub use map::{MAP_ASSET_SCHEMA, MapAsset, MapAssetError};
 pub use package::{AssetPackage, AssetReader, AuthenticatedAsset};
 #[cfg(feature = "hot-reload")]
 pub use reload::{

@@ -10,6 +10,8 @@ pub const ASSET_CATALOG_SCHEMA: u32 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetKind {
+    /// Signed map descriptor selecting presentation resources for one level.
+    Map,
     /// Opaque bytes used by the pipeline foundation and fixtures.
     Blob,
     /// Bytecode produced for the pinned Luau virtual machine.

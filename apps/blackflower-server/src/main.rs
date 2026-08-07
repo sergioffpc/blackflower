@@ -2,12 +2,13 @@ use std::io::IsTerminal as _;
 use std::net::SocketAddr;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use blackflower_assets::{AssetStore, AssetTrustStore};
+use blackflower_assets::{AssetId, AssetStore, AssetTrustStore, MapAsset};
 use blackflower_networking::{
     BudgetTier, CompatibilityContract, ContentManifest, MapId, ProtocolRevision,
     RequiredContentSetId,
@@ -262,8 +263,12 @@ fn content_manifest(arguments: &Arguments) -> Result<ContentManifest> {
             directory.display()
         )
     })?;
+    let map_id = required_argument(arguments.map_id.as_ref(), "--map-id")?.clone();
+    let map_asset_id = AssetId::from_str(map_id.as_str()).context("map ID is not an asset ID")?;
+    let _map = MapAsset::load(&assets, &map_asset_id)
+        .with_context(|| format!("map `{map_id}` is not available as signed content"))?;
     Ok(ContentManifest {
-        map_id: required_argument(arguments.map_id.as_ref(), "--map-id")?.clone(),
+        map_id,
         required_content_set_id: RequiredContentSetId::from_bytes(
             *assets.asset_set_hash().as_bytes(),
         ),

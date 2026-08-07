@@ -570,6 +570,15 @@ fn validate_catalog(path: &Path, catalog: &AssetCatalog) -> Result<(), Error> {
     reason = "asset dependency cardinality is one catalog trust boundary with format-specific rules"
 )]
 fn validate_dependencies(path: &Path, record: &AssetRecord) -> Result<(), Error> {
+    if record.kind == crate::AssetKind::Map && record.dependencies.len() != 1 {
+        return invalid_catalog(
+            path,
+            format!(
+                "map `{}` must declare exactly one player model dependency",
+                record.id
+            ),
+        );
+    }
     if record.kind == crate::AssetKind::AnimationClip && record.dependencies.len() != 1 {
         return invalid_catalog(
             path,

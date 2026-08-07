@@ -1,0 +1,12 @@
+schema = 1
+id = "maps/bootstrap/player"
+kind = "model"
+audience = "presentation"
+
+[model]
+source = "bootstrap.gltf"
+scene = "Player"
+
+[[model.attachments]]
+node = "PlayerRoot"
+asset = "maps/bootstrap/player-mesh"

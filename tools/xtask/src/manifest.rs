@@ -534,6 +534,7 @@ struct MapManifestFile {
     id: AssetId,
     source: PathBuf,
     scene: String,
+    player_model: AssetId,
 }
 
 #[derive(Debug, Clone)]
@@ -554,13 +555,16 @@ pub(crate) struct LoadedAsset {
 #[derive(Debug)]
 #[allow(
     dead_code,
-    reason = "map source identity is retained for the later map cooker projection stage"
+    reason = "validated map authoring data is retained beside the cooked runtime descriptor"
 )]
 pub(crate) struct LoadedMap {
+    pub(crate) schema: u32,
     pub(crate) id: AssetId,
     pub(crate) source_relative: String,
     pub(crate) source_path: PathBuf,
+    pub(crate) source_hash: ContentHash,
     pub(crate) scene: String,
+    pub(crate) player_model: AssetId,
     pub(crate) metadata: MapMetadata,
 }
 
@@ -616,8 +620,7 @@ impl Repository {
         loop {
             let dependencies = selected
                 .iter()
-                .filter_map(|id| self.assets.get(id))
-                .flat_map(|asset| asset.manifest.dependencies())
+                .flat_map(|id| self.dependencies(id))
                 .filter(|dependency| !selected.contains(dependency))
                 .collect::<Vec<_>>();
             if dependencies.is_empty() {
@@ -628,19 +631,54 @@ impl Repository {
         Ok(selected)
     }
 
+    pub(crate) fn dependencies(&self, id: &AssetId) -> Vec<AssetId> {
+        if let Some(asset) = self.assets.get(id) {
+            asset.manifest.dependencies()
+        } else if let Some(map) = self.maps.get(id) {
+            vec![map.player_model.clone()]
+        } else {
+            Vec::new()
+        }
+    }
+
     #[allow(
         clippy::too_many_lines,
         reason = "the graph validator exhaustively enforces every typed dependency edge"
     )]
     fn validate_graph(&self) -> anyhow::Result<()> {
+        for id in self.maps.keys() {
+            if self.assets.contains_key(id) {
+                bail!("map `{id}` collides with an ordinary asset ID");
+            }
+        }
         for package in self.packages.values() {
             for asset in &package.assets {
-                if !self.assets.contains_key(asset) {
+                if !self.assets.contains_key(asset) && !self.maps.contains_key(asset) {
                     bail!(
                         "package `{}` references missing asset `{asset}`",
                         package.name,
                     );
                 }
+            }
+        }
+        for (id, map) in &self.maps {
+            let target = self.assets.get(&map.player_model).with_context(|| {
+                format!(
+                    "map `{id}` references missing player model `{}`",
+                    map.player_model
+                )
+            })?;
+            if !matches!(target.manifest.source, AssetSource::Model(_)) {
+                bail!(
+                    "map `{id}` player resource `{}` is not a model",
+                    map.player_model
+                );
+            }
+            if target.manifest.audience != AssetAudience::Presentation {
+                bail!(
+                    "map `{id}` player model `{}` must have presentation audience",
+                    map.player_model
+                );
             }
         }
         for (id, asset) in &self.assets {
@@ -864,6 +902,9 @@ fn load_map(
     let source_relative = portable_relative_path(&file.source)
         .with_context(|| format!("invalid map source in `{}`", path.display()))?;
     let source_path = resolve_source(source_root, path, &file.source)?;
+    let source_bytes = fs::read(&source_path)
+        .with_context(|| format!("failed to read `{}`", source_path.display()))?;
+    let source_hash = ContentHash::hash_bytes(&source_bytes);
     let metadata = Document::open(&source_path)
         .with_context(|| format!("invalid map source `{}`", source_path.display()))?
         .map_metadata(&file.scene)
@@ -876,10 +917,13 @@ fn load_map(
         })?;
     let id = file.id;
     let loaded = LoadedMap {
+        schema: file.schema,
         id: id.clone(),
         source_relative,
         source_path,
+        source_hash,
         scene: file.scene,
+        player_model: file.player_model,
         metadata,
     };
     if maps.insert(id.clone(), loaded).is_some() {
@@ -1084,6 +1128,10 @@ fn asset_source(
             validate_acoustic_emission(&emission, audience, path)?;
             AssetSource::AcousticEmission(emission)
         }
+        AssetKind::Map => bail!(
+            "map assets must be authored through maps/<logical-path>/map.toml, not `{}`",
+            path.display()
+        ),
         _ => bail!("unsupported asset kind in `{}`", path.display()),
     };
     Ok(source)

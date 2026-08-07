@@ -283,6 +283,9 @@ fn validate_dependency_kind(
     dependency_record: &AssetRecord,
 ) -> Result<(), Error> {
     match record.kind {
+        AssetKind::Map if dependency_record.kind != AssetKind::Model => Err(
+            dependency_kind_mismatch(record, dependency, AssetKind::Model, dependency_record.kind),
+        ),
         AssetKind::AnimationClip if dependency_record.kind != AssetKind::Skeleton => {
             Err(dependency_kind_mismatch(
                 record,
@@ -360,7 +363,8 @@ fn validate_dependency_kind(
                 ),
             })
         }
-        AssetKind::Blob
+        AssetKind::Map
+        | AssetKind::Blob
         | AssetKind::LuauBytecode
         | AssetKind::ShaderModule
         | AssetKind::Texture2d

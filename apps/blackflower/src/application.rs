@@ -366,6 +366,10 @@ impl ClientApplication {
         let now = Instant::now();
         let delta = self.frame_clock.delta(now)?;
         let input = self.input.take_snapshot();
+        if let Some(native) = &self.window {
+            self.runtime
+                .set_viewport(native.physical_size.width, native.physical_size.height)?;
+        }
         if !self
             .runtime
             .frame(now.duration_since(self.started), delta, &input)?

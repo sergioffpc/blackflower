@@ -847,8 +847,8 @@ fn capture_client_events(_execution_context: &FrameExecutionContext) -> SystemRe
     Ok(())
 }
 
-fn capture_frame_configuration(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Capture the active view and output configuration for this frame.
+fn capture_frame_configuration(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.capture_scene_configuration()?;
     Ok(())
 }
 
@@ -906,8 +906,8 @@ fn update_viewport_layouts(_execution_context: &FrameExecutionContext) -> System
     Ok(())
 }
 
-fn update_camera_rigs(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Update camera rigs from sampled scene state.
+fn update_camera_rigs(execution_context: &FrameExecutionContext) -> SystemResult {
+    execution_context.resolve_scene_output()?;
     Ok(())
 }
 
@@ -1099,6 +1099,7 @@ fn retire_consumed_events(_execution_context: &FrameExecutionContext) -> SystemR
 fn release_captured_frame_inputs(execution_context: &FrameExecutionContext) -> SystemResult {
     // Release frame-local captured inputs without mutating their sources.
     execution_context.release_captured_movement()?;
+    execution_context.release_captured_scene()?;
     Ok(())
 }
 

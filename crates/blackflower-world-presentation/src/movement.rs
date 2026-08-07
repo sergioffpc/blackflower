@@ -300,6 +300,10 @@ impl PresentationMovementState {
     pub(crate) fn committed(&self) -> Option<MovementProxy> {
         self.committed.map(MovementProxyState::snapshot)
     }
+
+    pub(crate) fn working(&self) -> Option<MovementProxy> {
+        self.working.map(MovementProxyState::snapshot)
+    }
 }
 
 fn normalize_quaternion(orientation: [f64; 4]) -> Result<[f64; 4], PresentationMovementError> {

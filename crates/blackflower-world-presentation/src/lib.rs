@@ -11,6 +11,7 @@
 mod audio;
 mod movement;
 mod pipeline;
+mod scene;
 mod systems;
 mod telemetry;
 mod types;
@@ -22,6 +23,7 @@ pub use movement::{
     PresentationMovementSample,
 };
 pub use pipeline::{PresentationPhase, PresentationPhases, PresentationPipeline};
+pub use scene::{LocalVisualBinding, PresentationSceneError, PresentationViewport};
 pub use systems::{
     BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
     EvaluateAnimationPosesSystem, PrepareFrameSystem, PrepareViewsAndListenersSystem,
