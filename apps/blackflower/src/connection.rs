@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -6,12 +5,16 @@ use blackflower_assets::AssetStore;
 use blackflower_ecs::TickDelta;
 use blackflower_harness::{
     ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction as _, ClientView,
+    PredictionUpdate,
 };
 use blackflower_networking::SessionState;
 use blackflower_networking_quic::{
     ClientEndpointConfig, ClientNetworkHandle, QuicClient, QuicError,
 };
-use blackflower_world_presentation::{FrameIndex, PresentationWorld};
+use blackflower_world_presentation::{
+    FrameIndex, MovementSampleKind, MovementSourceId, PresentationMovementError,
+    PresentationMovementSample, PresentationWorld,
+};
 
 use crate::controls::NativeMovementControls;
 use crate::input::InputSnapshot;
@@ -100,20 +103,59 @@ impl ApplicationRuntime for ConnectedClient {
 struct NetworkPresentationBridge;
 
 impl PresentationBridge<PredictedMovementState> for NetworkPresentationBridge {
-    type Error = Infallible;
+    type Error = PresentationMovementError;
 
     fn capture(
         &mut self,
-        _presentation: &mut PresentationWorld,
+        presentation: &mut PresentationWorld,
         view: ClientView<'_, PredictedMovementState>,
         events: &[ClientEvent],
     ) -> Result<(), Self::Error> {
         for event in events {
             log_client_event(event);
         }
-        let _latest_prediction = view.predicted();
+        presentation.set_local_movement_sample(local_movement_sample(view.predicted(), events)?)?;
         Ok(())
     }
+}
+
+fn local_movement_sample(
+    predicted: Option<&PredictedMovementState>,
+    events: &[ClientEvent],
+) -> Result<Option<PresentationMovementSample>, PresentationMovementError> {
+    let kind = if events.iter().any(|event| {
+        matches!(
+            event,
+            ClientEvent::SnapshotApplied {
+                prediction: PredictionUpdate::Bootstrapped { .. },
+                ..
+            }
+        )
+    }) {
+        MovementSampleKind::Reset
+    } else if events.iter().any(|event| {
+        matches!(
+            event,
+            ClientEvent::SnapshotApplied {
+                prediction: PredictionUpdate::Reconciled { .. },
+                ..
+            }
+        )
+    }) {
+        MovementSampleKind::Reconciled
+    } else {
+        MovementSampleKind::Predicted
+    };
+    predicted
+        .map(|predicted| {
+            PresentationMovementSample::new(
+                MovementSourceId::new(predicted.controlled_entity.get())?,
+                predicted.position_meters,
+                predicted.orientation,
+                kind,
+            )
+        })
+        .transpose()
 }
 
 fn log_client_event(event: &ClientEvent) {
@@ -177,3 +219,7 @@ pub enum ClientConnectionError {
     #[error("connected client composition failed")]
     Composition(#[source] anyhow::Error),
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/connection.rs"]
+mod tests;

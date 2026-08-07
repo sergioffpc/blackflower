@@ -45,9 +45,11 @@ snapshots, maps captured WASD and mouse input to consecutive four-tick control
 frames, advances `PredictionWorld`, and restores plus re-simulates when the
 server state falls outside the protocol-v1 margins. Position may differ by up
 to 2 cm, velocity by 5 cm/s, and orientation by 0.5 degrees; controlled entity
-and grounded state still compare exactly. Renderer proxies and renderer
-submission remain integration boundaries. The window emits redraw requests,
-but this application does not yet submit a render frame to a renderer.
+and grounded state still compare exactly. The bridge now copies predicted
+movement and orientation into a presentation-owned local proxy and smooths
+visual reconciliation corrections without mutating prediction. Model and
+camera binding plus concrete renderer submission remain integration boundaries;
+the window emits redraw requests but does not yet render that proxy.
 
 ## Run
 

@@ -831,8 +831,9 @@ fn resolve_frame_timing(_execution_context: &FrameExecutionContext) -> SystemRes
     Ok(())
 }
 
-fn capture_client_view(_execution_context: &FrameExecutionContext) -> SystemResult {
-    // Capture one immutable ClientView containing session and predicted state.
+fn capture_client_view(execution_context: &FrameExecutionContext) -> SystemResult {
+    // Copy the configured prediction sample without retaining its source.
+    execution_context.capture_local_movement()?;
     Ok(())
 }
 
@@ -856,8 +857,9 @@ fn capture_backend_feedback(_execution_context: &FrameExecutionContext) -> Syste
     Ok(())
 }
 
-fn create_missing_scene_proxies(_execution_context: &FrameExecutionContext) -> SystemResult {
+fn create_missing_scene_proxies(execution_context: &FrameExecutionContext) -> SystemResult {
     // Create presentation-owned proxies for captured sources that lack one.
+    execution_context.create_missing_movement_proxy()?;
     Ok(())
 }
 
@@ -866,8 +868,9 @@ fn refresh_scene_proxy_bindings(_execution_context: &FrameExecutionContext) -> S
     Ok(())
 }
 
-fn retire_stale_scene_proxies(_execution_context: &FrameExecutionContext) -> SystemResult {
+fn retire_stale_scene_proxies(execution_context: &FrameExecutionContext) -> SystemResult {
     // Retire proxies whose captured sources disappeared or expired.
+    execution_context.retire_stale_movement_proxy()?;
     Ok(())
 }
 
@@ -876,8 +879,9 @@ fn resolve_render_time(_execution_context: &FrameExecutionContext) -> SystemResu
     Ok(())
 }
 
-fn sample_local_prediction(_execution_context: &FrameExecutionContext) -> SystemResult {
+fn sample_local_prediction(execution_context: &FrameExecutionContext) -> SystemResult {
     // Sample presentation state for locally predicted entities.
+    execution_context.sample_local_prediction()?;
     Ok(())
 }
 
@@ -886,8 +890,9 @@ fn interpolate_remote_snapshots(_execution_context: &FrameExecutionContext) -> S
     Ok(())
 }
 
-fn smooth_reconciliation_corrections(_execution_context: &FrameExecutionContext) -> SystemResult {
+fn smooth_reconciliation_corrections(execution_context: &FrameExecutionContext) -> SystemResult {
     // Smooth visual corrections without mutating reconciled prediction state.
+    execution_context.smooth_movement_correction()?;
     Ok(())
 }
 
@@ -1091,8 +1096,9 @@ fn retire_consumed_events(_execution_context: &FrameExecutionContext) -> SystemR
     Ok(())
 }
 
-fn release_captured_frame_inputs(_execution_context: &FrameExecutionContext) -> SystemResult {
+fn release_captured_frame_inputs(execution_context: &FrameExecutionContext) -> SystemResult {
     // Release frame-local captured inputs without mutating their sources.
+    execution_context.release_captured_movement()?;
     Ok(())
 }
 

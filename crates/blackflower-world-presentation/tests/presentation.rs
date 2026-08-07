@@ -10,14 +10,47 @@ use blackflower_ecs::{Component, Read, TickDelta, World};
 use blackflower_rendering::RenderFrameId;
 use blackflower_world_presentation::{
     AudioCommand, BuildFrameOutputsSystem, CaptureFrameInputsSystem, CommitFrameHistorySystem,
-    EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, PrepareFrameSystem,
-    PrepareViewsAndListenersSystem, PresentationError, PresentationPhase, PresentationPipeline,
-    PresentationWorld, PublishFrameOutputsSystem, ResolveSceneGraphSystem,
-    SampleRenderTimelineSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
+    EvaluateAnimationPosesSystem, FrameExecution, FrameIndex, MovementProxy, MovementSampleKind,
+    MovementSourceId, PrepareFrameSystem, PrepareViewsAndListenersSystem, PresentationError,
+    PresentationMovementSample, PresentationPhase, PresentationPipeline, PresentationWorld,
+    PublishFrameOutputsSystem, ResolveSceneGraphSystem, SampleRenderTimelineSystem,
+    UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
 
 type TestResult = Result<(), Box<dyn StdError>>;
+
+fn assert_f64_array_close<const N: usize>(actual: [f64; N], expected: [f64; N]) {
+    assert!(
+        actual
+            .into_iter()
+            .zip(expected)
+            .all(|(actual, expected)| (actual - expected).abs() <= 1.0e-12),
+        "expected {expected:?}, got {actual:?}"
+    );
+}
+
+fn movement_sample(
+    source: MovementSourceId,
+    position_meters: [f64; 3],
+    orientation: [f64; 4],
+    kind: MovementSampleKind,
+) -> Result<PresentationMovementSample, Box<dyn StdError>> {
+    Ok(PresentationMovementSample::new(
+        source,
+        position_meters,
+        orientation,
+        kind,
+    )?)
+}
+
+fn local_movement_proxy(
+    presentation: &PresentationWorld,
+) -> Result<MovementProxy, Box<dyn StdError>> {
+    Ok(presentation
+        .local_movement_proxy()?
+        .ok_or_else(|| io::Error::other("local movement proxy is missing"))?)
+}
 
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]
@@ -336,6 +369,137 @@ fn failed_submission_does_not_commit_frame_history() -> TestResult {
         }
     );
     assert!(!history_committed.load(Ordering::Acquire));
+    Ok(())
+}
+
+#[test]
+fn local_movement_proxy_tracks_prediction_and_retires_missing_sources() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let source = MovementSourceId::new(41)?;
+    let delta = TickDelta::from_seconds(0.025)?;
+
+    presentation.set_local_movement_sample(Some(movement_sample(
+        source,
+        [0.0, 1.0, 2.0],
+        [0.0, 0.0, 0.0, 1.0],
+        MovementSampleKind::Predicted,
+    )?))?;
+    assert!(presentation.frame(delta)?);
+    let initial = local_movement_proxy(&presentation)?;
+    assert_eq!(initial.source(), source);
+    assert_f64_array_close(initial.predicted_position_meters(), [0.0, 1.0, 2.0]);
+    assert_f64_array_close(initial.visual_position_meters(), [0.0, 1.0, 2.0]);
+    assert!(!initial.correction_active());
+
+    presentation.set_local_movement_sample(Some(movement_sample(
+        source,
+        [12.0, 1.0, 2.0],
+        [0.0, 0.0, 0.0, 1.0],
+        MovementSampleKind::Predicted,
+    )?))?;
+    assert!(presentation.frame(delta)?);
+    let advanced = local_movement_proxy(&presentation)?;
+    assert_f64_array_close(advanced.visual_position_meters(), [12.0, 1.0, 2.0]);
+    assert!(!advanced.correction_active());
+
+    presentation.set_local_movement_sample(None)?;
+    assert!(presentation.frame(delta)?);
+    assert_eq!(presentation.local_movement_proxy()?, None);
+    Ok(())
+}
+
+#[test]
+fn local_movement_proxy_smooths_reconciliation_without_prediction_latency() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let source = MovementSourceId::new(41)?;
+    let delta = TickDelta::from_seconds(0.025)?;
+    let initial = movement_sample(
+        source,
+        [0.0, 1.0, 2.0],
+        [0.0, 0.0, 0.0, 1.0],
+        MovementSampleKind::Predicted,
+    )?;
+    presentation.set_local_movement_sample(Some(initial))?;
+    assert!(presentation.frame(delta)?);
+
+    let corrected = movement_sample(
+        source,
+        [10.0, 1.0, 2.0],
+        [0.0, 1.0, 0.0, 0.0],
+        MovementSampleKind::Reconciled,
+    )?;
+    presentation.set_local_movement_sample(Some(corrected))?;
+    assert!(presentation.frame(delta)?);
+    let correcting = local_movement_proxy(&presentation)?;
+    assert_f64_array_close(correcting.predicted_position_meters(), [10.0, 1.0, 2.0]);
+    assert_f64_array_close(correcting.visual_position_meters(), [2.5, 1.0, 2.0]);
+    assert!(correcting.correction_active());
+    assert!(
+        correcting
+            .visual_orientation()
+            .into_iter()
+            .zip(correcting.predicted_orientation())
+            .any(|(visual, predicted)| (visual - predicted).abs() > 1.0e-12)
+    );
+
+    let predicted = movement_sample(
+        source,
+        [10.0, 1.0, 2.0],
+        [0.0, 1.0, 0.0, 0.0],
+        MovementSampleKind::Predicted,
+    )?;
+    presentation.set_local_movement_sample(Some(predicted))?;
+    for _frame in 0..3 {
+        assert!(presentation.frame(delta)?);
+    }
+    let settled = local_movement_proxy(&presentation)?;
+    assert_f64_array_close(settled.visual_position_meters(), [10.0, 1.0, 2.0]);
+    assert_f64_array_close(
+        settled.visual_orientation(),
+        settled.predicted_orientation(),
+    );
+    assert!(!settled.correction_active());
+    Ok(())
+}
+
+#[test]
+fn failed_frame_does_not_commit_local_movement_proxy() -> TestResult {
+    let mut presentation = PresentationWorld::new()?;
+    let source = MovementSourceId::new(7)?;
+    let sample = |position| {
+        movement_sample(
+            source,
+            [position, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            MovementSampleKind::Predicted,
+        )
+    };
+    presentation.set_local_movement_sample(Some(sample(1.0)?))?;
+    assert!(presentation.frame(TickDelta::from_seconds(1.0 / 60.0)?)?);
+
+    let probe = presentation.ecs_mut().register_component::<Probe>()?;
+    let entity = presentation.ecs_mut().spawn()?;
+    presentation.ecs_mut().insert(entity, probe, Probe(0))?;
+    let publish_outputs = presentation.phase(PresentationPhase::PublishFrameOutputs);
+    presentation
+        .ecs_mut()
+        .system("FailMovementProxyFrame", "Probe")?
+        .phase(publish_outputs)?
+        .project(Read::<Probe>::field(0))?
+        .each(|_context, _entity, _probe| {
+            Err(io::Error::other("expected movement frame failure").into())
+        })?;
+
+    presentation.set_local_movement_sample(Some(sample(2.0)?))?;
+    assert!(
+        presentation
+            .frame(TickDelta::from_seconds(1.0 / 60.0)?)
+            .is_err()
+    );
+    assert_f64_array_close(
+        local_movement_proxy(&presentation)?.visual_position_meters(),
+        [1.0, 0.0, 0.0],
+    );
     Ok(())
 }
 
