@@ -5,7 +5,7 @@
 )]
 use std::ptr::NonNull;
 
-use glam::Vec3A;
+use glam::{Mat4, Vec3A};
 
 use crate::types::{AudioSettings, BinauralParams, Interpolation, TailState};
 use crate::{
@@ -277,12 +277,12 @@ pub(crate) fn remove_static_mesh(scene: ScenePtr, mesh: StaticMeshPtr) {
 pub(crate) fn create_instanced_mesh(
     scene: ScenePtr,
     sub_scene: ScenePtr,
-    transform: [[f32; 4]; 4],
+    transform: Mat4,
 ) -> Result<InstancedMeshPtr, Status> {
     let mut settings = raw::IPLInstancedMeshSettings {
         subScene: sub_scene.0.as_ptr(),
         transform: raw::IPLMatrix4x4 {
-            elements: transform,
+            elements: matrix_rows(transform),
         },
     };
     let mut pointer = std::ptr::null_mut();
@@ -316,7 +316,7 @@ pub(crate) fn remove_instanced_mesh(scene: ScenePtr, mesh: InstancedMeshPtr) {
 pub(crate) fn update_instanced_mesh_transform(
     scene: ScenePtr,
     mesh: InstancedMeshPtr,
-    transform: [[f32; 4]; 4],
+    transform: Mat4,
 ) {
     // SAFETY: both handles are live, the instance belongs to the scene, and the
     // safe scene owner serializes transform mutation.
@@ -325,7 +325,7 @@ pub(crate) fn update_instanced_mesh_transform(
             mesh.0.as_ptr(),
             scene.0.as_ptr(),
             raw::IPLMatrix4x4 {
-                elements: transform,
+                elements: matrix_rows(transform),
             },
         )
     };
@@ -344,7 +344,7 @@ pub(crate) fn generate_uniform_floor_probes(
         spacing,
         height,
         transform: raw::IPLMatrix4x4 {
-            elements: transform.rows(),
+            elements: matrix_rows(transform.matrix()),
         },
     };
     // SAFETY: the probe array and scene are live, `params` is fully initialized,
@@ -754,6 +754,11 @@ fn create_probe_batch(context: ContextPtr) -> Result<ProbeBatchPtr, Status> {
     NonNull::new(pointer)
         .map(ProbeBatchPtr)
         .ok_or(Status::ContractViolation)
+}
+
+fn matrix_rows(matrix: Mat4) -> [[f32; 4]; 4] {
+    let columns = matrix.to_cols_array_2d();
+    std::array::from_fn(|row| std::array::from_fn(|column| columns[column][row]))
 }
 
 fn raw_identifier(identifier: BakedDataIdentifier) -> raw::IPLBakedDataIdentifier {

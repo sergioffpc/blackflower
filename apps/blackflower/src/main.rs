@@ -66,7 +66,7 @@ fn main() -> Result<()> {
             .with_foreground_logs(Default::default(), capacity);
     }
     let mut observability = init(&config).context("observability init failed")?;
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let connection_config = connection_config(&arguments)?;
     let network_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
         blackflower::run_connected(connected).context("connected client application failed")?;
     }
 
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 

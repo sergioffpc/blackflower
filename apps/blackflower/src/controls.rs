@@ -5,6 +5,8 @@ use blackflower_networking::{
     INITIAL_INPUT_LEAD_TICKS, INPUT_GRACE_TICKS, MAX_FUTURE_COMMAND_TICKS, SimulationTick,
 };
 use blackflower_networking_protocol::v1::MovementControl;
+use bytes::Bytes;
+use glam::DVec2;
 use winit::keyboard::KeyCode;
 
 use crate::input::{InputContext, InputSnapshot};
@@ -39,17 +41,15 @@ impl NativeMovementControls {
         else {
             return Ok(None);
         };
-        let [move_right, move_forward] = movement_axes(input);
         let control = MovementControl::quantize(
-            move_right,
-            move_forward,
+            movement_axes(input),
             self.view_yaw_radians,
             self.view_pitch_radians,
         )?;
         Ok(Some(PreparedMovementControl {
             submission: ControlSubmission {
                 execute_tick,
-                payload: control.encode().to_vec(),
+                payload: Bytes::copy_from_slice(&control.encode()),
                 commands: Vec::new(),
             },
             reset_timeline,
@@ -116,18 +116,15 @@ pub(crate) enum ControlMappingError {
     Protocol(#[from] blackflower_networking_protocol::v1::ProtocolError),
 }
 
-fn movement_axes(input: &InputSnapshot) -> [f64; 2] {
+fn movement_axes(input: &InputSnapshot) -> DVec2 {
     if !gameplay_active(input) {
-        return [0.0; 2];
+        return DVec2::ZERO;
     }
-    let mut right = axis(input, KeyCode::KeyD, KeyCode::KeyA);
-    let mut forward = axis(input, KeyCode::KeyW, KeyCode::KeyS);
-    let magnitude = right.hypot(forward);
-    if magnitude > 1.0 {
-        right /= magnitude;
-        forward /= magnitude;
-    }
-    [right, forward]
+    DVec2::new(
+        axis(input, KeyCode::KeyD, KeyCode::KeyA),
+        axis(input, KeyCode::KeyW, KeyCode::KeyS),
+    )
+    .clamp_length_max(1.0)
 }
 
 fn axis(input: &InputSnapshot, positive: KeyCode, negative: KeyCode) -> f64 {

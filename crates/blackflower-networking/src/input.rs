@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use bytes::Bytes;
+
 use crate::{
     CommandId, CommandTimingClass, ControlFrame, DiscreteCommand, InputSequence, ProtocolRevision,
     SimulationTick, WireError,
@@ -271,7 +273,7 @@ pub fn validate_command_codec(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ControlIdentity {
     execute_tick: SimulationTick,
-    payload: Vec<u8>,
+    payload: Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,7 +283,7 @@ struct CommandIdentity {
     view_tick: Option<SimulationTick>,
     timing_class: CommandTimingClass,
     kind: u16,
-    payload: Vec<u8>,
+    payload: Bytes,
 }
 
 impl From<&DiscreteCommand> for CommandIdentity {

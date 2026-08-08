@@ -29,6 +29,7 @@ use blackflower_networking_replication::{Snapshot, SnapshotTick};
 use blackflower_server::{
     DedicatedServerNetwork, LoopbackSessionAuthority, ServerNetworkRuntime, SimulationHost,
 };
+use glam::DVec2;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
@@ -142,7 +143,7 @@ async fn resume_and_verify(
 
 fn take_resume_token(
     harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
-) -> Option<Vec<u8>> {
+) -> Option<bytes::Bytes> {
     while let Some(event) = harness.pop_event() {
         if let ClientEvent::ResumeIssued { token, .. } = event {
             return Some(token);
@@ -173,7 +174,7 @@ async fn submit_and_wait_for_movement(
     simulation: &SimulationHost,
     started: Instant,
 ) -> TestResult {
-    let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
     let input_lead_ticks = harness.input_lead_ticks();
     assert!((4..=24).contains(&input_lead_ticks));
     assert!(input_lead_ticks.is_multiple_of(4));
@@ -182,7 +183,7 @@ async fn submit_and_wait_for_movement(
             simulation.completed_ticks(),
             input_lead_ticks,
         )),
-        payload: control.encode().to_vec(),
+        payload: bytes::Bytes::copy_from_slice(&control.encode()),
         commands: Vec::new(),
     })?;
     tokio::time::timeout(Duration::from_secs(4), async {
@@ -409,7 +410,7 @@ impl SessionAuthority for TestAuthority {
         now: Duration,
     ) -> Result<IssuedResumeToken, AuthorityError> {
         Ok(IssuedResumeToken {
-            token: b"resume".to_vec(),
+            token: bytes::Bytes::from_static(b"resume"),
             expires_at: now.saturating_add(Duration::from_secs(30)),
         })
     }

@@ -15,6 +15,7 @@ use blackflower_networking::{
     decode_input_datagram, decode_stream_preamble, encode_control_message, encode_datagram,
     encode_input_datagram, encode_stream_preamble, input_health, operational_state,
 };
+use bytes::{Bytes, BytesMut};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -28,10 +29,13 @@ fn common_datagram_header_has_the_exact_eleven_byte_golden() -> TestResult {
         },
         &[0xaa, 0xbb],
     );
-    assert_eq!(bytes, [1, 2, 4, 3, 2, 1, 8, 7, 6, 5, 0, 0xaa, 0xbb]);
+    assert_eq!(
+        bytes.as_ref(),
+        [1, 2, 4, 3, 2, 1, 8, 7, 6, 5, 0, 0xaa, 0xbb]
+    );
     assert_eq!(decode_datagram(&bytes)?.payload, &[0xaa, 0xbb]);
 
-    let mut reserved = bytes.clone();
+    let mut reserved = bytes.to_vec();
     reserved[10] = 1;
     assert_eq!(decode_datagram(&reserved), Err(WireError::Reserved));
     assert_eq!(decode_datagram(&bytes[..10]), Err(WireError::Truncated));
@@ -51,9 +55,9 @@ fn stream_preamble_and_control_framing_reject_noncanonical_input() -> TestResult
         protocol_revision: ProtocolRevision::V1,
     };
     let encoded = encode_control_message(&message)?;
-    assert_eq!(encoded, [1, 4, 1, 0, 0, 0]);
-    let mut trailing = encoded;
-    trailing.push(0);
+    assert_eq!(encoded.as_ref(), [1, 4, 1, 0, 0, 0]);
+    let mut trailing = BytesMut::from(encoded.as_ref());
+    trailing.extend_from_slice(&[0]);
     assert_eq!(
         blackflower_networking::decode_control_message(&trailing),
         Err(WireError::Trailing)
@@ -97,7 +101,10 @@ fn server_control_binding_has_stable_exact_bytes() -> TestResult {
             .ok_or("controlled entity must be non-zero")?,
     });
     let encoded = encode_control_message(&message)?;
-    assert_eq!(encoded, [16, 12, 4, 3, 2, 1, 8, 7, 6, 5, 4, 3, 2, 1,]);
+    assert_eq!(
+        encoded.as_ref(),
+        [16, 12, 4, 3, 2, 1, 8, 7, 6, 5, 4, 3, 2, 1,]
+    );
     assert_eq!(
         blackflower_networking::decode_control_message(&encoded)?,
         message
@@ -129,7 +136,7 @@ fn input_codec_and_deduplication_require_exact_redundant_bytes() -> TestResult {
     let frame = ControlFrame {
         sequence: InputSequence::new(10),
         execute_tick: SimulationTick::new(100),
-        payload: vec![7, 8],
+        payload: Bytes::from_static(&[7, 8]),
     };
     let input = blackflower_networking::InputDatagram {
         control_epoch: 3,
@@ -147,7 +154,7 @@ fn input_codec_and_deduplication_require_exact_redundant_bytes() -> TestResult {
     invalid_redundancy.frames.push(ControlFrame {
         sequence: InputSequence::new(8),
         execute_tick: SimulationTick::new(96),
-        payload: vec![5],
+        payload: Bytes::from_static(&[5]),
     });
     assert_eq!(
         encode_input_datagram(&invalid_redundancy),
@@ -161,7 +168,7 @@ fn input_codec_and_deduplication_require_exact_redundant_bytes() -> TestResult {
         Deduplication::Duplicate
     );
     let mut conflicting = frame;
-    conflicting.payload.push(9);
+    conflicting.payload = Bytes::from_static(&[7, 8, 9]);
     assert!(matches!(
         deduplication.observe_control(&conflicting),
         Err(DeduplicationError::ConflictingInput(sequence)) if sequence == InputSequence::new(10)
@@ -177,7 +184,7 @@ fn deduplication_evicts_by_arrival_and_rejects_unretained_regressions() -> TestR
             controls.observe_control(&ControlFrame {
                 sequence: InputSequence::new(sequence),
                 execute_tick: SimulationTick::new(sequence * 4),
-                payload: vec![u8::try_from(sequence)?],
+                payload: Bytes::from(vec![u8::try_from(sequence)?]),
             })?,
             Deduplication::New
         );
@@ -186,7 +193,7 @@ fn deduplication_evicts_by_arrival_and_rejects_unretained_regressions() -> TestR
         controls.observe_control(&ControlFrame {
             sequence: InputSequence::new(8),
             execute_tick: SimulationTick::new(32),
-            payload: vec![99],
+            payload: Bytes::from_static(&[99]),
         })?,
         Deduplication::Stale
     );
@@ -198,7 +205,7 @@ fn deduplication_evicts_by_arrival_and_rejects_unretained_regressions() -> TestR
         view_tick: None,
         timing_class: CommandTimingClass::CurrentTickOnly,
         kind: 1,
-        payload: vec![payload],
+        payload: Bytes::from(vec![payload]),
     };
     let mut commands = InputDeduplicator::new(2);
     assert_eq!(
@@ -229,7 +236,7 @@ fn command_windows_and_input_failsafe_are_independent() {
         view_tick: Some(SimulationTick::new(80)),
         timing_class: CommandTimingClass::RewindRay,
         kind: 1,
-        payload: Vec::new(),
+        payload: Bytes::new(),
     };
     assert!(matches!(
         classify_command(SimulationTick::new(100), &command, true),
@@ -402,9 +409,9 @@ fn exact_compatibility_activation_and_resync_limit_drive_session_state() -> Test
 #[test]
 fn bounded_scheduler_preserves_priority_and_reconciles_budget() -> TestResult {
     let mut queues = NetworkQueues::new();
-    queues.push_snapshot(vec![3]);
-    queues.set_latest_input(vec![2]);
-    queues.push_control(vec![1])?;
+    queues.push_snapshot(Bytes::from_static(&[3]));
+    queues.set_latest_input(Bytes::from_static(&[2]));
+    queues.push_control(Bytes::from_static(&[1]))?;
     assert_eq!(
         queues.pop_scheduled(true).ok_or("missing control")?.class,
         TrafficClass::SessionControl

@@ -1,14 +1,15 @@
 use blackflower_networking::SimulationTick;
 use blackflower_networking_replication::ReplicatedEntityId;
+use glam::{DQuat, DVec3};
 
 use super::*;
 
 fn predicted_state() -> Result<PredictedMovementState> {
     Ok(PredictedMovementState {
         controlled_entity: ReplicatedEntityId::try_from_u64(17)?,
-        position_meters: [1.0, 2.0, 3.0],
-        velocity_meters_per_second: [0.0; 3],
-        orientation: [0.0, 0.0, 0.0, 1.0],
+        position_meters: DVec3::new(1.0, 2.0, 3.0),
+        velocity_meters_per_second: DVec3::ZERO,
+        orientation: DQuat::IDENTITY,
         grounded: true,
     })
 }
@@ -44,16 +45,12 @@ fn bridge_selects_the_visual_transition_from_prediction_events() -> Result<()> {
     assert!(
         reconciled
             .position_meters()
-            .into_iter()
-            .zip(predicted.position_meters)
-            .all(|(sample, prediction)| (sample - prediction).abs() <= f64::EPSILON)
+            .abs_diff_eq(predicted.position_meters, f64::EPSILON)
     );
     assert!(
         reconciled
             .orientation()
-            .into_iter()
-            .zip(predicted.orientation)
-            .all(|(sample, prediction)| (sample - prediction).abs() <= f64::EPSILON)
+            .abs_diff_eq(predicted.orientation, f64::EPSILON)
     );
     Ok(())
 }

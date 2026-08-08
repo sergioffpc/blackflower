@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use bytes::Bytes;
+
 /// Side of the in-memory client/server datagram link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatagramLinkEndpoint {
@@ -24,8 +26,8 @@ pub enum DatagramLinkError {
 #[derive(Debug)]
 pub struct InMemoryDatagramLink {
     capacity: usize,
-    client: VecDeque<Vec<u8>>,
-    server: VecDeque<Vec<u8>>,
+    client: VecDeque<Bytes>,
+    server: VecDeque<Bytes>,
 }
 
 impl InMemoryDatagramLink {
@@ -43,7 +45,7 @@ impl InMemoryDatagramLink {
     pub fn send(
         &mut self,
         endpoint: DatagramLinkEndpoint,
-        bytes: Vec<u8>,
+        bytes: Bytes,
     ) -> Result<(), DatagramLinkError> {
         if bytes.is_empty() {
             return Err(DatagramLinkError::Empty);
@@ -60,7 +62,7 @@ impl InMemoryDatagramLink {
     }
 
     /// Receive the oldest datagram for one endpoint.
-    pub fn receive(&mut self, endpoint: DatagramLinkEndpoint) -> Option<Vec<u8>> {
+    pub fn receive(&mut self, endpoint: DatagramLinkEndpoint) -> Option<Bytes> {
         match endpoint {
             DatagramLinkEndpoint::Client => self.client.pop_front(),
             DatagramLinkEndpoint::Server => self.server.pop_front(),

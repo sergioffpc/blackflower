@@ -167,7 +167,7 @@ pub struct AdmittedSession {
     /// Exact claims consumed from the external authority.
     pub claims: AdmissionClaims,
     /// Opaque next one-use reconnect token.
-    pub resume_token: Vec<u8>,
+    pub resume_token: bytes::Bytes,
 }
 
 /// Reconnect claims plus the old session identity the host must invalidate.
@@ -386,7 +386,7 @@ impl NetworkPeer {
                 &payload,
             ));
         }
-        let estimated_bytes = datagrams.iter().map(Vec::len).sum();
+        let estimated_bytes = datagrams.iter().map(bytes::Bytes::len).sum();
         let mut match_egress = self
             .match_egress
             .lock()
@@ -489,7 +489,7 @@ impl NetworkPeer {
     pub fn queue_voice_delivery(
         &mut self,
         stream: VoiceStreamId,
-        datagram: Vec<u8>,
+        datagram: bytes::Bytes,
         now: Duration,
     ) -> Result<(), PeerError> {
         let mut match_egress = self

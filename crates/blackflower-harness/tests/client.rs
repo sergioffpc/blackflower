@@ -25,6 +25,7 @@ use blackflower_networking_replication::{
     build_snapshot_chunks,
 };
 use blackflower_world_prediction::{AuthoritativeSnapshot, InputFrame, PredictionTick};
+use bytes::Bytes;
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -41,7 +42,7 @@ fn human_and_bot_controls_use_identical_session_input_contract() -> TestResult {
 
     let control = ControlSubmission {
         execute_tick: SimulationTick::new(128),
-        payload: vec![3, 1, 4],
+        payload: Bytes::from_static(&[3, 1, 4]),
         commands: Vec::new(),
     };
     assert_eq!(human.submit_control(control.clone())?.get(), 1);
@@ -52,7 +53,7 @@ fn human_and_bot_controls_use_identical_session_input_contract() -> TestResult {
     assert_eq!(human_datagram, bot_datagram);
     let decoded = decode_datagram(&human_datagram)?;
     let input = decode_input_datagram(decoded.payload)?;
-    assert_eq!(input.frames[0].payload, [3, 1, 4]);
+    assert_eq!(input.frames[0].payload.as_ref(), [3, 1, 4]);
     assert_eq!(input.control_epoch, 7);
     Ok(())
 }
@@ -73,7 +74,7 @@ fn prediction_session_reconciles_and_replays_recorded_controls() -> TestResult {
     prediction.queue_control(&blackflower_networking::ControlFrame {
         sequence: blackflower_networking::InputSequence::new(1),
         execute_tick: SimulationTick::new(1),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
     })?;
     prediction.advance_to(SimulationTick::new(4))?;
     assert_eq!(prediction.predicted_state(), Some(&4));
@@ -110,17 +111,14 @@ fn incremental_snapshot_is_applied_and_acknowledged_on_input() -> TestResult {
     let chunks = build_snapshot_chunks(&delta, &current, ProtocolRevision::V1, 1_000)?;
     assert_eq!(chunks.len(), 1);
     let payload = encode_snapshot_chunk(&chunks[0], 1_000)?;
-    transport.push(ClientTransportEvent::Datagram(
-        encode_datagram(
-            DatagramHeader {
-                flow: FlowId::SnapshotDelta,
-                connection_epoch: ConnectionEpoch::new(1),
-                flow_sequence: FlowSequence::new(1),
-            },
-            &payload,
-        )
-        .into(),
-    ))?;
+    transport.push(ClientTransportEvent::Datagram(encode_datagram(
+        DatagramHeader {
+            flow: FlowId::SnapshotDelta,
+            connection_epoch: ConnectionEpoch::new(1),
+            flow_sequence: FlowSequence::new(1),
+        },
+        &payload,
+    )))?;
 
     harness.update(Duration::from_millis(200), SimulationTick::new(108))?;
     assert_eq!(
@@ -143,7 +141,7 @@ fn incremental_snapshot_is_applied_and_acknowledged_on_input() -> TestResult {
     harness.set_control_binding(default_control_binding());
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(128),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: Vec::new(),
     })?;
     let datagram = transport.latest_input()?;
@@ -161,13 +159,13 @@ fn queued_commands_remain_redundant_until_a_terminal_disposition() -> TestResult
     harness.set_control_binding(default_control_binding());
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(128),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: vec![CommandSubmission {
             execute_tick: SimulationTick::new(128),
             view_tick: None,
             timing_class: CommandTimingClass::Interaction,
             kind: 7,
-            payload: vec![2],
+            payload: Bytes::from_static(&[2]),
         }],
     })?;
     let command_id = decode_input_datagram(decode_datagram(&transport.latest_input()?)?.payload)?
@@ -184,7 +182,7 @@ fn queued_commands_remain_redundant_until_a_terminal_disposition() -> TestResult
     harness.update(Duration::from_millis(300), SimulationTick::new(128))?;
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(132),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: Vec::new(),
     })?;
     let input = decode_input_datagram(decode_datagram(&transport.latest_input()?)?.payload)?;
@@ -201,7 +199,7 @@ fn queued_commands_remain_redundant_until_a_terminal_disposition() -> TestResult
     harness.update(Duration::from_millis(400), SimulationTick::new(132))?;
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(136),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: Vec::new(),
     })?;
     let input = decode_input_datagram(decode_datagram(&transport.latest_input()?)?.payload)?;
@@ -216,7 +214,7 @@ fn rejected_prediction_does_not_consume_an_input_identity() -> TestResult {
     harness.prediction_mut().reject_next_control = true;
     let control = ControlSubmission {
         execute_tick: SimulationTick::new(128),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: Vec::new(),
     };
 
@@ -234,13 +232,13 @@ fn changing_control_binding_starts_a_fresh_redundancy_timeline() -> TestResult {
     harness.set_control_binding(default_control_binding());
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(128),
-        payload: vec![1],
+        payload: Bytes::from_static(&[1]),
         commands: vec![CommandSubmission {
             execute_tick: SimulationTick::new(128),
             view_tick: None,
             timing_class: CommandTimingClass::Interaction,
             kind: 7,
-            payload: vec![2],
+            payload: Bytes::from_static(&[2]),
         }],
     })?;
 
@@ -250,7 +248,7 @@ fn changing_control_binding_starts_a_fresh_redundancy_timeline() -> TestResult {
     });
     harness.submit_control(ControlSubmission {
         execute_tick: SimulationTick::new(200),
-        payload: vec![3],
+        payload: Bytes::from_static(&[3]),
         commands: Vec::new(),
     })?;
     let input = decode_input_datagram(decode_datagram(&transport.latest_input()?)?.payload)?;
@@ -310,16 +308,14 @@ fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>
         decode_control_message(&control.sent_control(0)?)?,
         SessionControlMessage::AdmissionRequest { .. }
     ));
-
     accept_admission(&control, contract)?;
     let snapshot = counter_snapshot(100, 5)?;
     let body = snapshot.encode()?;
-    let digest = snapshot.digest(ProtocolRevision::V1)?;
     let header = StateBootstrapHeader {
         bootstrap_id: BootstrapId::new(1),
         protocol_revision: ProtocolRevision::V1,
         snapshot_tick: SimulationTick::new(100),
-        projection_digest: digest,
+        projection_digest: snapshot.digest(ProtocolRevision::V1)?,
         body_length: u32::try_from(body.len())?,
     };
     control.push(ClientTransportEvent::Bootstrap { header, body })?;
@@ -418,8 +414,8 @@ struct FakeTransport {
 #[derive(Debug, Default)]
 struct FakeTransportState {
     incoming: VecDeque<ClientTransportEvent>,
-    controls: Vec<Vec<u8>>,
-    latest_input: Option<Vec<u8>>,
+    controls: Vec<Bytes>,
+    latest_input: Option<Bytes>,
 }
 
 impl FakeTransport {
@@ -432,7 +428,7 @@ impl FakeTransport {
         Ok(())
     }
 
-    fn sent_control(&self, index: usize) -> io::Result<Vec<u8>> {
+    fn sent_control(&self, index: usize) -> io::Result<Bytes> {
         self.state
             .lock()
             .map_err(|_error| io::Error::other("fake transport lock poisoned"))?
@@ -442,7 +438,7 @@ impl FakeTransport {
             .ok_or_else(|| io::Error::other("missing sent control"))
     }
 
-    fn latest_input(&self) -> io::Result<Vec<u8>> {
+    fn latest_input(&self) -> io::Result<Bytes> {
         self.state
             .lock()
             .map_err(|_error| io::Error::other("fake transport lock poisoned"))?
@@ -455,7 +451,7 @@ impl FakeTransport {
 impl ClientTransport for FakeTransport {
     type Error = io::Error;
 
-    fn send_control(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_control(&mut self, frame: Bytes) -> Result<(), Self::Error> {
         self.state
             .lock()
             .map_err(|_error| io::Error::other("fake transport lock poisoned"))?
@@ -464,7 +460,7 @@ impl ClientTransport for FakeTransport {
         Ok(())
     }
 
-    fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn set_latest_input(&mut self, datagram: Bytes) -> Result<(), Self::Error> {
         self.state
             .lock()
             .map_err(|_error| io::Error::other("fake transport lock poisoned"))?
@@ -472,7 +468,7 @@ impl ClientTransport for FakeTransport {
         Ok(())
     }
 
-    fn send_time_sync(&mut self, _datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_time_sync(&mut self, _datagram: Bytes) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -617,7 +613,7 @@ fn counter_snapshot(tick: u64, value: u64) -> Result<Snapshot, Box<dyn StdError>
     let state = ComponentState::new(
         ComponentSampleTick::new(tick),
         ReplicationPriority::OwnerCorrection,
-        value.to_le_bytes().to_vec(),
+        Bytes::copy_from_slice(&value.to_le_bytes()),
     )?;
     let mut builder = SnapshotBuilder::new(SnapshotTick::new(tick));
     builder.upsert_entity(entity, EntityState::new([(component, state)])?);

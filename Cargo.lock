@@ -358,7 +358,9 @@ dependencies = [
  "blackflower-world-prediction",
  "blackflower-world-presentation",
  "bytemuck",
+ "bytes",
  "clap",
+ "glam",
  "image",
  "ratatui",
  "rustls",
@@ -416,6 +418,7 @@ name = "blackflower-animation-format"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "glam",
  "thiserror 2.0.19",
 ]
 
@@ -476,6 +479,7 @@ dependencies = [
  "blackflower-audio-media",
  "blackflower-audio-spatial",
  "blackflower-audio-voice",
+ "glam",
  "kira",
  "thiserror 2.0.19",
 ]
@@ -651,9 +655,9 @@ name = "blackflower-networking"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bytes",
  "metrics",
  "thiserror 2.0.19",
- "tracing",
 ]
 
 [[package]]
@@ -662,6 +666,8 @@ version = "0.1.0"
 dependencies = [
  "blackflower-networking",
  "blackflower-networking-replication",
+ "bytes",
+ "glam",
  "thiserror 2.0.19",
 ]
 
@@ -684,6 +690,8 @@ name = "blackflower-networking-replication"
 version = "0.1.0"
 dependencies = [
  "blackflower-networking",
+ "bytes",
+ "glam",
  "thiserror 2.0.19",
 ]
 
@@ -747,6 +755,7 @@ version = "0.1.0"
 dependencies = [
  "blackflower-assets",
  "bytes",
+ "glam",
  "thiserror 2.0.19",
 ]
 
@@ -793,6 +802,7 @@ dependencies = [
  "blackflower-assets",
  "blackflower-build",
  "cmake",
+ "glam",
  "thiserror 2.0.19",
 ]
 
@@ -814,7 +824,9 @@ dependencies = [
  "blackflower-observability-tui",
  "blackflower-world-simulation",
  "blake3",
+ "bytes",
  "clap",
+ "glam",
  "metrics",
  "ratatui",
  "rcgen",
@@ -887,6 +899,7 @@ dependencies = [
  "blackflower-acoustics",
  "blackflower-ecs",
  "bytemuck",
+ "glam",
  "metrics",
  "profiling",
  "strum",
@@ -1929,6 +1942,7 @@ version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
 dependencies = [
+ "bytemuck",
  "mint",
 ]
 
@@ -5745,7 +5759,9 @@ dependencies = [
  "blackflower-scripting-luau",
  "blackflower-shader-compiler",
  "blake3",
+ "bytes",
  "clap",
+ "glam",
  "gltf",
  "half",
  "image",

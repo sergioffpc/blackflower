@@ -81,8 +81,7 @@ fn kira_mock_processes_authoritative_effects_without_callback_setup() -> Result<
     };
     let hrtf = HrtfRuntime::new()?;
     let mut builder = TrackBuilder::new().sound_capacity(1);
-    let parameters =
-        builder.add_effect(HrtfBuilder::new(&hrtf, [1.0, 0.0, 0.0], Some(propagation))?);
+    let parameters = builder.add_effect(HrtfBuilder::new(&hrtf, Vec3A::X, Some(propagation))?);
     let mut track = manager
         .add_sub_track(builder)
         .map_err(|_error| Error::ResourceLimit)?;

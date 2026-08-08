@@ -5,6 +5,7 @@ use blackflower_networking::{
     StateBootstrapHeader, StreamKind, WireError, decode_frame, decode_state_bootstrap_header,
     decode_stream_preamble, encode_state_bootstrap_header, encode_stream_preamble,
 };
+use bytes::{BufMut as _, Bytes, BytesMut};
 
 use crate::config::BOOTSTRAP_DEADLINE;
 use crate::{ClientConnection, QuicError, ServerConnection};
@@ -25,7 +26,7 @@ impl SessionControlStream {
     }
 
     /// Receive one exact bounded control frame from the stream.
-    pub async fn receive(&mut self) -> Result<Vec<u8>, QuicError> {
+    pub async fn receive(&mut self) -> Result<Bytes, QuicError> {
         read_control_frame(&mut self.receive).await
     }
 
@@ -42,7 +43,7 @@ pub struct BootstrapTransfer {
     /// Validated fixed bootstrap header.
     pub header: StateBootstrapHeader,
     /// Exact uncompressed canonical snapshot bytes.
-    pub body: Vec<u8>,
+    pub body: Bytes,
 }
 
 impl ClientConnection {
@@ -157,7 +158,10 @@ async fn receive_bootstrap(connection: &quinn::Connection) -> Result<BootstrapTr
                 WireError::Trailing
             }));
         }
-        Ok(BootstrapTransfer { header, body })
+        Ok(BootstrapTransfer {
+            header,
+            body: body.into(),
+        })
     };
     tokio::time::timeout(BOOTSTRAP_DEADLINE, transfer)
         .await
@@ -166,7 +170,7 @@ async fn receive_bootstrap(connection: &quinn::Connection) -> Result<BootstrapTr
 
 pub(crate) async fn read_control_frame(
     receive: &mut quinn::RecvStream,
-) -> Result<Vec<u8>, QuicError> {
+) -> Result<Bytes, QuicError> {
     let mut kind = [0_u8; 1];
     receive.read_exact(&mut kind).await?;
     let (length_bytes, length) = read_varint(receive).await?;
@@ -176,21 +180,21 @@ pub(crate) async fn read_control_frame(
             maximum: MAX_CONTROL_MESSAGE_BYTES,
         }));
     }
-    let mut payload = vec![0_u8; length];
+    let mut payload = BytesMut::zeroed(length);
     receive.read_exact(&mut payload).await?;
-    let mut frame = Vec::with_capacity(1 + length_bytes.len() + payload.len());
-    frame.push(kind[0]);
+    let mut frame = BytesMut::with_capacity(1 + length_bytes.len() + payload.len());
+    frame.put_u8(kind[0]);
     frame.extend_from_slice(&length_bytes);
     frame.extend_from_slice(&payload);
     let _decoded = decode_frame(&frame, MAX_CONTROL_MESSAGE_BYTES)?;
-    Ok(frame)
+    Ok(frame.freeze())
 }
 
-async fn read_varint(receive: &mut quinn::RecvStream) -> Result<(Vec<u8>, usize), QuicError> {
+async fn read_varint(receive: &mut quinn::RecvStream) -> Result<(Bytes, usize), QuicError> {
     let mut first = [0_u8; 1];
     receive.read_exact(&mut first).await?;
     let width = 1_usize << usize::from(first[0] >> 6);
-    let mut bytes = vec![0_u8; width];
+    let mut bytes = BytesMut::zeroed(width);
     bytes[0] = first[0];
     if width > 1 {
         receive.read_exact(&mut bytes[1..]).await?;
@@ -200,7 +204,7 @@ async fn read_varint(receive: &mut quinn::RecvStream) -> Result<(Vec<u8>, usize)
         value = (value << 8) | u64::from(byte);
     }
     let length = usize::try_from(value).map_err(|_error| WireError::IntegerOutOfRange)?;
-    Ok((bytes, length))
+    Ok((bytes.freeze(), length))
 }
 
 fn claim_once(claimed: &std::sync::atomic::AtomicBool) -> Result<(), QuicError> {

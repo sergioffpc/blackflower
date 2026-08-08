@@ -11,6 +11,8 @@ use blackflower_networking_replication::{
     ReplicationPriority, ReplicationSource, Snapshot, SnapshotBuilder, SnapshotDelta,
     SnapshotReassembler, SnapshotTick, SourceEntity, build_snapshot_chunks,
 };
+use bytes::{Bytes, BytesMut};
+use glam::{DQuat, DVec3};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -30,7 +32,7 @@ fn state(
     Ok(ComponentState::new(
         ComponentSampleTick::new(tick),
         priority,
-        bytes.to_vec(),
+        Bytes::copy_from_slice(bytes),
     )?)
 }
 
@@ -217,31 +219,31 @@ fn indexed_aoi_preserves_order_and_includes_distant_global_entities() -> TestRes
 
 #[test]
 fn normative_quantizers_round_trip_with_bounded_error() -> TestResult {
-    let position = QuantizedPosition::quantize([12.345, -6.789, 0.001])?;
+    let position = QuantizedPosition::quantize(DVec3::new(12.345, -6.789, 0.001))?;
     assert_eq!(position.codes(), [1_235, -679, 0]);
     let position_round_trip = position.dequantize();
     assert!((position_round_trip[0] - 12.35).abs() < 0.000_001);
 
-    let velocity = QuantizedVelocity::quantize([3.25, -2.5, 0.0])?;
+    let velocity = QuantizedVelocity::quantize(DVec3::new(3.25, -2.5, 0.0))?;
     assert_eq!(velocity.codes(), [325, -250, 0]);
-    for (actual, expected) in velocity.dequantize().into_iter().zip([3.25, -2.5, 0.0]) {
-        assert!((actual - expected).abs() < 0.000_001);
-    }
+    assert!(
+        velocity
+            .dequantize()
+            .abs_diff_eq(DVec3::new(3.25, -2.5, 0.0), 0.000_001)
+    );
 
     let angle = QuantizedAngle::quantize(std::f64::consts::PI)?;
     assert_eq!(angle.code(), 32_768);
     assert!((angle.dequantize() - std::f64::consts::PI).abs() < 0.000_001);
 
-    let quaternion = QuantizedQuaternion::quantize([0.0, 0.0, 0.0, 1.0])?;
+    let quaternion = QuantizedQuaternion::quantize(DQuat::IDENTITY)?;
     assert_eq!(quaternion.largest_index(), 3);
     assert_eq!(quaternion.components(), [0, 0, 0]);
-    for (actual, expected) in quaternion
-        .dequantize()?
-        .into_iter()
-        .zip([0.0, 0.0, 0.0, 1.0])
-    {
-        assert!((actual - expected).abs() < 0.000_001);
-    }
+    assert!(
+        quaternion
+            .dequantize()?
+            .abs_diff_eq(DQuat::IDENTITY, 0.000_001)
+    );
     Ok(())
 }
 
@@ -439,7 +441,7 @@ fn late_ack_reconstructs_a_demoted_pending_snapshot() -> TestResult {
 
 #[test]
 fn delta_rejects_an_operation_count_larger_than_the_remaining_bytes() {
-    let mut bytes = vec![0_u8; 24];
+    let mut bytes = BytesMut::zeroed(24);
     bytes[20..24].copy_from_slice(&65_536_u32.to_le_bytes());
 
     assert!(SnapshotDelta::decode(&bytes).is_err());

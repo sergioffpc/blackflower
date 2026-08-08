@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use bytes::Bytes;
+
 use crate::{PlayerId, VoiceStreamId};
 
 /// Fixed Opus packet duration.
@@ -91,11 +93,11 @@ pub fn validate_voice_deliveries(
 /// Per-stream latest jitter queue with no retransmission or fragmentation.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct VoiceSendQueues {
-    pub(crate) streams: BTreeMap<VoiceStreamId, VecDeque<Vec<u8>>>,
+    pub(crate) streams: BTreeMap<VoiceStreamId, VecDeque<Bytes>>,
 }
 
 impl VoiceSendQueues {
-    pub(crate) fn push(&mut self, stream: VoiceStreamId, bytes: Vec<u8>) {
+    pub(crate) fn push(&mut self, stream: VoiceStreamId, bytes: Bytes) {
         let queue = self.streams.entry(stream).or_default();
         if queue.len() == MAX_QUEUED_VOICE_PACKETS {
             let _expired = queue.pop_front();
@@ -103,7 +105,7 @@ impl VoiceSendQueues {
         queue.push_back(bytes);
     }
 
-    pub(crate) fn pop_oldest(&mut self) -> Option<Vec<u8>> {
+    pub(crate) fn pop_oldest(&mut self) -> Option<Bytes> {
         let stream = self
             .streams
             .iter()

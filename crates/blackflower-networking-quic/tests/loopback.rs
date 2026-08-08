@@ -94,7 +94,13 @@ async fn assert_bootstrap(client: &ClientConnection, server: &ServerConnection) 
         client.receive_bootstrap()
     );
     sent?;
-    assert_eq!(received?, BootstrapTransfer { header, body });
+    assert_eq!(
+        received?,
+        BootstrapTransfer {
+            header,
+            body: body.into(),
+        }
+    );
     Ok(())
 }
 

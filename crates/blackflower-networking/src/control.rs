@@ -1,11 +1,11 @@
-use std::num::NonZeroU64;
-
 use crate::codec::{Reader, Writer};
 use crate::wire::{MAX_CONTROL_MESSAGE_BYTES, WireError, decode_frame, encode_frame};
 use crate::{
     BootstrapId, CommandId, ConnectionEpoch, MAX_MAP_ID_BYTES, MapId, MatchId, PlayerId,
     ProjectionDigest, ProtocolRevision, RequiredContentSetId, SessionId, SimulationTick,
 };
+use bytes::Bytes;
+use std::num::NonZeroU64;
 
 /// Maximum opaque one-use resume token size.
 pub const MAX_RESUME_TOKEN_BYTES: usize = 512;
@@ -194,11 +194,11 @@ pub enum SessionControlMessage {
     /// Ask for a bounded full-state resynchronization.
     ResyncRequest { reason: ResyncReason },
     /// Present a one-use reconnect token on a fresh connection.
-    ResumeRequest { token: Vec<u8> },
+    ResumeRequest { token: Bytes },
     /// Deliver the replacement one-use reconnect token.
     ResumeIssued {
         /// Opaque token bytes.
-        token: Vec<u8>,
+        token: Bytes,
         /// Lifetime from issuance, in milliseconds.
         expires_in_millis: u32,
     },
@@ -236,7 +236,7 @@ const CONTENT_REJECTED: u8 = 15;
 const CONTROL_BINDING: u8 = 16;
 
 /// Encode one framed reliable session-control message.
-pub fn encode_control_message(message: &SessionControlMessage) -> Result<Vec<u8>, WireError> {
+pub fn encode_control_message(message: &SessionControlMessage) -> Result<Bytes, WireError> {
     let (kind, payload) = encode_control_payload(message)?;
     encode_frame(kind, &payload, MAX_CONTROL_MESSAGE_BYTES)
 }
@@ -254,11 +254,11 @@ pub fn decode_control_message(bytes: &[u8]) -> Result<SessionControlMessage, Wir
     clippy::too_many_lines,
     reason = "one exhaustive match keeps every reliable control kind visibly encoded"
 )]
-fn encode_control_payload(message: &SessionControlMessage) -> Result<(u8, Vec<u8>), WireError> {
+fn encode_control_payload(message: &SessionControlMessage) -> Result<(u8, Bytes), WireError> {
     match message {
         SessionControlMessage::AdmissionRequest { protocol_revision } => Ok((
             ADMISSION_REQUEST,
-            protocol_revision.get().to_le_bytes().to_vec(),
+            Bytes::copy_from_slice(&protocol_revision.get().to_le_bytes()),
         )),
         SessionControlMessage::AdmissionAccepted {
             claims,
@@ -305,9 +305,10 @@ fn encode_control_payload(message: &SessionControlMessage) -> Result<(u8, Vec<u8
             token,
             expires_in_millis,
         } => encode_resume_token(RESUME_ISSUED, token, Some(*expires_in_millis)),
-        SessionControlMessage::ClockSynchronized { uncertainty_ticks } => {
-            Ok((CLOCK_SYNCHRONIZED, uncertainty_ticks.to_le_bytes().to_vec()))
-        }
+        SessionControlMessage::ClockSynchronized { uncertainty_ticks } => Ok((
+            CLOCK_SYNCHRONIZED,
+            Bytes::copy_from_slice(&uncertainty_ticks.to_le_bytes()),
+        )),
         SessionControlMessage::CommandDisposition {
             command_id,
             disposition,
@@ -315,12 +316,14 @@ fn encode_control_payload(message: &SessionControlMessage) -> Result<(u8, Vec<u8
             COMMAND_DISPOSITION,
             encode_disposition(*command_id, *disposition),
         )),
-        SessionControlMessage::Closing { code } => Ok((CLOSING, code.to_le_bytes().to_vec())),
+        SessionControlMessage::Closing { code } => {
+            Ok((CLOSING, Bytes::copy_from_slice(&code.to_le_bytes())))
+        }
     }
 }
 
-fn encode_admission_rejected(reason: AdmissionRejectReason) -> (u8, Vec<u8>) {
-    (ADMISSION_REJECTED, vec![reason as u8])
+fn encode_admission_rejected(reason: AdmissionRejectReason) -> (u8, Bytes) {
+    (ADMISSION_REJECTED, Bytes::copy_from_slice(&[reason as u8]))
 }
 
 enum ContentControl<'a> {
@@ -329,28 +332,33 @@ enum ContentControl<'a> {
     Rejected(ContentRejectReason),
 }
 
-fn encode_content_control(message: ContentControl<'_>) -> Result<(u8, Vec<u8>), WireError> {
+fn encode_content_control(message: ContentControl<'_>) -> Result<(u8, Bytes), WireError> {
     match message {
         ContentControl::Manifest(manifest) => {
             Ok((CONTENT_MANIFEST, encode_content_manifest(manifest)?))
         }
         ContentControl::Ready(manifest) => Ok((CONTENT_READY, encode_content_manifest(manifest)?)),
-        ContentControl::Rejected(reason) => Ok((CONTENT_REJECTED, vec![reason as u8])),
+        ContentControl::Rejected(reason) => {
+            Ok((CONTENT_REJECTED, Bytes::copy_from_slice(&[reason as u8])))
+        }
     }
 }
 
-fn encode_activate_at(tick: SimulationTick) -> (u8, Vec<u8>) {
-    (ACTIVATE_AT, tick.get().to_le_bytes().to_vec())
+fn encode_activate_at(tick: SimulationTick) -> (u8, Bytes) {
+    (
+        ACTIVATE_AT,
+        Bytes::copy_from_slice(&tick.get().to_le_bytes()),
+    )
 }
 
-fn encode_resync_request(reason: ResyncReason) -> (u8, Vec<u8>) {
-    (RESYNC_REQUEST, vec![reason as u8])
+fn encode_resync_request(reason: ResyncReason) -> (u8, Bytes) {
+    (RESYNC_REQUEST, Bytes::copy_from_slice(&[reason as u8]))
 }
 
 fn encode_admission_accepted_control(
     claims: &AdmissionClaims,
     connection_epoch: ConnectionEpoch,
-) -> Result<(u8, Vec<u8>), WireError> {
+) -> Result<(u8, Bytes), WireError> {
     if connection_epoch.get() == 0 {
         return Err(WireError::InvalidValue("connection epoch"));
     }
@@ -365,7 +373,7 @@ fn encode_bootstrap_offer_control(
     snapshot_tick: SimulationTick,
     digest: &ProjectionDigest,
     length: u32,
-) -> (u8, Vec<u8>) {
+) -> (u8, Bytes) {
     (
         BOOTSTRAP_OFFER,
         encode_bootstrap_offer(bootstrap_id, snapshot_tick, digest, length),
@@ -417,7 +425,7 @@ fn decode_control_payload(
     }
 }
 
-fn encode_control_binding(binding: ControlBinding) -> Vec<u8> {
+fn encode_control_binding(binding: ControlBinding) -> Bytes {
     let mut writer = Writer::with_capacity(12);
     writer.u32(binding.control_epoch);
     writer.u64(binding.controlled_entity.get());
@@ -438,7 +446,7 @@ fn encode_resume_token(
     kind: u8,
     token: &[u8],
     expires_in_millis: Option<u32>,
-) -> Result<(u8, Vec<u8>), WireError> {
+) -> Result<(u8, Bytes), WireError> {
     if token.len() > MAX_RESUME_TOKEN_BYTES {
         return Err(WireError::Oversized {
             actual: token.len(),
@@ -453,22 +461,18 @@ fn encode_resume_token(
     Ok((kind, writer.finish()))
 }
 
-fn encode_claims(claims: &AdmissionClaims) -> Vec<u8> {
-    let mut writer = Writer::with_capacity(52);
+fn write_claims(writer: &mut Writer, claims: &AdmissionClaims) {
     writer.fixed(claims.session_id.as_bytes());
     writer.fixed(claims.player_id.as_bytes());
     writer.fixed(claims.match_id.as_bytes());
     writer.u32(claims.protocol_revision.get());
-    writer.finish()
 }
 
-fn encode_admission_accepted(
-    claims: &AdmissionClaims,
-    connection_epoch: ConnectionEpoch,
-) -> Vec<u8> {
-    let mut payload = encode_claims(claims);
-    payload.extend_from_slice(&connection_epoch.get().to_le_bytes());
-    payload
+fn encode_admission_accepted(claims: &AdmissionClaims, connection_epoch: ConnectionEpoch) -> Bytes {
+    let mut writer = Writer::with_capacity(56);
+    write_claims(&mut writer, claims);
+    writer.u32(connection_epoch.get());
+    writer.finish()
 }
 
 fn decode_admission_accepted(reader: &mut Reader<'_>) -> Result<SessionControlMessage, WireError> {
@@ -492,7 +496,7 @@ fn decode_claims(reader: &mut Reader<'_>) -> Result<AdmissionClaims, WireError> 
     })
 }
 
-fn encode_content_manifest(manifest: &ContentManifest) -> Result<Vec<u8>, WireError> {
+fn encode_content_manifest(manifest: &ContentManifest) -> Result<Bytes, WireError> {
     let mut writer = Writer::with_capacity(2 + manifest.map_id.as_str().len() + 32);
     writer.bytes_u16(manifest.map_id.as_str().as_bytes())?;
     writer.fixed(manifest.required_content_set_id.as_bytes());
@@ -517,7 +521,7 @@ fn encode_bootstrap_offer(
     tick: SimulationTick,
     digest: &ProjectionDigest,
     length: u32,
-) -> Vec<u8> {
+) -> Bytes {
     let mut writer = Writer::with_capacity(52);
     writer.u64(bootstrap_id.get());
     writer.u64(tick.get());
@@ -530,7 +534,7 @@ fn encode_bootstrap_applied(
     bootstrap_id: BootstrapId,
     tick: SimulationTick,
     digest: &ProjectionDigest,
-) -> Vec<u8> {
+) -> Bytes {
     let mut writer = Writer::with_capacity(48);
     writer.u64(bootstrap_id.get());
     writer.u64(tick.get());
@@ -568,7 +572,7 @@ fn decode_resume_issued(reader: &mut Reader<'_>) -> Result<SessionControlMessage
     })
 }
 
-fn encode_disposition(command_id: CommandId, disposition: CommandDisposition) -> Vec<u8> {
+fn encode_disposition(command_id: CommandId, disposition: CommandDisposition) -> Bytes {
     let mut writer = Writer::with_capacity(17);
     writer.u64(command_id.get());
     match disposition {

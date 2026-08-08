@@ -1,4 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
+use glam::{Vec2, Vec3, Vec4};
 
 use crate::Error;
 
@@ -61,22 +62,22 @@ impl VertexAttributes {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeshVertex {
     /// Object-space position.
-    pub position: [f32; 3],
+    pub position: Vec3,
     /// Object-space normal, or zero when the channel is absent.
-    pub normal: [f32; 3],
+    pub normal: Vec3,
     /// Tangent and handedness, or zero when the channel is absent.
-    pub tangent: [f32; 4],
+    pub tangent: Vec4,
     /// First texture coordinate, or zero when the channel is absent.
-    pub texcoord_0: [f32; 2],
+    pub texcoord_0: Vec2,
 }
 
 /// Axis-aligned object-space bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
     /// Minimum coordinate on each axis.
-    pub min: [f32; 3],
+    pub min: Vec3,
     /// Maximum coordinate on each axis.
-    pub max: [f32; 3],
+    pub max: Vec3,
 }
 
 /// One independently drawable level of detail.
@@ -250,15 +251,15 @@ fn encode_lod(output: &mut BytesMut, lod: &MeshLod) -> Result<(), Error> {
         Error::InvalidInput,
     )?;
     output.put_u32_le(lod.geometric_error.to_bits());
-    put_floats(output, &lod.bounds.min);
-    put_floats(output, &lod.bounds.max);
+    put_floats(output, &lod.bounds.min.to_array());
+    put_floats(output, &lod.bounds.max.to_array());
     put_len(output, lod.vertices.len(), "vertex")?;
     put_len(output, lod.indices.len(), "index")?;
     for vertex in &lod.vertices {
-        put_floats(output, &vertex.position);
-        put_floats(output, &vertex.normal);
-        put_floats(output, &vertex.tangent);
-        put_floats(output, &vertex.texcoord_0);
+        put_floats(output, &vertex.position.to_array());
+        put_floats(output, &vertex.normal.to_array());
+        put_floats(output, &vertex.tangent.to_array());
+        put_floats(output, &vertex.texcoord_0.to_array());
     }
     for &index in &lod.indices {
         output.put_u32_le(index);
@@ -314,18 +315,18 @@ fn decode_primitive(reader: &mut Reader<'_>) -> Result<MeshPrimitive, Error> {
 fn decode_lod(reader: &mut Reader<'_>) -> Result<MeshLod, Error> {
     let geometric_error = f32::from_bits(reader.u32()?);
     let bounds = Bounds {
-        min: reader.f32_array()?,
-        max: reader.f32_array()?,
+        min: Vec3::from_array(reader.f32_array()?),
+        max: Vec3::from_array(reader.f32_array()?),
     };
     let vertex_count = reader.count_for_bytes("vertex", VERTEX_BYTES)?;
     let index_count = reader.count_for_bytes("index", size_of::<u32>())?;
     let mut vertices = Vec::with_capacity(vertex_count);
     for _ in 0..vertex_count {
         vertices.push(MeshVertex {
-            position: reader.f32_array()?,
-            normal: reader.f32_array()?,
-            tangent: reader.f32_array()?,
-            texcoord_0: reader.f32_array()?,
+            position: Vec3::from_array(reader.f32_array()?),
+            normal: Vec3::from_array(reader.f32_array()?),
+            tangent: Vec4::from_array(reader.f32_array()?),
+            texcoord_0: Vec2::from_array(reader.f32_array()?),
         });
     }
     let mut indices = Vec::with_capacity(index_count);
@@ -408,23 +409,18 @@ fn validate_lod(
 }
 
 fn vertex_is_finite(vertex: &MeshVertex) -> bool {
-    vertex
-        .position
-        .iter()
-        .chain(&vertex.normal)
-        .chain(&vertex.tangent)
-        .chain(&vertex.texcoord_0)
-        .all(|value| value.is_finite())
+    vertex.position.is_finite()
+        && vertex.normal.is_finite()
+        && vertex.tangent.is_finite()
+        && vertex.texcoord_0.is_finite()
 }
 
 fn calculate_bounds(vertices: &[MeshVertex]) -> Bounds {
     let mut min = vertices[0].position;
     let mut max = min;
     for vertex in &vertices[1..] {
-        for axis in 0..3 {
-            min[axis] = min[axis].min(vertex.position[axis]);
-            max[axis] = max[axis].max(vertex.position[axis]);
-        }
+        min = min.min(vertex.position);
+        max = max.max(vertex.position);
     }
     Bounds { min, max }
 }

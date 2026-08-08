@@ -1,3 +1,5 @@
+use bytes::BytesMut;
+
 use super::ProtocolError;
 
 pub(crate) fn ensure_length(
@@ -78,14 +80,14 @@ impl<'a> Decoder<'a> {
     }
 }
 
-pub(crate) fn put_i16(output: &mut Vec<u8>, value: i16) {
+pub(crate) fn put_i16(output: &mut BytesMut, value: i16) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-pub(crate) fn put_i32(output: &mut Vec<u8>, value: i32) {
+pub(crate) fn put_i32(output: &mut BytesMut, value: i32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-pub(crate) fn put_u64(output: &mut Vec<u8>, value: u64) {
+pub(crate) fn put_u64(output: &mut BytesMut, value: u64) {
     output.extend_from_slice(&value.to_le_bytes());
 }

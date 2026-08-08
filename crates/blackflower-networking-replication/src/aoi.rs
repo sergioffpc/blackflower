@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use glam::DVec3;
+
 use crate::{EntityState, ReplicatedEntityId, Snapshot, SnapshotTick};
 
 /// Fixed spherical AOI entry radius.
@@ -12,13 +14,13 @@ const AOI_INDEX_CELL_METERS: f64 = AOI_ENTRY_RADIUS_METERS;
 
 /// Validated world-space position used by replication interest management.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Position([f64; 3]);
+pub struct Position(DVec3);
 
 impl Position {
     /// Construct a finite world-space position in metres.
     pub fn new(x: f64, y: f64, z: f64) -> Result<Self, AoiError> {
-        let coordinates = [x, y, z];
-        if coordinates.into_iter().all(f64::is_finite) {
+        let coordinates = DVec3::new(x, y, z);
+        if coordinates.is_finite() {
             Ok(Self(coordinates))
         } else {
             Err(AoiError::NonFinitePosition)
@@ -27,17 +29,12 @@ impl Position {
 
     /// Return the position coordinates in metres.
     #[must_use]
-    pub const fn coordinates(self) -> [f64; 3] {
+    pub const fn coordinates(self) -> DVec3 {
         self.0
     }
 
     fn distance_squared(self, other: Self) -> f64 {
-        let [self_x, self_y, self_z] = self.0;
-        let [other_x, other_y, other_z] = other.0;
-        (self_x - other_x).mul_add(
-            self_x - other_x,
-            (self_y - other_y).mul_add(self_y - other_y, (self_z - other_z) * (self_z - other_z)),
-        )
+        self.0.distance_squared(other.0)
     }
 }
 
@@ -46,7 +43,7 @@ struct SpatialCell([i64; 3]);
 
 impl SpatialCell {
     fn containing(position: Position) -> Self {
-        Self(position.coordinates().map(cell_coordinate))
+        Self(position.coordinates().to_array().map(cell_coordinate))
     }
 }
 
@@ -141,9 +138,16 @@ impl ReplicationSource {
         output: &mut Vec<ReplicatedEntityId>,
     ) {
         output.clear();
-        let [x, y, z] = center.coordinates();
-        let minimum = SpatialCell([x - radius, y - radius, z - radius].map(cell_coordinate));
-        let maximum = SpatialCell([x + radius, y + radius, z + radius].map(cell_coordinate));
+        let minimum = SpatialCell(
+            (center.coordinates() - DVec3::splat(radius))
+                .to_array()
+                .map(cell_coordinate),
+        );
+        let maximum = SpatialCell(
+            (center.coordinates() + DVec3::splat(radius))
+                .to_array()
+                .map(cell_coordinate),
+        );
         let widths = std::array::from_fn::<u128, 3, _>(|axis| {
             u128::from(maximum.0[axis].abs_diff(minimum.0[axis])).saturating_add(1)
         });

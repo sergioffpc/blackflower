@@ -233,7 +233,7 @@ impl ObservabilityGuard {
     }
 
     /// Publish the current non-blocking writer health to the metrics recorder.
-    pub fn report_health(&self) {
+    pub fn report_log_pipeline_health(&self) {
         let dropped = u64::try_from(self.dropped_log_lines()).unwrap_or(u64::MAX);
         metrics::counter!("blackflower_observability_log_lines_dropped_total").absolute(dropped);
         if let Some(control) = &self.foreground_log_control {
@@ -245,7 +245,7 @@ impl ObservabilityGuard {
 
 impl Drop for ObservabilityGuard {
     fn drop(&mut self) {
-        self.report_health();
+        self.report_log_pipeline_health();
         tracing::info!(
             target: "blackflower_observability",
             event_name = "service_stopping",

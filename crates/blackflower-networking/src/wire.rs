@@ -1,4 +1,5 @@
 use crate::{ConnectionEpoch, FlowSequence, ProjectionDigest, ProtocolRevision, SimulationTick};
+use bytes::{BufMut as _, Bytes, BytesMut};
 
 /// Version of the common Blackflower application datagram header.
 pub const WIRE_VERSION: u8 = 1;
@@ -141,15 +142,15 @@ pub enum WireError {
 }
 
 /// Encode one common application datagram.
-pub fn encode_datagram(header: DatagramHeader, payload: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(DATAGRAM_HEADER_BYTES + payload.len());
-    bytes.push(WIRE_VERSION);
-    bytes.push(header.flow as u8);
+pub fn encode_datagram(header: DatagramHeader, payload: &[u8]) -> Bytes {
+    let mut bytes = BytesMut::with_capacity(DATAGRAM_HEADER_BYTES + payload.len());
+    bytes.put_u8(WIRE_VERSION);
+    bytes.put_u8(header.flow as u8);
     bytes.extend_from_slice(&header.connection_epoch.get().to_le_bytes());
     bytes.extend_from_slice(&header.flow_sequence.get().to_le_bytes());
-    bytes.push(0);
+    bytes.put_u8(0);
     bytes.extend_from_slice(payload);
-    bytes
+    bytes.freeze()
 }
 
 /// Decode and validate the common application datagram header.
@@ -205,14 +206,14 @@ pub fn decode_stream_preamble(bytes: &[u8]) -> Result<StreamKind, WireError> {
 }
 
 /// Encode a kind-tagged, length-delimited reliable message.
-pub fn encode_frame(kind: u8, payload: &[u8], maximum: usize) -> Result<Vec<u8>, WireError> {
+pub fn encode_frame(kind: u8, payload: &[u8], maximum: usize) -> Result<Bytes, WireError> {
     enforce_size(payload.len(), maximum)?;
     let length = u64::try_from(payload.len()).map_err(|_error| WireError::IntegerOutOfRange)?;
-    let mut bytes = Vec::with_capacity(1 + 8 + payload.len());
-    bytes.push(kind);
+    let mut bytes = BytesMut::with_capacity(1 + 8 + payload.len());
+    bytes.put_u8(kind);
     encode_varint(length, &mut bytes)?;
     bytes.extend_from_slice(payload);
-    Ok(bytes)
+    Ok(bytes.freeze())
 }
 
 /// Decode exactly one kind-tagged reliable message.
@@ -261,9 +262,11 @@ pub(crate) fn copy_array<const N: usize>(bytes: &[u8]) -> Result<[u8; N], WireEr
     <[u8; N]>::try_from(bytes).map_err(|_error| WireError::Truncated)
 }
 
-fn encode_varint(value: u64, output: &mut Vec<u8>) -> Result<(), WireError> {
+fn encode_varint(value: u64, output: &mut BytesMut) -> Result<(), WireError> {
     match value {
-        0..=63 => output.push(u8::try_from(value).map_err(|_error| WireError::IntegerOutOfRange)?),
+        0..=63 => {
+            output.put_u8(u8::try_from(value).map_err(|_error| WireError::IntegerOutOfRange)?)
+        }
         64..=16_383 => encode_varint_two(value, output)?,
         16_384..=1_073_741_823 => encode_varint_four(value, output)?,
         1_073_741_824..=4_611_686_018_427_387_903 => encode_varint_eight(value, output),
@@ -272,20 +275,20 @@ fn encode_varint(value: u64, output: &mut Vec<u8>) -> Result<(), WireError> {
     Ok(())
 }
 
-fn encode_varint_two(value: u64, output: &mut Vec<u8>) -> Result<(), WireError> {
+fn encode_varint_two(value: u64, output: &mut BytesMut) -> Result<(), WireError> {
     let encoded = u16::try_from(value).map_err(|_error| WireError::IntegerOutOfRange)? | 0x4000;
     output.extend_from_slice(&encoded.to_be_bytes());
     Ok(())
 }
 
-fn encode_varint_four(value: u64, output: &mut Vec<u8>) -> Result<(), WireError> {
+fn encode_varint_four(value: u64, output: &mut BytesMut) -> Result<(), WireError> {
     let encoded =
         u32::try_from(value).map_err(|_error| WireError::IntegerOutOfRange)? | 0x8000_0000;
     output.extend_from_slice(&encoded.to_be_bytes());
     Ok(())
 }
 
-fn encode_varint_eight(value: u64, output: &mut Vec<u8>) {
+fn encode_varint_eight(value: u64, output: &mut BytesMut) {
     output.extend_from_slice(&(value | 0xc000_0000_0000_0000).to_be_bytes());
 }
 

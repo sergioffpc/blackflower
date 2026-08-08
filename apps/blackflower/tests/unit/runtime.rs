@@ -12,6 +12,7 @@ use blackflower_networking::{
 };
 use blackflower_networking_replication::Snapshot;
 use blackflower_world_presentation::PresentationWorld;
+use bytes::Bytes;
 
 use super::{FrameClock, HarnessPresentationRuntime, PresentationBridge};
 
@@ -88,24 +89,24 @@ fn harness_config() -> ClientHarnessConfig {
 #[derive(Default)]
 struct TestTransport {
     events: VecDeque<ClientTransportEvent>,
-    control: Vec<Vec<u8>>,
-    latest_input: Option<Vec<u8>>,
+    control: Vec<Bytes>,
+    latest_input: Option<Bytes>,
 }
 
 impl ClientTransport for TestTransport {
     type Error = io::Error;
 
-    fn send_control(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_control(&mut self, frame: Bytes) -> Result<(), Self::Error> {
         self.control.push(frame);
         Ok(())
     }
 
-    fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn set_latest_input(&mut self, datagram: Bytes) -> Result<(), Self::Error> {
         self.latest_input = Some(datagram);
         Ok(())
     }
 
-    fn send_time_sync(&mut self, _datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_time_sync(&mut self, _datagram: Bytes) -> Result<(), Self::Error> {
         Ok(())
     }
 

@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 
 use blackflower_networking::SimulationTick;
 use blackflower_networking_protocol::v1::MovementControl;
+use glam::DVec2;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -47,7 +48,7 @@ fn user_interface_input_is_neutral_and_stalled_cadence_restarts() -> TestResult 
         .ok_or("first control was not scheduled")?;
     let first_tick = first.submission.execute_tick;
     let first_control = MovementControl::decode(&first.submission.payload)?;
-    assert_vector_close(first_control.movement(), [0.0; 2]);
+    assert_vector_close(first_control.movement(), DVec2::ZERO);
     controls.commit(first_tick);
 
     let restarted = controls
@@ -97,8 +98,6 @@ fn press(input: &mut InputState, key: KeyCode) {
     input.keyboard_input(PhysicalKey::Code(key), ElementState::Pressed, false);
 }
 
-fn assert_vector_close(actual: [f64; 2], expected: [f64; 2]) {
-    for (actual, expected) in actual.into_iter().zip(expected) {
-        assert!((actual - expected).abs() < f64::EPSILON);
-    }
+fn assert_vector_close(actual: DVec2, expected: DVec2) {
+    assert!(actual.abs_diff_eq(expected, f64::EPSILON));
 }

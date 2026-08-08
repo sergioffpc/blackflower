@@ -140,7 +140,7 @@ fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
             rotation,
             scale,
         } => {
-            let rotation = normalize_quaternion(rotation)?;
+            let rotation = normalize_quaternion(glam::Quat::from_array(rotation))?.to_array();
             Transform::Decomposed {
                 translation,
                 rotation,
@@ -150,37 +150,39 @@ fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
         }
         Transform::Matrix { matrix } => matrix,
     };
-    NodeTransform::matrix(coordinate_system::matrix_from_gltf(matrix)).map_err(anyhow::Error::from)
+    NodeTransform::matrix(
+        coordinate_system::matrix_from_gltf(glam::Mat4::from_cols_array_2d(&matrix))
+            .to_cols_array(),
+    )
+    .map_err(anyhow::Error::from)
 }
 
 #[allow(
     clippy::cast_possible_truncation,
     reason = "normalized components are bounded to [-1, 1] and cooked matrices store f32"
 )]
-fn normalize_quaternion(rotation: [f32; 4]) -> anyhow::Result<[f32; 4]> {
-    if !rotation.into_iter().all(f32::is_finite) {
+fn normalize_quaternion(rotation: glam::Quat) -> anyhow::Result<glam::Quat> {
+    if !rotation.is_finite() {
         bail!("model rotation quaternion contains non-finite data");
     }
-    let length_squared = rotation
-        .into_iter()
-        .map(|value| {
-            let value = f64::from(value);
-            value * value
-        })
-        .sum::<f64>();
+    let rotation = rotation.as_dquat();
+    let length_squared = rotation.length_squared();
     if length_squared == 0.0 {
         bail!("model rotation quaternion has zero length");
     }
-    let inverse_length = length_squared.sqrt().recip();
-    let mut normalized = rotation.map(|value| (f64::from(value) * inverse_length) as f32);
+    let mut normalized = rotation.normalize().as_quat();
     if quaternion_needs_flip(normalized) {
-        normalized = normalized.map(|value| -value);
+        normalized = -normalized;
     }
-    Ok(normalized.map(|value| if value == 0.0 { 0.0 } else { value }))
+    Ok(glam::Quat::from_array(
+        normalized
+            .to_array()
+            .map(|value| if value == 0.0 { 0.0 } else { value }),
+    ))
 }
 
-fn quaternion_needs_flip(rotation: [f32; 4]) -> bool {
-    [rotation[3], rotation[0], rotation[1], rotation[2]]
+fn quaternion_needs_flip(rotation: glam::Quat) -> bool {
+    [rotation.w, rotation.x, rotation.y, rotation.z]
         .into_iter()
         .find(|value| *value != 0.0)
         .is_some_and(f32::is_sign_negative)

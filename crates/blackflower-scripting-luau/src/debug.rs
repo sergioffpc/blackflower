@@ -1,3 +1,5 @@
+use glam::Vec3;
+
 /// Reason the embedded Luau debugger invoked the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugEventKind {
@@ -31,7 +33,7 @@ pub enum DebugValue {
     /// Luau byte string.
     String(Box<[u8]>),
     /// Luau's default three-component vector.
-    Vector([f32; 3]),
+    Vector(Vec3),
     /// A value intentionally kept inside the VM.
     Opaque {
         /// Stable Luau type name.

@@ -9,6 +9,7 @@ use blackflower_networking_replication::{
     SnapshotTick,
 };
 use blackflower_world_simulation::{ActorId, MovementFrame};
+use bytes::Bytes;
 
 /// Project one sealed movement frame for a particular owning client.
 pub fn project_movement_frame(
@@ -19,10 +20,10 @@ pub fn project_movement_frame(
     let mut entities = Vec::with_capacity(frame.actors().len());
     for actor in frame.actors() {
         let transform = Transform::quantize(
-            actor.position_meters.map(f64::from),
-            actor.orientation.map(f64::from),
+            actor.position_meters.as_dvec3(),
+            actor.orientation.as_dquat(),
         )?;
-        let velocity = Velocity::quantize(actor.velocity_meters_per_second.map(f64::from))?;
+        let velocity = Velocity::quantize(actor.velocity_meters_per_second.as_dvec3())?;
         let mut components = vec![
             component(TRANSFORM_COMPONENT_ID, sample_tick, transform.encode())?,
             component(VELOCITY_COMPONENT_ID, sample_tick, velocity.encode())?,
@@ -54,7 +55,7 @@ pub fn project_movement_frame(
 fn component(
     id: ComponentId,
     sample_tick: ComponentSampleTick,
-    bytes: Vec<u8>,
+    bytes: Bytes,
 ) -> Result<(ComponentId, ComponentState), SimulationProjectionError> {
     let priority = replication_priority(id).ok_or(SimulationProjectionError::UnknownComponent)?;
     Ok((id, ComponentState::new(sample_tick, priority, bytes)?))

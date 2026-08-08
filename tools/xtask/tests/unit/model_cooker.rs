@@ -1,3 +1,4 @@
+use glam::Quat;
 use gltf::scene::Transform;
 
 use super::{normalize_quaternion, transform};
@@ -38,8 +39,8 @@ fn quaternion_sign_does_not_change_cooked_matrix() -> anyhow::Result<()> {
 
 #[test]
 fn rejects_zero_and_non_finite_quaternions() {
-    assert!(normalize_quaternion([0.0; 4]).is_err());
-    assert!(normalize_quaternion([f32::NAN, 0.0, 0.0, 1.0]).is_err());
+    assert!(normalize_quaternion(Quat::from_xyzw(0.0, 0.0, 0.0, 0.0)).is_err());
+    assert!(normalize_quaternion(Quat::from_xyzw(f32::NAN, 0.0, 0.0, 1.0)).is_err());
 }
 
 #[test]

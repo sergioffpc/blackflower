@@ -2,6 +2,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use blackflower_networking::{CodecViolation, CommandCodec, ControlCodec, ProtocolRevision};
 use blackflower_networking_replication::QuantizedAngle;
+use glam::DVec2;
 
 use super::ProtocolError;
 use super::wire::{Decoder, ensure_length};
@@ -64,13 +65,12 @@ pub struct MovementControl {
 impl MovementControl {
     /// Quantize normalized local-space movement and absolute view angles.
     pub fn quantize(
-        move_right: f64,
-        move_forward: f64,
+        movement: DVec2,
         view_yaw_radians: f64,
         view_pitch_radians: f64,
     ) -> Result<Self, ProtocolError> {
-        let move_right = quantize_axis(move_right)?;
-        let move_forward = quantize_axis(move_forward)?;
+        let move_right = quantize_axis(movement.x)?;
+        let move_forward = quantize_axis(movement.y)?;
         Self::from_codes(
             move_right,
             move_forward,
@@ -109,11 +109,11 @@ impl MovementControl {
 
     /// Return normalized rightward and forward movement values.
     #[must_use]
-    pub fn movement(self) -> [f64; 2] {
-        [
+    pub fn movement(self) -> DVec2 {
+        DVec2::new(
             f64::from(self.move_right) / MOVEMENT_AXIS_SCALE,
             f64::from(self.move_forward) / MOVEMENT_AXIS_SCALE,
-        ]
+        )
     }
 
     /// Return the absolute full-turn view yaw.

@@ -3,6 +3,7 @@ use blackflower_assets::Bytes;
 use blackflower_rendering_models::{
     MeshLod, MeshPrimitive, MeshVertex, VertexAttributes, encode_mesh,
 };
+use glam::{Vec2, Vec3, Vec4};
 use gltf::Semantic;
 use gltf::mesh::{Mode, Primitive};
 use meshopt::{DecodePosition, SimplifyOptions};
@@ -16,15 +17,15 @@ pub(crate) const COOKER_RECIPE: &str = "blackflower-mesh-cooker-v1";
 
 #[derive(Debug, Clone, Copy, Default)]
 struct CookVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tangent: [f32; 4],
-    texcoord_0: [f32; 2],
+    position: Vec3,
+    normal: Vec3,
+    tangent: Vec4,
+    texcoord_0: Vec2,
 }
 
 impl DecodePosition for CookVertex {
     fn decode_position(&self) -> [f32; 3] {
-        self.position
+        self.position.to_array()
     }
 }
 
@@ -219,12 +220,14 @@ fn assemble_vertices(
         .iter()
         .enumerate()
         .map(|(index, &position)| CookVertex {
-            position: vector_from_gltf(position),
-            normal: normals.map_or([0.0; 3], |values| vector_from_gltf(values[index])),
-            tangent: tangents.map_or([0.0; 4], |values| {
-                coordinate_system::tangent_from_gltf(values[index])
+            position: vector_from_gltf(Vec3::from_array(position)),
+            normal: normals.map_or(Vec3::ZERO, |values| {
+                vector_from_gltf(Vec3::from_array(values[index]))
             }),
-            texcoord_0: texcoords.map_or([0.0; 2], |values| values[index]),
+            tangent: tangents.map_or(Vec4::ZERO, |values| {
+                coordinate_system::tangent_from_gltf(Vec4::from_array(values[index]))
+            }),
+            texcoord_0: texcoords.map_or(Vec2::ZERO, |values| Vec2::from_array(values[index])),
         })
         .collect()
 }

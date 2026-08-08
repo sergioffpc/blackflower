@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     }
     let mut observability = init(&config).context("observability init failed")?;
     initialize_agent_metrics();
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let capabilities = AgentCapabilities::shell();
     tracing::info!(
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
         event_name = "agent_shell_stopped",
         "agent shell stopped",
     );
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 

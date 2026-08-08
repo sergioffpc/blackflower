@@ -5,6 +5,7 @@ use blackflower_networking::{
     MatchId, PlayerId, RECONNECT_WINDOW, ResumeClaims, SessionAuthority, SessionId,
     validate_resume_token,
 };
+use bytes::Bytes;
 
 /// Credential-free one-process identity authority for the loopback vertical slice.
 ///
@@ -16,7 +17,7 @@ pub struct LoopbackSessionAuthority {
     contract: CompatibilityContract,
     next_admission: u64,
     resume_claims: Option<AdmissionClaims>,
-    resume_token: Vec<u8>,
+    resume_token: Bytes,
     resume_expires_at: Option<Duration>,
     resume_available: bool,
     next_resume_generation: u64,
@@ -30,7 +31,7 @@ impl LoopbackSessionAuthority {
             contract,
             next_admission: 1,
             resume_claims: None,
-            resume_token: Vec::new(),
+            resume_token: Bytes::new(),
             resume_expires_at: None,
             resume_available: false,
             next_resume_generation: 1,
@@ -66,8 +67,10 @@ impl SessionAuthority for LoopbackSessionAuthority {
         let mut material = [0_u8; 24];
         material[..16].copy_from_slice(claims.session_id.as_bytes());
         material[16..].copy_from_slice(&generation.to_le_bytes());
-        self.resume_token =
-            blake3::derive_key("blackflower.loopback.resume.v1", &material).to_vec();
+        self.resume_token = Bytes::copy_from_slice(&blake3::derive_key(
+            "blackflower.loopback.resume.v1",
+            &material,
+        ));
         self.resume_claims = Some(*claims);
         self.resume_expires_at = Some(expires_at);
         self.resume_available = true;

@@ -1,5 +1,7 @@
 use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 
+use glam::{DQuat, DVec3};
+
 /// Normative position resolution: one signed centimetre.
 pub const POSITION_UNITS_PER_METER: f64 = 100.0;
 /// Normative velocity resolution: one signed centimetre per second.
@@ -17,11 +19,11 @@ impl QuantizedPosition {
     }
 
     /// Quantize a finite metre-space position using signed centimetres.
-    pub fn quantize(position_meters: [f64; 3]) -> Result<Self, QuantizationError> {
+    pub fn quantize(position_meters: DVec3) -> Result<Self, QuantizationError> {
         Ok(Self([
-            position_code(position_meters[0])?,
-            position_code(position_meters[1])?,
-            position_code(position_meters[2])?,
+            position_code(position_meters.x)?,
+            position_code(position_meters.y)?,
+            position_code(position_meters.z)?,
         ]))
     }
 
@@ -33,9 +35,11 @@ impl QuantizedPosition {
 
     /// Reconstruct metres from signed centimetres.
     #[must_use]
-    pub fn dequantize(self) -> [f64; 3] {
-        self.0
-            .map(|code| f64::from(code) / POSITION_UNITS_PER_METER)
+    pub fn dequantize(self) -> DVec3 {
+        DVec3::from_array(
+            self.0
+                .map(|code| f64::from(code) / POSITION_UNITS_PER_METER),
+        )
     }
 }
 
@@ -51,11 +55,11 @@ impl QuantizedVelocity {
     }
 
     /// Quantize a finite velocity using signed centimetres per second.
-    pub fn quantize(meters_per_second: [f64; 3]) -> Result<Self, QuantizationError> {
+    pub fn quantize(meters_per_second: DVec3) -> Result<Self, QuantizationError> {
         Ok(Self([
-            velocity_code(meters_per_second[0])?,
-            velocity_code(meters_per_second[1])?,
-            velocity_code(meters_per_second[2])?,
+            velocity_code(meters_per_second.x)?,
+            velocity_code(meters_per_second.y)?,
+            velocity_code(meters_per_second.z)?,
         ]))
     }
 
@@ -67,9 +71,11 @@ impl QuantizedVelocity {
 
     /// Reconstruct metres per second.
     #[must_use]
-    pub fn dequantize(self) -> [f64; 3] {
-        self.0
-            .map(|code| f64::from(code) / VELOCITY_UNITS_PER_METER_PER_SECOND)
+    pub fn dequantize(self) -> DVec3 {
+        DVec3::from_array(
+            self.0
+                .map(|code| f64::from(code) / VELOCITY_UNITS_PER_METER_PER_SECOND),
+        )
     }
 }
 
@@ -133,26 +139,22 @@ impl QuantizedQuaternion {
     }
 
     /// Normalize and encode a quaternion, canonicalizing the omitted term positive.
-    pub fn quantize(quaternion: [f64; 4]) -> Result<Self, QuantizationError> {
-        if !quaternion.into_iter().all(f64::is_finite) {
+    pub fn quantize(quaternion: DQuat) -> Result<Self, QuantizationError> {
+        if !quaternion.is_finite() {
             return Err(QuantizationError::NonFinite);
         }
-        let magnitude_squared = quaternion
-            .into_iter()
-            .map(|value| value * value)
-            .sum::<f64>();
+        let magnitude_squared = quaternion.length_squared();
         if magnitude_squared <= f64::EPSILON {
             return Err(QuantizationError::ZeroQuaternion);
         }
-        let inverse_magnitude = magnitude_squared.sqrt().recip();
-        let mut normalized = quaternion.map(|value| value * inverse_magnitude);
+        let mut normalized = quaternion.normalize();
         let largest_index = largest_component(normalized);
-        if normalized[largest_index] < 0.0 {
-            normalized = normalized.map(|value| -value);
+        if normalized.to_array()[largest_index] < 0.0 {
+            normalized = -normalized;
         }
         let mut components = [0_i16; 3];
         let mut output_index = 0;
-        for (index, value) in normalized.into_iter().enumerate() {
+        for (index, value) in normalized.to_array().into_iter().enumerate() {
             if index != largest_index {
                 components[output_index] = quaternion_code(value)?;
                 output_index += 1;
@@ -178,7 +180,7 @@ impl QuantizedQuaternion {
     }
 
     /// Reconstruct the canonical positive-largest unit quaternion.
-    pub fn dequantize(self) -> Result<[f64; 4], QuantizationError> {
+    pub fn dequantize(self) -> Result<DQuat, QuantizationError> {
         let largest_index = usize::from(self.largest_index);
         if largest_index >= 4 {
             return Err(QuantizationError::InvalidQuaternionIndex);
@@ -196,7 +198,7 @@ impl QuantizedQuaternion {
             }
         }
         quaternion[largest_index] = (1.0 - sum).max(0.0).sqrt();
-        Ok(quaternion)
+        Ok(DQuat::from_array(quaternion))
     }
 }
 
@@ -252,7 +254,8 @@ fn quaternion_code(value: f64) -> Result<i16, QuantizationError> {
     Ok(f64_to_i16(scaled))
 }
 
-fn largest_component(quaternion: [f64; 4]) -> usize {
+fn largest_component(quaternion: DQuat) -> usize {
+    let quaternion = quaternion.to_array();
     let mut largest_index = 0;
     let mut largest_magnitude = quaternion[0].abs();
     for (index, value) in quaternion.into_iter().enumerate().skip(1) {

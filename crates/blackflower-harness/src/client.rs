@@ -1,7 +1,3 @@
-use std::collections::{BTreeMap, VecDeque};
-use std::error::Error as StdError;
-use std::time::Duration;
-
 use crate::input::{InputBuildError, InputSender};
 use crate::snapshots::{AppliedSnapshot, SnapshotInbox, SnapshotInboxError};
 use crate::{
@@ -17,6 +13,10 @@ use blackflower_networking::{
     encode_control_message, encode_datagram, encode_time_sync, record_bootstrap,
     record_clock_uncertainty, record_inputs, record_resync, record_snapshot, record_voice,
 };
+use bytes::Bytes;
+use std::collections::{BTreeMap, VecDeque};
+use std::error::Error as StdError;
+use std::time::Duration;
 
 const MAX_EVENTS_PER_UPDATE: usize = 128;
 const MAX_PENDING_EVENTS: usize = 256;
@@ -207,7 +207,7 @@ where
     pub fn reconnect(
         &mut self,
         transport: T,
-        token: Vec<u8>,
+        token: Bytes,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         self.session.begin_reconnect()?;
         self.transport = transport;
@@ -373,7 +373,7 @@ where
 
     fn resume_issued(
         &mut self,
-        token: Vec<u8>,
+        token: Bytes,
         expires_in_millis: u32,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         self.events.push_back(ClientEvent::ResumeIssued {
@@ -385,7 +385,7 @@ where
 
     fn handle_datagram(
         &mut self,
-        datagram: bytes::Bytes,
+        datagram: Bytes,
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         let decoded = decode_datagram(&datagram)?;
@@ -717,7 +717,7 @@ struct BootstrapOffer {
 
 struct BootstrapTransfer {
     header: StateBootstrapHeader,
-    body: Vec<u8>,
+    body: Bytes,
 }
 
 /// Failure while coordinating transport, session, replication, and prediction.

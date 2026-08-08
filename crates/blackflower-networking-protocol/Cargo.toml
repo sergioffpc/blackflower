@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 blackflower-networking.workspace = true
 blackflower-networking-replication.workspace = true
+bytes.workspace = true
+glam.workspace = true
 thiserror.workspace = true
 
 [lints]

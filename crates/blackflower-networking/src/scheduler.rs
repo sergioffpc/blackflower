@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
+use bytes::Bytes;
+
 use crate::voice::{MAX_AUDIBLE_VOICES, VoiceSendQueues};
 use crate::{VoiceStreamId, WireError};
 
@@ -68,7 +70,7 @@ pub struct ScheduledPayload {
     /// Scheduling class used for observability.
     pub class: TrafficClass,
     /// Exact application bytes passed to Quinn.
-    pub bytes: Vec<u8>,
+    pub bytes: Bytes,
 }
 
 /// Bounded-queue backpressure result.
@@ -94,13 +96,13 @@ pub enum QueueError {
 /// All bounded host-facing queues for one connection.
 #[derive(Debug, Default, Clone)]
 pub struct NetworkQueues {
-    controls: VecDeque<Vec<u8>>,
+    controls: VecDeque<Bytes>,
     control_bytes: usize,
-    bootstrap: Option<Vec<u8>>,
-    latest_input: Option<Vec<u8>>,
-    snapshots: VecDeque<Vec<u8>>,
+    bootstrap: Option<Bytes>,
+    latest_input: Option<Bytes>,
+    snapshots: VecDeque<Bytes>,
     voices: VoiceSendQueues,
-    host_events: VecDeque<Vec<u8>>,
+    host_events: VecDeque<Bytes>,
 }
 
 impl NetworkQueues {
@@ -111,7 +113,7 @@ impl NetworkQueues {
     }
 
     /// Queue reliable session control without silently dropping it.
-    pub fn push_control(&mut self, bytes: Vec<u8>) -> Result<(), QueueError> {
+    pub fn push_control(&mut self, bytes: Bytes) -> Result<(), QueueError> {
         let next_bytes = self.control_bytes.saturating_add(bytes.len());
         if self.controls.len() >= MAX_CONTROL_QUEUE_MESSAGES || next_bytes > MAX_CONTROL_QUEUE_BYTES
         {
@@ -123,7 +125,7 @@ impl NetworkQueues {
     }
 
     /// Reserve the single bounded uncompressed bootstrap slot.
-    pub fn start_bootstrap(&mut self, bytes: Vec<u8>) -> Result<(), QueueError> {
+    pub fn start_bootstrap(&mut self, bytes: Bytes) -> Result<(), QueueError> {
         if self.bootstrap.is_some() {
             return Err(QueueError::BootstrapActive);
         }
@@ -138,17 +140,17 @@ impl NetworkQueues {
     }
 
     /// Take the active bootstrap for its dedicated unidirectional stream.
-    pub fn take_bootstrap(&mut self) -> Option<Vec<u8>> {
+    pub fn take_bootstrap(&mut self) -> Option<Bytes> {
         self.bootstrap.take()
     }
 
     /// Replace an unsent input datagram with the newest one.
-    pub fn set_latest_input(&mut self, bytes: Vec<u8>) {
+    pub fn set_latest_input(&mut self, bytes: Bytes) {
         self.latest_input = Some(bytes);
     }
 
     /// Queue a snapshot generation, evicting the oldest unselected generation.
-    pub fn push_snapshot(&mut self, bytes: Vec<u8>) {
+    pub fn push_snapshot(&mut self, bytes: Bytes) {
         if self.snapshots.len() == MAX_PENDING_SNAPSHOTS {
             let _stale = self.snapshots.pop_front();
         }
@@ -156,7 +158,7 @@ impl NetworkQueues {
     }
 
     /// Queue live voice, retaining only three packets per stream.
-    pub fn push_voice(&mut self, stream: VoiceStreamId, bytes: Vec<u8>) -> Result<(), QueueError> {
+    pub fn push_voice(&mut self, stream: VoiceStreamId, bytes: Bytes) -> Result<(), QueueError> {
         let is_new = !self.voices.streams.contains_key(&stream);
         if is_new && self.voices.stream_count() >= MAX_AUDIBLE_VOICES {
             return Err(QueueError::VoiceCapacity);
@@ -166,7 +168,7 @@ impl NetworkQueues {
     }
 
     /// Queue one host event without embedding session identities in metrics.
-    pub fn push_host_event(&mut self, bytes: Vec<u8>) -> Result<(), QueueError> {
+    pub fn push_host_event(&mut self, bytes: Bytes) -> Result<(), QueueError> {
         if self.host_events.len() >= MAX_HOST_EVENTS {
             return Err(QueueError::HostEventCapacity);
         }
@@ -175,7 +177,7 @@ impl NetworkQueues {
     }
 
     /// Pop one host event for synchronous game-host consumption.
-    pub fn pop_host_event(&mut self) -> Option<Vec<u8>> {
+    pub fn pop_host_event(&mut self) -> Option<Bytes> {
         self.host_events.pop_front()
     }
 
@@ -198,7 +200,7 @@ impl NetworkQueues {
             .map(|bytes| payload(TrafficClass::AdditionalSnapshot, bytes))
     }
 
-    fn pop_control(&mut self) -> Option<Vec<u8>> {
+    fn pop_control(&mut self) -> Option<Bytes> {
         let bytes = self.controls.pop_front()?;
         self.control_bytes = self.control_bytes.saturating_sub(bytes.len());
         Some(bytes)
@@ -376,7 +378,7 @@ const fn rates(tier: BudgetTier) -> Rates {
     }
 }
 
-fn payload(class: TrafficClass, bytes: Vec<u8>) -> ScheduledPayload {
+fn payload(class: TrafficClass, bytes: Bytes) -> ScheduledPayload {
     ScheduledPayload { class, bytes }
 }
 

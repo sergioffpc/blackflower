@@ -4,7 +4,7 @@ use blackflower_rendering::{
     RenderFrame, RenderFrameId, RenderInstance, RenderView, ResourceHandle,
 };
 use glam::camera::rh::{proj::directx, view};
-use glam::{Mat4, Quat, Vec3};
+use glam::{DQuat, DVec3, Mat4, Quat, Vec3};
 
 use crate::MovementProxy;
 
@@ -195,24 +195,20 @@ impl PresentationSceneState {
     clippy::cast_possible_truncation,
     reason = "the renderer contract intentionally projects finite f64 simulation coordinates to f32"
 )]
-fn vector_to_f32(value: [f64; 3]) -> Result<Vec3, PresentationSceneError> {
-    let converted = value.map(|component| component as f32);
-    if !converted.into_iter().all(f32::is_finite) {
+fn vector_to_f32(value: DVec3) -> Result<Vec3, PresentationSceneError> {
+    let converted = value.as_vec3();
+    if !converted.is_finite() {
         return Err(PresentationSceneError::TransformOutOfRange);
     }
-    Ok(Vec3::from_array(converted))
+    Ok(converted)
 }
 
 #[allow(
     clippy::cast_possible_truncation,
     reason = "the renderer contract intentionally projects normalized f64 orientation to f32"
 )]
-fn quaternion_to_f32(value: [f64; 4]) -> Result<Quat, PresentationSceneError> {
-    let converted = value.map(|component| component as f32);
-    if !converted.into_iter().all(f32::is_finite) {
-        return Err(PresentationSceneError::TransformOutOfRange);
-    }
-    let quaternion = Quat::from_array(converted);
+fn quaternion_to_f32(value: DQuat) -> Result<Quat, PresentationSceneError> {
+    let quaternion = value.as_quat();
     if !quaternion.is_finite() || quaternion.length_squared() <= f32::EPSILON {
         return Err(PresentationSceneError::TransformOutOfRange);
     }

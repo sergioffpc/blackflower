@@ -75,7 +75,8 @@ fn microphone_to_server_solver_bot_and_client_is_complete() -> Result<(), Box<dy
             sequence: captured.encoded.sequence,
             sample_timestamp: captured.sample_timestamp,
             encoded: captured.encoded.clone(),
-        })?,
+        })?
+        .into(),
     )?;
     let server_datagram = link
         .receive(DatagramLinkEndpoint::Server)
@@ -131,7 +132,7 @@ fn microphone_to_server_solver_bot_and_client_is_complete() -> Result<(), Box<dy
 
     link.send(
         DatagramLinkEndpoint::Client,
-        encode_audible_voice(&frame.voices[0])?,
+        encode_audible_voice(&frame.voices[0])?.into(),
     )?;
     let client_datagram = link
         .receive(DatagramLinkEndpoint::Client)

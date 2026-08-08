@@ -14,6 +14,8 @@ use blackflower_networking_replication::{
     ComponentId, ProjectionKind, QuantizedAngle, QuantizedPosition, QuantizedQuaternion,
     QuantizedVelocity, ReplicationPriority,
 };
+use bytes::BytesMut;
+use glam::{DQuat, DVec2, DVec3};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
@@ -73,23 +75,26 @@ fn components_match_the_revision_one_golden_vectors() -> TestResult {
         0x7b, 0x00, 0x00, 0x00, 0x38, 0xfe, 0xff, 0xff, 0x15, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     ];
-    assert_eq!(transform.encode(), transform_bytes);
+    assert_eq!(transform.encode().as_ref(), transform_bytes);
     assert_eq!(Transform::decode(&transform_bytes)?, transform);
-    let rotated = Transform::quantize([1.25, -2.5, 3.75], [0.1, 0.2, 0.3, 0.9])?;
+    let rotated = Transform::quantize(
+        DVec3::new(1.25, -2.5, 3.75),
+        DQuat::from_xyzw(0.1, 0.2, 0.3, 0.9),
+    )?;
     assert_eq!(Transform::decode(&rotated.encode())?, rotated);
 
     let velocity = Velocity::from_quantized(QuantizedVelocity::from_codes([100, -200, 300]));
     let velocity_bytes = [0x64, 0x00, 0x38, 0xff, 0x2c, 0x01];
-    assert_eq!(velocity.encode(), velocity_bytes);
+    assert_eq!(velocity.encode().as_ref(), velocity_bytes);
     assert_eq!(Velocity::decode(&velocity_bytes)?, velocity);
 
     let character = CharacterState::new(true);
-    assert_eq!(character.encode(), [1]);
+    assert_eq!(character.encode().as_ref(), [1]);
     assert_eq!(CharacterState::decode(&[1])?, character);
 
     let owner = OwnerPredictionState::new(Some(InputSequence::new(0x0102_0304_0506_0708)));
     let owner_bytes = [1, 8, 7, 6, 5, 4, 3, 2, 1];
-    assert_eq!(owner.encode(), owner_bytes);
+    assert_eq!(owner.encode().as_ref(), owner_bytes);
     assert_eq!(OwnerPredictionState::decode(&owner_bytes)?, owner);
     Ok(())
 }
@@ -124,7 +129,7 @@ fn strict_component_decoders_reject_noncanonical_values() -> TestResult {
         OwnerPredictionState::decode(&[2, 0, 0, 0, 0, 0, 0, 0, 0]),
         Err(ProtocolError::InvalidPresence { .. })
     ));
-    let mut invalid_quaternion = vec![0_u8; TRANSFORM_BYTES];
+    let mut invalid_quaternion = BytesMut::zeroed(TRANSFORM_BYTES);
     invalid_quaternion[12] = 4;
     assert!(Transform::decode(&invalid_quaternion).is_err());
     invalid_quaternion[12] = 3;
@@ -160,15 +165,15 @@ fn movement_control_matches_the_revision_one_golden_vector() -> TestResult {
 #[test]
 fn movement_control_rejects_noncanonical_axes_pitch_and_length() -> TestResult {
     assert!(matches!(
-        MovementControl::quantize(1.0, 1.0, 0.0, 0.0),
+        MovementControl::quantize(DVec2::ONE, 0.0, 0.0),
         Err(ProtocolError::MovementMagnitude)
     ));
     assert!(matches!(
-        MovementControl::quantize(f64::NAN, 0.0, 0.0, 0.0),
+        MovementControl::quantize(DVec2::new(f64::NAN, 0.0), 0.0, 0.0),
         Err(ProtocolError::MovementMagnitude)
     ));
     assert!(matches!(
-        MovementControl::quantize(0.0, 0.0, 0.0, std::f64::consts::PI),
+        MovementControl::quantize(DVec2::ZERO, 0.0, std::f64::consts::PI),
         Err(ProtocolError::InvalidViewPitch)
     ));
     let mut reserved_axis = [0_u8; MOVEMENT_CONTROL_BYTES];
@@ -186,7 +191,7 @@ fn movement_control_rejects_noncanonical_axes_pitch_and_length() -> TestResult {
 
 #[test]
 fn generic_codec_boundary_accepts_only_movement_and_no_commands() -> TestResult {
-    let control = MovementControl::quantize(0.0, -1.0, std::f64::consts::PI, 0.0)?;
+    let control = MovementControl::quantize(DVec2::NEG_Y, std::f64::consts::PI, 0.0)?;
     let codec = MovementControlCodec;
     assert_eq!(codec.protocol_revision(), ProtocolRevision::V1);
     assert_eq!(codec.validate_control(&control.encode()), Ok(()));

@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, VecDeque};
-
 use blackflower_networking::{
     CommandId, ControlFrame, DatagramHeader, DiscreteCommand, FlowId, FlowSequence, InputDatagram,
     InputSequence, MAX_COMMAND_BYTES, MAX_COMMANDS, MAX_CONTROL_FRAME_BYTES, MAX_CONTROL_FRAMES,
     SnapshotAppliedAck, WireError, encode_datagram, encode_input_datagram,
 };
+use bytes::Bytes;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::{CommandSubmission, ControlBinding, ControlSubmission};
 
@@ -62,7 +62,7 @@ impl InputSender {
     pub(crate) fn build(
         &mut self,
         submission: ControlSubmission,
-    ) -> Result<(InputSequence, ControlFrame, Vec<u8>), InputBuildError> {
+    ) -> Result<(InputSequence, ControlFrame, Bytes), InputBuildError> {
         let binding = self.binding.ok_or(InputBuildError::MissingBinding)?;
         self.validate_submission(&submission)?;
         let sequence = self.allocate_input_sequence()?;
@@ -148,7 +148,7 @@ impl InputSender {
         }
     }
 
-    fn encode_current(&mut self, binding: ControlBinding) -> Result<Vec<u8>, InputBuildError> {
+    fn encode_current(&mut self, binding: ControlBinding) -> Result<Bytes, InputBuildError> {
         let input = InputDatagram {
             control_epoch: binding.control_epoch,
             controlled_entity: binding.controlled_entity,

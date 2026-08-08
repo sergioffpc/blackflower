@@ -186,7 +186,7 @@ impl ServerConnection {
     }
 
     /// Send one already framed and validated application DATAGRAM.
-    pub fn send_datagram(&self, bytes: Vec<u8>) -> Result<(), QuicError> {
+    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), QuicError> {
         send_datagram(&self.inner, bytes)
     }
 
@@ -235,7 +235,7 @@ impl ClientConnection {
     }
 
     /// Send one already framed and validated application DATAGRAM.
-    pub fn send_datagram(&self, bytes: Vec<u8>) -> Result<(), QuicError> {
+    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), QuicError> {
         send_datagram(&self.inner, bytes)
     }
 
@@ -287,9 +287,9 @@ fn validate_connection(connection: &quinn::Connection) -> Result<(), QuicError> 
     Ok(())
 }
 
-fn send_datagram(connection: &quinn::Connection, bytes: Vec<u8>) -> Result<(), QuicError> {
+fn send_datagram(connection: &quinn::Connection, bytes: Bytes) -> Result<(), QuicError> {
     validate_datagram(connection, &bytes)?;
-    connection.send_datagram(Bytes::from(bytes))?;
+    connection.send_datagram(bytes)?;
     Ok(())
 }
 

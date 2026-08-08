@@ -633,7 +633,7 @@ impl PeerRuntime {
                 return Err(ServerNetworkRuntimeError::ControlTooFarInFuture);
             }
             let wire = WireMovementControl::decode(&frame.payload)?;
-            let movement = wire.movement().map(f64_to_f32);
+            let movement = wire.movement().as_vec2();
             controls.push(MovementControl::new(
                 actor,
                 frame.sequence.get(),

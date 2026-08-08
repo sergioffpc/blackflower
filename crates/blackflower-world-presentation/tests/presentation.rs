@@ -17,23 +17,22 @@ use blackflower_world_presentation::{
     SampleRenderTimelineSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
+use glam::{DQuat, DVec3};
 
 type TestResult = Result<(), Box<dyn StdError>>;
 
-fn assert_f64_array_close<const N: usize>(actual: [f64; N], expected: [f64; N]) {
-    assert!(
-        actual
-            .into_iter()
-            .zip(expected)
-            .all(|(actual, expected)| (actual - expected).abs() <= 1.0e-12),
-        "expected {expected:?}, got {actual:?}"
-    );
+fn assert_vector_close(actual: DVec3, expected: DVec3) {
+    assert!(actual.abs_diff_eq(expected, 1.0e-12));
+}
+
+fn assert_quaternion_close(actual: DQuat, expected: DQuat) {
+    assert!(actual.abs_diff_eq(expected, 1.0e-12));
 }
 
 fn movement_sample(
     source: MovementSourceId,
-    position_meters: [f64; 3],
-    orientation: [f64; 4],
+    position_meters: DVec3,
+    orientation: DQuat,
     kind: MovementSampleKind,
 ) -> Result<PresentationMovementSample, Box<dyn StdError>> {
     Ok(PresentationMovementSample::new(
@@ -380,26 +379,32 @@ fn local_movement_proxy_tracks_prediction_and_retires_missing_sources() -> TestR
 
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        [0.0, 1.0, 2.0],
-        [0.0, 0.0, 0.0, 1.0],
+        DVec3::new(0.0, 1.0, 2.0),
+        DQuat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
     assert!(presentation.frame(delta)?);
     let initial = local_movement_proxy(&presentation)?;
     assert_eq!(initial.source(), source);
-    assert_f64_array_close(initial.predicted_position_meters(), [0.0, 1.0, 2.0]);
-    assert_f64_array_close(initial.visual_position_meters(), [0.0, 1.0, 2.0]);
+    assert_vector_close(
+        initial.predicted_position_meters(),
+        DVec3::new(0.0, 1.0, 2.0),
+    );
+    assert_vector_close(initial.visual_position_meters(), DVec3::new(0.0, 1.0, 2.0));
     assert!(!initial.correction_active());
 
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        [12.0, 1.0, 2.0],
-        [0.0, 0.0, 0.0, 1.0],
+        DVec3::new(12.0, 1.0, 2.0),
+        DQuat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
     assert!(presentation.frame(delta)?);
     let advanced = local_movement_proxy(&presentation)?;
-    assert_f64_array_close(advanced.visual_position_meters(), [12.0, 1.0, 2.0]);
+    assert_vector_close(
+        advanced.visual_position_meters(),
+        DVec3::new(12.0, 1.0, 2.0),
+    );
     assert!(!advanced.correction_active());
 
     presentation.set_local_movement_sample(None)?;
@@ -413,10 +418,13 @@ fn local_movement_proxy_smooths_reconciliation_without_prediction_latency() -> T
     let mut presentation = PresentationWorld::new()?;
     let source = MovementSourceId::new(41)?;
     let delta = TickDelta::from_seconds(0.025)?;
+    let target_position = DVec3::new(10.0, 1.0, 2.0);
+    let target_orientation = DQuat::from_xyzw(0.0, 1.0, 0.0, 0.0);
+    let quarter_position = DVec3::new(2.5, 1.0, 2.0);
     let initial = movement_sample(
         source,
-        [0.0, 1.0, 2.0],
-        [0.0, 0.0, 0.0, 1.0],
+        DVec3::new(0.0, 1.0, 2.0),
+        DQuat::IDENTITY,
         MovementSampleKind::Predicted,
     )?;
     presentation.set_local_movement_sample(Some(initial))?;
@@ -424,28 +432,26 @@ fn local_movement_proxy_smooths_reconciliation_without_prediction_latency() -> T
 
     let corrected = movement_sample(
         source,
-        [10.0, 1.0, 2.0],
-        [0.0, 1.0, 0.0, 0.0],
+        target_position,
+        target_orientation,
         MovementSampleKind::Reconciled,
     )?;
     presentation.set_local_movement_sample(Some(corrected))?;
     assert!(presentation.frame(delta)?);
     let correcting = local_movement_proxy(&presentation)?;
-    assert_f64_array_close(correcting.predicted_position_meters(), [10.0, 1.0, 2.0]);
-    assert_f64_array_close(correcting.visual_position_meters(), [2.5, 1.0, 2.0]);
+    assert_vector_close(correcting.predicted_position_meters(), target_position);
+    assert_vector_close(correcting.visual_position_meters(), quarter_position);
     assert!(correcting.correction_active());
     assert!(
-        correcting
+        !correcting
             .visual_orientation()
-            .into_iter()
-            .zip(correcting.predicted_orientation())
-            .any(|(visual, predicted)| (visual - predicted).abs() > 1.0e-12)
+            .abs_diff_eq(correcting.predicted_orientation(), 1.0e-12)
     );
 
     let predicted = movement_sample(
         source,
-        [10.0, 1.0, 2.0],
-        [0.0, 1.0, 0.0, 0.0],
+        target_position,
+        target_orientation,
         MovementSampleKind::Predicted,
     )?;
     presentation.set_local_movement_sample(Some(predicted))?;
@@ -453,8 +459,8 @@ fn local_movement_proxy_smooths_reconciliation_without_prediction_latency() -> T
         assert!(presentation.frame(delta)?);
     }
     let settled = local_movement_proxy(&presentation)?;
-    assert_f64_array_close(settled.visual_position_meters(), [10.0, 1.0, 2.0]);
-    assert_f64_array_close(
+    assert_vector_close(settled.visual_position_meters(), target_position);
+    assert_quaternion_close(
         settled.visual_orientation(),
         settled.predicted_orientation(),
     );
@@ -469,8 +475,8 @@ fn failed_frame_does_not_commit_local_movement_proxy() -> TestResult {
     let sample = |position| {
         movement_sample(
             source,
-            [position, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
+            DVec3::new(position, 0.0, 0.0),
+            DQuat::IDENTITY,
             MovementSampleKind::Predicted,
         )
     };
@@ -496,9 +502,9 @@ fn failed_frame_does_not_commit_local_movement_proxy() -> TestResult {
             .frame(TickDelta::from_seconds(1.0 / 60.0)?)
             .is_err()
     );
-    assert_f64_array_close(
+    assert_vector_close(
         local_movement_proxy(&presentation)?.visual_position_meters(),
-        [1.0, 0.0, 0.0],
+        DVec3::X,
     );
     Ok(())
 }
@@ -605,8 +611,8 @@ fn local_visual_binding_builds_instance_and_follow_camera() -> TestResult {
     presentation.set_viewport(Some(PresentationViewport::new(1280, 720)?))?;
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        [3.0, 4.0, 5.0],
-        [0.0, 0.0, 0.0, 1.0],
+        DVec3::new(3.0, 4.0, 5.0),
+        DQuat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
 

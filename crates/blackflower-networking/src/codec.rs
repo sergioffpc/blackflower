@@ -1,3 +1,5 @@
+use bytes::{BufMut as _, Bytes, BytesMut};
+
 use crate::wire::{WireError, copy_array};
 
 pub(crate) struct Reader<'a> {
@@ -32,7 +34,7 @@ impl<'a> Reader<'a> {
         copy_array(self.take(N)?)
     }
 
-    pub(crate) fn bytes_u16(&mut self, maximum: usize) -> Result<Vec<u8>, WireError> {
+    pub(crate) fn bytes_u16(&mut self, maximum: usize) -> Result<Bytes, WireError> {
         let length = usize::from(self.u16()?);
         if length > maximum {
             return Err(WireError::Oversized {
@@ -40,7 +42,7 @@ impl<'a> Reader<'a> {
                 maximum,
             });
         }
-        Ok(self.take(length)?.to_vec())
+        Ok(Bytes::copy_from_slice(self.take(length)?))
     }
 
     pub(crate) fn remainder(&mut self, maximum: usize) -> Result<&'a [u8], WireError> {
@@ -81,18 +83,18 @@ impl<'a> Reader<'a> {
 }
 
 pub(crate) struct Writer {
-    bytes: Vec<u8>,
+    bytes: BytesMut,
 }
 
 impl Writer {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
-            bytes: Vec::with_capacity(capacity),
+            bytes: BytesMut::with_capacity(capacity),
         }
     }
 
     pub(crate) fn u8(&mut self, value: u8) {
-        self.bytes.push(value);
+        self.bytes.put_u8(value);
     }
 
     pub(crate) fn u16(&mut self, value: u16) {
@@ -118,7 +120,7 @@ impl Writer {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> Vec<u8> {
-        self.bytes
+    pub(crate) fn finish(self) -> Bytes {
+        self.bytes.freeze()
     }
 }

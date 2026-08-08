@@ -11,6 +11,8 @@ use blackflower_networking_replication::{
     ComponentId, ComponentSampleTick, ComponentState, EntityState, ReplicatedEntityId, Snapshot,
     SnapshotTick,
 };
+use bytes::Bytes;
+use glam::{DVec2, DVec3};
 
 use super::{ClientMovementPrediction, orientation_from_view};
 
@@ -19,7 +21,7 @@ type TestResult<T = ()> = Result<T, Box<dyn StdError>>;
 #[test]
 fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    let bootstrap = movement_snapshot(0, [0.0; 3], [0.0; 3], None)?;
+    let bootstrap = movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?;
     assert_eq!(
         prediction.bootstrap(&bootstrap)?,
         PredictionUpdate::Bootstrapped {
@@ -27,11 +29,11 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
         }
     );
 
-    let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
     prediction.queue_control(&ControlFrame {
         sequence: InputSequence::new(1),
         execute_tick: SimulationTick::new(1),
-        payload: control.encode().to_vec(),
+        payload: Bytes::copy_from_slice(&control.encode()),
     })?;
     prediction.advance_to(SimulationTick::new(4))?;
     let predicted = prediction
@@ -39,7 +41,12 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
         .ok_or("prediction is missing")?;
     assert!((predicted.position_meters[2] + 5.0 / 60.0).abs() < 0.000_001);
 
-    let authoritative = movement_snapshot(4, [0.0, 0.0, -0.08], [0.0, 0.0, -5.0], Some(1))?;
+    let authoritative = movement_snapshot(
+        4,
+        DVec3::new(0.0, 0.0, -0.08),
+        DVec3::new(0.0, 0.0, -5.0),
+        Some(1),
+    )?;
     assert_eq!(
         prediction.apply_snapshot(&authoritative)?,
         PredictionUpdate::Converged {
@@ -52,10 +59,10 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
 #[test]
 fn movement_prediction_restores_a_state_outside_tolerance() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    prediction.bootstrap(&movement_snapshot(0, [0.0; 3], [0.0; 3], None)?)?;
+    prediction.bootstrap(&movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?)?;
     prediction.advance_to(SimulationTick::new(4))?;
 
-    let correction = movement_snapshot(4, [1.0, 0.0, 0.0], [0.0; 3], None)?;
+    let correction = movement_snapshot(4, DVec3::X, DVec3::ZERO, None)?;
     assert_eq!(
         prediction.apply_snapshot(&correction)?,
         PredictionUpdate::Reconciled {
@@ -73,16 +80,21 @@ fn movement_prediction_restores_a_state_outside_tolerance() -> TestResult {
 #[test]
 fn movement_prediction_replays_unacknowledged_ticks_after_a_correction() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    prediction.bootstrap(&movement_snapshot(0, [0.0; 3], [0.0; 3], None)?)?;
-    let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    prediction.bootstrap(&movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?)?;
+    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
     prediction.queue_control(&ControlFrame {
         sequence: InputSequence::new(1),
         execute_tick: SimulationTick::new(1),
-        payload: control.encode().to_vec(),
+        payload: Bytes::copy_from_slice(&control.encode()),
     })?;
     prediction.advance_to(SimulationTick::new(4))?;
 
-    let correction = movement_snapshot(2, [1.0, 0.0, -0.04], [0.0, 0.0, -5.0], Some(1))?;
+    let correction = movement_snapshot(
+        2,
+        DVec3::new(1.0, 0.0, -0.04),
+        DVec3::new(0.0, 0.0, -5.0),
+        Some(1),
+    )?;
     assert_eq!(
         prediction.apply_snapshot(&correction)?,
         PredictionUpdate::Reconciled {
@@ -100,12 +112,12 @@ fn movement_prediction_replays_unacknowledged_ticks_after_a_correction() -> Test
 
 fn movement_snapshot(
     tick: u64,
-    position: [f64; 3],
-    velocity: [f64; 3],
+    position: DVec3,
+    velocity: DVec3,
     acknowledged: Option<u64>,
 ) -> TestResult<Snapshot> {
     let sample_tick = ComponentSampleTick::new(tick);
-    let transform = Transform::quantize(position, orientation_from_view([0.0, 0.0]))?;
+    let transform = Transform::quantize(position, orientation_from_view(DVec2::ZERO))?;
     let components = [
         component(TRANSFORM_COMPONENT_ID, sample_tick, transform.encode())?,
         component(
@@ -136,7 +148,7 @@ fn movement_snapshot(
 fn component(
     id: ComponentId,
     sample_tick: ComponentSampleTick,
-    bytes: Vec<u8>,
+    bytes: Bytes,
 ) -> TestResult<(ComponentId, ComponentState)> {
     let priority = replication_priority(id).ok_or("component priority is missing")?;
     Ok((id, ComponentState::new(sample_tick, priority, bytes)?))

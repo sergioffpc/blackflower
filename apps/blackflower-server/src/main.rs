@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
     }
     let metrics_address = config.metrics_bind_address();
     let mut observability = init(&config).context("observability init failed")?;
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let simulation = SimulationHost::spawn().context("simulation host startup failed")?;
     let stop = Arc::new(AtomicBool::new(false));
@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
         completed_ticks = exit.completed_ticks,
         "authoritative simulation stopped",
     );
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 
