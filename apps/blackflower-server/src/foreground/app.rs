@@ -1,13 +1,12 @@
 use std::collections::VecDeque;
 use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use blackflower_observability_tui::{LogState, MetricStore, MetricsPoller};
+use blackflower_process::ShutdownToken;
 
 use super::ForegroundConfig;
 use super::render;
@@ -135,7 +134,7 @@ pub(crate) struct App {
     pub(crate) histories: Histories,
     pub(crate) show_help: bool,
     poller: MetricsPoller,
-    shutdown_requested: Arc<AtomicBool>,
+    shutdown_requested: ShutdownToken,
     should_quit: bool,
 }
 
@@ -161,12 +160,15 @@ impl App {
     }
 
     pub(crate) fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !self.should_quit && !self.shutdown_requested.load(Ordering::Acquire) {
+        while !self.should_quit && !self.shutdown_requested.is_requested() {
             self.drain_inputs();
             terminal.draw(|frame| render::draw(frame, self))?;
             if event::poll(DRAW_INTERVAL)? {
                 self.handle_event(event::read()?);
             }
+        }
+        if self.should_quit {
+            self.shutdown_requested.request();
         }
         Ok(())
     }

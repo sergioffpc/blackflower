@@ -140,8 +140,8 @@ impl PresentationSceneState {
             return Ok(());
         };
 
-        let position = vector_to_f32(movement.visual_position_meters())?;
-        let orientation = quaternion_to_f32(movement.visual_orientation())?;
+        let position = validated_position(movement.visual_position_meters())?;
+        let orientation = normalized_orientation(movement.visual_orientation())?;
         let transform = Mat4::from_rotation_translation(orientation, position);
         let camera_rotation = orientation;
         let eye = position
@@ -191,32 +191,18 @@ impl PresentationSceneState {
     }
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "the renderer contract intentionally projects finite f64 simulation coordinates to f32"
-)]
-fn vector_to_f32(value: [f64; 3]) -> Result<Vec3, PresentationSceneError> {
-    let converted = value.map(|component| component as f32);
-    if !converted.into_iter().all(f32::is_finite) {
+fn validated_position(value: Vec3) -> Result<Vec3, PresentationSceneError> {
+    if !value.is_finite() {
         return Err(PresentationSceneError::TransformOutOfRange);
     }
-    Ok(Vec3::from_array(converted))
+    Ok(value)
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "the renderer contract intentionally projects normalized f64 orientation to f32"
-)]
-fn quaternion_to_f32(value: [f64; 4]) -> Result<Quat, PresentationSceneError> {
-    let converted = value.map(|component| component as f32);
-    if !converted.into_iter().all(f32::is_finite) {
+fn normalized_orientation(value: Quat) -> Result<Quat, PresentationSceneError> {
+    if !value.is_finite() || value.length_squared() <= f32::EPSILON {
         return Err(PresentationSceneError::TransformOutOfRange);
     }
-    let quaternion = Quat::from_array(converted);
-    if !quaternion.is_finite() || quaternion.length_squared() <= f32::EPSILON {
-        return Err(PresentationSceneError::TransformOutOfRange);
-    }
-    Ok(quaternion.normalize())
+    Ok(value.normalize())
 }
 
 #[allow(

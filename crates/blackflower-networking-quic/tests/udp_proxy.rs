@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use bytes::{Bytes, BytesMut};
+
 #[derive(Debug, Clone, Copy)]
 struct ImpairmentProfile {
     one_way_delay: Duration,
@@ -25,7 +27,7 @@ struct UdpImpairmentProxy {
     profile: ImpairmentProfile,
     sequence: u64,
     insertion: u64,
-    queued: BTreeMap<(Duration, u64), Vec<u8>>,
+    queued: BTreeMap<(Duration, u64), Bytes>,
     counters: ProxyCounters,
 }
 
@@ -40,7 +42,7 @@ impl UdpImpairmentProxy {
         }
     }
 
-    fn receive(&mut self, now: Duration, packet: Vec<u8>) {
+    fn receive(&mut self, now: Duration, packet: Bytes) {
         self.sequence = self.sequence.saturating_add(1);
         if packet.len() > self.profile.mtu {
             self.counters.mtu_dropped = self.counters.mtu_dropped.saturating_add(1);
@@ -79,7 +81,7 @@ impl UdpImpairmentProxy {
         }
     }
 
-    fn drain(&mut self, now: Duration) -> Vec<Vec<u8>> {
+    fn drain(&mut self, now: Duration) -> Vec<Bytes> {
         let keys = self
             .queued
             .range(..=(now, u64::MAX))
@@ -90,7 +92,7 @@ impl UdpImpairmentProxy {
             .collect()
     }
 
-    fn queue(&mut self, delivery: Duration, packet: Vec<u8>) {
+    fn queue(&mut self, delivery: Duration, packet: Bytes) {
         self.insertion = self.insertion.saturating_add(1);
         self.queued.insert((delivery, self.insertion), packet);
     }
@@ -107,13 +109,13 @@ fn deterministic_udp_proxy_covers_every_network_gate_impairment() {
         mtu: 1_200,
         outage: Some((Duration::from_millis(100), Duration::from_millis(200))),
     });
-    proxy.receive(Duration::ZERO, vec![1]);
-    proxy.receive(Duration::ZERO, vec![2]);
-    proxy.receive(Duration::ZERO, vec![3]);
-    proxy.receive(Duration::ZERO, vec![4]);
-    proxy.receive(Duration::ZERO, vec![5]);
-    proxy.receive(Duration::ZERO, vec![0; 1_201]);
-    proxy.receive(Duration::from_millis(150), vec![7]);
+    proxy.receive(Duration::ZERO, Bytes::from_static(&[1]));
+    proxy.receive(Duration::ZERO, Bytes::from_static(&[2]));
+    proxy.receive(Duration::ZERO, Bytes::from_static(&[3]));
+    proxy.receive(Duration::ZERO, Bytes::from_static(&[4]));
+    proxy.receive(Duration::ZERO, Bytes::from_static(&[5]));
+    proxy.receive(Duration::ZERO, BytesMut::zeroed(1_201).freeze());
+    proxy.receive(Duration::from_millis(150), Bytes::from_static(&[7]));
 
     assert!(proxy.drain(Duration::from_millis(20)).is_empty());
     assert_eq!(proxy.drain(Duration::from_millis(100)).len(), 5);

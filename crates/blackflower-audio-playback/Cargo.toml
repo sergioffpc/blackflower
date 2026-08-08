@@ -17,6 +17,7 @@ blackflower-audio-spatial.workspace = true
 blackflower-audio-voice.workspace = true
 
 kira.workspace = true
+glam.workspace = true
 thiserror.workspace = true
 
 [lints]

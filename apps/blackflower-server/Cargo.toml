@@ -19,16 +19,19 @@ blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
+blackflower-process.workspace = true
 blackflower-world-simulation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
 blake3.workspace = true
+bytes.workspace = true
 clap.workspace = true
+glam.workspace = true
 metrics.workspace = true
 ratatui.workspace = true
 rustls.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["signal"] }
+tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

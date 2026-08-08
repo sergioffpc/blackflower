@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 use crate::PredictionPass;
 
 /// Prediction-owned bridge used for both forward execution and reconciliation.
@@ -10,7 +8,7 @@ use crate::PredictionPass;
 /// claiming that client and server floating-point results are bit-identical.
 pub trait PredictionDriver<State, Input> {
     /// Concrete prediction-world or gameplay failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Return the latest tick represented by the prediction state.
     fn current_tick(&self) -> u64;

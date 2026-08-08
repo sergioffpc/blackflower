@@ -1,4 +1,4 @@
-use glam::Vec3A;
+use glam::{Vec2, Vec3A};
 
 use crate::Error;
 
@@ -76,8 +76,8 @@ impl SurfaceHit {
 
     /// Triangle barycentric coordinates `(u, v)`.
     #[must_use]
-    pub const fn barycentric(self) -> [f32; 2] {
-        [self.barycentric_u, self.barycentric_v]
+    pub const fn barycentric(self) -> Vec2 {
+        Vec2::new(self.barycentric_u, self.barycentric_v)
     }
 
     /// Geometry containing the intersected primitive.

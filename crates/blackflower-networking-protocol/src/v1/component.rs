@@ -5,6 +5,8 @@ use blackflower_networking_replication::{
     ComponentDescriptor, ComponentId, ComponentRegistry, ProjectionKind, QuantizationError,
     QuantizedPosition, QuantizedQuaternion, QuantizedVelocity, RegistryError, ReplicationPriority,
 };
+use bytes::{BufMut as _, Bytes, BytesMut};
+use glam::{Quat, Vec3};
 
 use super::ProtocolError;
 use super::wire::{Decoder, ensure_length, put_i16, put_i32, put_u64};
@@ -96,10 +98,7 @@ pub struct Transform {
 
 impl Transform {
     /// Quantize a finite metre-space position and unit orientation.
-    pub fn quantize(
-        position_meters: [f64; 3],
-        orientation: [f64; 4],
-    ) -> Result<Self, QuantizationError> {
+    pub fn quantize(position_meters: Vec3, orientation: Quat) -> Result<Self, QuantizationError> {
         Ok(Self {
             position: QuantizedPosition::quantize(position_meters)?,
             orientation: QuantizedQuaternion::quantize(orientation)?,
@@ -132,16 +131,16 @@ impl Transform {
 
     /// Encode the exact revision-1 full-replacement bytes.
     #[must_use]
-    pub fn encode(self) -> Vec<u8> {
-        let mut output = Vec::with_capacity(TRANSFORM_BYTES);
+    pub fn encode(self) -> Bytes {
+        let mut output = BytesMut::with_capacity(TRANSFORM_BYTES);
         for code in self.position.codes() {
             put_i32(&mut output, code);
         }
-        output.push(self.orientation.largest_index());
+        output.put_u8(self.orientation.largest_index());
         for component in self.orientation.components() {
             put_i16(&mut output, component);
         }
-        output
+        output.freeze()
     }
 
     /// Decode and validate exact revision-1 transform bytes.
@@ -170,7 +169,7 @@ pub struct Velocity {
 
 impl Velocity {
     /// Quantize finite metres-per-second velocity.
-    pub fn quantize(meters_per_second: [f64; 3]) -> Result<Self, QuantizationError> {
+    pub fn quantize(meters_per_second: Vec3) -> Result<Self, QuantizationError> {
         Ok(Self {
             velocity: QuantizedVelocity::quantize(meters_per_second)?,
         })
@@ -190,12 +189,12 @@ impl Velocity {
 
     /// Encode the exact revision-1 full-replacement bytes.
     #[must_use]
-    pub fn encode(self) -> Vec<u8> {
-        let mut output = Vec::with_capacity(VELOCITY_BYTES);
+    pub fn encode(self) -> Bytes {
+        let mut output = BytesMut::with_capacity(VELOCITY_BYTES);
         for code in self.velocity.codes() {
             put_i16(&mut output, code);
         }
-        output
+        output.freeze()
     }
 
     /// Decode exact revision-1 velocity bytes.
@@ -230,8 +229,8 @@ impl CharacterState {
 
     /// Encode the exact canonical boolean byte.
     #[must_use]
-    pub fn encode(self) -> Vec<u8> {
-        vec![u8::from(self.grounded)]
+    pub fn encode(self) -> Bytes {
+        Bytes::copy_from_slice(&[u8::from(self.grounded)])
     }
 
     /// Decode the exact canonical boolean byte.
@@ -271,14 +270,14 @@ impl OwnerPredictionState {
 
     /// Encode the exact presence tag and fixed-width input sequence.
     #[must_use]
-    pub fn encode(self) -> Vec<u8> {
-        let mut output = Vec::with_capacity(OWNER_PREDICTION_STATE_BYTES);
-        output.push(u8::from(self.acknowledged_input.is_some()));
+    pub fn encode(self) -> Bytes {
+        let mut output = BytesMut::with_capacity(OWNER_PREDICTION_STATE_BYTES);
+        output.put_u8(u8::from(self.acknowledged_input.is_some()));
         put_u64(
             &mut output,
             self.acknowledged_input.map_or(0, InputSequence::get),
         );
-        output
+        output.freeze()
     }
 
     /// Decode the exact presence tag and canonical absent representation.
@@ -350,7 +349,7 @@ impl ProtocolComponent {
 
     /// Encode the selected component's exact full-replacement bytes.
     #[must_use]
-    pub fn encode(self) -> Vec<u8> {
+    pub fn encode(self) -> Bytes {
         match self {
             Self::Transform(value) => value.encode(),
             Self::Velocity(value) => value.encode(),

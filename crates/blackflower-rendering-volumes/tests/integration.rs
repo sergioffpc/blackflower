@@ -1,7 +1,7 @@
 use blackflower_rendering_volumes::{
     Error, GridClass, GridType, Vdb, openvdb_version, vdb_version,
 };
-use glam::{DVec3, IVec3};
+use glam::{IVec3, Vec3};
 
 const RAW_GRID: &[u8] = include_bytes!("fixtures/empty_float_grid.raw.nvdb");
 const FILE_GRID: &[u8] = include_bytes!("fixtures/empty_float_grid.nvdb");
@@ -39,13 +39,13 @@ fn raw_grid_supports_metadata_transforms_and_float_sampling() -> Result<(), Erro
     assert!(metadata.byte_size() > 0);
     assert_eq!(metadata.index_bounds(), None);
     assert_eq!(metadata.world_bounds(), None);
-    assert_vec_close(metadata.voxel_size(), DVec3::splat(0.5));
+    assert_vec_close(metadata.voxel_size(), Vec3::splat(0.5));
 
-    let world_origin = DVec3::new(1.0, 2.0, 3.0);
-    assert_vec_close(grid.index_to_world(DVec3::ZERO)?, world_origin);
-    assert_vec_close(grid.world_to_index(world_origin)?, DVec3::ZERO);
+    let world_origin = Vec3::new(1.0, 2.0, 3.0);
+    assert_vec_close(grid.index_to_world(Vec3::ZERO)?, world_origin);
+    assert_vec_close(grid.world_to_index(world_origin)?, Vec3::ZERO);
     assert_eq!(
-        grid.world_to_index(DVec3::new(f64::NAN, 0.0, 0.0)),
+        grid.world_to_index(Vec3::new(f32::NAN, 0.0, 0.0)),
         Err(Error::InvalidPosition)
     );
 
@@ -72,6 +72,6 @@ fn assert_float_close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() <= f32::EPSILON);
 }
 
-fn assert_vec_close(actual: DVec3, expected: DVec3) {
-    assert!((actual - expected).abs().max_element() <= f64::EPSILON);
+fn assert_vec_close(actual: Vec3, expected: Vec3) {
+    assert!(actual.abs_diff_eq(expected, f32::EPSILON));
 }

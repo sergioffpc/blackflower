@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::mem;
 
+use glam::Vec2;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 
@@ -26,9 +27,9 @@ pub struct InputSnapshot {
     held_mouse_buttons: BTreeSet<MouseButton>,
     pressed_mouse_buttons: BTreeSet<MouseButton>,
     released_mouse_buttons: BTreeSet<MouseButton>,
-    relative_mouse_motion: (f64, f64),
-    scroll_lines: (f32, f32),
-    scroll_pixels: (f64, f64),
+    relative_mouse_motion: Vec2,
+    scroll_lines: Vec2,
+    scroll_pixels: Vec2,
 }
 
 impl InputSnapshot {
@@ -88,19 +89,19 @@ impl InputSnapshot {
 
     /// Return accumulated raw pointing-device motion.
     #[must_use]
-    pub const fn relative_mouse_motion(&self) -> (f64, f64) {
+    pub const fn relative_mouse_motion(&self) -> Vec2 {
         self.relative_mouse_motion
     }
 
     /// Return accumulated line-oriented scroll motion.
     #[must_use]
-    pub const fn scroll_lines(&self) -> (f32, f32) {
+    pub const fn scroll_lines(&self) -> Vec2 {
         self.scroll_lines
     }
 
     /// Return accumulated pixel-oriented scroll motion.
     #[must_use]
-    pub const fn scroll_pixels(&self) -> (f64, f64) {
+    pub const fn scroll_pixels(&self) -> Vec2 {
         self.scroll_pixels
     }
 }
@@ -111,7 +112,7 @@ pub struct InputState {
     context: InputContext,
     focused: bool,
     cursor_inside: bool,
-    cursor_position: Option<(f64, f64)>,
+    cursor_position: Option<Vec2>,
     modifiers: ModifiersState,
     held_keys: BTreeSet<KeyCode>,
     pressed_keys: BTreeSet<KeyCode>,
@@ -119,9 +120,9 @@ pub struct InputState {
     held_mouse_buttons: BTreeSet<MouseButton>,
     pressed_mouse_buttons: BTreeSet<MouseButton>,
     released_mouse_buttons: BTreeSet<MouseButton>,
-    relative_mouse_motion: (f64, f64),
-    scroll_lines: (f32, f32),
-    scroll_pixels: (f64, f64),
+    relative_mouse_motion: Vec2,
+    scroll_lines: Vec2,
+    scroll_pixels: Vec2,
 }
 
 impl InputState {
@@ -145,7 +146,7 @@ impl InputState {
 
     /// Return the latest window-relative cursor position.
     #[must_use]
-    pub const fn cursor_position(&self) -> Option<(f64, f64)> {
+    pub const fn cursor_position(&self) -> Option<Vec2> {
         self.cursor_position
     }
 
@@ -217,15 +218,14 @@ impl InputState {
     }
 
     /// Accumulate raw motion only while gameplay owns the focused pointer.
-    pub fn raw_mouse_motion(&mut self, delta: (f64, f64)) {
+    pub fn raw_mouse_motion(&mut self, delta: Vec2) {
         if self.focused && self.context == InputContext::GameplayCaptured {
-            self.relative_mouse_motion.0 += delta.0;
-            self.relative_mouse_motion.1 += delta.1;
+            self.relative_mouse_motion += delta;
         }
     }
 
     /// Record a desktop-cursor position for user-interface hit testing.
-    pub fn cursor_moved(&mut self, position: (f64, f64)) {
+    pub fn cursor_moved(&mut self, position: Vec2) {
         if self.focused {
             self.cursor_inside = true;
             self.cursor_position = Some(position);
@@ -252,12 +252,10 @@ impl InputState {
         }
         match delta {
             MouseScrollDelta::LineDelta(x, y) => {
-                self.scroll_lines.0 += x;
-                self.scroll_lines.1 += y;
+                self.scroll_lines += Vec2::new(x, y);
             }
             MouseScrollDelta::PixelDelta(position) => {
-                self.scroll_pixels.0 += position.x;
-                self.scroll_pixels.1 += position.y;
+                self.scroll_pixels += vec2_from_f64(position.x, position.y);
             }
         }
     }
@@ -288,10 +286,18 @@ impl InputState {
         self.held_mouse_buttons.clear();
         self.pressed_mouse_buttons.clear();
         self.released_mouse_buttons.clear();
-        self.relative_mouse_motion = (0.0, 0.0);
-        self.scroll_lines = (0.0, 0.0);
-        self.scroll_pixels = (0.0, 0.0);
+        self.relative_mouse_motion = Vec2::ZERO;
+        self.scroll_lines = Vec2::ZERO;
+        self.scroll_pixels = Vec2::ZERO;
     }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "native pointing-device coordinates enter the canonical f32 input domain at this boundary"
+)]
+fn vec2_from_f64(x: f64, y: f64) -> Vec2 {
+    Vec2::new(x as f32, y as f32)
 }
 
 fn update_edge_set<T>(

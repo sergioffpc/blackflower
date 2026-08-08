@@ -68,8 +68,13 @@ impl QuicServer {
                         .ok_or(QuicError::EndpointClosed)?
                         .map_err(|_join| QuicError::TransportTask)?;
                     self.validated_origins.finish_pending(origin);
-                    let connection = connection?;
-                    validate_connection(&connection)?;
+                    let Ok(connection) = connection else {
+                        continue;
+                    };
+                    if validate_connection(&connection).is_err() {
+                        connection.close(quinn::VarInt::from_u32(1), b"incompatible transport");
+                        continue;
+                    }
                     let Some(permit) = self.connections.try_acquire() else {
                         connection.close(quinn::VarInt::from_u32(0), b"connection capacity");
                         continue;
@@ -181,7 +186,7 @@ impl ServerConnection {
     }
 
     /// Send one already framed and validated application DATAGRAM.
-    pub fn send_datagram(&self, bytes: Vec<u8>) -> Result<(), QuicError> {
+    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), QuicError> {
         send_datagram(&self.inner, bytes)
     }
 
@@ -230,7 +235,7 @@ impl ClientConnection {
     }
 
     /// Send one already framed and validated application DATAGRAM.
-    pub fn send_datagram(&self, bytes: Vec<u8>) -> Result<(), QuicError> {
+    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), QuicError> {
         send_datagram(&self.inner, bytes)
     }
 
@@ -282,9 +287,9 @@ fn validate_connection(connection: &quinn::Connection) -> Result<(), QuicError> 
     Ok(())
 }
 
-fn send_datagram(connection: &quinn::Connection, bytes: Vec<u8>) -> Result<(), QuicError> {
+fn send_datagram(connection: &quinn::Connection, bytes: Bytes) -> Result<(), QuicError> {
     validate_datagram(connection, &bytes)?;
-    connection.send_datagram(Bytes::from(bytes))?;
+    connection.send_datagram(bytes)?;
     Ok(())
 }
 

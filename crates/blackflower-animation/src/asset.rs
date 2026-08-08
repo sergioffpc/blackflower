@@ -118,9 +118,9 @@ impl Skeleton {
                 name,
                 parent: *parent,
                 rest: RestTransform {
-                    translation: rest.translation.to_array(),
-                    rotation: rest.rotation.to_array(),
-                    scale: rest.scale.to_array(),
+                    translation: rest.translation,
+                    rotation: rest.rotation,
+                    scale: rest.scale,
                 },
             })
             .collect::<Vec<_>>();

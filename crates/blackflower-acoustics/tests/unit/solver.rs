@@ -242,6 +242,67 @@ fn speed_of_sound_uses_integer_canonical_rounding() {
 }
 
 #[test]
+fn portal_route_search_retains_only_the_shortest_requested_paths() -> Result<(), Error> {
+    let zones = (1..=4)
+        .map(|id| {
+            let x = i32::try_from(id)
+                .map_err(|_error| Error::InvalidField("test zone"))?
+                .saturating_mul(10);
+            Ok(AcousticZoneVolume {
+                id,
+                name: format!("zone-{id}"),
+                bounds: AabbMm::new(
+                    PositionMm::new(x, 0, 0),
+                    PositionMm::new(x.saturating_add(1), 1, 1),
+                )?,
+            })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    let portals = [(1, 2), (2, 4), (1, 3), (3, 4)]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (zone_a, zone_b))| AcousticPortal {
+            id: u32::try_from(index).unwrap_or(u32::MAX),
+            zone_a,
+            zone_b,
+            center: PositionMm::default(),
+            default_open_q16: u16::MAX,
+            instance_id: None,
+        })
+        .collect();
+    let topology = AcousticTopology::new(zones, portals, Vec::new())?;
+    let scene = AcousticSimulationScene::new(AcousticSimulationScene {
+        materials: "materials".to_owned(),
+        topology: "topology".to_owned(),
+        triangles: Vec::new(),
+        paths: vec![
+            path(1, 2, 1_000),
+            path(2, 4, 1_000),
+            path(1, 3, 2_000),
+            path(3, 4, 2_000),
+        ],
+        zones: Vec::new(),
+    })?;
+
+    let routes = build_portal_routes(&topology, &scene, 1)?;
+    let retained = routes
+        .get(&(1, 4))
+        .ok_or(Error::MissingReference("test route".to_owned()))?;
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].length_mm, 2_000);
+    Ok(())
+}
+
+fn path(zone_a: u32, zone_b: u32, length_mm: u64) -> ProbePathEdge {
+    ProbePathEdge {
+        zone_a,
+        zone_b,
+        length_mm,
+        gain: BandEnergy::UNITY,
+    }
+}
+
+#[test]
 fn destructible_variants_swap_geometry_without_rebake() -> Result<(), Error> {
     let mut world = fixture()?;
     world.set_receivers(&[receiver(false)])?;

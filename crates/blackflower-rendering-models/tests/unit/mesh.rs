@@ -1,13 +1,14 @@
 use bytes::Bytes;
+use glam::{Vec2, Vec3, Vec4};
 
 use super::{MeshAsset, MeshLod, MeshPrimitive, MeshVertex, VertexAttributes, encode_mesh};
 
 fn vertex(x: f32, y: f32) -> MeshVertex {
     MeshVertex {
-        position: [x, y, 0.0],
-        normal: [0.0, 0.0, 1.0],
-        tangent: [1.0, 0.0, 0.0, 1.0],
-        texcoord_0: [x, y],
+        position: Vec3::new(x, y, 0.0),
+        normal: Vec3::Z,
+        tangent: Vec4::new(1.0, 0.0, 0.0, 1.0),
+        texcoord_0: Vec2::new(x, y),
     }
 }
 

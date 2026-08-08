@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::net::SocketAddr;
 
 use blackflower_networking::StateBootstrapHeader;
@@ -11,7 +10,7 @@ use bytes::Bytes;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientTransportEvent {
     /// One reliable session-control frame.
-    SessionControl(Vec<u8>),
+    SessionControl(Bytes),
     /// One validated application datagram.
     Datagram(Bytes),
     /// One complete reliable full-state transfer.
@@ -19,7 +18,7 @@ pub enum ClientTransportEvent {
         /// Canonical bootstrap header.
         header: StateBootstrapHeader,
         /// Exact uncompressed canonical snapshot bytes.
-        body: Vec<u8>,
+        body: Bytes,
     },
     /// The validated remote UDP path changed without changing address family.
     PathChanged {
@@ -35,16 +34,16 @@ pub enum ClientTransportEvent {
 /// Bounded transport operations required by a human or headless client.
 pub trait ClientTransport {
     /// Concrete transport failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Queue one reliable session-control frame.
-    fn send_control(&mut self, frame: Vec<u8>) -> Result<(), Self::Error>;
+    fn send_control(&mut self, frame: Bytes) -> Result<(), Self::Error>;
 
     /// Replace the unsent input datagram with the newest exact value.
-    fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
+    fn set_latest_input(&mut self, datagram: Bytes) -> Result<(), Self::Error>;
 
     /// Queue one bounded time-synchronization request datagram.
-    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error>;
+    fn send_time_sync(&mut self, datagram: Bytes) -> Result<(), Self::Error>;
 
     /// Poll one transport fact without blocking.
     fn receive(&mut self) -> Result<Option<ClientTransportEvent>, Self::Error>;
@@ -56,15 +55,15 @@ pub trait ClientTransport {
 impl ClientTransport for ClientNetworkHandle {
     type Error = QuicError;
 
-    fn send_control(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_control(&mut self, frame: Bytes) -> Result<(), Self::Error> {
         self.try_send_control(frame)
     }
 
-    fn set_latest_input(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn set_latest_input(&mut self, datagram: Bytes) -> Result<(), Self::Error> {
         ClientNetworkHandle::set_latest_input(self, datagram)
     }
 
-    fn send_time_sync(&mut self, datagram: Vec<u8>) -> Result<(), Self::Error> {
+    fn send_time_sync(&mut self, datagram: Bytes) -> Result<(), Self::Error> {
         self.try_send_time_sync(datagram)
     }
 

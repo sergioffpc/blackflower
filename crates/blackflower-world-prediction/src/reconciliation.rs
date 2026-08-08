@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::num::NonZeroU64;
 
 use crate::telemetry::{self, ReconciliationObservation};
@@ -82,7 +81,7 @@ pub enum ReconciliationOutcome {
 
 /// Failure after reconciliation has started mutating the prediction world.
 #[derive(Debug, thiserror::Error)]
-pub enum ReconciliationError<E: StdError + 'static> {
+pub enum ReconciliationError<E: std::error::Error + 'static> {
     /// Simulation-specific restore or re-simulation logic failed.
     #[error("reconciliation driver failed")]
     Driver(#[source] E),

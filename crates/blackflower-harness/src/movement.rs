@@ -1,7 +1,4 @@
-use std::error::Error as StdError;
-
 use blackflower_ecs::{Component, ComponentId, EntityId, Read, Write};
-use blackflower_harness::{ClientPrediction, PredictionCodec, PredictionSession, PredictionUpdate};
 use blackflower_networking::{ControlFrame, SimulationTick};
 use blackflower_networking_protocol::v1::{
     CHARACTER_STATE_COMPONENT_ID, CharacterState, MovementControl, ORIENTATION_TOLERANCE_RADIANS,
@@ -16,21 +13,29 @@ use blackflower_world_prediction::{
     PredictionWorld,
 };
 use bytemuck::{Pod, Zeroable};
+use glam::{EulerRot, Quat, Vec2, Vec3};
 
-const PREDICTED_MOVEMENT_SPEED_METERS_PER_SECOND: f64 = 5.0;
+use crate::{ClientPrediction, PredictionCodec, PredictionSession, PredictionUpdate};
+
+const PREDICTED_MOVEMENT_SPEED_METERS_PER_SECOND: f32 = 5.0;
 
 /// Latest locally predicted movement state exposed to presentation.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PredictedMovementState {
-    pub(crate) controlled_entity: ReplicatedEntityId,
-    pub(crate) position_meters: [f64; 3],
-    pub(crate) velocity_meters_per_second: [f64; 3],
-    pub(crate) orientation: [f64; 4],
-    pub(crate) grounded: bool,
+pub struct PredictedMovementState {
+    /// Server-assigned entity represented by this locally predicted state.
+    pub controlled_entity: ReplicatedEntityId,
+    /// Predicted world-space position in meters.
+    pub position_meters: Vec3,
+    /// Predicted world-space velocity in meters per second.
+    pub velocity_meters_per_second: Vec3,
+    /// Predicted world-space orientation.
+    pub orientation: Quat,
+    /// Whether the predicted character is grounded.
+    pub grounded: bool,
 }
 
-/// Concrete movement prediction used by the built-in native client.
-pub(crate) struct ClientMovementPrediction {
+/// Concrete movement prediction shared by native and headless clients.
+pub struct ClientMovementPrediction {
     session: PredictionSession<
         MovementPredictionDriver,
         MovementPredictionCodec,
@@ -40,7 +45,8 @@ pub(crate) struct ClientMovementPrediction {
 }
 
 impl ClientMovementPrediction {
-    pub(crate) fn new() -> Result<Self, ClientMovementPredictionError> {
+    /// Create the revision-one movement prediction world and session.
+    pub fn new() -> Result<Self, ClientMovementPredictionError> {
         Ok(Self {
             session: PredictionSession::new(
                 MovementPredictionDriver::new().map_err(ClientMovementPredictionError::new)?,
@@ -89,12 +95,12 @@ impl ClientPrediction for ClientMovementPrediction {
 
 /// Opaque concrete prediction failure retained as a standard error source.
 #[derive(Debug)]
-pub(crate) struct ClientMovementPredictionError {
-    source: Box<dyn StdError + Send + Sync>,
+pub struct ClientMovementPredictionError {
+    source: Box<dyn std::error::Error + Send + Sync>,
 }
 
 impl ClientMovementPredictionError {
-    fn new(error: impl StdError + Send + Sync + 'static) -> Self {
+    fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self {
             source: Box::new(error),
         }
@@ -107,16 +113,16 @@ impl std::fmt::Display for ClientMovementPredictionError {
     }
 }
 
-impl StdError for ClientMovementPredictionError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+impl std::error::Error for ClientMovementPredictionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.source.as_ref())
     }
 }
 
 #[derive(Debug, Clone)]
 struct MovementInput {
-    movement: [f64; 2],
-    view: Option<[f64; 2]>,
+    movement: Vec2,
+    view: Option<Vec2>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -161,16 +167,16 @@ impl PredictionCodec<PredictedMovementState, MovementInput> for MovementPredicti
         let control = MovementControl::decode(&frame.payload)?;
         Ok(MovementInput {
             movement: control.movement(),
-            view: Some([
+            view: Some(Vec2::new(
                 control.view_yaw().dequantize(),
                 control.view_pitch().dequantize(),
-            ]),
+            )),
         })
     }
 
     fn neutral_input(&self) -> MovementInput {
         MovementInput {
-            movement: [0.0; 2],
+            movement: Vec2::ZERO,
             view: None,
         }
     }
@@ -183,17 +189,16 @@ impl PredictionCodec<PredictedMovementState, MovementInput> for MovementPredicti
         PredictionStateComparison::from_within_tolerance(
             predicted.controlled_entity == authoritative.controlled_entity
                 && predicted.grounded == authoritative.grounded
-                && vector_within(
-                    predicted.position_meters,
-                    authoritative.position_meters,
-                    POSITION_TOLERANCE_METERS,
-                )
-                && vector_within(
-                    predicted.velocity_meters_per_second,
+                && predicted
+                    .position_meters
+                    .abs_diff_eq(authoritative.position_meters, POSITION_TOLERANCE_METERS)
+                && predicted.velocity_meters_per_second.abs_diff_eq(
                     authoritative.velocity_meters_per_second,
                     VELOCITY_TOLERANCE_METERS_PER_SECOND,
                 )
-                && quaternion_distance(predicted.orientation, authoritative.orientation)
+                && predicted
+                    .orientation
+                    .angle_between(authoritative.orientation)
                     <= ORIENTATION_TOLERANCE_RADIANS,
         )
     }
@@ -247,34 +252,17 @@ fn required_component<'a>(
         .ok_or(MovementPredictionCodecError::MissingComponent(name))
 }
 
-fn vector_within<const N: usize>(left: [f64; N], right: [f64; N], tolerance: f64) -> bool {
-    left.into_iter().zip(right).all(|(left, right)| {
-        left.is_finite() && right.is_finite() && (left - right).abs() <= tolerance
-    })
-}
-
-fn quaternion_distance(left: [f64; 4], right: [f64; 4]) -> f64 {
-    let dot = left
-        .into_iter()
-        .zip(right)
-        .map(|(left, right)| left * right)
-        .sum::<f64>()
-        .abs()
-        .clamp(0.0, 1.0);
-    2.0 * dot.acos()
-}
+#[derive(Clone, Copy, Pod, Zeroable, Component)]
+#[repr(transparent)]
+struct PredictedPosition(Vec3);
 
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]
-struct PredictedPosition([f64; 3]);
+struct PredictedVelocity(Vec3);
 
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]
-struct PredictedVelocity([f64; 3]);
-
-#[derive(Clone, Copy, Pod, Zeroable, Component)]
-#[repr(transparent)]
-struct PredictedOrientation([f64; 4]);
+struct PredictedOrientation(Quat);
 
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]
@@ -283,9 +271,9 @@ struct PredictedGrounded(u32);
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(C)]
 struct PredictedInput {
-    movement: [f64; 2],
-    view_yaw_radians: f64,
-    view_pitch_radians: f64,
+    movement: Vec2,
+    view_yaw_radians: f32,
+    view_pitch_radians: f32,
     replace_view: u64,
 }
 
@@ -317,11 +305,9 @@ impl MovementPredictionDriver {
         world
             .ecs_mut()
             .insert(entity, velocity, PredictedVelocity::zeroed())?;
-        world.ecs_mut().insert(
-            entity,
-            orientation,
-            PredictedOrientation([0.0, 0.0, 0.0, 1.0]),
-        )?;
+        world
+            .ecs_mut()
+            .insert(entity, orientation, PredictedOrientation(Quat::IDENTITY))?;
         world
             .ecs_mut()
             .insert(entity, grounded, PredictedGrounded(1))?;
@@ -427,7 +413,7 @@ impl PredictionDriver<PredictedMovementState, InputFrame<MovementInput>>
         let (view_yaw_radians, view_pitch_radians, replace_view) = input
             .input()
             .view
-            .map_or((0.0, 0.0, 0), |view| (view[0], view[1], 1));
+            .map_or((0.0, 0.0, 0), |view| (view.x, view.y, 1));
         self.world.ecs_mut().insert(
             self.entity,
             self.input,
@@ -490,44 +476,26 @@ fn integrate_prediction(
     let view = if input.replace_view == 0 {
         view_from_orientation(orientation.0)
     } else {
-        [input.view_yaw_radians, input.view_pitch_radians]
+        Vec2::new(input.view_yaw_radians, input.view_pitch_radians)
     };
-    let (sine, cosine) = view[0].sin_cos();
-    let right = [cosine, 0.0, -sine];
-    let forward = [-sine, 0.0, -cosine];
-    velocity.0 = [
-        (right[0] * input.movement[0] + forward[0] * input.movement[1])
-            * PREDICTED_MOVEMENT_SPEED_METERS_PER_SECOND,
-        0.0,
-        (right[2] * input.movement[0] + forward[2] * input.movement[1])
-            * PREDICTED_MOVEMENT_SPEED_METERS_PER_SECOND,
-    ];
-    let delta = f64::from(PREDICTION_TICK_DELTA_SECONDS);
-    for (position, velocity) in position.0.iter_mut().zip(velocity.0) {
-        *position += velocity * delta;
-    }
+    let yaw = Quat::from_rotation_y(view.x);
+    let right = yaw * Vec3::X;
+    let forward = yaw * Vec3::NEG_Z;
+    velocity.0 = (right * input.movement.x + forward * input.movement.y)
+        * PREDICTED_MOVEMENT_SPEED_METERS_PER_SECOND;
+    position.0 += velocity.0 * PREDICTION_TICK_DELTA_SECONDS;
     orientation.0 = orientation_from_view(view);
 }
 
-fn orientation_from_view([yaw, pitch]: [f64; 2]) -> [f64; 4] {
-    let (pitch_sine, pitch_cosine) = (pitch * 0.5).sin_cos();
-    let (yaw_sine, yaw_cosine) = (yaw * 0.5).sin_cos();
-    [
-        yaw_cosine * pitch_sine,
-        yaw_sine * pitch_cosine,
-        -yaw_sine * pitch_sine,
-        yaw_cosine * pitch_cosine,
-    ]
+fn orientation_from_view(view: Vec2) -> Quat {
+    Quat::from_rotation_y(view.x) * Quat::from_rotation_x(view.y)
 }
 
-fn view_from_orientation([x, y, z, w]: [f64; 4]) -> [f64; 2] {
-    let pitch = (2.0 * (w * x - y * z)).clamp(-1.0, 1.0).asin();
-    let yaw = (2.0 * (w * y - x * z))
-        .atan2(1.0 - 2.0 * (x * x + y * y))
-        .rem_euclid(std::f64::consts::TAU);
-    [yaw, pitch]
+fn view_from_orientation(orientation: Quat) -> Vec2 {
+    let (yaw, pitch, _roll) = orientation.to_euler(EulerRot::YXZ);
+    Vec2::new(yaw.rem_euclid(std::f32::consts::TAU), pitch)
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/prediction.rs"]
+#[path = "../tests/unit/movement.rs"]
 mod tests;

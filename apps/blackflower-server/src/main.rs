@@ -1,10 +1,7 @@
-use std::io::IsTerminal as _;
 use std::net::SocketAddr;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -17,6 +14,9 @@ use blackflower_networking_quic::{
     AdmissionLimits, QuicServer, ServerEndpointConfig, ServerTlsConfig,
 };
 use blackflower_observability::{ObservabilityConfig, ObservabilityGuard, init};
+use blackflower_process::{
+    LaunchMode, ShutdownToken, validate_foreground_terminal, wait_for_shutdown_signal,
+};
 use blackflower_server::foreground::{self, ForegroundConfig};
 use blackflower_server::{
     DedicatedServerNetwork, LoopbackSessionAuthority, ServerNetworkRuntime, SimulationHost,
@@ -25,8 +25,6 @@ use blackflower_server::{
 use clap::Parser;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-
-const FOREGROUND_LOG_CAPACITY: usize = 4_096;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Blackflower authoritative server")]
@@ -68,26 +66,38 @@ struct Arguments {
     asset_trust_keys: Vec<PathBuf>,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let arguments = Arguments::parse();
     validate_arguments(&arguments)?;
+    if !LaunchMode::from_foreground_flag(arguments.foreground)
+        .enter()
+        .context("process mode startup failed")?
+        .should_run()
+    {
+        return Ok(());
+    }
 
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("failed to create server runtime")?
+        .block_on(run(arguments))
+}
+
+async fn run(arguments: Arguments) -> Result<()> {
     let mut config = ObservabilityConfig::server(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     if arguments.foreground {
-        let capacity = NonZeroUsize::new(FOREGROUND_LOG_CAPACITY)
-            .context("foreground log capacity must be non-zero")?;
-        config = config.with_foreground_logs(Default::default(), capacity);
+        config = config.with_default_foreground_logs();
     }
     let metrics_address = config.metrics_bind_address();
     let mut observability = init(&config).context("observability init failed")?;
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let simulation = SimulationHost::spawn().context("simulation host startup failed")?;
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = ShutdownToken::new();
     let network_runtime = network_runtime(&arguments, simulation.status())?;
     let network_task = network_runtime.map(|runtime| {
-        let network_stop = Arc::clone(&stop);
+        let network_stop = stop.shared_flag();
         tokio::spawn(async move { runtime.run(network_stop).await })
     });
     let application_result = run_application(
@@ -95,10 +105,10 @@ async fn main() -> Result<()> {
         &config,
         metrics_address,
         &mut observability,
-        Arc::clone(&stop),
+        stop.clone(),
     )
     .await;
-    stop.store(true, Ordering::Release);
+    stop.request();
     let network_result = if let Some(task) = network_task {
         Some(task.await.context("network supervisor task panicked")?)
     } else {
@@ -116,7 +126,7 @@ async fn main() -> Result<()> {
         completed_ticks = exit.completed_ticks,
         "authoritative simulation stopped",
     );
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 
@@ -127,10 +137,7 @@ fn validate_arguments(arguments: &Arguments) -> Result<()> {
     {
         bail!("--listen-address must be loopback for the local identity authority");
     }
-    if arguments.foreground && (!std::io::stdin().is_terminal() || !std::io::stdout().is_terminal())
-    {
-        bail!("--foreground requires an interactive terminal");
-    }
+    validate_foreground_terminal(arguments.foreground)?;
     Ok(())
 }
 
@@ -139,12 +146,15 @@ async fn run_application(
     config: &ObservabilityConfig,
     metrics_address: Option<SocketAddr>,
     observability: &mut ObservabilityGuard,
-    shutdown_requested: Arc<AtomicBool>,
+    shutdown_requested: ShutdownToken,
 ) -> Result<()> {
     if arguments.foreground {
         run_foreground(config, metrics_address, observability, shutdown_requested).await
     } else {
-        shutdown_signal().await
+        wait_for_shutdown_signal()
+            .await
+            .context("shutdown signal wait failed")?;
+        Ok(())
     }
 }
 
@@ -152,24 +162,24 @@ async fn run_foreground(
     config: &ObservabilityConfig,
     metrics_address: Option<SocketAddr>,
     observability: &mut ObservabilityGuard,
-    shutdown_requested: Arc<AtomicBool>,
+    shutdown_requested: ShutdownToken,
 ) -> Result<()> {
     let metrics_address = metrics_address.context("foreground metrics endpoint is disabled")?;
     let (log_receiver, log_control) = observability
         .take_foreground_logs()
         .context("foreground log capture is disabled")?;
-    let foreground_lifetime = Arc::clone(&shutdown_requested);
+    let foreground_lifetime = shutdown_requested.clone();
     let foreground_config = ForegroundConfig {
         service_name: config.service_name(),
         service_version: env!("CARGO_PKG_VERSION"),
         metrics_address,
         log_receiver,
         log_control,
-        shutdown_requested: Arc::clone(&shutdown_requested),
+        shutdown_requested: shutdown_requested.clone(),
     };
     let mut foreground_task = tokio::task::spawn_blocking(move || {
         let result = foreground::run(foreground_config);
-        foreground_lifetime.store(true, Ordering::Release);
+        foreground_lifetime.request();
         result
     });
 
@@ -177,12 +187,12 @@ async fn run_foreground(
         result = &mut foreground_task => result
             .context("foreground task panicked")?
             .context("foreground mode failed"),
-        signal_result = shutdown_signal() => {
-            shutdown_requested.store(true, Ordering::Release);
+        signal_result = wait_for_shutdown_signal() => {
+            shutdown_requested.request();
             let foreground_result = foreground_task
                 .await
                 .context("foreground task panicked")?;
-            signal_result?;
+            signal_result.context("shutdown signal wait failed")?;
             foreground_result.context("foreground mode failed")
         }
     }
@@ -300,30 +310,6 @@ fn local_admission_limits() -> Result<AdmissionLimits> {
 
 fn required_argument<'a, T>(value: Option<&'a T>, name: &str) -> Result<&'a T> {
     value.with_context(|| format!("{name} is required with --listen-address"))
-}
-
-async fn shutdown_signal() -> Result<()> {
-    #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .context("failed to install SIGTERM handler")?;
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => {
-                result.context("failed to wait for SIGINT")
-            }
-            signal = terminate.recv() => {
-                signal.context("SIGTERM signal stream closed")
-            }
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c()
-            .await
-            .context("failed to wait for shutdown signal")
-    }
 }
 
 #[cfg(test)]

@@ -3,9 +3,9 @@
 //! This crate owns process-facing window and device-input lifecycle plus the
 //! client-only presentation loop. The executable always establishes a network
 //! session; gameplay can compose an already established shared harness through
-//! [`run_with_harness`]. The built-in connected path owns movement prediction;
-//! custom harness prediction policy and renderer submission remain external
-//! boundaries.
+//! [`run_with_harness`]. Shared movement prediction remains in
+//! `blackflower-harness`; device collection and renderer submission remain
+//! frontend boundaries.
 
 pub mod foreground;
 pub mod input;
@@ -14,7 +14,6 @@ pub mod lifecycle;
 mod application;
 mod connection;
 mod controls;
-mod prediction;
 mod runtime;
 
 use anyhow::{Context as _, Result};

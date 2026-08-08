@@ -6,6 +6,7 @@ use blackflower_audio_media::{
     AUDIO_SAMPLE_RATE, AudioAsset, AudioClip, AudioLibrary, AudioStream, LoopRegion, SoundEvent,
     Spatialization,
 };
+use glam::Vec3A;
 use kira::backend::DefaultBackend;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
@@ -41,7 +42,7 @@ pub struct PlaybackParams {
     /// Additional gain in decibels.
     pub gain_db: f32,
     /// Listener-relative source direction for HRTF.
-    pub direction: [f32; 3],
+    pub direction: Vec3A,
     /// Optional current source distance in metres.
     pub distance_meters: Option<f32>,
     /// Optional server-authoritative direct/path parameters.
@@ -52,7 +53,7 @@ impl Default for PlaybackParams {
     fn default() -> Self {
         Self {
             gain_db: 0.0,
-            direction: [0.0, 0.0, -1.0],
+            direction: Vec3A::NEG_Z,
             distance_meters: None,
             propagation: None,
         }
@@ -63,11 +64,13 @@ impl PlaybackParams {
     /// Derive client-safe HRTF/gain parameters from an authoritative delivery.
     #[must_use]
     pub fn from_propagation(propagation: PropagationDescriptor) -> Self {
-        let mut direction = propagation
-            .direction_q15
-            .map(|value| f32::from(value) / f32::from(i16::MAX));
-        if direction.iter().map(|value| value * value).sum::<f32>() <= f32::EPSILON {
-            direction = [0.0, 0.0, -1.0];
+        let mut direction = Vec3A::from_array(
+            propagation
+                .direction_q15
+                .map(|value| f32::from(value) / f32::from(i16::MAX)),
+        );
+        if direction.length_squared() <= f32::EPSILON {
+            direction = Vec3A::NEG_Z;
         }
         Self {
             gain_db: 0.0,
@@ -216,7 +219,7 @@ impl AudioEngine {
     }
 
     /// Update listener-relative HRTF direction without locking the callback.
-    pub fn set_direction(&mut self, id: VoiceId, direction: [f32; 3]) -> Result<(), Error> {
+    pub fn set_direction(&mut self, id: VoiceId, direction: Vec3A) -> Result<(), Error> {
         validate_direction(direction)?;
         let voice = self
             .voices
@@ -422,9 +425,8 @@ fn validate_params(params: PlaybackParams) -> Result<(), Error> {
     validate_direction(params.direction)
 }
 
-fn validate_direction(direction: [f32; 3]) -> Result<(), Error> {
-    let magnitude_squared = direction.iter().map(|value| value * value).sum::<f32>();
-    if direction.iter().all(|value| value.is_finite()) && magnitude_squared > f32::EPSILON {
+fn validate_direction(direction: Vec3A) -> Result<(), Error> {
+    if direction.is_finite() && direction.length_squared() > f32::EPSILON {
         Ok(())
     } else {
         Err(Error::InvalidField("direction"))

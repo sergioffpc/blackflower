@@ -2,6 +2,7 @@
 
 mod client;
 mod input;
+mod movement;
 mod prediction;
 mod snapshots;
 mod trace;
@@ -15,6 +16,9 @@ pub use blackflower_world_prediction::{
 };
 pub use client::{ClientHarness, ClientHarnessError};
 pub use input::InputBuildError as ClientInputError;
+pub use movement::{
+    ClientMovementPrediction, ClientMovementPredictionError, PredictedMovementState,
+};
 pub use prediction::{
     ClientPrediction, PredictionCodec, PredictionSession, PredictionSessionError, PredictionUpdate,
 };

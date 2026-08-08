@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use blackflower_networking::{
     MAX_BOOTSTRAP_BYTES, MAX_SNAPSHOT_CHUNKS, ProtocolRevision, SimulationTick, SnapshotChunk,
 };
+use bytes::{BufMut as _, Bytes, BytesMut};
 
 use crate::snapshot::{Decoder, decode_entity, push_component};
 use crate::{
@@ -110,10 +111,10 @@ impl SnapshotDelta {
     }
 
     /// Encode canonical component operations using explicit little-endian fields.
-    pub fn encode(&self) -> Result<Vec<u8>, DeltaError> {
-        let mut bytes = Vec::new();
+    pub fn encode(&self) -> Result<Bytes, DeltaError> {
+        let mut bytes = BytesMut::new();
         push_u64(&mut bytes, self.tick.get());
-        bytes.push(u8::from(self.baseline.is_some()));
+        bytes.put_u8(u8::from(self.baseline.is_some()));
         bytes.extend_from_slice(&[0; 3]);
         push_u64(&mut bytes, self.baseline.map_or(0, SnapshotTick::get));
         push_u32(&mut bytes, count_u32(self.operations.len())?);
@@ -125,7 +126,7 @@ impl SnapshotDelta {
                 actual: bytes.len(),
             });
         }
-        Ok(bytes)
+        Ok(bytes.freeze())
     }
 
     /// Decode one exact bounded canonical component delta.
@@ -308,17 +309,19 @@ pub fn build_snapshot_chunks(
     }
     let digest = resulting_snapshot.digest(revision)?;
     let count = u8::try_from(chunk_count).map_err(|_error| DeltaError::IntegerOutOfRange)?;
-    canonical
-        .chunks(maximum_chunk_payload)
-        .enumerate()
-        .map(|(index, payload)| {
+    (0..chunk_count)
+        .map(|index| {
+            let start = index.saturating_mul(maximum_chunk_payload);
+            let end = start
+                .saturating_add(maximum_chunk_payload)
+                .min(canonical.len());
             Ok(SnapshotChunk {
                 snapshot_tick: SimulationTick::new(delta.tick().get()),
                 baseline_tick: delta.baseline().map(|tick| SimulationTick::new(tick.get())),
                 projection_digest: digest,
                 chunk_index: u8::try_from(index).map_err(|_error| DeltaError::IntegerOutOfRange)?,
                 chunk_count: count,
-                payload: payload.to_vec(),
+                payload: canonical.slice(start..end),
             })
         })
         .collect()
@@ -441,7 +444,7 @@ fn apply_operation(
     }
 }
 
-fn encode_operation(bytes: &mut Vec<u8>, operation: &DeltaOperation) -> Result<(), DeltaError> {
+fn encode_operation(bytes: &mut BytesMut, operation: &DeltaOperation) -> Result<(), DeltaError> {
     match operation {
         DeltaOperation::Spawn { entity, state } => {
             push_operation_header(bytes, 1, *entity);
@@ -507,8 +510,8 @@ fn decode_operation(decoder: &mut Decoder<'_>) -> Result<DeltaOperation, DeltaEr
     }
 }
 
-fn push_operation_header(bytes: &mut Vec<u8>, kind: u8, entity: ReplicatedEntityId) {
-    bytes.push(kind);
+fn push_operation_header(bytes: &mut BytesMut, kind: u8, entity: ReplicatedEntityId) {
+    bytes.put_u8(kind);
     bytes.extend_from_slice(&[0; 3]);
     push_u64(bytes, entity.get());
 }
@@ -529,14 +532,14 @@ fn count_u32(value: usize) -> Result<u32, DeltaError> {
     u32::try_from(value).map_err(|_error| DeltaError::IntegerOutOfRange)
 }
 
-fn push_u16(bytes: &mut Vec<u8>, value: u16) {
+fn push_u16(bytes: &mut BytesMut, value: u16) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+fn push_u32(bytes: &mut BytesMut, value: u32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u64(bytes: &mut Vec<u8>, value: u64) {
+fn push_u64(bytes: &mut BytesMut, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }

@@ -1,9 +1,11 @@
-use std::f64::consts::{FRAC_1_SQRT_2, TAU};
+use std::f32::consts::{FRAC_1_SQRT_2, TAU};
+
+use glam::{Quat, Vec3};
 
 /// Normative position resolution: one signed centimetre.
-pub const POSITION_UNITS_PER_METER: f64 = 100.0;
+pub const POSITION_UNITS_PER_METER: f32 = 100.0;
 /// Normative velocity resolution: one signed centimetre per second.
-pub const VELOCITY_UNITS_PER_METER_PER_SECOND: f64 = 100.0;
+pub const VELOCITY_UNITS_PER_METER_PER_SECOND: f32 = 100.0;
 
 /// Signed centimetre world position on each axis.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,11 +19,11 @@ impl QuantizedPosition {
     }
 
     /// Quantize a finite metre-space position using signed centimetres.
-    pub fn quantize(position_meters: [f64; 3]) -> Result<Self, QuantizationError> {
+    pub fn quantize(position_meters: Vec3) -> Result<Self, QuantizationError> {
         Ok(Self([
-            position_code(position_meters[0])?,
-            position_code(position_meters[1])?,
-            position_code(position_meters[2])?,
+            position_code(position_meters.x)?,
+            position_code(position_meters.y)?,
+            position_code(position_meters.z)?,
         ]))
     }
 
@@ -33,9 +35,8 @@ impl QuantizedPosition {
 
     /// Reconstruct metres from signed centimetres.
     #[must_use]
-    pub fn dequantize(self) -> [f64; 3] {
-        self.0
-            .map(|code| f64::from(code) / POSITION_UNITS_PER_METER)
+    pub fn dequantize(self) -> Vec3 {
+        Vec3::from_array(self.0.map(position_from_code))
     }
 }
 
@@ -51,11 +52,11 @@ impl QuantizedVelocity {
     }
 
     /// Quantize a finite velocity using signed centimetres per second.
-    pub fn quantize(meters_per_second: [f64; 3]) -> Result<Self, QuantizationError> {
+    pub fn quantize(meters_per_second: Vec3) -> Result<Self, QuantizationError> {
         Ok(Self([
-            velocity_code(meters_per_second[0])?,
-            velocity_code(meters_per_second[1])?,
-            velocity_code(meters_per_second[2])?,
+            velocity_code(meters_per_second.x)?,
+            velocity_code(meters_per_second.y)?,
+            velocity_code(meters_per_second.z)?,
         ]))
     }
 
@@ -67,9 +68,11 @@ impl QuantizedVelocity {
 
     /// Reconstruct metres per second.
     #[must_use]
-    pub fn dequantize(self) -> [f64; 3] {
-        self.0
-            .map(|code| f64::from(code) / VELOCITY_UNITS_PER_METER_PER_SECOND)
+    pub fn dequantize(self) -> Vec3 {
+        Vec3::from_array(
+            self.0
+                .map(|code| f32::from(code) / VELOCITY_UNITS_PER_METER_PER_SECOND),
+        )
     }
 }
 
@@ -85,7 +88,7 @@ impl QuantizedAngle {
     }
 
     /// Quantize radians modulo one full turn.
-    pub fn quantize(radians: f64) -> Result<Self, QuantizationError> {
+    pub fn quantize(radians: f32) -> Result<Self, QuantizationError> {
         if !radians.is_finite() {
             return Err(QuantizationError::NonFinite);
         }
@@ -102,8 +105,8 @@ impl QuantizedAngle {
 
     /// Reconstruct radians in the half-open interval `[0, 2pi)`.
     #[must_use]
-    pub fn dequantize(self) -> f64 {
-        f64::from(self.0) * TAU / 65_536.0
+    pub fn dequantize(self) -> f32 {
+        f32::from(self.0) * TAU / 65_536.0
     }
 }
 
@@ -133,26 +136,22 @@ impl QuantizedQuaternion {
     }
 
     /// Normalize and encode a quaternion, canonicalizing the omitted term positive.
-    pub fn quantize(quaternion: [f64; 4]) -> Result<Self, QuantizationError> {
-        if !quaternion.into_iter().all(f64::is_finite) {
+    pub fn quantize(quaternion: Quat) -> Result<Self, QuantizationError> {
+        if !quaternion.is_finite() {
             return Err(QuantizationError::NonFinite);
         }
-        let magnitude_squared = quaternion
-            .into_iter()
-            .map(|value| value * value)
-            .sum::<f64>();
-        if magnitude_squared <= f64::EPSILON {
+        let magnitude_squared = quaternion.length_squared();
+        if magnitude_squared <= f32::EPSILON {
             return Err(QuantizationError::ZeroQuaternion);
         }
-        let inverse_magnitude = magnitude_squared.sqrt().recip();
-        let mut normalized = quaternion.map(|value| value * inverse_magnitude);
+        let mut normalized = quaternion.normalize();
         let largest_index = largest_component(normalized);
-        if normalized[largest_index] < 0.0 {
-            normalized = normalized.map(|value| -value);
+        if normalized.to_array()[largest_index] < 0.0 {
+            normalized = -normalized;
         }
         let mut components = [0_i16; 3];
         let mut output_index = 0;
-        for (index, value) in normalized.into_iter().enumerate() {
+        for (index, value) in normalized.to_array().into_iter().enumerate() {
             if index != largest_index {
                 components[output_index] = quaternion_code(value)?;
                 output_index += 1;
@@ -178,25 +177,25 @@ impl QuantizedQuaternion {
     }
 
     /// Reconstruct the canonical positive-largest unit quaternion.
-    pub fn dequantize(self) -> Result<[f64; 4], QuantizationError> {
+    pub fn dequantize(self) -> Result<Quat, QuantizationError> {
         let largest_index = usize::from(self.largest_index);
         if largest_index >= 4 {
             return Err(QuantizationError::InvalidQuaternionIndex);
         }
-        let mut quaternion = [0.0_f64; 4];
+        let mut quaternion = [0.0_f32; 4];
         let mut input_index = 0;
         let mut sum = 0.0;
         for (index, output) in quaternion.iter_mut().enumerate() {
             if index != largest_index {
                 let value =
-                    f64::from(self.components[input_index]) * FRAC_1_SQRT_2 / f64::from(i16::MAX);
+                    f32::from(self.components[input_index]) * FRAC_1_SQRT_2 / f32::from(i16::MAX);
                 *output = value;
                 sum += value * value;
                 input_index += 1;
             }
         }
         quaternion[largest_index] = (1.0 - sum).max(0.0).sqrt();
-        Ok(quaternion)
+        Ok(Quat::from_array(quaternion))
     }
 }
 
@@ -220,11 +219,11 @@ pub enum QuantizationError {
     NonCanonicalQuaternion,
 }
 
-fn position_code(value: f64) -> Result<i32, QuantizationError> {
+fn position_code(value: f32) -> Result<i32, QuantizationError> {
     if !value.is_finite() {
         return Err(QuantizationError::NonFinite);
     }
-    let scaled = (value * POSITION_UNITS_PER_METER).round();
+    let scaled = (f64::from(value) * f64::from(POSITION_UNITS_PER_METER)).round();
     if scaled < f64::from(i32::MIN) || scaled > f64::from(i32::MAX) {
         Err(QuantizationError::OutOfRange)
     } else {
@@ -232,27 +231,28 @@ fn position_code(value: f64) -> Result<i32, QuantizationError> {
     }
 }
 
-fn velocity_code(value: f64) -> Result<i16, QuantizationError> {
+fn velocity_code(value: f32) -> Result<i16, QuantizationError> {
     if !value.is_finite() {
         return Err(QuantizationError::NonFinite);
     }
     let scaled = (value * VELOCITY_UNITS_PER_METER_PER_SECOND).round();
-    if scaled < f64::from(i16::MIN) || scaled > f64::from(i16::MAX) {
+    if scaled < f32::from(i16::MIN) || scaled > f32::from(i16::MAX) {
         Err(QuantizationError::OutOfRange)
     } else {
-        Ok(f64_to_i16(scaled))
+        Ok(f32_to_i16(scaled))
     }
 }
 
-fn quaternion_code(value: f64) -> Result<i16, QuantizationError> {
+fn quaternion_code(value: f32) -> Result<i16, QuantizationError> {
     if !(-FRAC_1_SQRT_2..=FRAC_1_SQRT_2).contains(&value) {
         return Err(QuantizationError::OutOfRange);
     }
-    let scaled = (value / FRAC_1_SQRT_2 * f64::from(i16::MAX)).round();
-    Ok(f64_to_i16(scaled))
+    let scaled = (value / FRAC_1_SQRT_2 * f32::from(i16::MAX)).round();
+    Ok(f32_to_i16(scaled))
 }
 
-fn largest_component(quaternion: [f64; 4]) -> usize {
+fn largest_component(quaternion: Quat) -> usize {
+    let quaternion = quaternion.to_array();
     let mut largest_index = 0;
     let mut largest_magnitude = quaternion[0].abs();
     for (index, value) in quaternion.into_iter().enumerate().skip(1) {
@@ -270,7 +270,7 @@ fn largest_component(quaternion: [f64; 4]) -> usize {
     clippy::cast_sign_loss,
     reason = "the caller rounds and bounds the value to the full u16 turn domain"
 )]
-fn angle_code(value: f64) -> u16 {
+fn angle_code(value: f32) -> u16 {
     if value >= 65_536.0 { 0 } else { value as u16 }
 }
 
@@ -286,6 +286,14 @@ fn f64_to_i32(value: f64) -> i32 {
     clippy::cast_possible_truncation,
     reason = "the caller rounds and bounds the finite value to the inclusive i16 domain"
 )]
-fn f64_to_i16(value: f64) -> i16 {
+fn f32_to_i16(value: f32) -> i16 {
     value as i16
+}
+
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "the runtime intentionally materializes protocol positions in the canonical f32 world domain"
+)]
+fn position_from_code(code: i32) -> f32 {
+    code as f32 / POSITION_UNITS_PER_METER
 }

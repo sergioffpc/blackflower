@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context as _, Error, Result};
+use glam::Vec2;
 use image::ImageFormat;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -262,7 +263,8 @@ impl ClientApplication {
                 self.input.modifiers_changed(modifiers.state());
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.input.cursor_moved((position.x, position.y));
+                self.input
+                    .cursor_moved(input_vector(position.x, position.y));
             }
             WindowEvent::CursorEntered { .. } => self.input.cursor_entered(),
             WindowEvent::CursorLeft { .. } => self.input.cursor_left(),
@@ -420,7 +422,9 @@ impl ApplicationHandler for ClientApplication {
         event: DeviceEvent,
     ) {
         match event {
-            DeviceEvent::MouseMotion { delta } => self.input.raw_mouse_motion(delta),
+            DeviceEvent::MouseMotion { delta } => {
+                self.input.raw_mouse_motion(input_vector(delta.0, delta.1));
+            }
             unhandled => {
                 tracing::trace!(
                     target: "blackflower_client",
@@ -470,6 +474,14 @@ impl ApplicationHandler for ClientApplication {
             "platform memory warning",
         );
     }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "winit f64 device coordinates enter the canonical f32 input domain at this boundary"
+)]
+fn input_vector(x: f64, y: f64) -> Vec2 {
+    Vec2::new(x as f32, y as f32)
 }
 
 fn load_window_icon() -> Result<Icon> {

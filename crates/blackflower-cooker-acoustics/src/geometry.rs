@@ -767,7 +767,5 @@ fn probe_volume_transform(
     let center = (minimum + maximum) * 0.5;
     let transform =
         world * Mat4::from_scale_rotation_translation(size, glam::Quat::IDENTITY, center);
-    let columns = transform.to_cols_array_2d();
-    let rows = std::array::from_fn(|row| std::array::from_fn(|column| columns[column][row]));
-    ProbeVolumeTransform::new(rows).map_err(Error::from)
+    ProbeVolumeTransform::new(transform).map_err(Error::from)
 }

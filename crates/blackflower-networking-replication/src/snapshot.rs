@@ -6,6 +6,7 @@ use blackflower_networking::{
     MAX_BOOTSTRAP_BYTES, MAX_SNAPSHOT_CHUNKS, ProjectionDigest, ProtocolRevision, SimulationTick,
     SnapshotChunk, projection_digest,
 };
+use bytes::{BufMut as _, Bytes, BytesMut};
 
 use crate::{
     ComponentId, ComponentRegistry, ComponentSampleTick, ProjectionKind, ReplicatedEntityId,
@@ -24,7 +25,7 @@ pub const SNAPSHOT_REASSEMBLY_DEADLINE: Duration = Duration::from_micros(66_700)
 pub struct ComponentState {
     sample_tick: ComponentSampleTick,
     priority: ReplicationPriority,
-    bytes: Arc<[u8]>,
+    bytes: Bytes,
 }
 
 impl ComponentState {
@@ -32,7 +33,7 @@ impl ComponentState {
     pub fn new(
         sample_tick: ComponentSampleTick,
         priority: ReplicationPriority,
-        bytes: Vec<u8>,
+        bytes: Bytes,
     ) -> Result<Self, SnapshotError> {
         if bytes.len() > usize::from(u16::MAX) {
             return Err(SnapshotError::ComponentTooLarge {
@@ -42,7 +43,7 @@ impl ComponentState {
         Ok(Self {
             sample_tick,
             priority,
-            bytes: bytes.into(),
+            bytes,
         })
     }
 
@@ -364,8 +365,8 @@ impl Snapshot {
     }
 
     /// Serialize the canonical projection with explicit little-endian fields.
-    pub fn encode(&self) -> Result<Vec<u8>, SnapshotError> {
-        let mut bytes = Vec::new();
+    pub fn encode(&self) -> Result<Bytes, SnapshotError> {
+        let mut bytes = BytesMut::new();
         push_u64(&mut bytes, self.tick.get());
         push_u32(&mut bytes, count_u32(self.entities.len())?);
         for (entity, state) in self.entities() {
@@ -380,14 +381,14 @@ impl Snapshot {
                 actual: bytes.len(),
             });
         }
-        Ok(bytes)
+        Ok(bytes.freeze())
     }
 
     /// Serialize once and cache the digest of those exact canonical bytes.
     pub fn encode_with_digest(
         &self,
         revision: ProtocolRevision,
-    ) -> Result<(Vec<u8>, ProjectionDigest), SnapshotError> {
+    ) -> Result<(Bytes, ProjectionDigest), SnapshotError> {
         let bytes = self.encode()?;
         let digest = projection_digest(revision, SimulationTick::new(self.tick.get()), &bytes);
         let _already_set = self.digest.set((revision, digest));
@@ -456,7 +457,7 @@ pub struct SnapshotReassembler {
     baseline_tick: Option<SimulationTick>,
     digest: ProjectionDigest,
     chunk_count: u8,
-    chunks: BTreeMap<u8, Vec<u8>>,
+    chunks: BTreeMap<u8, Bytes>,
 }
 
 impl SnapshotReassembler {
@@ -480,7 +481,7 @@ impl SnapshotReassembler {
         &mut self,
         chunk: SnapshotChunk,
         now: Duration,
-    ) -> Result<Option<Vec<u8>>, SnapshotError> {
+    ) -> Result<Option<Bytes>, SnapshotError> {
         if now
             .checked_sub(self.started_at)
             .is_none_or(|elapsed| elapsed > SNAPSHOT_REASSEMBLY_DEADLINE)
@@ -505,7 +506,7 @@ impl SnapshotReassembler {
         if self.chunks.len() != usize::from(self.chunk_count) {
             return Ok(None);
         }
-        let mut canonical = Vec::new();
+        let mut canonical = BytesMut::new();
         for index in 0..self.chunk_count {
             canonical.extend_from_slice(
                 self.chunks
@@ -513,7 +514,7 @@ impl SnapshotReassembler {
                     .ok_or(SnapshotError::MismatchedChunk)?,
             );
         }
-        Ok(Some(canonical))
+        Ok(Some(canonical.freeze()))
     }
 }
 
@@ -658,14 +659,14 @@ fn validate_component(
 }
 
 pub(crate) fn push_component(
-    bytes: &mut Vec<u8>,
+    bytes: &mut BytesMut,
     id: ComponentId,
     component: &ComponentState,
 ) -> Result<(), SnapshotError> {
     push_u16(bytes, id.get());
     push_u64(bytes, component.sample_tick.get());
-    bytes.push(priority_code(component.priority));
-    bytes.push(0);
+    bytes.put_u8(priority_code(component.priority));
+    bytes.put_u8(0);
     push_u16(bytes, count_u16(component.bytes.len())?);
     bytes.extend_from_slice(&component.bytes);
     Ok(())
@@ -684,7 +685,11 @@ pub(crate) fn decode_entity(
             return Err(SnapshotError::InvalidValue);
         }
         let length = usize::from(decoder.u16()?);
-        let state = ComponentState::new(sample_tick, priority, decoder.take(length)?.to_vec())?;
+        let state = ComponentState::new(
+            sample_tick,
+            priority,
+            Bytes::copy_from_slice(decoder.take(length)?),
+        )?;
         if components.insert(id, state).is_some() {
             return Err(SnapshotError::DuplicateComponent { id });
         }
@@ -730,15 +735,15 @@ fn count_u32(value: usize) -> Result<u32, SnapshotError> {
     u32::try_from(value).map_err(|_error| SnapshotError::IntegerOutOfRange)
 }
 
-fn push_u16(bytes: &mut Vec<u8>, value: u16) {
+fn push_u16(bytes: &mut BytesMut, value: u16) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+fn push_u32(bytes: &mut BytesMut, value: u32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u64(bytes: &mut Vec<u8>, value: u64) {
+fn push_u64(bytes: &mut BytesMut, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 

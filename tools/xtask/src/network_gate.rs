@@ -9,6 +9,7 @@ use blackflower_networking::{
     InputSequence, SimulationTick, decode_datagram, decode_input_datagram, encode_datagram,
     encode_input_datagram,
 };
+use bytes::Bytes;
 use clap::ValueEnum;
 use serde::Serialize;
 
@@ -250,7 +251,7 @@ fn pace_until(started: Instant, target: Duration) {
     }
 }
 
-fn internal_client_datagram(sample: u64) -> anyhow::Result<Vec<u8>> {
+fn internal_client_datagram(sample: u64) -> anyhow::Result<Bytes> {
     let client = sample % u64::from(CLIENTS);
     let current_sequence = sample / u64::from(CLIENTS) + 1;
     let mut frames = Vec::with_capacity(3);
@@ -264,10 +265,10 @@ fn internal_client_datagram(sample: u64) -> anyhow::Result<Vec<u8>> {
         frames.push(ControlFrame {
             sequence: InputSequence::new(sequence),
             execute_tick: SimulationTick::new(sequence.saturating_mul(4)),
-            payload: vec![
+            payload: Bytes::copy_from_slice(&[
                 u8::try_from(client).unwrap_or(u8::MAX),
                 u8::try_from(age).unwrap_or(2),
-            ],
+            ]),
         });
     }
     let controlled_entity = NonZeroU64::new(client.saturating_add(1))

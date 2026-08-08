@@ -4,12 +4,14 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 
+use strum::IntoStaticStr;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 
 /// Severity used by the foreground log capture and view.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoStaticStr)]
+#[strum(serialize_all = "UPPERCASE")]
 #[repr(u8)]
 pub enum ForegroundLogLevel {
     /// Disable foreground log capture.
@@ -30,15 +32,8 @@ pub enum ForegroundLogLevel {
 impl ForegroundLogLevel {
     /// Return the stable uppercase display name.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "OFF",
-            Self::Error => "ERROR",
-            Self::Warn => "WARN",
-            Self::Info => "INFO",
-            Self::Debug => "DEBUG",
-            Self::Trace => "TRACE",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 
     /// Return the next less restrictive capture level.

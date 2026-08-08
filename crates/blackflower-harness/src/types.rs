@@ -23,7 +23,7 @@ pub struct ControlSubmission {
     /// First authoritative tick covered by this four-tick control frame.
     pub execute_tick: SimulationTick,
     /// Opaque canonical gameplay control bytes.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
     /// Discrete commands originating from this control frame.
     pub commands: Vec<CommandSubmission>,
 }
@@ -40,7 +40,7 @@ pub struct CommandSubmission {
     /// Revision-registered gameplay command kind.
     pub kind: u16,
     /// Opaque canonical gameplay command bytes.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 /// Client-facing fact emitted after session, replication, or prediction work.
@@ -62,7 +62,7 @@ pub enum ClientEvent {
     /// A replacement reconnect token was issued.
     ResumeIssued {
         /// Opaque one-use token bytes.
-        token: Vec<u8>,
+        token: Bytes,
         /// Remaining lifetime from issuance.
         expires_in_millis: u32,
     },

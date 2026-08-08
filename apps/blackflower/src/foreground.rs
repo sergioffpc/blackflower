@@ -4,11 +4,10 @@ mod app;
 mod render;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 
 use blackflower_observability::{ForegroundLogControl, ForegroundLogEvent};
+use blackflower_process::ShutdownToken;
 
 pub use app::ForegroundError;
 
@@ -56,7 +55,7 @@ pub struct ForegroundConfig {
     /// Current client composition visible to the operator.
     pub capabilities: ClientCapabilities,
     /// Shutdown request shared with the native application loop.
-    pub shutdown_requested: Arc<AtomicBool>,
+    pub shutdown_requested: ShutdownToken,
 }
 
 /// Run the client terminal dashboard until either side requests shutdown.

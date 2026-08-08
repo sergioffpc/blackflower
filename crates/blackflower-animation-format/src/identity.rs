@@ -1,5 +1,7 @@
 use std::fmt;
 
+use glam::{Quat, Vec3};
+
 use crate::Error;
 
 const IDENTITY_DOMAIN: &[u8] = b"blackflower.skeleton-identity.v1";
@@ -70,12 +72,12 @@ pub struct RigJoint<'a> {
 /// Joint-local translation, rotation, and scale in the skeleton rest pose.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RestTransform {
-    /// Translation xyz.
-    pub translation: [f32; 3],
-    /// Quaternion xyzw.
-    pub rotation: [f32; 4],
-    /// Scale xyz.
-    pub scale: [f32; 3],
+    /// Joint-local translation.
+    pub translation: Vec3,
+    /// Joint-local orientation.
+    pub rotation: Quat,
+    /// Joint-local scale.
+    pub scale: Vec3,
 }
 
 fn validate_joint(index: usize, joint: &RigJoint<'_>) -> Result<(), Error> {
@@ -96,18 +98,18 @@ fn hash_text(hasher: &mut blake3::Hasher, value: &str) -> Result<(), Error> {
 }
 
 fn hash_transform(hasher: &mut blake3::Hasher, transform: RestTransform) -> Result<(), Error> {
-    for value in transform.translation {
+    for value in transform.translation.to_array() {
         hash_float(hasher, value)?;
     }
 
     let mut rotation = transform.rotation;
     if quaternion_needs_flip(rotation) {
-        rotation = rotation.map(|value| -value);
+        rotation = -rotation;
     }
-    for value in rotation {
+    for value in rotation.to_array() {
         hash_float(hasher, value)?;
     }
-    for value in transform.scale {
+    for value in transform.scale.to_array() {
         hash_float(hasher, value)?;
     }
     Ok(())
@@ -123,8 +125,8 @@ fn hash_float(hasher: &mut blake3::Hasher, value: f32) -> Result<(), Error> {
     Ok(())
 }
 
-fn quaternion_needs_flip(rotation: [f32; 4]) -> bool {
-    for value in [rotation[3], rotation[0], rotation[1], rotation[2]] {
+fn quaternion_needs_flip(rotation: Quat) -> bool {
+    for value in [rotation.w, rotation.x, rotation.y, rotation.z] {
         let bits = value.to_bits();
         if bits & MAGNITUDE_BITS != 0 {
             return bits & SIGN_BIT != 0;

@@ -5,8 +5,9 @@ use blackflower_acoustics::PropagationDescriptor;
 use blackflower_audio_media::AUDIO_SAMPLE_RATE;
 use blackflower_audio_spatial::{
     AudioSettings, BinauralEffect, BinauralParams, Context, DirectEffect, Hrtf, PathEffect,
-    PropagationExchange, Vec3A,
+    PropagationExchange,
 };
+use glam::Vec3A;
 use kira::Frame;
 use kira::effect::{Effect, EffectBuilder};
 use kira::info::Info;
@@ -42,8 +43,8 @@ pub(crate) struct DirectionHandle {
 }
 
 impl DirectionHandle {
-    pub(crate) fn set(&self, direction: [f32; 3]) {
-        for (target, value) in self.direction.iter().zip(direction) {
+    pub(crate) fn set(&self, direction: Vec3A) {
+        for (target, value) in self.direction.iter().zip(direction.to_array()) {
             target.store(value.to_bits(), Ordering::Relaxed);
         }
     }
@@ -51,11 +52,11 @@ impl DirectionHandle {
     pub(crate) fn set_propagation(&self, propagation: PropagationDescriptor) {
         if let Some(exchange) = &self.propagation {
             exchange.publish(propagation);
-            self.set(
+            self.set(Vec3A::from_array(
                 propagation
                     .direction_q15
                     .map(|value| f32::from(value) / f32::from(i16::MAX)),
-            );
+            ));
         }
     }
 }
@@ -75,12 +76,16 @@ pub(crate) struct HrtfBuilder {
 impl HrtfBuilder {
     pub(crate) fn new(
         runtime: &HrtfRuntime,
-        direction: [f32; 3],
+        direction: Vec3A,
         propagation: Option<PropagationDescriptor>,
     ) -> Result<Self, Error> {
         let exchange = propagation.map(|value| Arc::new(PropagationExchange::new(value)));
         Ok(Self {
-            direction: Arc::new(direction.map(|value| AtomicU32::new(value.to_bits()))),
+            direction: Arc::new(
+                direction
+                    .to_array()
+                    .map(|value| AtomicU32::new(value.to_bits())),
+            ),
             direct: exchange
                 .as_ref()
                 .and_then(|_exchange| DirectEffect::new(INTERNAL_BUFFER_SIZE).ok()),

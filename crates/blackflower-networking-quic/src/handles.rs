@@ -34,7 +34,7 @@ const TELEMETRY_INTERVAL: Duration = Duration::from_secs(1);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkEvent {
     /// One complete reliable session-control frame.
-    SessionControl(Vec<u8>),
+    SessionControl(Bytes),
     /// One validated common-header application DATAGRAM.
     Datagram(Bytes),
     /// One complete uncompressed full-state bootstrap.
@@ -58,8 +58,8 @@ pub struct ClientNetworkHandle {
     connection: ClientConnection,
     telemetry: ConnectionTelemetry,
     control: SharedControlSender,
-    latest_input: Arc<Mutex<Option<Vec<u8>>>>,
-    time_sync: tokio_mpsc::Sender<Vec<u8>>,
+    latest_input: Arc<Mutex<Option<Bytes>>>,
+    time_sync: tokio_mpsc::Sender<Bytes>,
     voice: SharedVoiceQueue,
     events: SharedEventReceiver,
 }
@@ -70,8 +70,8 @@ pub struct ServerNetworkHandle {
     connection: ServerConnection,
     telemetry: ConnectionTelemetry,
     control: SharedControlSender,
-    snapshots: tokio_mpsc::Sender<Vec<Vec<u8>>>,
-    time_sync: tokio_mpsc::Sender<Vec<u8>>,
+    snapshots: tokio_mpsc::Sender<Vec<Bytes>>,
+    time_sync: tokio_mpsc::Sender<Bytes>,
     voice: SharedVoiceQueue,
     bootstrap: tokio_mpsc::Sender<BootstrapTransfer>,
     bootstrap_pending: Arc<AtomicBool>,
@@ -119,7 +119,6 @@ impl ClientConnection {
 impl ServerConnection {
     /// Start Tokio I/O tasks and return the synchronous bounded server handle.
     pub async fn spawn_io(self) -> Result<ServerNetworkHandle, QuicError> {
-        let control_stream = self.accept_session_control().await?;
         let (control, control_receive) = control_channel();
         let (snapshots, snapshot_receive) = tokio_mpsc::channel(SNAPSHOT_CAPACITY);
         let (time_sync, time_sync_receive) = tokio_mpsc::channel(TIME_SYNC_CAPACITY);
@@ -127,9 +126,8 @@ impl ServerConnection {
         let bootstrap_pending = Arc::new(AtomicBool::new(false));
         let voice = SharedVoiceQueue::default();
         let (events_send, events) = event_channel();
-        spawn_control_tasks(
-            self.inner.clone(),
-            control_stream,
+        spawn_server_control_accept(
+            self.clone(),
             control_receive,
             Arc::clone(&control.queued_bytes),
             events_send.clone(),
@@ -162,15 +160,35 @@ impl ServerConnection {
     }
 }
 
+fn spawn_server_control_accept(
+    connection: ServerConnection,
+    outbound: tokio_mpsc::Receiver<Bytes>,
+    queued_bytes: Arc<Mutex<usize>>,
+    events: SharedEventSender,
+) {
+    tokio::spawn(async move {
+        match connection.accept_session_control().await {
+            Ok(stream) => spawn_control_tasks(
+                connection.inner.clone(),
+                stream,
+                outbound,
+                queued_bytes,
+                events,
+            ),
+            Err(_error) => stop_transport(&connection.inner, &events),
+        }
+    });
+}
+
 impl ClientNetworkHandle {
     /// Queue a bounded reliable session-control frame.
-    pub fn try_send_control(&self, frame: Vec<u8>) -> Result<(), QuicError> {
+    pub fn try_send_control(&self, frame: Bytes) -> Result<(), QuicError> {
         validate_control(&frame)?;
         self.control.try_send(frame)
     }
 
     /// Replace any unsent input datagram with the newest exact datagram.
-    pub fn set_latest_input(&self, datagram: Vec<u8>) -> Result<(), QuicError> {
+    pub fn set_latest_input(&self, datagram: Bytes) -> Result<(), QuicError> {
         validate_flow(&datagram, FlowId::Input)?;
         self.connection.validate_datagram(&datagram)?;
         let mut latest = self
@@ -186,18 +204,14 @@ impl ClientNetworkHandle {
     }
 
     /// Queue one bounded time-synchronization request datagram.
-    pub fn try_send_time_sync(&self, datagram: Vec<u8>) -> Result<(), QuicError> {
+    pub fn try_send_time_sync(&self, datagram: Bytes) -> Result<(), QuicError> {
         validate_flow(&datagram, FlowId::TimeSync)?;
         self.connection.validate_datagram(&datagram)?;
         try_send(&self.time_sync, datagram)
     }
 
     /// Queue at most three capture packets on each of at most four streams.
-    pub fn try_send_voice(
-        &self,
-        stream: VoiceStreamId,
-        datagram: Vec<u8>,
-    ) -> Result<(), QuicError> {
+    pub fn try_send_voice(&self, stream: VoiceStreamId, datagram: Bytes) -> Result<(), QuicError> {
         validate_flow(&datagram, FlowId::VoiceCapture)?;
         self.connection.validate_datagram(&datagram)?;
         self.voice.push(stream, datagram)
@@ -232,13 +246,13 @@ impl ClientNetworkHandle {
 
 impl ServerNetworkHandle {
     /// Queue a bounded reliable session-control frame.
-    pub fn try_send_control(&self, frame: Vec<u8>) -> Result<(), QuicError> {
+    pub fn try_send_control(&self, frame: Bytes) -> Result<(), QuicError> {
         validate_control(&frame)?;
         self.control.try_send(frame)
     }
 
     /// Queue one one-to-four-chunk snapshot generation, retaining at most 32.
-    pub fn try_send_snapshot_generation(&self, datagrams: Vec<Vec<u8>>) -> Result<(), QuicError> {
+    pub fn try_send_snapshot_generation(&self, datagrams: Vec<Bytes>) -> Result<(), QuicError> {
         if datagrams.is_empty() || datagrams.len() > MAX_SNAPSHOT_CHUNKS {
             return Err(QuicError::StreamRole);
         }
@@ -250,18 +264,14 @@ impl ServerNetworkHandle {
     }
 
     /// Queue one bounded time-synchronization response datagram.
-    pub fn try_send_time_sync(&self, datagram: Vec<u8>) -> Result<(), QuicError> {
+    pub fn try_send_time_sync(&self, datagram: Bytes) -> Result<(), QuicError> {
         validate_flow(&datagram, FlowId::TimeSync)?;
         self.connection.validate_datagram(&datagram)?;
         try_send(&self.time_sync, datagram)
     }
 
     /// Queue at most three delivery packets on each of at most four streams.
-    pub fn try_send_voice(
-        &self,
-        stream: VoiceStreamId,
-        datagram: Vec<u8>,
-    ) -> Result<(), QuicError> {
+    pub fn try_send_voice(&self, stream: VoiceStreamId, datagram: Bytes) -> Result<(), QuicError> {
         validate_flow(&datagram, FlowId::VoiceDelivery)?;
         self.connection.validate_datagram(&datagram)?;
         self.voice.push(stream, datagram)
@@ -458,7 +468,7 @@ impl ConnectionStats for ServerConnection {
 }
 
 #[derive(Debug, Default, Clone)]
-struct SharedVoiceQueue(Arc<Mutex<BTreeMap<VoiceStreamId, VecDeque<Vec<u8>>>>>);
+struct SharedVoiceQueue(Arc<Mutex<BTreeMap<VoiceStreamId, VecDeque<Bytes>>>>);
 
 #[derive(Debug, Clone)]
 struct SharedEventSender {
@@ -480,12 +490,12 @@ impl SharedEventReceiver {
 
 #[derive(Debug, Clone)]
 struct SharedControlSender {
-    sender: tokio_mpsc::Sender<Vec<u8>>,
+    sender: tokio_mpsc::Sender<Bytes>,
     queued_bytes: Arc<Mutex<usize>>,
 }
 
 impl SharedControlSender {
-    fn try_send(&self, frame: Vec<u8>) -> Result<(), QuicError> {
+    fn try_send(&self, frame: Bytes) -> Result<(), QuicError> {
         let frame_bytes = frame.len();
         let over_byte_limit = {
             let mut queued = self
@@ -523,7 +533,7 @@ impl SharedControlSender {
     }
 }
 
-fn control_channel() -> (SharedControlSender, tokio_mpsc::Receiver<Vec<u8>>) {
+fn control_channel() -> (SharedControlSender, tokio_mpsc::Receiver<Bytes>) {
     let (sender, receiver) = tokio_mpsc::channel(CONTROL_CAPACITY);
     (
         SharedControlSender {
@@ -555,7 +565,7 @@ fn release_control_bytes(queued: &Mutex<usize>, bytes: usize) -> Result<(), Quic
 }
 
 impl SharedVoiceQueue {
-    fn push(&self, stream: VoiceStreamId, datagram: Vec<u8>) -> Result<(), QuicError> {
+    fn push(&self, stream: VoiceStreamId, datagram: Bytes) -> Result<(), QuicError> {
         let mut streams = self
             .0
             .lock()
@@ -580,7 +590,7 @@ impl SharedVoiceQueue {
         Ok(())
     }
 
-    fn pop(&self) -> Result<Option<Vec<u8>>, QuicError> {
+    fn pop(&self) -> Result<Option<Bytes>, QuicError> {
         let mut streams = self
             .0
             .lock()
@@ -608,7 +618,7 @@ impl SharedVoiceQueue {
 fn spawn_control_tasks(
     connection: quinn::Connection,
     stream: SessionControlStream,
-    mut outbound: tokio_mpsc::Receiver<Vec<u8>>,
+    mut outbound: tokio_mpsc::Receiver<Bytes>,
     queued_bytes: Arc<Mutex<usize>>,
     events: SharedEventSender,
 ) {
@@ -724,8 +734,8 @@ fn spawn_bootstrap_receive(connection: ClientConnection, events: SharedEventSend
 
 fn spawn_client_datagram_send(
     connection: ClientConnection,
-    latest_input: Arc<Mutex<Option<Vec<u8>>>>,
-    mut time_sync: tokio_mpsc::Receiver<Vec<u8>>,
+    latest_input: Arc<Mutex<Option<Bytes>>>,
+    mut time_sync: tokio_mpsc::Receiver<Bytes>,
     voice: SharedVoiceQueue,
 ) {
     tokio::spawn(async move {
@@ -754,8 +764,8 @@ fn spawn_client_datagram_send(
 
 fn spawn_server_datagram_send(
     connection: ServerConnection,
-    mut snapshots: tokio_mpsc::Receiver<Vec<Vec<u8>>>,
-    mut time_sync: tokio_mpsc::Receiver<Vec<u8>>,
+    mut snapshots: tokio_mpsc::Receiver<Vec<Bytes>>,
+    mut time_sync: tokio_mpsc::Receiver<Bytes>,
     voice: SharedVoiceQueue,
 ) {
     tokio::spawn(async move {

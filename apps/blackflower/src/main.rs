@@ -1,9 +1,5 @@
-use std::io::IsTerminal as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result, bail};
 use blackflower::foreground::{self, ClientCapabilities, ForegroundConfig};
@@ -13,11 +9,11 @@ use blackflower_harness::ClientHarnessConfig;
 use blackflower_networking::{CompatibilityContract, ProtocolRevision, RequiredContentSetId};
 use blackflower_networking_quic::{ClientEndpointConfig, ClientTrustRoot};
 use blackflower_observability::{ObservabilityConfig, ObservabilityGuard, init};
+use blackflower_process::{ShutdownToken, validate_foreground_terminal};
 use clap::Parser;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
 
-const FOREGROUND_LOG_CAPACITY: usize = 4_096;
 const DEFAULT_METRICS_PORT: u16 = 9_002;
 
 #[derive(Debug, Parser)]
@@ -58,15 +54,13 @@ fn main() -> Result<()> {
 
     let mut config = ObservabilityConfig::client(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     if arguments.foreground {
-        let capacity = NonZeroUsize::new(FOREGROUND_LOG_CAPACITY)
-            .context("foreground log capacity must be non-zero")?;
         config = config
             .with_metrics_bind_address(Some(arguments.metrics_bind_address))
             .with_host_metrics(true)
-            .with_foreground_logs(Default::default(), capacity);
+            .with_default_foreground_logs();
     }
     let mut observability = init(&config).context("observability init failed")?;
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let connection_config = connection_config(&arguments)?;
     let network_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -83,7 +77,7 @@ fn main() -> Result<()> {
         blackflower::run_connected(connected).context("connected client application failed")?;
     }
 
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 
@@ -91,10 +85,7 @@ fn validate_arguments(arguments: &Arguments) -> Result<()> {
     if !arguments.metrics_bind_address.ip().is_loopback() {
         bail!("--metrics-bind-address must be loopback");
     }
-    if arguments.foreground && (!std::io::stdin().is_terminal() || !std::io::stdout().is_terminal())
-    {
-        bail!("--foreground requires an interactive terminal");
-    }
+    validate_foreground_terminal(arguments.foreground)?;
     Ok(())
 }
 
@@ -109,8 +100,8 @@ fn run_with_foreground(
     let (log_receiver, log_control) = observability
         .take_foreground_logs()
         .context("client foreground log capture is disabled")?;
-    let shutdown_requested = Arc::new(AtomicBool::new(false));
-    let foreground_shutdown = Arc::clone(&shutdown_requested);
+    let shutdown_requested = ShutdownToken::new();
+    let foreground_shutdown = shutdown_requested.clone();
     let foreground_config = ForegroundConfig {
         service_name: config.service_name(),
         service_version: env!("CARGO_PKG_VERSION"),
@@ -118,20 +109,20 @@ fn run_with_foreground(
         log_receiver,
         log_control,
         capabilities: ClientCapabilities::connected(),
-        shutdown_requested: Arc::clone(&foreground_shutdown),
+        shutdown_requested: foreground_shutdown.clone(),
     };
     let foreground_thread = std::thread::Builder::new()
         .name("blackflower-client-foreground".to_owned())
         .spawn(move || {
             let result = foreground::run(foreground_config);
-            foreground_shutdown.store(true, Ordering::Release);
+            foreground_shutdown.request();
             result
         })
         .context("client foreground thread startup failed")?;
 
     let client_result =
-        blackflower::run_connected_with_shutdown(connected, Arc::clone(&shutdown_requested));
-    shutdown_requested.store(true, Ordering::Release);
+        blackflower::run_connected_with_shutdown(connected, shutdown_requested.shared_flag());
+    shutdown_requested.request();
     let foreground_result = foreground_thread
         .join()
         .map_err(|_panic| anyhow::anyhow!("client foreground thread panicked"))?;

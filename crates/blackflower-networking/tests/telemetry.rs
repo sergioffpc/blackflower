@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::error::Error as StdError;
 use std::io;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -10,7 +9,7 @@ use blackflower_networking::{
 };
 use metrics::{Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Debug, Default)]
 struct RecordingRecorder {

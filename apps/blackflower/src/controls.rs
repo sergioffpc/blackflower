@@ -1,16 +1,18 @@
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 use blackflower_harness::ControlSubmission;
 use blackflower_networking::{
     INITIAL_INPUT_LEAD_TICKS, INPUT_GRACE_TICKS, MAX_FUTURE_COMMAND_TICKS, SimulationTick,
 };
 use blackflower_networking_protocol::v1::MovementControl;
+use bytes::Bytes;
+use glam::Vec2;
 use winit::keyboard::KeyCode;
 
 use crate::input::{InputContext, InputSnapshot};
 
 const CONTROL_TICKS: u64 = 4;
-const MOUSE_RADIANS_PER_UNIT: f64 = 0.0025;
+const MOUSE_RADIANS_PER_UNIT: f32 = 0.0025;
 
 /// One prepared canonical control whose scheduler state is committed after submission.
 pub(crate) struct PreparedMovementControl {
@@ -21,8 +23,8 @@ pub(crate) struct PreparedMovementControl {
 /// Stateful native-input mapper and consecutive 60 Hz control scheduler.
 #[derive(Debug, Default)]
 pub(crate) struct NativeMovementControls {
-    view_yaw_radians: f64,
-    view_pitch_radians: f64,
+    view_yaw_radians: f32,
+    view_pitch_radians: f32,
     next_execute_tick: Option<SimulationTick>,
 }
 
@@ -39,17 +41,15 @@ impl NativeMovementControls {
         else {
             return Ok(None);
         };
-        let [move_right, move_forward] = movement_axes(input);
         let control = MovementControl::quantize(
-            move_right,
-            move_forward,
+            movement_axes(input),
             self.view_yaw_radians,
             self.view_pitch_radians,
         )?;
         Ok(Some(PreparedMovementControl {
             submission: ControlSubmission {
                 execute_tick,
-                payload: control.encode().to_vec(),
+                payload: Bytes::copy_from_slice(&control.encode()),
                 commands: Vec::new(),
             },
             reset_timeline,
@@ -73,10 +73,10 @@ impl NativeMovementControls {
         if !gameplay_active(input) {
             return;
         }
-        let (horizontal, vertical) = input.relative_mouse_motion();
+        let motion = input.relative_mouse_motion();
         self.view_yaw_radians =
-            (self.view_yaw_radians - horizontal * MOUSE_RADIANS_PER_UNIT).rem_euclid(TAU);
-        self.view_pitch_radians = (self.view_pitch_radians - vertical * MOUSE_RADIANS_PER_UNIT)
+            (self.view_yaw_radians - motion.x * MOUSE_RADIANS_PER_UNIT).rem_euclid(TAU);
+        self.view_pitch_radians = (self.view_pitch_radians - motion.y * MOUSE_RADIANS_PER_UNIT)
             .clamp(-FRAC_PI_2, FRAC_PI_2);
     }
 
@@ -116,22 +116,19 @@ pub(crate) enum ControlMappingError {
     Protocol(#[from] blackflower_networking_protocol::v1::ProtocolError),
 }
 
-fn movement_axes(input: &InputSnapshot) -> [f64; 2] {
+fn movement_axes(input: &InputSnapshot) -> Vec2 {
     if !gameplay_active(input) {
-        return [0.0; 2];
+        return Vec2::ZERO;
     }
-    let mut right = axis(input, KeyCode::KeyD, KeyCode::KeyA);
-    let mut forward = axis(input, KeyCode::KeyW, KeyCode::KeyS);
-    let magnitude = right.hypot(forward);
-    if magnitude > 1.0 {
-        right /= magnitude;
-        forward /= magnitude;
-    }
-    [right, forward]
+    Vec2::new(
+        axis(input, KeyCode::KeyD, KeyCode::KeyA),
+        axis(input, KeyCode::KeyW, KeyCode::KeyS),
+    )
+    .clamp_length_max(1.0)
 }
 
-fn axis(input: &InputSnapshot, positive: KeyCode, negative: KeyCode) -> f64 {
-    f64::from(u8::from(input.key_held(positive))) - f64::from(u8::from(input.key_held(negative)))
+fn axis(input: &InputSnapshot, positive: KeyCode, negative: KeyCode) -> f32 {
+    f32::from(u8::from(input.key_held(positive))) - f32::from(u8::from(input.key_held(negative)))
 }
 
 fn gameplay_active(input: &InputSnapshot) -> bool {

@@ -1,5 +1,7 @@
 use std::num::NonZeroU64;
 
+use glam::{Quat, Vec3};
+
 const RECONCILIATION_SMOOTHING_SECONDS: f32 = 0.1;
 
 /// Stable source identity used to associate captured movement with its proxy.
@@ -36,8 +38,8 @@ pub enum MovementSampleKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PresentationMovementSample {
     source: MovementSourceId,
-    position_meters: [f64; 3],
-    orientation: [f64; 4],
+    position_meters: Vec3,
+    orientation: Quat,
     kind: MovementSampleKind,
 }
 
@@ -45,11 +47,11 @@ impl PresentationMovementSample {
     /// Validate and copy one prediction-owned movement sample.
     pub fn new(
         source: MovementSourceId,
-        position_meters: [f64; 3],
-        orientation: [f64; 4],
+        position_meters: Vec3,
+        orientation: Quat,
         kind: MovementSampleKind,
     ) -> Result<Self, PresentationMovementError> {
-        if !position_meters.into_iter().all(f64::is_finite) {
+        if !position_meters.is_finite() {
             return Err(PresentationMovementError::NonFinitePosition);
         }
         let orientation = normalize_quaternion(orientation)?;
@@ -69,13 +71,13 @@ impl PresentationMovementSample {
 
     /// Return the captured predicted position in metres.
     #[must_use]
-    pub const fn position_meters(self) -> [f64; 3] {
+    pub const fn position_meters(self) -> Vec3 {
         self.position_meters
     }
 
     /// Return the captured normalized orientation quaternion.
     #[must_use]
-    pub const fn orientation(self) -> [f64; 4] {
+    pub const fn orientation(self) -> Quat {
         self.orientation
     }
 
@@ -90,10 +92,10 @@ impl PresentationMovementSample {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MovementProxy {
     source: MovementSourceId,
-    predicted_position_meters: [f64; 3],
-    predicted_orientation: [f64; 4],
-    visual_position_meters: [f64; 3],
-    visual_orientation: [f64; 4],
+    predicted_position_meters: Vec3,
+    predicted_orientation: Quat,
+    visual_position_meters: Vec3,
+    visual_orientation: Quat,
     correction_active: bool,
 }
 
@@ -106,25 +108,25 @@ impl MovementProxy {
 
     /// Return the latest captured predicted position in metres.
     #[must_use]
-    pub const fn predicted_position_meters(self) -> [f64; 3] {
+    pub const fn predicted_position_meters(self) -> Vec3 {
         self.predicted_position_meters
     }
 
     /// Return the latest captured predicted orientation.
     #[must_use]
-    pub const fn predicted_orientation(self) -> [f64; 4] {
+    pub const fn predicted_orientation(self) -> Quat {
         self.predicted_orientation
     }
 
     /// Return the presentation-owned position after visual reconciliation.
     #[must_use]
-    pub const fn visual_position_meters(self) -> [f64; 3] {
+    pub const fn visual_position_meters(self) -> Vec3 {
         self.visual_position_meters
     }
 
     /// Return the presentation-owned orientation after visual reconciliation.
     #[must_use]
-    pub const fn visual_orientation(self) -> [f64; 4] {
+    pub const fn visual_orientation(self) -> Quat {
         self.visual_orientation
     }
 
@@ -155,10 +157,10 @@ pub enum PresentationMovementError {
 #[derive(Debug, Clone, Copy)]
 struct MovementProxyState {
     source: MovementSourceId,
-    predicted_position_meters: [f64; 3],
-    predicted_orientation: [f64; 4],
-    visual_position_meters: [f64; 3],
-    visual_orientation: [f64; 4],
+    predicted_position_meters: Vec3,
+    predicted_orientation: Quat,
+    visual_position_meters: Vec3,
+    visual_orientation: Quat,
     correction_remaining_seconds: f32,
 }
 
@@ -264,17 +266,13 @@ impl PresentationMovementState {
             return;
         }
         let elapsed = delta_seconds.min(remaining);
-        let amount = f64::from(elapsed / remaining);
-        proxy.visual_position_meters = interpolate_vector(
-            proxy.visual_position_meters,
-            proxy.predicted_position_meters,
-            amount,
-        );
-        proxy.visual_orientation = interpolate_quaternion(
-            proxy.visual_orientation,
-            proxy.predicted_orientation,
-            amount,
-        );
+        let amount = elapsed / remaining;
+        proxy.visual_position_meters = proxy
+            .visual_position_meters
+            .lerp(proxy.predicted_position_meters, amount);
+        proxy.visual_orientation = proxy
+            .visual_orientation
+            .slerp(proxy.predicted_orientation, amount);
         proxy.correction_remaining_seconds = remaining - elapsed;
         if proxy.correction_remaining_seconds <= f32::EPSILON {
             proxy.visual_position_meters = proxy.predicted_position_meters;
@@ -306,51 +304,21 @@ impl PresentationMovementState {
     }
 }
 
-fn normalize_quaternion(orientation: [f64; 4]) -> Result<[f64; 4], PresentationMovementError> {
-    let norm_squared = orientation
-        .into_iter()
-        .map(|value| value * value)
-        .sum::<f64>();
-    if !norm_squared.is_finite() || norm_squared <= f64::EPSILON {
+fn normalize_quaternion(orientation: Quat) -> Result<Quat, PresentationMovementError> {
+    let norm_squared = orientation.length_squared();
+    if !norm_squared.is_finite() || norm_squared <= f32::EPSILON {
         return Err(PresentationMovementError::InvalidOrientation);
     }
-    let inverse_norm = norm_squared.sqrt().recip();
-    Ok(orientation.map(|value| value * inverse_norm))
-}
-
-fn interpolate_vector(left: [f64; 3], right: [f64; 3], amount: f64) -> [f64; 3] {
-    std::array::from_fn(|index| left[index] + ((right[index] - left[index]) * amount))
+    Ok(orientation.normalize())
 }
 
 fn transforms_differ(proxy: &MovementProxyState, sample: PresentationMovementSample) -> bool {
-    if proxy
+    if !proxy
         .visual_position_meters
-        .into_iter()
-        .zip(sample.position_meters)
-        .any(|(visual, predicted)| (visual - predicted).abs() > f64::EPSILON)
+        .abs_diff_eq(sample.position_meters, f32::EPSILON)
     {
         return true;
     }
-    let orientation_dot = proxy
-        .visual_orientation
-        .into_iter()
-        .zip(sample.orientation)
-        .map(|(left, right)| left * right)
-        .sum::<f64>()
-        .abs();
-    orientation_dot < 1.0 - f64::EPSILON
-}
-
-fn interpolate_quaternion(left: [f64; 4], mut right: [f64; 4], amount: f64) -> [f64; 4] {
-    let dot = left
-        .into_iter()
-        .zip(right)
-        .map(|(left, right)| left * right)
-        .sum::<f64>();
-    if dot < 0.0 {
-        right = right.map(|value| -value);
-    }
-    let interpolated =
-        std::array::from_fn(|index| left[index] + ((right[index] - left[index]) * amount));
-    normalize_quaternion(interpolated).unwrap_or(right)
+    let orientation_dot = proxy.visual_orientation.dot(sample.orientation).abs();
+    orientation_dot < 1.0 - f32::EPSILON
 }

@@ -5,7 +5,7 @@
 )]
 use std::ptr::NonNull;
 
-use glam::{DVec3, IVec3};
+use glam::{IVec3, Vec3};
 
 use crate::types::{Bounds3, FloatVoxel, GridClass, GridMetadata, GridType};
 
@@ -125,6 +125,14 @@ pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadat
     let grid_type = grid_type_from_raw(raw_info.grid_type).ok_or(Status::ContractViolation)?;
     let grid_class = grid_class_from_raw(raw_info.grid_class).ok_or(Status::ContractViolation)?;
     let empty = raw_info.is_empty != 0;
+    let world_bounds = if empty {
+        None
+    } else {
+        Some(Bounds3::new(
+            safe_vec(raw_info.world_min)?,
+            safe_vec(raw_info.world_max)?,
+        ))
+    };
     Ok(GridMetadata {
         name,
         grid_type,
@@ -137,17 +145,16 @@ pub(crate) fn grid_metadata(handle: HandlePtr, index: u32) -> Result<GridMetadat
                 safe_coord(raw_info.index_max),
             )
         }),
-        world_bounds: (!empty)
-            .then(|| Bounds3::new(safe_vec(raw_info.world_min), safe_vec(raw_info.world_max))),
-        voxel_size: safe_vec(raw_info.voxel_size),
+        world_bounds,
+        voxel_size: safe_vec(raw_info.voxel_size)?,
     })
 }
 
 pub(crate) fn index_to_world(
     handle: HandlePtr,
     index: u32,
-    position: DVec3,
-) -> Result<DVec3, Status> {
+    position: Vec3,
+) -> Result<Vec3, Status> {
     transform(
         raw::bf_rendering_volumes_nanovdb_index_to_world,
         handle,
@@ -159,8 +166,8 @@ pub(crate) fn index_to_world(
 pub(crate) fn world_to_index(
     handle: HandlePtr,
     index: u32,
-    position: DVec3,
-) -> Result<DVec3, Status> {
+    position: Vec3,
+) -> Result<Vec3, Status> {
     transform(
         raw::bf_rendering_volumes_nanovdb_world_to_index,
         handle,
@@ -198,7 +205,7 @@ pub(crate) fn float_voxel(
 pub(crate) fn sample_float_world(
     handle: HandlePtr,
     index: u32,
-    position: DVec3,
+    position: Vec3,
 ) -> Result<f32, Status> {
     let mut value = 0.0;
     // SAFETY: the handle is live, the wrapper validates `index`, and `value` is
@@ -224,14 +231,14 @@ fn transform(
     ) -> i32,
     handle: HandlePtr,
     index: u32,
-    position: DVec3,
-) -> Result<DVec3, Status> {
+    position: Vec3,
+) -> Result<Vec3, Status> {
     let mut output = raw::BFRenderingVolumesNanoVdbVec3d::default();
     // SAFETY: callers pass one of the two pinned wrapper transform functions, a
     // live handle, and a uniquely writable output record; native code validates `index`.
     let status = unsafe { function(handle.0.as_ptr(), index, raw_vec(position), &raw mut output) };
     check(status)?;
-    Ok(safe_vec(output))
+    safe_vec(output)
 }
 
 fn check(status: i32) -> Result<(), Status> {
@@ -300,16 +307,25 @@ const fn grid_class_from_raw(value: u32) -> Option<GridClass> {
     })
 }
 
-const fn raw_vec(value: DVec3) -> raw::BFRenderingVolumesNanoVdbVec3d {
+fn raw_vec(value: Vec3) -> raw::BFRenderingVolumesNanoVdbVec3d {
     raw::BFRenderingVolumesNanoVdbVec3d {
-        x: value.x,
-        y: value.y,
-        z: value.z,
+        x: f64::from(value.x),
+        y: f64::from(value.y),
+        z: f64::from(value.z),
     }
 }
 
-const fn safe_vec(value: raw::BFRenderingVolumesNanoVdbVec3d) -> DVec3 {
-    DVec3::new(value.x, value.y, value.z)
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "NanoVDB double coordinates enter the canonical f32 rendering domain at this private FFI boundary"
+)]
+fn safe_vec(value: raw::BFRenderingVolumesNanoVdbVec3d) -> Result<Vec3, Status> {
+    let converted = Vec3::new(value.x as f32, value.y as f32, value.z as f32);
+    if converted.is_finite() {
+        Ok(converted)
+    } else {
+        Err(Status::ContractViolation)
+    }
 }
 
 const fn safe_coord(value: raw::BFRenderingVolumesNanoVdbCoord) -> IVec3 {

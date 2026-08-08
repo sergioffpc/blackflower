@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::time::Duration;
 
 use blackflower_harness::{
@@ -152,7 +151,7 @@ where
 #[derive(Debug, thiserror::Error)]
 pub enum AgentRuntimeError<PredictionError>
 where
-    PredictionError: StdError + Send + Sync + 'static,
+    PredictionError: std::error::Error + Send + Sync + 'static,
 {
     /// Cooked navigation could not be instantiated or queried.
     #[error("agent navigation initialization failed")]

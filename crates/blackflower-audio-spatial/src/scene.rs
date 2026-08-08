@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use glam::Vec3A;
+use glam::{Mat4, Vec3A};
 
 use crate::RayTracerBackend;
 use crate::error::Error;
@@ -181,7 +181,7 @@ impl Scene {
     pub fn create_instanced_mesh(
         &mut self,
         sub_scene: &Scene,
-        transform: [[f32; 4]; 4],
+        transform: Mat4,
     ) -> Result<InstancedMesh, Error> {
         if !Arc::ptr_eq(&self.inner.context, &sub_scene.inner.context) {
             return Err(Error::WrongAcousticContext);
@@ -268,7 +268,7 @@ impl InstancedMesh {
     }
 
     /// Coalesce a new rigid transform before the parent scene's next commit.
-    pub fn update_transform(&mut self, transform: [[f32; 4]; 4]) -> Result<(), Error> {
+    pub fn update_transform(&mut self, transform: Mat4) -> Result<(), Error> {
         validate_transform(transform)?;
         ffi::update_instanced_mesh_transform(self.scene.pointer, self.pointer, transform);
         Ok(())
@@ -289,8 +289,8 @@ impl Drop for InstancedMesh {
     }
 }
 
-fn validate_transform(transform: [[f32; 4]; 4]) -> Result<(), Error> {
-    if transform.into_iter().flatten().all(f32::is_finite) {
+fn validate_transform(transform: Mat4) -> Result<(), Error> {
+    if transform.is_finite() {
         Ok(())
     } else {
         Err(Error::InvalidSceneGeometry)

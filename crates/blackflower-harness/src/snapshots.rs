@@ -9,6 +9,7 @@ use blackflower_networking_replication::{
     DeltaError, MAX_SENT_SNAPSHOTS, Snapshot, SnapshotDelta, SnapshotError, SnapshotReassembler,
     SnapshotTick,
 };
+use bytes::Bytes;
 
 pub(crate) struct SnapshotInbox {
     pending: BTreeMap<SimulationTick, PendingSnapshot>,
@@ -73,7 +74,7 @@ impl SnapshotInbox {
         &mut self,
         chunk: SnapshotChunk,
         now: Duration,
-    ) -> Result<Option<Vec<u8>>, SnapshotInboxError> {
+    ) -> Result<Option<Bytes>, SnapshotInboxError> {
         let tick = chunk.snapshot_tick;
         if let Some(pending) = self.pending.get_mut(&tick) {
             let completed = match pending.reassembler.push(chunk, now) {

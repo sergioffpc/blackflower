@@ -1,7 +1,3 @@
-use std::collections::{BTreeMap, VecDeque};
-use std::error::Error as StdError;
-use std::time::Duration;
-
 use crate::input::{InputBuildError, InputSender};
 use crate::snapshots::{AppliedSnapshot, SnapshotInbox, SnapshotInboxError};
 use crate::{
@@ -17,6 +13,9 @@ use blackflower_networking::{
     encode_control_message, encode_datagram, encode_time_sync, record_bootstrap,
     record_clock_uncertainty, record_inputs, record_resync, record_snapshot, record_voice,
 };
+use bytes::Bytes;
+use std::collections::{BTreeMap, VecDeque};
+use std::time::Duration;
 
 const MAX_EVENTS_PER_UPDATE: usize = 128;
 const MAX_PENDING_EVENTS: usize = 256;
@@ -39,6 +38,7 @@ pub struct ClientHarness<T, P> {
     clock_ready_reported: bool,
     installed_content_set_id: blackflower_networking::RequiredContentSetId,
     content: Option<blackflower_networking::ContentManifest>,
+    reconnecting: bool,
     trace: Option<Box<dyn TraceObserver>>,
 }
 
@@ -81,6 +81,7 @@ where
             clock_ready_reported: false,
             installed_content_set_id: config.installed_content_set_id,
             content: None,
+            reconnecting: false,
             trace: None,
         })
     }
@@ -205,14 +206,18 @@ where
     pub fn reconnect(
         &mut self,
         transport: T,
-        epoch: blackflower_networking::ConnectionEpoch,
-        token: Vec<u8>,
+        token: Bytes,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        self.session.reconnect(epoch)?;
+        self.session.begin_reconnect()?;
         self.transport = transport;
-        self.input.reconnect(epoch);
         self.pending_offer = None;
         self.pending_transfer = None;
+        self.clock.path_changed();
+        self.time_sync_schedule = None;
+        self.pending_time_sync.clear();
+        self.observed_time_sync = 0;
+        self.clock_ready_reported = false;
+        self.reconnecting = true;
         self.send_control(SessionControlMessage::ResumeRequest { token })
     }
 
@@ -367,7 +372,7 @@ where
 
     fn resume_issued(
         &mut self,
-        token: Vec<u8>,
+        token: Bytes,
         expires_in_millis: u32,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         self.events.push_back(ClientEvent::ResumeIssued {
@@ -379,7 +384,7 @@ where
 
     fn handle_datagram(
         &mut self,
-        datagram: bytes::Bytes,
+        datagram: Bytes,
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
         let decoded = decode_datagram(&datagram)?;
@@ -548,8 +553,14 @@ where
         connection_epoch: blackflower_networking::ConnectionEpoch,
         now: Duration,
     ) -> Result<(), ClientHarnessError<T::Error, P::Error>> {
-        self.session
-            .accept_initial_claims(claims, connection_epoch)?;
+        if self.reconnecting {
+            self.session
+                .accept_resume_claims(claims, connection_epoch)?;
+            self.reconnecting = false;
+        } else {
+            self.session
+                .accept_initial_claims(claims, connection_epoch)?;
+        }
         self.input.reconnect(connection_epoch);
         self.time_sync_schedule = Some(TimeSyncSchedule::admission(now));
         Ok(())
@@ -705,15 +716,15 @@ struct BootstrapOffer {
 
 struct BootstrapTransfer {
     header: StateBootstrapHeader,
-    body: Vec<u8>,
+    body: Bytes,
 }
 
 /// Failure while coordinating transport, session, replication, and prediction.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientHarnessError<TE, PE>
 where
-    TE: StdError + 'static,
-    PE: StdError + 'static,
+    TE: std::error::Error + 'static,
+    PE: std::error::Error + 'static,
 {
     /// Low-level bounded transport operation failed.
     #[error("client transport failed")]
@@ -777,8 +788,8 @@ fn validate_bootstrap_offer<TE, PE>(
     transfer: &BootstrapTransfer,
 ) -> Result<(), ClientHarnessError<TE, PE>>
 where
-    TE: StdError + 'static,
-    PE: StdError + 'static,
+    TE: std::error::Error + 'static,
+    PE: std::error::Error + 'static,
 {
     if offer.bootstrap_id != transfer.header.bootstrap_id
         || offer.snapshot_tick != transfer.header.snapshot_tick

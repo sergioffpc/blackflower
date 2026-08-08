@@ -1,16 +1,14 @@
-use std::io::IsTerminal as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result, bail};
 use blackflower_agent::foreground::{self, AgentCapabilities, ForegroundConfig};
 use blackflower_agent::initialize_agent_metrics;
 use blackflower_observability::{ObservabilityConfig, ObservabilityGuard, init};
+use blackflower_process::{
+    LaunchMode, ShutdownToken, validate_foreground_terminal, wait_for_shutdown_signal,
+};
 use clap::Parser;
 
-const FOREGROUND_LOG_CAPACITY: usize = 4_096;
 const DEFAULT_METRICS_PORT: u16 = 9_001;
 
 #[derive(Debug, Parser)]
@@ -25,22 +23,34 @@ struct Arguments {
     metrics_bind_address: SocketAddr,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let arguments = Arguments::parse();
     validate_arguments(&arguments)?;
+    if !LaunchMode::from_foreground_flag(arguments.foreground)
+        .enter()
+        .context("process mode startup failed")?
+        .should_run()
+    {
+        return Ok(());
+    }
 
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("failed to create agent runtime")?
+        .block_on(run(arguments))
+}
+
+async fn run(arguments: Arguments) -> Result<()> {
     let mut config = ObservabilityConfig::client(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
         .with_metrics_bind_address(Some(arguments.metrics_bind_address))
         .with_host_metrics(true);
     if arguments.foreground {
-        let capacity = NonZeroUsize::new(FOREGROUND_LOG_CAPACITY)
-            .context("foreground log capacity must be non-zero")?;
-        config = config.with_foreground_logs(Default::default(), capacity);
+        config = config.with_default_foreground_logs();
     }
     let mut observability = init(&config).context("observability init failed")?;
     initialize_agent_metrics();
-    observability.report_health();
+    observability.report_log_pipeline_health();
 
     let capabilities = AgentCapabilities::shell();
     tracing::info!(
@@ -57,7 +67,7 @@ async fn main() -> Result<()> {
         event_name = "agent_shell_stopped",
         "agent shell stopped",
     );
-    observability.report_health();
+    observability.report_log_pipeline_health();
     Ok(())
 }
 
@@ -65,10 +75,7 @@ fn validate_arguments(arguments: &Arguments) -> Result<()> {
     if !arguments.metrics_bind_address.ip().is_loopback() {
         bail!("--metrics-bind-address must be loopback");
     }
-    if arguments.foreground && (!std::io::stdin().is_terminal() || !std::io::stdout().is_terminal())
-    {
-        bail!("--foreground requires an interactive terminal");
-    }
+    validate_foreground_terminal(arguments.foreground)?;
     Ok(())
 }
 
@@ -81,7 +88,10 @@ async fn run_application(
     if arguments.foreground {
         run_foreground(config, capabilities, observability).await
     } else {
-        shutdown_signal().await
+        wait_for_shutdown_signal()
+            .await
+            .context("shutdown signal wait failed")?;
+        Ok(())
     }
 }
 
@@ -96,8 +106,7 @@ async fn run_foreground(
     let (log_receiver, log_control) = observability
         .take_foreground_logs()
         .context("foreground log capture is disabled")?;
-    let shutdown_requested = Arc::new(AtomicBool::new(false));
-    let foreground_shutdown = Arc::clone(&shutdown_requested);
+    let shutdown_requested = ShutdownToken::new();
     let foreground_config = ForegroundConfig {
         service_name: config.service_name(),
         service_version: env!("CARGO_PKG_VERSION"),
@@ -106,7 +115,7 @@ async fn run_foreground(
         log_control,
         capabilities,
         diagnostics: None,
-        shutdown_requested: foreground_shutdown,
+        shutdown_requested: shutdown_requested.clone(),
     };
     let mut foreground_task =
         tokio::task::spawn_blocking(move || foreground::run(foreground_config));
@@ -115,34 +124,14 @@ async fn run_foreground(
         result = &mut foreground_task => result
             .context("foreground task panicked")?
             .context("foreground mode failed"),
-        signal_result = shutdown_signal() => {
-            shutdown_requested.store(true, Ordering::Release);
+        signal_result = wait_for_shutdown_signal() => {
+            shutdown_requested.request();
             let foreground_result = foreground_task
                 .await
                 .context("foreground task panicked")?;
-            signal_result?;
+            signal_result.context("shutdown signal wait failed")?;
             foreground_result.context("foreground mode failed")
         }
-    }
-}
-
-async fn shutdown_signal() -> Result<()> {
-    #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .context("failed to install SIGTERM handler")?;
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => result.context("failed to wait for SIGINT"),
-            signal = terminate.recv() => signal.context("SIGTERM signal stream closed"),
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c()
-            .await
-            .context("failed to wait for shutdown signal")
     }
 }
 

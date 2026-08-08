@@ -1,6 +1,5 @@
 #![cfg(all(feature = "metrics", feature = "tracing"))]
 
-use std::error::Error as StdError;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,7 +10,7 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata as TracingMetadata, Subscriber};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const EXPECTED_SYSTEM_ORDER: [&str; 62] = [
     "OpenTick",

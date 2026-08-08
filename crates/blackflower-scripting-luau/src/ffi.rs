@@ -549,7 +549,11 @@ impl State {
                 // SAFETY: Luau vectors contain exactly three contiguous float
                 // components and the VM stack keeps them alive during this copy.
                 let components = unsafe { slice::from_raw_parts(pointer.as_ptr(), 3) };
-                Ok(Value::Vector([components[0], components[1], components[2]]))
+                Ok(Value::Vector(glam::Vec3::new(
+                    components[0],
+                    components[1],
+                    components[2],
+                )))
             }
             _ => Err(Error::UnsupportedValue {
                 index: result_index,
@@ -839,7 +843,7 @@ unsafe fn read_debug_value(state: *mut raw::lua_State, stack_index: i32) -> Debu
                 // SAFETY: Luau vectors contain exactly three contiguous floats
                 // owned by the live stack value.
                 let components = unsafe { slice::from_raw_parts(pointer, 3) };
-                DebugValue::Vector([components[0], components[1], components[2]])
+                DebugValue::Vector(glam::Vec3::new(components[0], components[1], components[2]))
             }
         }
         _ => DebugValue::Opaque {

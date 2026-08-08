@@ -1,9 +1,9 @@
-use std::time::Duration;
-
 use crate::{
     AdmissionClaims, ConnectionEpoch, MAX_RESUME_TOKEN_BYTES, MatchId, PlayerId, SessionId,
     WireError,
 };
+use bytes::Bytes;
+use std::time::Duration;
 
 /// Reconnect interval during which a one-use resume token may be consumed.
 pub const RECONNECT_WINDOW: Duration = Duration::from_secs(30);
@@ -25,7 +25,7 @@ pub struct ResumeClaims {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuedResumeToken {
     /// Opaque credential understood only by the authority implementation.
-    pub token: Vec<u8>,
+    pub token: Bytes,
     /// Absolute monotonic expiry instant in the authority's time domain.
     pub expires_at: Duration,
 }
@@ -69,6 +69,7 @@ pub trait SessionAuthority {
     fn consume_resume(
         &mut self,
         token: &[u8],
+        connection_epoch: ConnectionEpoch,
         now: Duration,
     ) -> Result<ResumeClaims, AuthorityError>;
 }

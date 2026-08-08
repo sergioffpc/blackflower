@@ -1,9 +1,15 @@
 use blackflower_audio_spatial::{
-    AcousticMaterial, AcousticScene, AcousticTriangle, AudioSettings, BinauralParams, Context,
-    EMBREE_VERSION, Error, PathBakeSettings, ProbeBatch, ProbeVolumeTransform, RayTracerBackend,
-    ReflectionSimulator, ReflectionsBakeSettings, STEAM_AUDIO_EMBREE_ENABLED, STEAM_AUDIO_VERSION,
-    TailState, Vec3A,
+    AcousticMaterial, AcousticTriangle, AudioSettings, BinauralParams, Context, EMBREE_VERSION,
+    Error, RayTracerBackend, ReflectionSimulator, STEAM_AUDIO_EMBREE_ENABLED, STEAM_AUDIO_VERSION,
+    TailState,
 };
+#[cfg(feature = "cooking")]
+use blackflower_audio_spatial::{
+    AcousticScene, PathBakeSettings, ProbeBatch, ProbeVolumeTransform, ReflectionsBakeSettings,
+};
+#[cfg(feature = "cooking")]
+use glam::Quat;
+use glam::{Mat4, Vec3, Vec3A};
 
 const FRAME_SIZE: usize = 256;
 const FRAME_SIZE_U32: u32 = 256;
@@ -143,17 +149,10 @@ fn rigid_sub_scene_instance_updates_with_one_parent_commit() -> Result<(), Error
     )?;
     mesh.add();
     prefab.commit();
-    let identity = [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ];
+    let identity = Mat4::IDENTITY;
     let mut instance = parent.create_instanced_mesh(&prefab, identity)?;
     instance.add();
-    let mut translated = identity;
-    translated[3][0] = 2.0;
-    instance.update_transform(translated)?;
+    instance.update_transform(Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)))?;
     parent.commit();
     assert!(instance.is_added());
     Ok(())
@@ -224,12 +223,11 @@ fn cooked_scene_and_probe_assets_round_trip_through_steam_audio() -> Result<(), 
     let scene_asset = scene.to_acoustic_asset(4, 2, 1)?;
     let decoded_scene = AcousticScene::from_bytes(scene_asset.bytes())?;
     let loaded_scene = context.load_cooked_acoustic_scene(&decoded_scene)?;
-    let volume = ProbeVolumeTransform::new([
-        [4.0, 0.0, 0.0, 0.0],
-        [0.0, 2.0, 0.0, 1.0],
-        [0.0, 0.0, 4.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ])?;
+    let volume = ProbeVolumeTransform::new(Mat4::from_scale_rotation_translation(
+        Vec3::new(4.0, 2.0, 4.0),
+        Quat::IDENTITY,
+        Vec3::Y,
+    ))?;
     let reflections = ReflectionsBakeSettings::new(64, 32, 2, 0.1, 0.1, 1, 1, 32, 0.1, 1)?;
     let pathing = PathBakeSettings::new(4, 0.1, 0.5, 10.0, 20.0, 1)?;
     let probes = context.bake_uniform_floor_probe_batch(

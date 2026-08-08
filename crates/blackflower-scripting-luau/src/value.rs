@@ -1,3 +1,5 @@
+use glam::Vec3;
+
 /// A value that can cross the initial safe Luau boundary.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -12,7 +14,7 @@ pub enum Value {
     /// Luau byte string. Luau strings are not required to contain UTF-8.
     String(Box<[u8]>),
     /// Luau's default three-component, single-precision vector.
-    Vector([f32; 3]),
+    Vector(Vec3),
 }
 
 impl From<&str> for Value {

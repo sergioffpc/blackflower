@@ -1,12 +1,11 @@
-use std::error::Error as StdError;
-
 use blackflower_scripting_luau::{
     CompileOptions, DebugAction, DebugEventKind, DebugLevel, DebugOptions, DebugValue, Error,
     Library, MIN_NATIVE_CODEGEN_LIMIT_BYTES, OptimizationLevel, Runtime, RuntimeConfig,
     SandboxPolicy, TypeInfoLevel, Value, compile, luau_version, native_codegen_supported,
 };
+use glam::Vec3;
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn reports_the_pinned_luau_version() {
@@ -30,7 +29,10 @@ fn compiles_and_executes_primitive_results() -> TestResult {
         Some(Value::Number(number)) if number.to_bits() == 42.5_f64.to_bits()
     ));
     assert_eq!(values.get(2), Some(&Value::from("blackflower")));
-    assert_eq!(values.get(3), Some(&Value::Vector([1.0, 2.0, 3.0])));
+    assert_eq!(
+        values.get(3),
+        Some(&Value::Vector(Vec3::new(1.0, 2.0, 3.0)))
+    );
     Ok(())
 }
 

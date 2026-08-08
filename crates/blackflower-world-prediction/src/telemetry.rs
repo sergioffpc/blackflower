@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 #[cfg(any(feature = "metrics", feature = "tracing"))]
 use crate::HardResyncReason;
 use crate::{
@@ -66,7 +64,7 @@ impl ReconciliationObservation {
 
     pub(crate) fn finish<E>(self, _result: &Result<ReconciliationOutcome, ReconciliationError<E>>)
     where
-        E: StdError + 'static,
+        E: std::error::Error + 'static,
     {
         #[cfg(any(feature = "metrics", feature = "tracing"))]
         let (outcome, reason) = reconciliation_result(_result);
@@ -233,7 +231,7 @@ fn reconciliation_result<E>(
     result: &Result<ReconciliationOutcome, ReconciliationError<E>>,
 ) -> (&'static str, &'static str)
 where
-    E: StdError + 'static,
+    E: std::error::Error + 'static,
 {
     match result {
         Ok(ReconciliationOutcome::Converged { .. }) => ("converged", "none"),

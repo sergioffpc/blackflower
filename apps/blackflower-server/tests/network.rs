@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::num::{NonZeroU32, NonZeroUsize};
@@ -8,7 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use blackflower_harness::{
-    ClientHarness, ClientHarnessConfig, ClientPrediction, ControlSubmission, PredictionUpdate,
+    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction, ControlSubmission,
+    PredictionUpdate,
 };
 use blackflower_networking::{
     AdmissionClaims, AuthorityError, BudgetTier, CompatibilityContract, ConnectionEpoch,
@@ -28,13 +28,14 @@ use blackflower_networking_replication::{Snapshot, SnapshotTick};
 use blackflower_server::{
     DedicatedServerNetwork, LoopbackSessionAuthority, ServerNetworkRuntime, SimulationHost,
 };
+use glam::Vec2;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-type TestResult<T = ()> = Result<T, Box<dyn StdError>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn dedicated_server_composes_admission_bootstrap_activation_and_resume() -> TestResult {
+async fn dedicated_server_composes_admission_bootstrap_and_activation() -> TestResult {
     let contract = contract();
     let fixture = service_fixture("blackflower.test")?;
     let root = fixture.root.clone();
@@ -63,14 +64,6 @@ async fn dedicated_server_composes_admission_bootstrap_activation_and_resume() -
     assert_admission_messages(&client, &content).await?;
     server.content_ready(&mut peer, &content)?;
     assert_bootstrap_and_activation(&mut peer, &client).await?;
-    let resumed = server.resume(&mut peer, b"resume", Duration::from_secs(1))?;
-    assert_eq!(resumed.claims.connection_epoch, ConnectionEpoch::new(2));
-    assert_eq!(peer.session().state(), SessionState::Synchronizing);
-    assert!(
-        server
-            .resume(&mut peer, b"resume", Duration::from_secs(2))
-            .is_err()
-    );
     Ok(())
 }
 
@@ -80,6 +73,8 @@ async fn real_harness_reaches_active_through_the_server_supervisor() -> TestResu
     let content = content()?;
     let fixture = service_fixture("blackflower.test")?;
     let root = fixture.root.clone();
+    let silent_root = root.clone();
+    let reconnect_root = root.clone();
     let endpoint = QuicServer::bind(server_config(fixture)?)?;
     let address = endpoint.local_addr()?;
     let authority = LoopbackSessionAuthority::new(contract);
@@ -97,6 +92,8 @@ async fn real_harness_reaches_active_through_the_server_supervisor() -> TestResu
     let server_stop = Arc::clone(&stop);
     let server_task = tokio::spawn(async move { runtime.run(server_stop).await });
 
+    let silent_endpoint = QuicClient::bind(client_config(address, silent_root))?;
+    let _silent_connection = silent_endpoint.connect().await?;
     let client_endpoint = QuicClient::bind(client_config(address, root))?;
     let connection = client_endpoint.connect().await?;
     let transport = connection.spawn_io().await?;
@@ -109,13 +106,49 @@ async fn real_harness_reaches_active_through_the_server_supervisor() -> TestResu
         },
     )?;
     let started = Instant::now();
-    wait_until_active(&mut harness, &simulation, started).await?;
-    submit_and_wait_for_movement(&mut harness, &simulation, started).await?;
+    wait_until_active(&mut harness, &simulation, started)
+        .await
+        .map_err(|error| io::Error::other(format!("initial activation failed: {error}")))?;
+    submit_and_wait_for_movement(&mut harness, &simulation, started)
+        .await
+        .map_err(|error| io::Error::other(format!("initial movement failed: {error}")))?;
+    resume_and_verify(&mut harness, &simulation, started, address, reconnect_root).await?;
 
     stop.store(true, Ordering::Release);
     tokio::time::timeout(Duration::from_secs(1), server_task).await???;
     let _exit = simulation.shutdown()?;
     Ok(())
+}
+
+async fn resume_and_verify(
+    harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
+    simulation: &SimulationHost,
+    started: Instant,
+    address: SocketAddr,
+    root: CertificateDer<'static>,
+) -> TestResult {
+    let resume_token = take_resume_token(harness).ok_or("missing resume token")?;
+    let endpoint = QuicClient::bind(client_config(address, root))?;
+    let transport = endpoint.connect().await?.spawn_io().await?;
+    harness.reconnect(transport, resume_token)?;
+    wait_until_active(harness, simulation, started)
+        .await
+        .map_err(|error| io::Error::other(format!("resumed activation failed: {error}")))?;
+    submit_and_wait_for_movement(harness, simulation, started)
+        .await
+        .map_err(|error| io::Error::other(format!("resumed movement failed: {error}")))?;
+    Ok(())
+}
+
+fn take_resume_token(
+    harness: &mut ClientHarness<ClientNetworkHandle, EmptyPrediction>,
+) -> Option<bytes::Bytes> {
+    while let Some(event) = harness.pop_event() {
+        if let ClientEvent::ResumeIssued { token, .. } = event {
+            return Some(token);
+        }
+    }
+    None
 }
 
 async fn wait_until_active(
@@ -127,7 +160,7 @@ async fn wait_until_active(
         loop {
             update_harness(harness, simulation, started)?;
             if harness.view().session_state() == SessionState::Active {
-                return Ok::<_, Box<dyn StdError>>(());
+                return Ok::<_, Box<dyn std::error::Error>>(());
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
@@ -140,7 +173,7 @@ async fn submit_and_wait_for_movement(
     simulation: &SimulationHost,
     started: Instant,
 ) -> TestResult {
-    let control = MovementControl::quantize(0.0, 1.0, 0.0, 0.0)?;
+    let control = MovementControl::quantize(Vec2::Y, 0.0, 0.0)?;
     let input_lead_ticks = harness.input_lead_ticks();
     assert!((4..=24).contains(&input_lead_ticks));
     assert!(input_lead_ticks.is_multiple_of(4));
@@ -149,14 +182,14 @@ async fn submit_and_wait_for_movement(
             simulation.completed_ticks(),
             input_lead_ticks,
         )),
-        payload: control.encode().to_vec(),
+        payload: bytes::Bytes::copy_from_slice(&control.encode()),
         commands: Vec::new(),
     })?;
     tokio::time::timeout(Duration::from_secs(4), async {
         loop {
             update_harness(harness, simulation, started)?;
             if movement_was_applied(harness.view().authoritative(), submitted)? {
-                return Ok::<_, Box<dyn StdError>>(());
+                return Ok::<_, Box<dyn std::error::Error>>(());
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
@@ -376,7 +409,7 @@ impl SessionAuthority for TestAuthority {
         now: Duration,
     ) -> Result<IssuedResumeToken, AuthorityError> {
         Ok(IssuedResumeToken {
-            token: b"resume".to_vec(),
+            token: bytes::Bytes::from_static(b"resume"),
             expires_at: now.saturating_add(Duration::from_secs(30)),
         })
     }
@@ -384,6 +417,7 @@ impl SessionAuthority for TestAuthority {
     fn consume_resume(
         &mut self,
         token: &[u8],
+        connection_epoch: ConnectionEpoch,
         now: Duration,
     ) -> Result<ResumeClaims, AuthorityError> {
         if token != b"resume" {
@@ -399,7 +433,7 @@ impl SessionAuthority for TestAuthority {
             session_id: self.claims.session_id,
             player_id: self.claims.player_id,
             match_id: self.claims.match_id,
-            connection_epoch: ConnectionEpoch::new(2),
+            connection_epoch,
         })
     }
 }

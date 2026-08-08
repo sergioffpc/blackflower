@@ -69,6 +69,7 @@ rules are recorded in the [coordinate-system contract](docs/coordinate-system.md
 | `crates/blackflower-networking-replication` | Authoritative snapshot filtering, baselines, deltas, and quantization |
 | `crates/blackflower-observability` | Process logging, metrics export, and profiler setup |
 | `crates/blackflower-observability-tui` | Shared bounded logs and Prometheus polling for terminal observability dashboards |
+| `crates/blackflower-process` | Cross-platform process modes, terminal validation, and shutdown coordination |
 | `crates/blackflower-rendering` | Immutable render-frame contract and latest-wins renderer handoff |
 | `crates/blackflower-rendering-fluids` | NVIDIA Flow context bridge for renderer-owned GPU resources and passes |
 | `crates/blackflower-rendering-models` | Validated runtime static meshes, generated LOD chains, and model hierarchies |
@@ -100,7 +101,7 @@ Run the authoritative server with the local certificates and asset trust key
 created by `cargo xtask keys generate`:
 
 ```sh
-RUST_LOG=info cargo run --package blackflower-server --locked -- \
+cargo run --package blackflower-server --locked -- \
   --listen-address 127.0.0.1:4433 \
   --tls-certificate .local-network/server-chain.pem \
   --tls-private-key .local-network/server-key.pem \
@@ -112,8 +113,13 @@ RUST_LOG=info cargo run --package blackflower-server --locked -- \
 Run the headless agent shell:
 
 ```sh
-RUST_LOG=info cargo run --package blackflower-agent --locked
+cargo run --package blackflower-agent --locked
 ```
+
+The server and agent enter daemon mode unless `--foreground` is present. Daemon
+startup preserves the launching working directory so relative configuration and
+asset paths keep their meaning, then detaches the standard streams from the
+terminal. Use the loopback metrics endpoint to monitor a daemon process.
 
 The shell exposes the existing QUIC, shared client harness/prediction, Detour,
 aggregate agent metrics, and bounded foreground-record boundaries for

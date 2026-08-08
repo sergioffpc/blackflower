@@ -1,6 +1,7 @@
 use anyhow::{Context, bail};
 use blackflower_assets::Bytes;
 use blackflower_rendering_textures::{TextureMip, TextureSemantic, encode as encode_ktx2};
+use glam::Vec3;
 use half::f16;
 use image::ImageFormat;
 
@@ -255,20 +256,9 @@ fn encode_pixels(pixels: &[[f32; 4]], semantic: TextureSemantic) -> Vec<u8> {
     }
 }
 
-fn normalized_normal(mut value: [f32; 4]) -> [f32; 4] {
-    let length_squared =
-        value[0].mul_add(value[0], value[1].mul_add(value[1], value[2] * value[2]));
-    if length_squared > f32::EPSILON {
-        let inverse = length_squared.sqrt().recip();
-        value[0] *= inverse;
-        value[1] *= inverse;
-        value[2] *= inverse;
-    } else {
-        value[0] = 0.0;
-        value[1] = 0.0;
-        value[2] = 1.0;
-    }
-    value
+fn normalized_normal(value: [f32; 4]) -> [f32; 4] {
+    let normal = Vec3::from_array([value[0], value[1], value[2]]).normalize_or(Vec3::Z);
+    [normal.x, normal.y, normal.z, value[3]]
 }
 
 fn srgb_to_linear(value: f32) -> f32 {

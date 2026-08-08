@@ -6,8 +6,8 @@ use anyhow::{Context as _, Result};
 use blackflower_assets::{AssetId, AssetStore, InvalidAssetId, MapAsset, MapAssetError};
 use blackflower_ecs::TickDelta;
 use blackflower_harness::{
-    ClientEvent, ClientHarness, ClientHarnessConfig, ClientPrediction as _, ClientView,
-    PredictionUpdate,
+    ClientEvent, ClientHarness, ClientHarnessConfig, ClientMovementPrediction,
+    ClientPrediction as _, ClientView, PredictedMovementState, PredictionUpdate,
 };
 use blackflower_networking::SessionState;
 use blackflower_networking_quic::{
@@ -22,7 +22,6 @@ use blackflower_world_presentation::{
 
 use crate::controls::NativeMovementControls;
 use crate::input::InputSnapshot;
-use crate::prediction::{ClientMovementPrediction, PredictedMovementState};
 use crate::runtime::{ApplicationRuntime, HarnessPresentationRuntime, PresentationBridge};
 
 /// Complete transport and session inputs for the native network client.

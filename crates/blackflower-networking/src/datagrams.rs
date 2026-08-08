@@ -1,7 +1,9 @@
 use std::num::NonZeroU64;
 
+use bytes::Bytes;
+
 use crate::codec::{Reader, Writer};
-use crate::wire::{MAX_BOOTSTRAP_BYTES, WireError, enforce_size};
+use crate::wire::{MAX_BOOTSTRAP_BYTES, WireError, copy_array, enforce_size};
 use crate::{
     BootstrapId, CommandId, InputSequence, ProjectionDigest, ProtocolRevision, SimulationTick,
 };
@@ -46,7 +48,7 @@ pub enum TimeSyncMessage {
 
 /// Encode one exact time-sync payload.
 #[must_use]
-pub fn encode_time_sync(message: TimeSyncMessage) -> Vec<u8> {
+pub fn encode_time_sync(message: TimeSyncMessage) -> Bytes {
     let mut writer = Writer::with_capacity(29);
     match message {
         TimeSyncMessage::Request {
@@ -138,7 +140,7 @@ pub struct ControlFrame {
     /// First authoritative tick covered by the four-tick frame.
     pub execute_tick: SimulationTick,
     /// Opaque canonical bytes owned by the registered control codec.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 /// One idempotent discrete command carried redundantly with control frames.
@@ -157,7 +159,7 @@ pub struct DiscreteCommand {
     /// Kind interpreted by the revision-specific gameplay command codec.
     pub kind: u16,
     /// Opaque canonical bytes owned by that codec.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 /// Client-to-server input flow payload.
@@ -176,7 +178,7 @@ pub struct InputDatagram {
 }
 
 /// Encode one bounded input-flow payload.
-pub fn encode_input_datagram(input: &InputDatagram) -> Result<Vec<u8>, WireError> {
+pub fn encode_input_datagram(input: &InputDatagram) -> Result<Bytes, WireError> {
     validate_input_counts(input)?;
     validate_frame_redundancy(&input.frames)?;
     let mut writer = Writer::with_capacity(64);
@@ -241,14 +243,14 @@ pub struct SnapshotChunk {
     /// Total chunks for this tick, from one through four.
     pub chunk_count: u8,
     /// Fragment bytes interpreted by replication.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 /// Encode one snapshot chunk within the negotiated payload limit.
 pub fn encode_snapshot_chunk(
     chunk: &SnapshotChunk,
     maximum_payload: usize,
-) -> Result<Vec<u8>, WireError> {
+) -> Result<Bytes, WireError> {
     validate_chunk_position(chunk.chunk_index, chunk.chunk_count)?;
     enforce_size(chunk.payload.len(), maximum_payload)?;
     let mut writer = Writer::with_capacity(52 + chunk.payload.len());
@@ -282,7 +284,7 @@ pub fn decode_snapshot_chunk(
         return Err(WireError::Reserved);
     }
     let projection_digest = ProjectionDigest::from_bytes(reader.fixed()?);
-    let payload = reader.remainder(maximum_payload)?.to_vec();
+    let payload = Bytes::copy_from_slice(reader.remainder(maximum_payload)?);
     reader.finish()?;
     Ok(SnapshotChunk {
         snapshot_tick,
@@ -305,7 +307,7 @@ pub struct SnapshotAppliedAck {
 
 /// Encode one exact applied-snapshot acknowledgement.
 #[must_use]
-pub fn encode_snapshot_applied_ack(ack: SnapshotAppliedAck) -> Vec<u8> {
+pub fn encode_snapshot_applied_ack(ack: SnapshotAppliedAck) -> Bytes {
     let mut writer = Writer::with_capacity(40);
     encode_ack_to(&mut writer, ack);
     writer.finish()
@@ -348,10 +350,8 @@ pub fn encode_state_bootstrap_header(
     writer.fixed(header.projection_digest.as_bytes());
     writer.u32(header.body_length);
     writer.u32(0);
-    writer
-        .finish()
-        .try_into()
-        .map_err(|_bytes: Vec<u8>| WireError::InvalidValue("bootstrap header length"))
+    copy_array(&writer.finish())
+        .map_err(|_error| WireError::InvalidValue("bootstrap header length"))
 }
 
 /// Decode and validate one fixed state-bootstrap header.

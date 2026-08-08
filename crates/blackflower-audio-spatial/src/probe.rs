@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use glam::Mat4;
+
 use crate::asset::{BakedDataIdentifier, BakedLayer, ProbeBatch};
 use crate::error::Error;
 use crate::ffi;
@@ -8,32 +10,32 @@ use crate::scene::Scene;
 
 /// Oriented volume transform used by Steam Audio probe generation.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ProbeVolumeTransform([[f32; 4]; 4]);
+pub struct ProbeVolumeTransform(Mat4);
 
 impl ProbeVolumeTransform {
-    /// Create a finite affine row-major transform whose first three basis
+    /// Create a finite affine transform whose first three basis
     /// vectors have non-zero length.
-    pub fn new(rows: [[f32; 4]; 4]) -> Result<Self, Error> {
-        let finite = rows.into_iter().flatten().all(f32::is_finite);
-        let affine = rows[3]
-            .into_iter()
-            .zip([0.0, 0.0, 0.0, 1.0])
-            .all(|(value, expected)| (value - expected).abs() <= f32::EPSILON);
-        let non_degenerate = (0..3).all(|column| {
-            let length_squared = rows[0][column].mul_add(
-                rows[0][column],
-                rows[1][column].mul_add(rows[1][column], rows[2][column] * rows[2][column]),
-            );
-            length_squared.is_finite() && length_squared > f32::MIN_POSITIVE
-        });
+    pub fn new(transform: Mat4) -> Result<Self, Error> {
+        let finite = transform.is_finite();
+        let affine = transform.x_axis.w.abs() <= f32::EPSILON
+            && transform.y_axis.w.abs() <= f32::EPSILON
+            && transform.z_axis.w.abs() <= f32::EPSILON
+            && (transform.w_axis.w - 1.0).abs() <= f32::EPSILON;
+        let non_degenerate = [
+            transform.x_axis.truncate(),
+            transform.y_axis.truncate(),
+            transform.z_axis.truncate(),
+        ]
+        .into_iter()
+        .all(|basis| basis.length_squared() > f32::MIN_POSITIVE);
         if finite && affine && non_degenerate {
-            Ok(Self(rows))
+            Ok(Self(transform))
         } else {
             Err(Error::InvalidProbeSettings)
         }
     }
 
-    pub(crate) const fn rows(self) -> [[f32; 4]; 4] {
+    pub(crate) const fn matrix(self) -> Mat4 {
         self.0
     }
 }

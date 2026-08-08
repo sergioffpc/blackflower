@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::num::NonZeroU64;
 
+use glam::{Quat, Vec2, Vec3};
+
 use crate::{INPUT_GRACE_TICKS, SIMULATION_TICK_DELTA_SECONDS, SimulationTick};
 
 /// Fixed maximum horizontal speed for the initial movement vertical slice.
@@ -31,8 +33,7 @@ pub struct MovementControl {
     actor: ActorId,
     input_sequence: u64,
     execute_tick: SimulationTick,
-    move_right: f32,
-    move_forward: f32,
+    movement: Vec2,
     view_yaw_radians: f32,
     view_pitch_radians: f32,
 }
@@ -43,13 +44,11 @@ impl MovementControl {
         actor: ActorId,
         input_sequence: u64,
         execute_tick: SimulationTick,
-        movement: [f32; 2],
+        movement: Vec2,
         view_yaw_radians: f32,
         view_pitch_radians: f32,
     ) -> Result<Self, MovementError> {
-        if !movement.into_iter().all(f32::is_finite)
-            || movement[0].mul_add(movement[0], movement[1] * movement[1]) > 1.000_1
-        {
+        if !movement.is_finite() || movement.length_squared() > 1.000_1 {
             return Err(MovementError::InvalidMovement);
         }
         if !view_yaw_radians.is_finite() || !(0.0..TAU).contains(&view_yaw_radians) {
@@ -64,8 +63,7 @@ impl MovementControl {
             actor,
             input_sequence,
             execute_tick,
-            move_right: movement[0],
-            move_forward: movement[1],
+            movement,
             view_yaw_radians,
             view_pitch_radians,
         })
@@ -90,11 +88,11 @@ pub struct ActorMovementState {
     /// Stable actor identity.
     pub actor: ActorId,
     /// Engine-space position in metres.
-    pub position_meters: [f32; 3],
+    pub position_meters: Vec3,
     /// Engine-space velocity in metres per second.
-    pub velocity_meters_per_second: [f32; 3],
-    /// Canonical `[x, y, z, w]` world orientation.
-    pub orientation: [f32; 4],
+    pub velocity_meters_per_second: Vec3,
+    /// Canonical world orientation.
+    pub orientation: Quat,
     /// Whether the initial flat-ground controller is supported.
     pub grounded: bool,
     /// Latest input sequence applied by an authoritative tick.
@@ -221,8 +219,7 @@ impl MovementRuntime {
                 actor.held.control
             } else {
                 MovementControl {
-                    move_right: 0.0,
-                    move_forward: 0.0,
+                    movement: Vec2::ZERO,
                     ..actor.held.control
                 }
             };
@@ -232,16 +229,12 @@ impl MovementRuntime {
     pub(crate) fn derive(&mut self) {
         for actor in self.actors.values_mut() {
             let control = actor.captured;
-            let (sine, cosine) = control.view_yaw_radians.sin_cos();
-            let right = [cosine, 0.0, -sine];
-            let forward = [-sine, 0.0, -cosine];
-            actor.state.velocity_meters_per_second = [
-                (right[0] * control.move_right + forward[0] * control.move_forward)
-                    * MOVEMENT_SPEED_METERS_PER_SECOND,
-                0.0,
-                (right[2] * control.move_right + forward[2] * control.move_forward)
-                    * MOVEMENT_SPEED_METERS_PER_SECOND,
-            ];
+            let yaw = Quat::from_rotation_y(control.view_yaw_radians);
+            let right = yaw * Vec3::X;
+            let forward = yaw * Vec3::NEG_Z;
+            actor.state.velocity_meters_per_second = (right * control.movement.x
+                + forward * control.movement.y)
+                * MOVEMENT_SPEED_METERS_PER_SECOND;
             actor.state.orientation =
                 orientation(control.view_yaw_radians, control.view_pitch_radians);
         }
@@ -249,10 +242,8 @@ impl MovementRuntime {
 
     pub(crate) fn advance(&mut self) {
         for actor in self.actors.values_mut() {
-            for axis in 0..3 {
-                actor.state.position_meters[axis] +=
-                    actor.state.velocity_meters_per_second[axis] * SIMULATION_TICK_DELTA_SECONDS;
-            }
+            actor.state.position_meters +=
+                actor.state.velocity_meters_per_second * SIMULATION_TICK_DELTA_SECONDS;
         }
     }
 
@@ -278,17 +269,16 @@ impl ActorRuntime {
             actor,
             input_sequence: 0,
             execute_tick: SimulationTick::ZERO,
-            move_right: 0.0,
-            move_forward: 0.0,
+            movement: Vec2::ZERO,
             view_yaw_radians: 0.0,
             view_pitch_radians: 0.0,
         };
         Self {
             state: ActorMovementState {
                 actor,
-                position_meters: [0.0; 3],
-                velocity_meters_per_second: [0.0; 3],
-                orientation: [0.0, 0.0, 0.0, 1.0],
+                position_meters: Vec3::ZERO,
+                velocity_meters_per_second: Vec3::ZERO,
+                orientation: Quat::IDENTITY,
                 grounded: true,
                 acknowledged_input_sequence: None,
             },
@@ -308,13 +298,6 @@ struct HeldControl {
     last_tick: SimulationTick,
 }
 
-fn orientation(yaw: f32, pitch: f32) -> [f32; 4] {
-    let (pitch_sine, pitch_cosine) = (pitch * 0.5).sin_cos();
-    let (yaw_sine, yaw_cosine) = (yaw * 0.5).sin_cos();
-    [
-        yaw_cosine * pitch_sine,
-        yaw_sine * pitch_cosine,
-        -yaw_sine * pitch_sine,
-        yaw_cosine * pitch_cosine,
-    ]
+fn orientation(yaw: f32, pitch: f32) -> Quat {
+    Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch)
 }

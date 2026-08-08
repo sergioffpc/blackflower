@@ -11,20 +11,21 @@ default = []
 profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 
 [dependencies]
-blackflower-harness.workspace = true
+blackflower-harness = { workspace = true, features = ["observability"] }
 blackflower-navigation.workspace = true
 blackflower-networking.workspace = true
 blackflower-networking-quic.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
-blackflower-world-prediction = { workspace = true, features = ["observability"] }
+blackflower-process.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
 metrics.workspace = true
 ratatui.workspace = true
+strum.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["signal"] }
+tokio.workspace = true
 tracing.workspace = true
 
 [lints]

@@ -13,20 +13,21 @@ profile-with-tracy = ["blackflower-observability/profile-with-tracy"]
 [dependencies]
 blackflower-assets = { workspace = true, features = ["signing", "unversioned-loading"] }
 blackflower-ecs.workspace = true
-blackflower-harness.workspace = true
+blackflower-harness = { workspace = true, features = ["observability"] }
 blackflower-networking.workspace = true
 blackflower-networking-protocol.workspace = true
 blackflower-networking-quic.workspace = true
 blackflower-networking-replication.workspace = true
 blackflower-observability.workspace = true
 blackflower-observability-tui.workspace = true
+blackflower-process.workspace = true
 blackflower-rendering.workspace = true
-blackflower-world-prediction = { workspace = true, features = ["observability"] }
 blackflower-world-presentation = { workspace = true, features = ["observability"] }
 
 anyhow.workspace = true
-bytemuck.workspace = true
+bytes.workspace = true
 clap.workspace = true
+glam.workspace = true
 image.workspace = true
 ratatui.workspace = true
 rustls.workspace = true
