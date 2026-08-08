@@ -1,10 +1,9 @@
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 
 use blackflower_observability::{ForegroundLogControl, ForegroundLogLevel};
+use blackflower_process::ShutdownToken;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -102,7 +101,7 @@ fn test_app() -> Result<App, Box<dyn Error>> {
         log_receiver,
         log_control: ForegroundLogControl::new(ForegroundLogLevel::Info),
         capabilities: ClientCapabilities::connected(),
-        shutdown_requested: Arc::new(AtomicBool::new(false)),
+        shutdown_requested: ShutdownToken::new(),
     })?)
 }
 

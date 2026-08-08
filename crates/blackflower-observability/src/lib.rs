@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_util::MetricKindMask;
+use strum::IntoStaticStr;
 use tracing_appender::non_blocking::{ErrorCounter, NonBlocking, NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
     EnvFilter, Layer, Registry, layer::SubscriberExt as _, util::SubscriberInitExt as _,
@@ -27,11 +28,13 @@ use host_metrics::HostMetricsCollector;
 use tracing_subscriber::filter::filter_fn;
 
 const DEFAULT_LOG_BUFFER_LINES: usize = 8_192;
+const DEFAULT_FOREGROUND_LOG_CAPACITY: usize = 4_096;
 const DEFAULT_SERVER_METRICS_PORT: u16 = 9_000;
 const METRICS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Format used for process logs.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum LogFormat {
     /// Human-readable compact logs for interactive development.
     #[default]
@@ -41,11 +44,8 @@ pub enum LogFormat {
 }
 
 impl LogFormat {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Compact => "compact",
-            Self::Pretty => "pretty",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -140,6 +140,15 @@ impl ObservabilityConfig {
     ) -> Self {
         self.foreground_log_capacity = Some(capacity.get());
         self.foreground_log_level = level;
+        self
+    }
+
+    /// Capture informational structured logs using the shared foreground
+    /// dashboard queue policy.
+    #[must_use]
+    pub const fn with_default_foreground_logs(mut self) -> Self {
+        self.foreground_log_capacity = Some(DEFAULT_FOREGROUND_LOG_CAPACITY);
+        self.foreground_log_level = ForegroundLogLevel::Info;
         self
     }
 

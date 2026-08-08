@@ -3,6 +3,18 @@ use std::num::NonZeroUsize;
 use super::{ForegroundLogLevel, LogFormat, ObservabilityConfig};
 
 #[test]
+fn observability_enum_labels_are_derived_without_changing_the_contract() {
+    assert_eq!(LogFormat::Compact.as_str(), "compact");
+    assert_eq!(LogFormat::Pretty.as_str(), "pretty");
+    assert_eq!(ForegroundLogLevel::Off.as_str(), "OFF");
+    assert_eq!(ForegroundLogLevel::Error.as_str(), "ERROR");
+    assert_eq!(ForegroundLogLevel::Warn.as_str(), "WARN");
+    assert_eq!(ForegroundLogLevel::Info.as_str(), "INFO");
+    assert_eq!(ForegroundLogLevel::Debug.as_str(), "DEBUG");
+    assert_eq!(ForegroundLogLevel::Trace.as_str(), "TRACE");
+}
+
+#[test]
 fn server_defaults_are_loopback_and_compact() {
     let config = ObservabilityConfig::server("blackflower-server", "0.1.0");
 
@@ -52,4 +64,12 @@ fn foreground_capture_is_explicit_and_bounded() {
     assert_eq!(config.foreground_log_capacity, Some(128));
     assert_eq!(config.foreground_log_level, ForegroundLogLevel::Debug);
     assert!(super::create_formatted_log_output(&config).is_none());
+}
+
+#[test]
+fn foreground_dashboard_uses_the_shared_bounded_log_policy() {
+    let config = ObservabilityConfig::client("blackflower", "0.1.0").with_default_foreground_logs();
+
+    assert_eq!(config.foreground_log_capacity, Some(4_096));
+    assert_eq!(config.foreground_log_level, ForegroundLogLevel::Info);
 }

@@ -7,21 +7,21 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use strum::IntoStaticStr;
+
 const CONTRACT_SCHEMA: &str = "1";
 pub const MANIFEST_FILE: &str = "blackflower-native-vendor.txt";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum CargoProfile {
     Debug,
     Release,
 }
 
 impl CargoProfile {
-    pub const fn cli_name(self) -> &'static str {
-        match self {
-            Self::Debug => "debug",
-            Self::Release => "release",
-        }
+    pub fn cli_name(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -262,6 +262,10 @@ fn run_git(source: &Path, arguments: &[&str]) -> Result<String, Box<dyn Error + 
     }
     String::from_utf8(output.stdout).map_err(Into::into)
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/lib.rs"]
+mod tests;
 
 pub fn find_static_library(
     root: &Path,

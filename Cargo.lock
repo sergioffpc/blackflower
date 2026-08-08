@@ -354,6 +354,7 @@ dependencies = [
  "blackflower-networking-replication",
  "blackflower-observability",
  "blackflower-observability-tui",
+ "blackflower-process",
  "blackflower-rendering",
  "blackflower-world-presentation",
  "bytes",
@@ -390,9 +391,11 @@ dependencies = [
  "blackflower-networking-quic",
  "blackflower-observability",
  "blackflower-observability-tui",
+ "blackflower-process",
  "clap",
  "metrics",
  "ratatui",
+ "strum",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -506,6 +509,9 @@ dependencies = [
 [[package]]
 name = "blackflower-build"
 version = "0.1.0"
+dependencies = [
+ "strum",
+]
 
 [[package]]
 name = "blackflower-cooker-acoustics"
@@ -658,6 +664,7 @@ dependencies = [
  "blake3",
  "bytes",
  "metrics",
+ "strum",
  "thiserror 2.0.19",
 ]
 
@@ -704,6 +711,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "metrics-util",
  "profiling",
+ "strum",
  "sysinfo",
  "thiserror 2.0.19",
  "tracing",
@@ -730,6 +738,16 @@ dependencies = [
  "cmake",
  "glam",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "blackflower-process"
+version = "0.1.0"
+dependencies = [
+ "daemonize",
+ "thiserror 2.0.19",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -823,6 +841,7 @@ dependencies = [
  "blackflower-networking-replication",
  "blackflower-observability",
  "blackflower-observability-tui",
+ "blackflower-process",
  "blackflower-world-simulation",
  "blake3",
  "bytes",
@@ -1408,6 +1427,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "daemonize"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -2733,6 +2761,7 @@ dependencies = [
  "blackflower-build",
  "clap",
  "cmake",
+ "strum",
  "tempfile",
 ]
 

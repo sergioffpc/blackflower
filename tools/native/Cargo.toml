@@ -16,6 +16,7 @@ anyhow.workspace = true
 blackflower-build.workspace = true
 clap.workspace = true
 cmake.workspace = true
+strum.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

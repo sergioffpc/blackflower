@@ -1,7 +1,10 @@
 use std::time::Duration;
 
+use strum::IntoStaticStr;
+
 /// Stable traffic direction label; never contains a session or player ID.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum MetricDirection {
     /// Client-to-server traffic.
     Upstream,
@@ -10,7 +13,8 @@ pub enum MetricDirection {
 }
 
 /// Stable client/server input lifecycle action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum InputAction {
     /// A client committed an input frame to the latest-wins transport queue.
     Submitted,
@@ -19,7 +23,8 @@ pub enum InputAction {
 }
 
 /// Stable snapshot lifecycle action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum SnapshotAction {
     /// The authoritative server queued a snapshot generation.
     Sent,
@@ -30,7 +35,8 @@ pub enum SnapshotAction {
 }
 
 /// Stable resynchronization lifecycle action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum ResyncAction {
     /// A client requested a full-state resynchronization.
     Requested,
@@ -39,7 +45,8 @@ pub enum ResyncAction {
 }
 
 /// Stable bounded clock-synchronization state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum ClockState {
     /// Sessions that have reported an activation-safe clock estimate.
     Synchronized,
@@ -48,7 +55,8 @@ pub enum ClockState {
 }
 
 /// Stable bounded queue label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum QueueKind {
     /// Reliable session control.
     Control,
@@ -65,7 +73,8 @@ pub enum QueueKind {
 }
 
 /// Stable application drop reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum DropReason {
     /// A newer latest-wins payload superseded this one.
     Superseded,
@@ -80,7 +89,8 @@ pub enum DropReason {
 }
 
 /// Stable protocol-violation class without peer identity labels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ViolationKind {
     /// Invalid framing, bounds, version, or reserved bits.
     Wire,
@@ -335,85 +345,50 @@ fn record_protocol_violation_by(kind: ViolationKind, count: u64) {
 }
 
 impl MetricDirection {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Upstream => "upstream",
-            Self::Downstream => "downstream",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl InputAction {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Submitted => "submitted",
-            Self::Accepted => "accepted",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl SnapshotAction {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Sent => "sent",
-            Self::Applied => "applied",
-            Self::Acknowledged => "acknowledged",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl ResyncAction {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Requested => "requested",
-            Self::Started => "started",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl ClockState {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Synchronized => "synchronized",
-            Self::Unsynchronized => "unsynchronized",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl QueueKind {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Control => "control",
-            Self::Bootstrap => "bootstrap",
-            Self::Input => "input",
-            Self::Snapshot => "snapshot",
-            Self::Voice => "voice",
-            Self::Host => "host",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl DropReason {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Superseded => "superseded",
-            Self::Deadline => "deadline",
-            Self::Budget => "budget",
-            Self::QueueFull => "queue_full",
-            Self::Late => "late",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 impl ViolationKind {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Wire => "wire",
-            Self::Session => "session",
-            Self::ConflictingIdentity => "conflicting_identity",
-            Self::Compatibility => "compatibility",
-            Self::Voice => "voice",
-        }
+    fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -424,3 +399,7 @@ fn metric_u32_u64(value: u64) -> u32 {
 fn metric_u32_usize(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/telemetry_labels.rs"]
+mod tests;

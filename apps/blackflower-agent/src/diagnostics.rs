@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use blackflower_networking::{SessionState, SimulationTick};
 use metrics::Unit;
+use strum::IntoStaticStr;
 
 const MAX_DIAGNOSTIC_TEXT_BYTES: usize = 96;
 const MAX_SENSORIUM_CHANNELS: usize = 8;
@@ -116,7 +117,8 @@ impl AgentDescriptor {
 }
 
 /// Bounded health classification used for aggregate metrics and live status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum AgentHealth {
     /// Runtime is establishing or synchronizing the ordinary-client session.
@@ -132,13 +134,8 @@ pub enum AgentHealth {
 impl AgentHealth {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Starting => "starting",
-            Self::Healthy => "healthy",
-            Self::Stalled => "stalled",
-            Self::Fallback => "fallback",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -178,7 +175,8 @@ impl AgentStatusSnapshot {
 }
 
 /// Stable semantic sensorium group rendered by the foreground UI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum SensoriumChannelKind {
     /// Gameplay-admitted semantic visual evidence.
@@ -198,20 +196,14 @@ pub enum SensoriumChannelKind {
 impl SensoriumChannelKind {
     /// Stable operator label.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Vision => "vision",
-            Self::Hearing => "hearing",
-            Self::Body => "body",
-            Self::Capacity => "capacity",
-            Self::Memory => "memory",
-            Self::Performance => "performance",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 /// Capability state for one gameplay-owned sensorium channel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum SensoriumAvailability {
     /// Gameplay does not expose this channel to a human or agent yet.
@@ -219,6 +211,7 @@ pub enum SensoriumAvailability {
     /// A value exists but is older than the gameplay-owned freshness contract.
     Stale,
     /// A newer value exists but has not passed the modeled reaction gate.
+    #[strum(serialize = "reaction gated")]
     ReactionGated,
     /// The exact value shown was admitted to the current policy decision.
     Admitted,
@@ -227,13 +220,8 @@ pub enum SensoriumAvailability {
 impl SensoriumAvailability {
     /// Stable operator label.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Unavailable => "unavailable",
-            Self::Stale => "stale",
-            Self::ReactionGated => "reaction gated",
-            Self::Admitted => "admitted",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -289,7 +277,8 @@ impl SensoriumChannelSnapshot {
 }
 
 /// Stable semantic-memory class used by metrics and live records.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum MemoryKind {
     /// Short-lived legal sensory evidence.
@@ -305,13 +294,8 @@ pub enum MemoryKind {
 impl MemoryKind {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Sensory => "sensory",
-            Self::Spatial => "spatial",
-            Self::Episodic => "episodic",
-            Self::Working => "working",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 
     const fn index(self) -> usize {
@@ -325,7 +309,8 @@ impl MemoryKind {
 }
 
 /// Stable memory-evidence state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum MemoryStatus {
     /// Evidence is directly observed and legal now.
@@ -341,13 +326,8 @@ pub enum MemoryStatus {
 impl MemoryStatus {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Observed => "observed",
-            Self::Remembered => "remembered",
-            Self::Inferred => "inferred",
-            Self::Expired => "expired",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 
     const fn index(self) -> usize {
@@ -602,12 +582,14 @@ impl SensoriumSnapshot {
 }
 
 /// Bounded source of the selected semantic decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum PolicySource {
     /// Classical behavior policy selected a new action.
     Classical,
     /// A local neural-network policy selected a new action.
+    #[strum(serialize = "nn")]
     NeuralNetwork,
     /// The controller continued a previously selected bounded plan.
     Held,
@@ -618,18 +600,14 @@ pub enum PolicySource {
 impl PolicySource {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Classical => "classical",
-            Self::NeuralNetwork => "nn",
-            Self::Held => "held",
-            Self::Fallback => "fallback",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 /// Bounded outcome of one scheduled decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum DecisionOutcome {
     /// A new semantic action was emitted successfully.
@@ -645,18 +623,14 @@ pub enum DecisionOutcome {
 impl DecisionOutcome {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Held => "held",
-            Self::Rejected => "rejected",
-            Self::Fallback => "fallback",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 /// Stable bounded fallback reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 #[non_exhaustive]
 pub enum FallbackReason {
     /// No legal policy result was available before the decision deadline.
@@ -674,14 +648,8 @@ pub enum FallbackReason {
 impl FallbackReason {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Budget => "budget",
-            Self::Policy => "policy",
-            Self::Navigation => "navigation",
-            Self::InvalidAction => "invalid_action",
-            Self::Session => "session",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -964,7 +932,8 @@ impl AgentDiagnosticRecord {
 }
 
 /// Stable bounded diagnostic queue record kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub enum DiagnosticRecordKind {
     /// Runtime lifecycle/health snapshot.
     Status,
@@ -977,12 +946,8 @@ pub enum DiagnosticRecordKind {
 impl DiagnosticRecordKind {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Status => "status",
-            Self::Sensorium => "sensorium",
-            Self::Decision => "decision",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
@@ -1355,7 +1320,8 @@ impl Drop for AgentDiagnostics {
 }
 
 /// Stable bounded result of one navigation-worker query.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 #[non_exhaustive]
 pub enum NavigationQueryResult {
     /// A complete route was produced.
@@ -1371,18 +1337,14 @@ pub enum NavigationQueryResult {
 impl NavigationQueryResult {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Complete => "complete",
-            Self::Partial => "partial",
-            Self::NoPath => "no_path",
-            Self::Failed => "failed",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 
 /// Stable bounded semantic-memory eviction reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 #[non_exhaustive]
 pub enum MemoryEvictionReason {
     /// Gameplay-owned time-to-live expired.
@@ -1398,13 +1360,8 @@ pub enum MemoryEvictionReason {
 impl MemoryEvictionReason {
     /// Stable low-cardinality metric value.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Expired => "expired",
-            Self::Capacity => "capacity",
-            Self::Contradicted => "contradicted",
-            Self::Reset => "reset",
-        }
+    pub fn as_str(self) -> &'static str {
+        self.into()
     }
 }
 

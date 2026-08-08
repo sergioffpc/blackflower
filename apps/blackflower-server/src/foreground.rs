@@ -4,11 +4,10 @@ mod app;
 mod render;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 
 use blackflower_observability::{ForegroundLogControl, ForegroundLogEvent};
+use blackflower_process::ShutdownToken;
 
 pub use app::ForegroundError;
 
@@ -25,7 +24,7 @@ pub struct ForegroundConfig {
     /// Dynamic foreground capture control.
     pub log_control: ForegroundLogControl,
     /// Process-level shutdown request shared with the terminal loop.
-    pub shutdown_requested: Arc<AtomicBool>,
+    pub shutdown_requested: ShutdownToken,
 }
 
 /// Run the foreground terminal UI until the operator quits.

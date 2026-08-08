@@ -34,6 +34,7 @@ members = [
     "crates/blackflower-observability",
     "crates/blackflower-observability-tui",
     "crates/blackflower-physics",
+    "crates/blackflower-process",
     "crates/blackflower-rendering",
     "crates/blackflower-rendering-fluids",
     "crates/blackflower-rendering-models",
@@ -89,6 +90,7 @@ blackflower-networking-replication = { path = "crates/blackflower-networking-rep
 blackflower-observability = { path = "crates/blackflower-observability" }
 blackflower-observability-tui = { path = "crates/blackflower-observability-tui" }
 blackflower-physics = { path = "crates/blackflower-physics" }
+blackflower-process = { path = "crates/blackflower-process" }
 blackflower-rendering = { path = "crates/blackflower-rendering" }
 blackflower-rendering-fluids = { path = "crates/blackflower-rendering-fluids" }
 blackflower-rendering-models = { path = "crates/blackflower-rendering-models" }
@@ -115,6 +117,7 @@ cc = { version = "1.4.0", default-features = false }
 clap = { version = "4.6.6", default-features = false, features = ["derive", "help", "std", "usage"] }
 claxon = { version = "0.4.3", default-features = false }
 cmake = { version = "0.1.58", default-features = false }
+daemonize = { version = "0.5.0", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false }
 glam = { version = "0.33.3", default-features = false, features = ["bytemuck", "i32", "std"] }
 gltf = { version = "1.4.1", default-features = false, features = ["extensions", "extras", "import", "names", "utils", "KHR_lights_punctual", "KHR_materials_unlit", "KHR_texture_transform"] }

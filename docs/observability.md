@@ -83,6 +83,10 @@ payloads, or full IP addresses. Player identifiers must be pseudonymous.
 
 ## Foreground diagnostics
 
+`blackflower-server` and `blackflower-agent` run as detached daemon processes by
+default. Passing `--foreground` keeps the selected process attached to its
+interactive terminal and enables its diagnostics dashboard.
+
 `blackflower-server --foreground` runs the Ratatui diagnostics dashboard on an
 interactive terminal. Its eight panels are:
 

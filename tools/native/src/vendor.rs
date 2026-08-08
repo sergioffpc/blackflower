@@ -29,11 +29,13 @@ use std::process::Command;
 
 use anyhow::{Context, bail};
 use clap::ValueEnum;
+use strum::IntoStaticStr;
 
 use blackflower_build::{self, CargoProfile, Configuration};
 use common::*;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, ValueEnum, IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum Vendor {
     Blosc,
     Blast,
@@ -52,6 +54,7 @@ pub(crate) enum Vendor {
     Pffft,
     Recast,
     Slang,
+    #[strum(serialize = "steam-audio")]
     SteamAudio,
     Tbb,
     Zlib,
@@ -81,29 +84,8 @@ impl Vendor {
         Self::Slang,
     ];
 
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Blosc => "blosc",
-            Self::Blast => "blast",
-            Self::Boost => "boost",
-            Self::Embree => "embree",
-            Self::Flatbuffers => "flatbuffers",
-            Self::Flecs => "flecs",
-            Self::Flow => "flow",
-            Self::Jolt => "jolt",
-            Self::Ktx => "ktx",
-            Self::Luau => "luau",
-            Self::Mysofa => "mysofa",
-            Self::Openvdb => "openvdb",
-            Self::Opus => "opus",
-            Self::Ozz => "ozz",
-            Self::Pffft => "pffft",
-            Self::Recast => "recast",
-            Self::Slang => "slang",
-            Self::SteamAudio => "steam-audio",
-            Self::Tbb => "tbb",
-            Self::Zlib => "zlib",
-        }
+    fn name(self) -> &'static str {
+        self.into()
     }
 
     const fn version(self) -> &'static str {

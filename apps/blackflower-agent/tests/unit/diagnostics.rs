@@ -53,6 +53,136 @@ impl Recorder for RecordingRecorder {
 }
 
 #[test]
+fn health_and_sensorium_labels_are_derived_without_changing_the_contract() {
+    assert_eq!(
+        [
+            AgentHealth::Starting.as_str(),
+            AgentHealth::Healthy.as_str(),
+            AgentHealth::Stalled.as_str(),
+            AgentHealth::Fallback.as_str(),
+        ],
+        ["starting", "healthy", "stalled", "fallback"],
+    );
+    assert_eq!(
+        [
+            SensoriumChannelKind::Vision.as_str(),
+            SensoriumChannelKind::Hearing.as_str(),
+            SensoriumChannelKind::Body.as_str(),
+            SensoriumChannelKind::Capacity.as_str(),
+            SensoriumChannelKind::Memory.as_str(),
+            SensoriumChannelKind::Performance.as_str(),
+        ],
+        [
+            "vision",
+            "hearing",
+            "body",
+            "capacity",
+            "memory",
+            "performance",
+        ],
+    );
+    assert_eq!(
+        [
+            SensoriumAvailability::Unavailable.as_str(),
+            SensoriumAvailability::Stale.as_str(),
+            SensoriumAvailability::ReactionGated.as_str(),
+            SensoriumAvailability::Admitted.as_str(),
+        ],
+        ["unavailable", "stale", "reaction gated", "admitted"],
+    );
+}
+
+#[test]
+fn memory_labels_are_derived_without_changing_the_contract() {
+    assert_eq!(
+        [
+            MemoryKind::Sensory.as_str(),
+            MemoryKind::Spatial.as_str(),
+            MemoryKind::Episodic.as_str(),
+            MemoryKind::Working.as_str(),
+        ],
+        ["sensory", "spatial", "episodic", "working"],
+    );
+    assert_eq!(
+        [
+            MemoryStatus::Observed.as_str(),
+            MemoryStatus::Remembered.as_str(),
+            MemoryStatus::Inferred.as_str(),
+            MemoryStatus::Expired.as_str(),
+        ],
+        ["observed", "remembered", "inferred", "expired"],
+    );
+    assert_eq!(
+        [
+            MemoryEvictionReason::Expired.as_str(),
+            MemoryEvictionReason::Capacity.as_str(),
+            MemoryEvictionReason::Contradicted.as_str(),
+            MemoryEvictionReason::Reset.as_str(),
+        ],
+        ["expired", "capacity", "contradicted", "reset"],
+    );
+}
+
+#[test]
+fn decision_labels_are_derived_without_changing_the_contract() {
+    assert_eq!(
+        [
+            PolicySource::Classical.as_str(),
+            PolicySource::NeuralNetwork.as_str(),
+            PolicySource::Held.as_str(),
+            PolicySource::Fallback.as_str(),
+        ],
+        ["classical", "nn", "held", "fallback"],
+    );
+    assert_eq!(
+        [
+            DecisionOutcome::Completed.as_str(),
+            DecisionOutcome::Held.as_str(),
+            DecisionOutcome::Rejected.as_str(),
+            DecisionOutcome::Fallback.as_str(),
+        ],
+        ["completed", "held", "rejected", "fallback"],
+    );
+    assert_eq!(
+        [
+            FallbackReason::Budget.as_str(),
+            FallbackReason::Policy.as_str(),
+            FallbackReason::Navigation.as_str(),
+            FallbackReason::InvalidAction.as_str(),
+            FallbackReason::Session.as_str(),
+        ],
+        [
+            "budget",
+            "policy",
+            "navigation",
+            "invalid_action",
+            "session"
+        ],
+    );
+}
+
+#[test]
+fn diagnostic_and_navigation_labels_preserve_the_contract() {
+    assert_eq!(
+        [
+            DiagnosticRecordKind::Status.as_str(),
+            DiagnosticRecordKind::Sensorium.as_str(),
+            DiagnosticRecordKind::Decision.as_str(),
+        ],
+        ["status", "sensorium", "decision"],
+    );
+    assert_eq!(
+        [
+            NavigationQueryResult::Complete.as_str(),
+            NavigationQueryResult::Partial.as_str(),
+            NavigationQueryResult::NoPath.as_str(),
+            NavigationQueryResult::Failed.as_str(),
+        ],
+        ["complete", "partial", "no_path", "failed"],
+    );
+}
+
+#[test]
 fn agent_runtime_emits_every_owned_metric_family() -> Result<(), Box<dyn std::error::Error>> {
     let recorder = RecordingRecorder::default();
     metrics::with_local_recorder(&recorder, || -> Result<(), AgentDiagnosticError> {
