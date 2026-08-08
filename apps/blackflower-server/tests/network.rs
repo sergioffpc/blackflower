@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::num::{NonZeroU32, NonZeroUsize};
@@ -29,11 +28,11 @@ use blackflower_networking_replication::{Snapshot, SnapshotTick};
 use blackflower_server::{
     DedicatedServerNetwork, LoopbackSessionAuthority, ServerNetworkRuntime, SimulationHost,
 };
-use glam::DVec2;
+use glam::Vec2;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-type TestResult<T = ()> = Result<T, Box<dyn StdError>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dedicated_server_composes_admission_bootstrap_and_activation() -> TestResult {
@@ -161,7 +160,7 @@ async fn wait_until_active(
         loop {
             update_harness(harness, simulation, started)?;
             if harness.view().session_state() == SessionState::Active {
-                return Ok::<_, Box<dyn StdError>>(());
+                return Ok::<_, Box<dyn std::error::Error>>(());
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
@@ -174,7 +173,7 @@ async fn submit_and_wait_for_movement(
     simulation: &SimulationHost,
     started: Instant,
 ) -> TestResult {
-    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
+    let control = MovementControl::quantize(Vec2::Y, 0.0, 0.0)?;
     let input_lead_ticks = harness.input_lead_ticks();
     assert!((4..=24).contains(&input_lead_ticks));
     assert!(input_lead_ticks.is_multiple_of(4));
@@ -190,7 +189,7 @@ async fn submit_and_wait_for_movement(
         loop {
             update_harness(harness, simulation, started)?;
             if movement_was_applied(harness.view().authoritative(), submitted)? {
-                return Ok::<_, Box<dyn StdError>>(());
+                return Ok::<_, Box<dyn std::error::Error>>(());
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }

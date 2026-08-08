@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::num::NonZeroU64;
 
 use blackflower_world_simulation::{
@@ -7,7 +6,7 @@ use blackflower_world_simulation::{
 };
 use glam::{Quat, Vec2, Vec3};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn canonical_control_moves_and_then_neutralizes_one_authoritative_actor() -> TestResult {

@@ -1,4 +1,4 @@
-use glam::{DVec3, IVec3};
+use glam::{IVec3, Vec3};
 
 /// Inclusive axis-aligned bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,7 +29,7 @@ impl<T> Bounds3<T> {
 pub type IndexBounds = Bounds3<IVec3>;
 
 /// Active-value bounds in world space.
-pub type WorldBounds = Bounds3<DVec3>;
+pub type WorldBounds = Bounds3<Vec3>;
 
 /// Value encoding stored by a VDB grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +99,7 @@ pub struct GridMetadata {
     pub(crate) active_voxel_count: u64,
     pub(crate) index_bounds: Option<IndexBounds>,
     pub(crate) world_bounds: Option<WorldBounds>,
-    pub(crate) voxel_size: DVec3,
+    pub(crate) voxel_size: Vec3,
 }
 
 impl GridMetadata {
@@ -147,7 +147,7 @@ impl GridMetadata {
 
     /// Return the voxel dimensions in world units.
     #[must_use]
-    pub const fn voxel_size(&self) -> DVec3 {
+    pub const fn voxel_size(&self) -> Vec3 {
         self.voxel_size
     }
 }

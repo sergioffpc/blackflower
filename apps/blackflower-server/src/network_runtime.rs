@@ -633,14 +633,14 @@ impl PeerRuntime {
                 return Err(ServerNetworkRuntimeError::ControlTooFarInFuture);
             }
             let wire = WireMovementControl::decode(&frame.payload)?;
-            let movement = wire.movement().as_vec2();
+            let movement = wire.movement();
             controls.push(MovementControl::new(
                 actor,
                 frame.sequence.get(),
                 blackflower_world_simulation::SimulationTick::new(frame.execute_tick.get()),
                 movement,
-                f64_to_f32(wire.view_yaw().dequantize()),
-                f64_to_f32(wire.view_pitch().dequantize()),
+                wire.view_yaw().dequantize(),
+                wire.view_pitch().dequantize(),
             )?);
         }
         simulation.try_submit_controls(controls)?;
@@ -812,14 +812,6 @@ fn try_despawn_binding(simulation: &SimulationStatus, binding: ControlBinding) {
 
 fn actor_id(binding: ControlBinding) -> ActorId {
     ActorId::new(binding.controlled_entity)
-}
-
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "v1 quantizers bound these finite values to the f32 movement and angle domains"
-)]
-fn f64_to_f32(value: f64) -> f32 {
-    value as f32
 }
 
 fn admission_rejection(error: &PeerError) -> AdmissionRejectReason {

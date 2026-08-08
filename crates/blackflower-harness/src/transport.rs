@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::net::SocketAddr;
 
 use blackflower_networking::StateBootstrapHeader;
@@ -35,7 +34,7 @@ pub enum ClientTransportEvent {
 /// Bounded transport operations required by a human or headless client.
 pub trait ClientTransport {
     /// Concrete transport failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Queue one reliable session-control frame.
     fn send_control(&mut self, frame: Bytes) -> Result<(), Self::Error>;

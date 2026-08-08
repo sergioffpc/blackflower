@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -49,7 +48,7 @@ impl FrameClock {
 /// Gameplay-owned conversion from an immutable harness view into client-only state.
 pub trait PresentationBridge<S> {
     /// Concrete capture or proxy-update failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Consume borrowed harness state without retaining or duplicating its history.
     fn capture(

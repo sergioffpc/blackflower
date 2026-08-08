@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::error::Error as StdError;
 use std::time::Duration;
 
 use blackflower_networking::{ProtocolRevision, SimulationTick, SnapshotAppliedAck};
@@ -12,15 +11,15 @@ use blackflower_networking_replication::{
     SnapshotReassembler, SnapshotTick, SourceEntity, build_snapshot_chunks,
 };
 use bytes::{Bytes, BytesMut};
-use glam::{DQuat, DVec3};
+use glam::{Quat, Vec3};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-fn entity(value: u64) -> Result<ReplicatedEntityId, Box<dyn StdError>> {
+fn entity(value: u64) -> Result<ReplicatedEntityId, Box<dyn std::error::Error>> {
     Ok(ReplicatedEntityId::try_from_u64(value)?)
 }
 
-fn component(value: u16) -> Result<ComponentId, Box<dyn StdError>> {
+fn component(value: u16) -> Result<ComponentId, Box<dyn std::error::Error>> {
     Ok(ComponentId::try_from_u16(value)?)
 }
 
@@ -28,7 +27,7 @@ fn state(
     tick: u64,
     priority: ReplicationPriority,
     bytes: &[u8],
-) -> Result<ComponentState, Box<dyn StdError>> {
+) -> Result<ComponentState, Box<dyn std::error::Error>> {
     Ok(ComponentState::new(
         ComponentSampleTick::new(tick),
         priority,
@@ -38,7 +37,7 @@ fn state(
 
 fn entity_state(
     components: impl IntoIterator<Item = (ComponentId, ComponentState)>,
-) -> Result<EntityState, Box<dyn StdError>> {
+) -> Result<EntityState, Box<dyn std::error::Error>> {
     Ok(EntityState::new(components)?)
 }
 
@@ -187,11 +186,11 @@ fn indexed_aoi_preserves_order_and_includes_distant_global_entities() -> TestRes
         .map(|id| {
             Ok(SourceEntity::new(
                 entity(id)?,
-                Position::new(f64::from(u32::try_from(id)?) * 2_048.0, 0.0, 0.0)?,
+                Position::new(f32::from(u16::try_from(id)?) * 2_048.0, 0.0, 0.0)?,
                 EntityState::default(),
             ))
         })
-        .collect::<Result<Vec<_>, Box<dyn StdError>>>()?;
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     entities.push(SourceEntity::new(
         entity(2)?,
         Position::new(-10.0, 0.0, 0.0)?,
@@ -219,30 +218,30 @@ fn indexed_aoi_preserves_order_and_includes_distant_global_entities() -> TestRes
 
 #[test]
 fn normative_quantizers_round_trip_with_bounded_error() -> TestResult {
-    let position = QuantizedPosition::quantize(DVec3::new(12.345, -6.789, 0.001))?;
+    let position = QuantizedPosition::quantize(Vec3::new(12.345, -6.789, 0.001))?;
     assert_eq!(position.codes(), [1_235, -679, 0]);
     let position_round_trip = position.dequantize();
     assert!((position_round_trip[0] - 12.35).abs() < 0.000_001);
 
-    let velocity = QuantizedVelocity::quantize(DVec3::new(3.25, -2.5, 0.0))?;
+    let velocity = QuantizedVelocity::quantize(Vec3::new(3.25, -2.5, 0.0))?;
     assert_eq!(velocity.codes(), [325, -250, 0]);
     assert!(
         velocity
             .dequantize()
-            .abs_diff_eq(DVec3::new(3.25, -2.5, 0.0), 0.000_001)
+            .abs_diff_eq(Vec3::new(3.25, -2.5, 0.0), 0.000_001)
     );
 
-    let angle = QuantizedAngle::quantize(std::f64::consts::PI)?;
+    let angle = QuantizedAngle::quantize(std::f32::consts::PI)?;
     assert_eq!(angle.code(), 32_768);
-    assert!((angle.dequantize() - std::f64::consts::PI).abs() < 0.000_001);
+    assert!((angle.dequantize() - std::f32::consts::PI).abs() < 0.000_001);
 
-    let quaternion = QuantizedQuaternion::quantize(DQuat::IDENTITY)?;
+    let quaternion = QuantizedQuaternion::quantize(Quat::IDENTITY)?;
     assert_eq!(quaternion.largest_index(), 3);
     assert_eq!(quaternion.components(), [0, 0, 0]);
     assert!(
         quaternion
             .dequantize()?
-            .abs_diff_eq(DQuat::IDENTITY, 0.000_001)
+            .abs_diff_eq(Quat::IDENTITY, 0.000_001)
     );
     Ok(())
 }
@@ -399,7 +398,7 @@ fn canonical_codec_chunks_and_exact_applied_ack_share_digest() -> TestResult {
 fn late_ack_reconstructs_a_demoted_pending_snapshot() -> TestResult {
     let id = entity(1)?;
     let component = component(1)?;
-    let snapshot = |tick, value| -> Result<Snapshot, Box<dyn StdError>> {
+    let snapshot = |tick, value| -> Result<Snapshot, Box<dyn std::error::Error>> {
         Ok(Snapshot::new(
             SnapshotTick::new(tick),
             [(

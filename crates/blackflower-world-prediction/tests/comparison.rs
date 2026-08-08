@@ -1,10 +1,8 @@
-use std::error::Error as StdError;
-
 use blackflower_world_prediction::{
     AbsoluteTolerance, AngularTolerance, PredictionStateComparison, ToleranceError,
 };
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn absolute_tolerance_accepts_submillimetre_position_error() -> TestResult {

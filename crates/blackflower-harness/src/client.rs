@@ -15,7 +15,6 @@ use blackflower_networking::{
 };
 use bytes::Bytes;
 use std::collections::{BTreeMap, VecDeque};
-use std::error::Error as StdError;
 use std::time::Duration;
 
 const MAX_EVENTS_PER_UPDATE: usize = 128;
@@ -724,8 +723,8 @@ struct BootstrapTransfer {
 #[derive(Debug, thiserror::Error)]
 pub enum ClientHarnessError<TE, PE>
 where
-    TE: StdError + 'static,
-    PE: StdError + 'static,
+    TE: std::error::Error + 'static,
+    PE: std::error::Error + 'static,
 {
     /// Low-level bounded transport operation failed.
     #[error("client transport failed")]
@@ -789,8 +788,8 @@ fn validate_bootstrap_offer<TE, PE>(
     transfer: &BootstrapTransfer,
 ) -> Result<(), ClientHarnessError<TE, PE>>
 where
-    TE: StdError + 'static,
-    PE: StdError + 'static,
+    TE: std::error::Error + 'static,
+    PE: std::error::Error + 'static,
 {
     if offer.bootstrap_id != transfer.header.bootstrap_id
         || offer.snapshot_tick != transfer.header.snapshot_tick

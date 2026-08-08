@@ -157,20 +157,15 @@ fn transform(source: Transform) -> anyhow::Result<NodeTransform> {
     .map_err(anyhow::Error::from)
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "normalized components are bounded to [-1, 1] and cooked matrices store f32"
-)]
 fn normalize_quaternion(rotation: glam::Quat) -> anyhow::Result<glam::Quat> {
     if !rotation.is_finite() {
         bail!("model rotation quaternion contains non-finite data");
     }
-    let rotation = rotation.as_dquat();
     let length_squared = rotation.length_squared();
     if length_squared == 0.0 {
         bail!("model rotation quaternion has zero length");
     }
-    let mut normalized = rotation.normalize().as_quat();
+    let mut normalized = rotation.normalize();
     if quaternion_needs_flip(normalized) {
         normalized = -normalized;
     }

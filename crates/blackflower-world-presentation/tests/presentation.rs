@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,24 +16,24 @@ use blackflower_world_presentation::{
     SampleRenderTimelineSystem, UpdateEffectsAndFeedbackSystem, UpdateSceneProxiesSystem,
 };
 use bytemuck::{Pod, Zeroable};
-use glam::{DQuat, DVec3};
+use glam::{Quat, Vec3};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-fn assert_vector_close(actual: DVec3, expected: DVec3) {
+fn assert_vector_close(actual: Vec3, expected: Vec3) {
     assert!(actual.abs_diff_eq(expected, 1.0e-12));
 }
 
-fn assert_quaternion_close(actual: DQuat, expected: DQuat) {
+fn assert_quaternion_close(actual: Quat, expected: Quat) {
     assert!(actual.abs_diff_eq(expected, 1.0e-12));
 }
 
 fn movement_sample(
     source: MovementSourceId,
-    position_meters: DVec3,
-    orientation: DQuat,
+    position_meters: Vec3,
+    orientation: Quat,
     kind: MovementSampleKind,
-) -> Result<PresentationMovementSample, Box<dyn StdError>> {
+) -> Result<PresentationMovementSample, Box<dyn std::error::Error>> {
     Ok(PresentationMovementSample::new(
         source,
         position_meters,
@@ -45,7 +44,7 @@ fn movement_sample(
 
 fn local_movement_proxy(
     presentation: &PresentationWorld,
-) -> Result<MovementProxy, Box<dyn StdError>> {
+) -> Result<MovementProxy, Box<dyn std::error::Error>> {
     Ok(presentation
         .local_movement_proxy()?
         .ok_or_else(|| io::Error::other("local movement proxy is missing"))?)
@@ -379,8 +378,8 @@ fn local_movement_proxy_tracks_prediction_and_retires_missing_sources() -> TestR
 
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        DVec3::new(0.0, 1.0, 2.0),
-        DQuat::IDENTITY,
+        Vec3::new(0.0, 1.0, 2.0),
+        Quat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
     assert!(presentation.frame(delta)?);
@@ -388,23 +387,20 @@ fn local_movement_proxy_tracks_prediction_and_retires_missing_sources() -> TestR
     assert_eq!(initial.source(), source);
     assert_vector_close(
         initial.predicted_position_meters(),
-        DVec3::new(0.0, 1.0, 2.0),
+        Vec3::new(0.0, 1.0, 2.0),
     );
-    assert_vector_close(initial.visual_position_meters(), DVec3::new(0.0, 1.0, 2.0));
+    assert_vector_close(initial.visual_position_meters(), Vec3::new(0.0, 1.0, 2.0));
     assert!(!initial.correction_active());
 
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        DVec3::new(12.0, 1.0, 2.0),
-        DQuat::IDENTITY,
+        Vec3::new(12.0, 1.0, 2.0),
+        Quat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
     assert!(presentation.frame(delta)?);
     let advanced = local_movement_proxy(&presentation)?;
-    assert_vector_close(
-        advanced.visual_position_meters(),
-        DVec3::new(12.0, 1.0, 2.0),
-    );
+    assert_vector_close(advanced.visual_position_meters(), Vec3::new(12.0, 1.0, 2.0));
     assert!(!advanced.correction_active());
 
     presentation.set_local_movement_sample(None)?;
@@ -418,13 +414,13 @@ fn local_movement_proxy_smooths_reconciliation_without_prediction_latency() -> T
     let mut presentation = PresentationWorld::new()?;
     let source = MovementSourceId::new(41)?;
     let delta = TickDelta::from_seconds(0.025)?;
-    let target_position = DVec3::new(10.0, 1.0, 2.0);
-    let target_orientation = DQuat::from_xyzw(0.0, 1.0, 0.0, 0.0);
-    let quarter_position = DVec3::new(2.5, 1.0, 2.0);
+    let target_position = Vec3::new(10.0, 1.0, 2.0);
+    let target_orientation = Quat::from_xyzw(0.0, 1.0, 0.0, 0.0);
+    let quarter_position = Vec3::new(2.5, 1.0, 2.0);
     let initial = movement_sample(
         source,
-        DVec3::new(0.0, 1.0, 2.0),
-        DQuat::IDENTITY,
+        Vec3::new(0.0, 1.0, 2.0),
+        Quat::IDENTITY,
         MovementSampleKind::Predicted,
     )?;
     presentation.set_local_movement_sample(Some(initial))?;
@@ -475,8 +471,8 @@ fn failed_frame_does_not_commit_local_movement_proxy() -> TestResult {
     let sample = |position| {
         movement_sample(
             source,
-            DVec3::new(position, 0.0, 0.0),
-            DQuat::IDENTITY,
+            Vec3::new(position, 0.0, 0.0),
+            Quat::IDENTITY,
             MovementSampleKind::Predicted,
         )
     };
@@ -504,7 +500,7 @@ fn failed_frame_does_not_commit_local_movement_proxy() -> TestResult {
     );
     assert_vector_close(
         local_movement_proxy(&presentation)?.visual_position_meters(),
-        DVec3::X,
+        Vec3::X,
     );
     Ok(())
 }
@@ -611,8 +607,8 @@ fn local_visual_binding_builds_instance_and_follow_camera() -> TestResult {
     presentation.set_viewport(Some(PresentationViewport::new(1280, 720)?))?;
     presentation.set_local_movement_sample(Some(movement_sample(
         source,
-        DVec3::new(3.0, 4.0, 5.0),
-        DQuat::IDENTITY,
+        Vec3::new(3.0, 4.0, 5.0),
+        Quat::IDENTITY,
         MovementSampleKind::Predicted,
     )?))?;
 

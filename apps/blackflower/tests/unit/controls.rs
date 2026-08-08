@@ -1,8 +1,6 @@
-use std::error::Error as StdError;
-
 use blackflower_networking::SimulationTick;
 use blackflower_networking_protocol::v1::MovementControl;
-use glam::DVec2;
+use glam::Vec2;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -10,7 +8,7 @@ use crate::input::{InputContext, InputState};
 
 use super::NativeMovementControls;
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn gameplay_mapping_normalizes_diagonal_movement_and_updates_view() -> TestResult {
@@ -19,7 +17,7 @@ fn gameplay_mapping_normalizes_diagonal_movement_and_updates_view() -> TestResul
     input.set_context(InputContext::GameplayCaptured);
     press(&mut input, KeyCode::KeyW);
     press(&mut input, KeyCode::KeyD);
-    input.raw_mouse_motion((20.0, -10.0));
+    input.raw_mouse_motion(Vec2::new(20.0, -10.0));
 
     let mut controls = NativeMovementControls::default();
     let prepared = controls
@@ -29,8 +27,8 @@ fn gameplay_mapping_normalizes_diagonal_movement_and_updates_view() -> TestResul
 
     assert_eq!(prepared.submission.execute_tick, SimulationTick::new(20));
     assert!(!prepared.reset_timeline);
-    assert!((control.movement()[0] - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.0001);
-    assert!((control.movement()[1] - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.0001);
+    assert!((control.movement().x - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.0001);
+    assert!((control.movement().y - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.0001);
     assert!(control.view_yaw().dequantize() > 6.0);
     assert!(control.view_pitch().dequantize() > 0.0);
     Ok(())
@@ -48,7 +46,7 @@ fn user_interface_input_is_neutral_and_stalled_cadence_restarts() -> TestResult 
         .ok_or("first control was not scheduled")?;
     let first_tick = first.submission.execute_tick;
     let first_control = MovementControl::decode(&first.submission.payload)?;
-    assert_vector_close(first_control.movement(), DVec2::ZERO);
+    assert_vector_close(first_control.movement(), Vec2::ZERO);
     controls.commit(first_tick);
 
     let restarted = controls
@@ -98,6 +96,6 @@ fn press(input: &mut InputState, key: KeyCode) {
     input.keyboard_input(PhysicalKey::Code(key), ElementState::Pressed, false);
 }
 
-fn assert_vector_close(actual: DVec2, expected: DVec2) {
-    assert!(actual.abs_diff_eq(expected, f64::EPSILON));
+fn assert_vector_close(actual: Vec2, expected: Vec2) {
+    assert!(actual.abs_diff_eq(expected, f32::EPSILON));
 }

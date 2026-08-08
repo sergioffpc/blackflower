@@ -1,7 +1,6 @@
 #![cfg(feature = "metrics")]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error as StdError;
 use std::io;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -10,7 +9,7 @@ use blackflower_ecs::{BuiltinPhase, Component, Read, TickDelta, World};
 use bytemuck::{Pod, Zeroable};
 use metrics::{Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]

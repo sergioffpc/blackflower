@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 use blackflower_scripting_luau::{
     CompileOptions, DebugAction, DebugEventKind, DebugLevel, DebugOptions, DebugValue, Error,
     Library, MIN_NATIVE_CODEGEN_LIMIT_BYTES, OptimizationLevel, Runtime, RuntimeConfig,
@@ -7,7 +5,7 @@ use blackflower_scripting_luau::{
 };
 use glam::Vec3;
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn reports_the_pinned_luau_version() {

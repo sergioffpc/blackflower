@@ -19,11 +19,8 @@ pub fn project_movement_frame(
     let sample_tick = ComponentSampleTick::new(frame.tick().get());
     let mut entities = Vec::with_capacity(frame.actors().len());
     for actor in frame.actors() {
-        let transform = Transform::quantize(
-            actor.position_meters.as_dvec3(),
-            actor.orientation.as_dquat(),
-        )?;
-        let velocity = Velocity::quantize(actor.velocity_meters_per_second.as_dvec3())?;
+        let transform = Transform::quantize(actor.position_meters, actor.orientation)?;
+        let velocity = Velocity::quantize(actor.velocity_meters_per_second)?;
         let mut components = vec![
             component(TRANSFORM_COMPONENT_ID, sample_tick, transform.encode())?,
             component(VELOCITY_COMPONENT_ID, sample_tick, velocity.encode())?,

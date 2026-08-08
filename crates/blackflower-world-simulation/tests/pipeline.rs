@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::io;
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +13,7 @@ use blackflower_world_simulation::{
 };
 use bytemuck::{Pod, Zeroable};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Clone, Copy, Pod, Zeroable, Component)]
 #[repr(transparent)]

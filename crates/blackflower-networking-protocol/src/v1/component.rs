@@ -6,7 +6,7 @@ use blackflower_networking_replication::{
     QuantizedPosition, QuantizedQuaternion, QuantizedVelocity, RegistryError, ReplicationPriority,
 };
 use bytes::{BufMut as _, Bytes, BytesMut};
-use glam::{DQuat, DVec3};
+use glam::{Quat, Vec3};
 
 use super::ProtocolError;
 use super::wire::{Decoder, ensure_length, put_i16, put_i32, put_u64};
@@ -98,7 +98,7 @@ pub struct Transform {
 
 impl Transform {
     /// Quantize a finite metre-space position and unit orientation.
-    pub fn quantize(position_meters: DVec3, orientation: DQuat) -> Result<Self, QuantizationError> {
+    pub fn quantize(position_meters: Vec3, orientation: Quat) -> Result<Self, QuantizationError> {
         Ok(Self {
             position: QuantizedPosition::quantize(position_meters)?,
             orientation: QuantizedQuaternion::quantize(orientation)?,
@@ -169,7 +169,7 @@ pub struct Velocity {
 
 impl Velocity {
     /// Quantize finite metres-per-second velocity.
-    pub fn quantize(meters_per_second: DVec3) -> Result<Self, QuantizationError> {
+    pub fn quantize(meters_per_second: Vec3) -> Result<Self, QuantizationError> {
         Ok(Self {
             velocity: QuantizedVelocity::quantize(meters_per_second)?,
         })

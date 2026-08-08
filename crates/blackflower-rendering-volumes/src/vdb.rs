@@ -1,6 +1,6 @@
 use std::iter::FusedIterator;
 
-use glam::{DVec3, IVec3};
+use glam::{IVec3, Vec3};
 
 use crate::error::Error;
 use crate::ffi::{self, Status};
@@ -121,13 +121,13 @@ impl<'a> Grid<'a> {
     }
 
     /// Transform a finite index-space position into world space.
-    pub fn index_to_world(self, position: DVec3) -> Result<DVec3, Error> {
+    pub fn index_to_world(self, position: Vec3) -> Result<Vec3, Error> {
         validate_position(position)?;
         ffi::index_to_world(self.owner.pointer, self.index, position).map_err(map_runtime)
     }
 
     /// Transform a finite world-space position into index space.
-    pub fn world_to_index(self, position: DVec3) -> Result<DVec3, Error> {
+    pub fn world_to_index(self, position: Vec3) -> Result<Vec3, Error> {
         validate_position(position)?;
         ffi::world_to_index(self.owner.pointer, self.index, position).map_err(map_runtime)
     }
@@ -152,7 +152,7 @@ impl<'a> FloatGrid<'a> {
     }
 
     /// Trilinearly sample a finite world-space position.
-    pub fn sample_world(self, position: DVec3) -> Result<f32, Error> {
+    pub fn sample_world(self, position: Vec3) -> Result<f32, Error> {
         validate_position(position)?;
         ffi::sample_float_world(self.grid.owner.pointer, self.grid.index, position)
             .map_err(map_runtime)
@@ -189,7 +189,7 @@ impl DoubleEndedIterator for GridIter<'_> {
 impl ExactSizeIterator for GridIter<'_> {}
 impl FusedIterator for GridIter<'_> {}
 
-fn validate_position(position: DVec3) -> Result<(), Error> {
+fn validate_position(position: Vec3) -> Result<(), Error> {
     if position.is_finite() {
         Ok(())
     } else {

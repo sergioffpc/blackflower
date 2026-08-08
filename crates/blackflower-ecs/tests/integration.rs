@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::io;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -11,7 +10,7 @@ use blackflower_ecs::{
 };
 use bytemuck::{Pod, Zeroable};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, Component)]
 #[repr(C)]
@@ -422,7 +421,7 @@ fn register_ordered_systems(
     world: &mut World,
     phase_a: PhaseId,
     phase_b: PhaseId,
-) -> Result<Arc<Mutex<Vec<&'static str>>>, Box<dyn StdError>> {
+) -> Result<Arc<Mutex<Vec<&'static str>>>, Box<dyn std::error::Error>> {
     let order = Arc::new(Mutex::new(Vec::new()));
     let integrate_order = Arc::clone(&order);
     world
@@ -486,7 +485,7 @@ fn parallel_systems_are_deterministic_across_worker_counts() -> TestResult {
     Ok(())
 }
 
-fn run_parallel_workload(workers: NonZeroU32) -> Result<Vec<u32>, Box<dyn StdError>> {
+fn run_parallel_workload(workers: NonZeroU32) -> Result<Vec<u32>, Box<dyn std::error::Error>> {
     let mut world = WorldBuilder::new().worker_threads(workers).build()?;
     let position = world.register_component::<Position>()?;
     let velocity = world.register_component::<Velocity>()?;

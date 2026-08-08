@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::time::Duration;
@@ -15,7 +14,7 @@ use blackflower_networking_quic::{
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retry_control_datagram_and_bootstrap_follow_v1_roles() -> TestResult {
@@ -196,7 +195,7 @@ struct ServiceFixture {
     key: PrivateKeyDer<'static>,
 }
 
-fn service_fixture(server_name: &str) -> Result<ServiceFixture, Box<dyn StdError>> {
+fn service_fixture(server_name: &str) -> Result<ServiceFixture, Box<dyn std::error::Error>> {
     let mut ca_params = CertificateParams::new(Vec::<String>::new())?;
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let ca_key = KeyPair::generate()?;
@@ -213,7 +212,9 @@ fn service_fixture(server_name: &str) -> Result<ServiceFixture, Box<dyn StdError
     })
 }
 
-fn server_config(fixture: ServiceFixture) -> Result<ServerEndpointConfig, Box<dyn StdError>> {
+fn server_config(
+    fixture: ServiceFixture,
+) -> Result<ServerEndpointConfig, Box<dyn std::error::Error>> {
     Ok(ServerEndpointConfig {
         bind_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         tls: ServerTlsConfig {

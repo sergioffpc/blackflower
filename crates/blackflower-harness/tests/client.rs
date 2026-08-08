@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::error::Error as StdError;
 use std::io;
 use std::num::NonZeroU64;
 use std::str::FromStr as _;
@@ -27,7 +26,7 @@ use blackflower_networking_replication::{
 use blackflower_world_prediction::{AuthoritativeSnapshot, InputFrame, PredictionTick};
 use bytes::Bytes;
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn human_and_bot_controls_use_identical_session_input_contract() -> TestResult {
@@ -292,7 +291,7 @@ fn incompatible_server_map_content_is_rejected_before_bootstrap() -> TestResult 
 
 type TestHarness = ClientHarness<FakeTransport, FakePrediction>;
 
-fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn StdError>> {
+fn activated_harness() -> Result<(TestHarness, FakeTransport), Box<dyn std::error::Error>> {
     let transport = FakeTransport::default();
     let control = transport.clone();
     let contract = compatibility();
@@ -390,7 +389,7 @@ fn compatibility() -> CompatibilityContract {
     }
 }
 
-fn content() -> Result<ContentManifest, Box<dyn StdError>> {
+fn content() -> Result<ContentManifest, Box<dyn std::error::Error>> {
     Ok(ContentManifest {
         map_id: MapId::from_str("maps/test")?,
         required_content_set_id: RequiredContentSetId::from_bytes([2; 32]),
@@ -607,7 +606,7 @@ impl PredictionCodec<u64, u64> for CounterCodec {
     }
 }
 
-fn counter_snapshot(tick: u64, value: u64) -> Result<Snapshot, Box<dyn StdError>> {
+fn counter_snapshot(tick: u64, value: u64) -> Result<Snapshot, Box<dyn std::error::Error>> {
     let component = ComponentId::try_from_u16(1)?;
     let entity = ReplicatedEntityId::try_from_u64(1)?;
     let state = ComponentState::new(

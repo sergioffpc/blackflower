@@ -1,25 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use glam::DVec3;
+use glam::Vec3;
 
 use crate::{EntityState, ReplicatedEntityId, Snapshot, SnapshotTick};
 
 /// Fixed spherical AOI entry radius.
-pub const AOI_ENTRY_RADIUS_METERS: f64 = 512.0;
+pub const AOI_ENTRY_RADIUS_METERS: f32 = 512.0;
 /// Minimum exit hysteresis beyond the entry radius.
-pub const AOI_MINIMUM_HYSTERESIS_METERS: f64 = 16.0;
+pub const AOI_MINIMUM_HYSTERESIS_METERS: f32 = 16.0;
 /// Time horizon multiplied by maximum speed for dynamic hysteresis.
-pub const AOI_HYSTERESIS_SECONDS: f64 = 0.5;
-const AOI_INDEX_CELL_METERS: f64 = AOI_ENTRY_RADIUS_METERS;
+pub const AOI_HYSTERESIS_SECONDS: f32 = 0.5;
+const AOI_INDEX_CELL_METERS: f32 = AOI_ENTRY_RADIUS_METERS;
 
 /// Validated world-space position used by replication interest management.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Position(DVec3);
+pub struct Position(Vec3);
 
 impl Position {
     /// Construct a finite world-space position in metres.
-    pub fn new(x: f64, y: f64, z: f64) -> Result<Self, AoiError> {
-        let coordinates = DVec3::new(x, y, z);
+    pub fn new(x: f32, y: f32, z: f32) -> Result<Self, AoiError> {
+        let coordinates = Vec3::new(x, y, z);
         if coordinates.is_finite() {
             Ok(Self(coordinates))
         } else {
@@ -29,11 +29,11 @@ impl Position {
 
     /// Return the position coordinates in metres.
     #[must_use]
-    pub const fn coordinates(self) -> DVec3 {
+    pub const fn coordinates(self) -> Vec3 {
         self.0
     }
 
-    fn distance_squared(self, other: Self) -> f64 {
+    fn distance_squared(self, other: Self) -> f32 {
         self.0.distance_squared(other.0)
     }
 }
@@ -134,17 +134,17 @@ impl ReplicationSource {
     fn collect_candidates(
         &self,
         center: Position,
-        radius: f64,
+        radius: f32,
         output: &mut Vec<ReplicatedEntityId>,
     ) {
         output.clear();
         let minimum = SpatialCell(
-            (center.coordinates() - DVec3::splat(radius))
+            (center.coordinates() - Vec3::splat(radius))
                 .to_array()
                 .map(cell_coordinate),
         );
         let maximum = SpatialCell(
-            (center.coordinates() + DVec3::splat(radius))
+            (center.coordinates() + Vec3::splat(radius))
                 .to_array()
                 .map(cell_coordinate),
         );
@@ -184,7 +184,7 @@ impl ReplicationSource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AoiTracker {
     center: Position,
-    maximum_speed_meters_per_second: f64,
+    maximum_speed_meters_per_second: f32,
     inside: BTreeSet<ReplicatedEntityId>,
     next_inside: BTreeSet<ReplicatedEntityId>,
     candidates: Vec<ReplicatedEntityId>,
@@ -192,7 +192,7 @@ pub struct AoiTracker {
 
 impl AoiTracker {
     /// Construct stateful AOI with the authoritative maximum relevant speed.
-    pub fn new(center: Position, maximum_speed_meters_per_second: f64) -> Result<Self, AoiError> {
+    pub fn new(center: Position, maximum_speed_meters_per_second: f32) -> Result<Self, AoiError> {
         validate_speed(maximum_speed_meters_per_second)?;
         Ok(Self {
             center,
@@ -209,7 +209,7 @@ impl AoiTracker {
     }
 
     /// Update the authoritative maximum relevant speed.
-    pub fn set_maximum_speed(&mut self, meters_per_second: f64) -> Result<(), AoiError> {
+    pub fn set_maximum_speed(&mut self, meters_per_second: f32) -> Result<(), AoiError> {
         validate_speed(meters_per_second)?;
         self.maximum_speed_meters_per_second = meters_per_second;
         Ok(())
@@ -217,13 +217,13 @@ impl AoiTracker {
 
     /// Return the fixed entry radius.
     #[must_use]
-    pub const fn entry_radius(&self) -> f64 {
+    pub const fn entry_radius(&self) -> f32 {
         AOI_ENTRY_RADIUS_METERS
     }
 
     /// Return `512 m + max(16 m, vmax * 0.5 s)`.
     #[must_use]
-    pub fn exit_radius(&self) -> f64 {
+    pub fn exit_radius(&self) -> f32 {
         AOI_ENTRY_RADIUS_METERS
             + AOI_MINIMUM_HYSTERESIS_METERS
                 .max(self.maximum_speed_meters_per_second * AOI_HYSTERESIS_SECONDS)
@@ -279,7 +279,7 @@ pub enum AoiError {
     #[error("AOI maximum speed must be finite and non-negative, got {value}")]
     InvalidMaximumSpeed {
         /// Rejected speed.
-        value: f64,
+        value: f32,
     },
     /// A source entity identity appeared more than once.
     #[error("replication source entity {entity} appears more than once")]
@@ -289,7 +289,7 @@ pub enum AoiError {
     },
 }
 
-fn validate_speed(value: f64) -> Result<(), AoiError> {
+fn validate_speed(value: f32) -> Result<(), AoiError> {
     if value.is_finite() && !value.is_sign_negative() {
         Ok(())
     } else {
@@ -301,6 +301,6 @@ fn validate_speed(value: f64) -> Result<(), AoiError> {
     clippy::cast_possible_truncation,
     reason = "flooring a finite world coordinate to an integer grid cell is the intended quantization"
 )]
-fn cell_coordinate(value: f64) -> i64 {
+fn cell_coordinate(value: f32) -> i64 {
     (value / AOI_INDEX_CELL_METERS).floor() as i64
 }

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::error::Error as StdError;
 
 use blackflower_networking::{ControlFrame, INPUT_GRACE_TICKS, SimulationTick};
 use blackflower_networking_replication::{Snapshot, SnapshotTick};
@@ -31,7 +30,7 @@ pub enum PredictionUpdate {
 /// Gameplay-owned decoding between canonical replication/control bytes and prediction values.
 pub trait PredictionCodec<S, I> {
     /// Concrete gameplay codec failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Decode the prediction subset and acknowledged local input from one projection.
     fn decode_snapshot(
@@ -58,7 +57,7 @@ pub trait ClientPrediction {
     /// Simulation-defined sealed predicted state exposed through [`crate::ClientView`].
     type State;
     /// Concrete prediction, history, or gameplay-codec failure.
-    type Error: StdError + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Return the latest prediction tick represented by the simulation driver.
     fn current_tick(&self) -> SimulationTick;
@@ -371,8 +370,8 @@ struct HeldInput<I> {
 #[derive(Debug, thiserror::Error)]
 pub enum PredictionSessionError<DE, CE>
 where
-    DE: StdError + 'static,
-    CE: StdError + 'static,
+    DE: std::error::Error + 'static,
+    CE: std::error::Error + 'static,
 {
     /// Simulation-specific prediction driver failed.
     #[error("prediction driver failed")]

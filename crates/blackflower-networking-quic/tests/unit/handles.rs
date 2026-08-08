@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 use blackflower_networking::VoiceStreamId;
 use bytes::Bytes;
 
@@ -8,7 +6,7 @@ use super::{
     try_receive,
 };
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn host_event_depth_tracks_successful_publication_and_receive() -> TestResult {

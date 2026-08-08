@@ -1,6 +1,6 @@
-use std::error::Error as StdError;
+//! Tests for the shared revision-one movement implementation.
 
-use blackflower_harness::{ClientPrediction, PredictionUpdate};
+use crate::{ClientPrediction, PredictionUpdate};
 use blackflower_networking::{ControlFrame, InputSequence, SimulationTick};
 use blackflower_networking_protocol::v1::{
     CHARACTER_STATE_COMPONENT_ID, CharacterState, MovementControl,
@@ -12,16 +12,16 @@ use blackflower_networking_replication::{
     SnapshotTick,
 };
 use bytes::Bytes;
-use glam::{DVec2, DVec3};
+use glam::{Vec2, Vec3};
 
 use super::{ClientMovementPrediction, orientation_from_view};
 
-type TestResult<T = ()> = Result<T, Box<dyn StdError>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 #[test]
 fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    let bootstrap = movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?;
+    let bootstrap = movement_snapshot(0, Vec3::ZERO, Vec3::ZERO, None)?;
     assert_eq!(
         prediction.bootstrap(&bootstrap)?,
         PredictionUpdate::Bootstrapped {
@@ -29,7 +29,7 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
         }
     );
 
-    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
+    let control = MovementControl::quantize(Vec2::Y, 0.0, 0.0)?;
     prediction.queue_control(&ControlFrame {
         sequence: InputSequence::new(1),
         execute_tick: SimulationTick::new(1),
@@ -43,8 +43,8 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
 
     let authoritative = movement_snapshot(
         4,
-        DVec3::new(0.0, 0.0, -0.08),
-        DVec3::new(0.0, 0.0, -5.0),
+        Vec3::new(0.0, 0.0, -0.08),
+        Vec3::new(0.0, 0.0, -5.0),
         Some(1),
     )?;
     assert_eq!(
@@ -59,10 +59,10 @@ fn movement_prediction_converges_within_the_revision_one_tolerances() -> TestRes
 #[test]
 fn movement_prediction_restores_a_state_outside_tolerance() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    prediction.bootstrap(&movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?)?;
+    prediction.bootstrap(&movement_snapshot(0, Vec3::ZERO, Vec3::ZERO, None)?)?;
     prediction.advance_to(SimulationTick::new(4))?;
 
-    let correction = movement_snapshot(4, DVec3::X, DVec3::ZERO, None)?;
+    let correction = movement_snapshot(4, Vec3::X, Vec3::ZERO, None)?;
     assert_eq!(
         prediction.apply_snapshot(&correction)?,
         PredictionUpdate::Reconciled {
@@ -73,15 +73,15 @@ fn movement_prediction_restores_a_state_outside_tolerance() -> TestResult {
     let corrected = prediction
         .predicted_state()
         .ok_or("prediction is missing")?;
-    assert!((corrected.position_meters[0] - 1.0).abs() < f64::EPSILON);
+    assert!((corrected.position_meters.x - 1.0).abs() < f32::EPSILON);
     Ok(())
 }
 
 #[test]
 fn movement_prediction_replays_unacknowledged_ticks_after_a_correction() -> TestResult {
     let mut prediction = ClientMovementPrediction::new()?;
-    prediction.bootstrap(&movement_snapshot(0, DVec3::ZERO, DVec3::ZERO, None)?)?;
-    let control = MovementControl::quantize(DVec2::Y, 0.0, 0.0)?;
+    prediction.bootstrap(&movement_snapshot(0, Vec3::ZERO, Vec3::ZERO, None)?)?;
+    let control = MovementControl::quantize(Vec2::Y, 0.0, 0.0)?;
     prediction.queue_control(&ControlFrame {
         sequence: InputSequence::new(1),
         execute_tick: SimulationTick::new(1),
@@ -91,8 +91,8 @@ fn movement_prediction_replays_unacknowledged_ticks_after_a_correction() -> Test
 
     let correction = movement_snapshot(
         2,
-        DVec3::new(1.0, 0.0, -0.04),
-        DVec3::new(0.0, 0.0, -5.0),
+        Vec3::new(1.0, 0.0, -0.04),
+        Vec3::new(0.0, 0.0, -5.0),
         Some(1),
     )?;
     assert_eq!(
@@ -105,19 +105,19 @@ fn movement_prediction_replays_unacknowledged_ticks_after_a_correction() -> Test
     let replayed = prediction
         .predicted_state()
         .ok_or("prediction is missing")?;
-    assert!((replayed.position_meters[0] - 1.0).abs() < f64::EPSILON);
+    assert!((replayed.position_meters.x - 1.0).abs() < f32::EPSILON);
     assert!((replayed.position_meters[2] + 0.04 + 10.0 / 240.0).abs() < 0.000_001);
     Ok(())
 }
 
 fn movement_snapshot(
     tick: u64,
-    position: DVec3,
-    velocity: DVec3,
+    position: Vec3,
+    velocity: Vec3,
     acknowledged: Option<u64>,
 ) -> TestResult<Snapshot> {
     let sample_tick = ComponentSampleTick::new(tick);
-    let transform = Transform::quantize(position, orientation_from_view(DVec2::ZERO))?;
+    let transform = Transform::quantize(position, orientation_from_view(Vec2::ZERO))?;
     let components = [
         component(TRANSFORM_COMPONENT_ID, sample_tick, transform.encode())?,
         component(

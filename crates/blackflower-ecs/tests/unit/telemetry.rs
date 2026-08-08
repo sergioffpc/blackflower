@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -37,7 +36,7 @@ impl Subscriber for CountingSubscriber {
 }
 
 #[test]
-fn tracing_feature_emits_lifecycle_and_tick_signals() -> Result<(), Box<dyn StdError>> {
+fn tracing_feature_emits_lifecycle_and_tick_signals() -> Result<(), Box<dyn std::error::Error>> {
     let events = Arc::new(AtomicUsize::new(0));
     let spans = Arc::new(AtomicUsize::new(0));
     let subscriber = CountingSubscriber {
@@ -45,7 +44,7 @@ fn tracing_feature_emits_lifecycle_and_tick_signals() -> Result<(), Box<dyn StdE
         spans: Arc::clone(&spans),
     };
 
-    tracing::subscriber::with_default(subscriber, || -> Result<(), Box<dyn StdError>> {
+    tracing::subscriber::with_default(subscriber, || -> Result<(), Box<dyn std::error::Error>> {
         let mut world = World::new()?;
         let _should_continue = world.progress(TickDelta::from_seconds(1.0 / 60.0)?)?;
         Ok(())

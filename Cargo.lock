@@ -355,9 +355,7 @@ dependencies = [
  "blackflower-observability",
  "blackflower-observability-tui",
  "blackflower-rendering",
- "blackflower-world-prediction",
  "blackflower-world-presentation",
- "bytemuck",
  "bytes",
  "clap",
  "glam",
@@ -392,7 +390,6 @@ dependencies = [
  "blackflower-networking-quic",
  "blackflower-observability",
  "blackflower-observability-tui",
- "blackflower-world-prediction",
  "clap",
  "metrics",
  "ratatui",
@@ -629,11 +626,15 @@ dependencies = [
 name = "blackflower-harness"
 version = "0.1.0"
 dependencies = [
+ "blackflower-ecs",
  "blackflower-networking",
+ "blackflower-networking-protocol",
  "blackflower-networking-quic",
  "blackflower-networking-replication",
  "blackflower-world-prediction",
+ "bytemuck",
  "bytes",
+ "glam",
  "thiserror 2.0.19",
 ]
 

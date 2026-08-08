@@ -1,5 +1,3 @@
-use std::error::Error as StdError;
-
 use blackflower_networking::{
     CodecViolation, CommandCodec, ControlCodec, InputSequence, ProtocolRevision,
 };
@@ -15,9 +13,9 @@ use blackflower_networking_replication::{
     QuantizedVelocity, ReplicationPriority,
 };
 use bytes::BytesMut;
-use glam::{DQuat, DVec2, DVec3};
+use glam::{Quat, Vec2, Vec3};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn revision_one_registry_has_stable_ids_visibility_and_bounds() -> TestResult {
@@ -78,8 +76,8 @@ fn components_match_the_revision_one_golden_vectors() -> TestResult {
     assert_eq!(transform.encode().as_ref(), transform_bytes);
     assert_eq!(Transform::decode(&transform_bytes)?, transform);
     let rotated = Transform::quantize(
-        DVec3::new(1.25, -2.5, 3.75),
-        DQuat::from_xyzw(0.1, 0.2, 0.3, 0.9),
+        Vec3::new(1.25, -2.5, 3.75),
+        Quat::from_xyzw(0.1, 0.2, 0.3, 0.9),
     )?;
     assert_eq!(Transform::decode(&rotated.encode())?, rotated);
 
@@ -165,15 +163,15 @@ fn movement_control_matches_the_revision_one_golden_vector() -> TestResult {
 #[test]
 fn movement_control_rejects_noncanonical_axes_pitch_and_length() -> TestResult {
     assert!(matches!(
-        MovementControl::quantize(DVec2::ONE, 0.0, 0.0),
+        MovementControl::quantize(Vec2::ONE, 0.0, 0.0),
         Err(ProtocolError::MovementMagnitude)
     ));
     assert!(matches!(
-        MovementControl::quantize(DVec2::new(f64::NAN, 0.0), 0.0, 0.0),
+        MovementControl::quantize(Vec2::new(f32::NAN, 0.0), 0.0, 0.0),
         Err(ProtocolError::MovementMagnitude)
     ));
     assert!(matches!(
-        MovementControl::quantize(DVec2::ZERO, 0.0, std::f64::consts::PI),
+        MovementControl::quantize(Vec2::ZERO, 0.0, std::f32::consts::PI),
         Err(ProtocolError::InvalidViewPitch)
     ));
     let mut reserved_axis = [0_u8; MOVEMENT_CONTROL_BYTES];
@@ -191,7 +189,7 @@ fn movement_control_rejects_noncanonical_axes_pitch_and_length() -> TestResult {
 
 #[test]
 fn generic_codec_boundary_accepts_only_movement_and_no_commands() -> TestResult {
-    let control = MovementControl::quantize(DVec2::NEG_Y, std::f64::consts::PI, 0.0)?;
+    let control = MovementControl::quantize(Vec2::NEG_Y, std::f32::consts::PI, 0.0)?;
     let codec = MovementControlCodec;
     assert_eq!(codec.protocol_revision(), ProtocolRevision::V1);
     assert_eq!(codec.validate_control(&control.encode()), Ok(()));

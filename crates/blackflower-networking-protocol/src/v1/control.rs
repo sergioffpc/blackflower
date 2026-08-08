@@ -1,8 +1,8 @@
-use std::f64::consts::FRAC_PI_2;
+use std::f32::consts::FRAC_PI_2;
 
 use blackflower_networking::{CodecViolation, CommandCodec, ControlCodec, ProtocolRevision};
 use blackflower_networking_replication::QuantizedAngle;
-use glam::DVec2;
+use glam::Vec2;
 
 use super::ProtocolError;
 use super::wire::{Decoder, ensure_length};
@@ -13,9 +13,9 @@ pub const MOVEMENT_CONTROL_BYTES: usize = 8;
 pub const MOVEMENT_AXIS_CODE_LIMIT: i16 = i16::MAX;
 
 const MOVEMENT_CONTROL_SCHEMA: &str = "movement control v1";
-const MOVEMENT_AXIS_SCALE: f64 = 32_767.0;
+const MOVEMENT_AXIS_SCALE: f32 = 32_767.0;
 const MOVEMENT_VECTOR_SQUARED_LIMIT: i64 = 32_768_i64 * 32_768_i64;
-const VIEW_PITCH_SCALE: f64 = 32_767.0;
+const VIEW_PITCH_SCALE: f32 = 32_767.0;
 
 /// Canonical signed absolute view pitch in the closed `[-pi/2, pi/2]` range.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -23,12 +23,12 @@ pub struct ViewPitch(i16);
 
 impl ViewPitch {
     /// Quantize a finite pitch in radians.
-    pub fn quantize(radians: f64) -> Result<Self, ProtocolError> {
+    pub fn quantize(radians: f32) -> Result<Self, ProtocolError> {
         if !(-FRAC_PI_2..=FRAC_PI_2).contains(&radians) {
             return Err(ProtocolError::InvalidViewPitch);
         }
         let scaled = (radians / FRAC_PI_2 * VIEW_PITCH_SCALE).round();
-        Ok(Self(f64_to_pitch_code(scaled)))
+        Ok(Self(f32_to_pitch_code(scaled)))
     }
 
     /// Validate and construct a canonical signed pitch code.
@@ -48,8 +48,8 @@ impl ViewPitch {
 
     /// Reconstruct pitch radians.
     #[must_use]
-    pub fn dequantize(self) -> f64 {
-        f64::from(self.0) * FRAC_PI_2 / VIEW_PITCH_SCALE
+    pub fn dequantize(self) -> f32 {
+        f32::from(self.0) * FRAC_PI_2 / VIEW_PITCH_SCALE
     }
 }
 
@@ -65,9 +65,9 @@ pub struct MovementControl {
 impl MovementControl {
     /// Quantize normalized local-space movement and absolute view angles.
     pub fn quantize(
-        movement: DVec2,
-        view_yaw_radians: f64,
-        view_pitch_radians: f64,
+        movement: Vec2,
+        view_yaw_radians: f32,
+        view_pitch_radians: f32,
     ) -> Result<Self, ProtocolError> {
         let move_right = quantize_axis(movement.x)?;
         let move_forward = quantize_axis(movement.y)?;
@@ -109,10 +109,10 @@ impl MovementControl {
 
     /// Return normalized rightward and forward movement values.
     #[must_use]
-    pub fn movement(self) -> DVec2 {
-        DVec2::new(
-            f64::from(self.move_right) / MOVEMENT_AXIS_SCALE,
-            f64::from(self.move_forward) / MOVEMENT_AXIS_SCALE,
+    pub fn movement(self) -> Vec2 {
+        Vec2::new(
+            f32::from(self.move_right) / MOVEMENT_AXIS_SCALE,
+            f32::from(self.move_forward) / MOVEMENT_AXIS_SCALE,
         )
     }
 
@@ -214,18 +214,18 @@ fn validate_axes(move_right: i16, move_forward: i16) -> Result<(), ProtocolError
     }
 }
 
-fn quantize_axis(value: f64) -> Result<i16, ProtocolError> {
+fn quantize_axis(value: f32) -> Result<i16, ProtocolError> {
     if !value.is_finite() || !(-1.0..=1.0).contains(&value) {
         return Err(ProtocolError::MovementMagnitude);
     }
-    Ok(f64_to_axis_code((value * MOVEMENT_AXIS_SCALE).round()))
+    Ok(f32_to_axis_code((value * MOVEMENT_AXIS_SCALE).round()))
 }
 
 #[allow(
     clippy::cast_possible_truncation,
     reason = "the caller rounds and bounds the finite value to the inclusive movement-axis domain"
 )]
-fn f64_to_axis_code(value: f64) -> i16 {
+fn f32_to_axis_code(value: f32) -> i16 {
     value as i16
 }
 
@@ -233,6 +233,6 @@ fn f64_to_axis_code(value: f64) -> i16 {
     clippy::cast_possible_truncation,
     reason = "the caller rounds and bounds the finite value to the canonical pitch domain"
 )]
-fn f64_to_pitch_code(value: f64) -> i16 {
+fn f32_to_pitch_code(value: f32) -> i16 {
     value as i16
 }

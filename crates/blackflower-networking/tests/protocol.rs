@@ -1,4 +1,3 @@
-use std::error::Error as StdError;
 use std::num::NonZeroU64;
 use std::str::FromStr as _;
 use std::time::Duration;
@@ -17,7 +16,7 @@ use blackflower_networking::{
 };
 use bytes::{Bytes, BytesMut};
 
-type TestResult = Result<(), Box<dyn StdError>>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn common_datagram_header_has_the_exact_eleven_byte_golden() -> TestResult {
