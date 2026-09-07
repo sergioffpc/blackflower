@@ -14,7 +14,9 @@ Open: identify representative users, specific learning objectives, initial use c
 
 The repository is hosted on GitHub. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
 
-Development capacity is one or two people. Implementation uses C++ under the [language and style conventions](../AGENTS.md#c-conventions). Open: select the engine or libraries, compiler, build system, target hardware, and deployment environment, and identify the remaining domain, organizational, technical, and operational constraints.
+Development capacity is one or two people. Implementation uses C++23 with Clang under the [C++ engineering guidelines](cpp-guidelines.md). Open: select the engine or libraries, Clang and standard-library versions, build system, target hardware, and deployment environment, and identify the remaining domain, organizational, technical, and operational constraints.
+
+Use the standard library first, with Boost as the preferred source for missing capabilities under the [library selection policy](cpp-guidelines.md#library-selection). Static analysis uses clang-tidy under the [analysis policy](static-analysis.md); concrete Boost components and build integration remain open.
 
 ## 3. Context and scope
 

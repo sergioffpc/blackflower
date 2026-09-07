@@ -6,7 +6,7 @@ Status: approved. These operating rules apply to a team of one or two people alo
 
 Blackflower is intended to be a first-person simulation for military mission training, with physical, acoustic, and visual realism as product priorities. This process combines Kanban for managing work, selected Extreme Programming (XP) practices for engineering, the AI Hero skill workflow for agent collaboration, and arc42 for architecture documentation.
 
-Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++; specific training scenarios, learning objectives, hardware, the remaining technology choices, and fidelity thresholds remain to be defined.
+Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++23 with Clang; specific training scenarios, learning objectives, hardware, the remaining technology choices, and fidelity thresholds remain to be defined.
 
 ## Responsibilities
 
@@ -57,7 +57,7 @@ These baseline practices are adapted from XP for this project.
 | Test-driven development | For behavior with an agreed automated test boundary, write and observe a failing test, implement the behavior, then refactor. Test observable behavior. | Relevant tests pass and cover the stated acceptance criteria. |
 | Continuous integration | Integrate small changes frequently. Automate the build and relevant checks when executable code is introduced. Resolve a broken shared build before extending it. | Results from the integrated revision; local checks are identified as local until CI exists. |
 | Refactoring | Improve internal structure in small steps while preserving observable behavior. Separate intended behavior changes from structural changes when reviewing them. | Existing behavior checks remain green. |
-| Coding conventions | Follow the [C++ conventions](../AGENTS.md#c-conventions), including the Google C++ Style Guide and repository formatter configuration. Add automated checks when the C++ toolchain is introduced. | Applicable checks and review findings. |
+| Coding conventions | Follow the [C++ engineering guidelines](cpp-guidelines.md), combining Google style, the C++ Core Guidelines, and modern adaptations of Effective C++. Apply the [clang-tidy policy](static-analysis.md) to C++ changes and automate it when the Clang toolchain is introduced. | Applicable formatting, static-analysis, and review results. |
 | Sustainable pace | Plan against actual capacity and leave room for uncertainty, review, and learning. Reduce scope when work no longer fits. | The weekly review adjusts workload and priorities. |
 
 Use the simplest design that satisfies current requirements and quality goals. Both developers may improve any module, using its tests and documented contracts. Use a common domain vocabulary and keep a person available to clarify product expectations.

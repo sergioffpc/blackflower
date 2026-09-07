@@ -6,11 +6,9 @@ Write all project documentation in English, including Markdown files and commit 
 
 ## C++ conventions
 
-Implement the project in C++. Follow the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html) when writing or reviewing project-owned C++ code, including tests. Consult the relevant sections for naming, headers, interfaces, ownership, language features, and formatting.
+Implement the project in C++23 with Clang. Before designing, writing, or reviewing C++ code, read [docs/cpp-guidelines.md](docs/cpp-guidelines.md) for the Google C++ Style Guide, C++ Core Guidelines, Effective C++ recommendations, and project-specific precedence and adaptations. Use the repository [.clang-format](.clang-format) for formatting.
 
-The initial language baseline is C++20, matching the guide at adoption. Select a compatible compiler and build configuration when implementation begins.
-
-Use the repository [.clang-format](.clang-format) for formatting. Formatting checks cover layout; review the remaining style-guide requirements as well. Pin the formatter version with the development toolchain when it is selected.
+Use the standard library first and Boost for required capabilities it does not provide, following the dependency policy in the C++ guidelines. Run clang-tidy for C++ changes using [.clang-tidy](.clang-tidy) and the scope and acceptance rules in [docs/static-analysis.md](docs/static-analysis.md).
 
 ## Architecture and development
 

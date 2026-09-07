@@ -8,4 +8,6 @@ See [AGENTS.md](AGENTS.md) for project conventions.
 
 The [development process](docs/development-process.md) defines Kanban, selected XP practices, and fidelity validation for a team of one or two people.
 
-Implementation uses C++ with the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html). See the [C++ conventions](AGENTS.md#c-conventions) for the language baseline and formatter configuration.
+Implementation uses C++23 with Clang. The [C++ engineering guidelines](docs/cpp-guidelines.md) combine the Google C++ Style Guide, C++ Core Guidelines, and Effective C++ recommendations adapted to modern C++.
+
+Use the standard library first and Boost for capabilities it does not provide. [Static analysis](docs/static-analysis.md) uses clang-tidy with checks for correctness, resource safety, numeric conversions, concurrency, and performance.
