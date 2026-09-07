@@ -1,0 +1,105 @@
+name: Blackflower C++23 Build and Validation
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop, 'release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Ubuntu 26.04 / ${{ matrix.preset }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, tsan, release]
+    defaults:
+      run:
+        shell: bash
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-cache
+      VCPKG_DISABLE_METRICS: '1'
+      SCCACHE_DIR: ${{ github.workspace }}/build/sccache-cache
+      SCCACHE_CACHE_SIZE: 1G
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      VCPKG_MAX_CONCURRENCY: '2'
+    steps:
+      - name: Check out project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 libclang-rt-21-dev llvm-21 \
+            build-essential curl zip unzip tar pkg-config jq
+
+      - name: Read vcpkg baseline
+        id: vcpkg
+        run: |
+          baseline=$(jq -er '."builtin-baseline"' vcpkg.json)
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned vcpkg
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: microsoft/vcpkg
+          ref: ${{ steps.vcpkg.outputs.baseline }}
+          path: build/vcpkg
+          persist-credentials: false
+
+      - name: Restore dependency and compiler caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+            ${{ env.SCCACHE_DIR }}
+          key: ubuntu-26.04-clang-21-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'CMakeLists.txt', 'CMakePresets.json', '.github/workflows/ci.yml') }}-${{ github.sha }}
+          restore-keys: |
+            ubuntu-26.04-clang-21-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'CMakeLists.txt', 'CMakePresets.json', '.github/workflows/ci.yml') }}-
+
+      - name: Bootstrap vcpkg
+        run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE" "$SCCACHE_DIR"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Configure
+        run: cmake --preset "${{ matrix.preset }}"
+
+      - name: Build and check
+        run: cmake --build --preset "${{ matrix.preset }}" --target check 2>&1 | tee "build/${{ matrix.preset }}/check.log"
+
+      - name: Record benchmark harness output
+        if: matrix.preset == 'release'
+        run: |
+          ./build/release/blackflower_benchmarks --benchmark_min_time=0.001s \
+            --benchmark_out=build/release/benchmarks.json --benchmark_out_format=json
+
+      - name: Report compiler cache
+        if: always()
+        run: sccache --show-stats
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-${{ matrix.preset }}
+          path: |
+            build/${{ matrix.preset }}/check.log
+            build/${{ matrix.preset }}/Testing/Temporary/
+            build/${{ matrix.preset }}/benchmarks.json
+          retention-days: 14
+          if-no-files-found: ignore

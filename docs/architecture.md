@@ -4,7 +4,7 @@ Status: initial baseline. This document follows the [arc42 structure](https://ar
 
 ## 1. Introduction and goals
 
-Blackflower is intended to be a first-person simulation for military mission training, with physical, acoustic, and visual realism as product priorities. The repository currently contains conventions and documentation; application development has not started.
+Blackflower is intended to be a first-person simulation for military mission training, with physical, acoustic, and visual realism as product priorities. The repository contains a console bootstrap and build, test, and benchmark infrastructure. Simulation behavior has not been implemented.
 
 The repository owner has requested arc42 adoption, English documentation, and signed Conventional Commits. Product stakeholders and their expectations remain to be identified.
 
@@ -14,9 +14,11 @@ Open: identify representative users, specific learning objectives, initial use c
 
 The repository is hosted on GitHub. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
 
-Development capacity is one or two people. Implementation uses C++23 with Clang under the [C++ engineering guidelines](cpp-guidelines.md). Open: select the engine or libraries, Clang and standard-library versions, build system, target hardware, and deployment environment, and identify the remaining domain, organizational, technical, and operational constraints.
+Development capacity is one or two people. Implementation uses C++23 with Clang 21 under the [C++ engineering guidelines](cpp-guidelines.md). Build tooling uses CMake, Ninja, and sccache; vcpkg manages dependencies. Visual Studio Code is the [reference editor](editor.md). The build targets x64-linux-clang and cross-compiles x64-windows-clang from Linux; GitHub CI runs only the Linux target on Ubuntu 26.04. See the [build guide](build.md) for toolchain and platform prerequisites.
 
-Use the standard library first, with Boost as the preferred source for missing capabilities under the [library selection policy](cpp-guidelines.md#library-selection). Static analysis uses clang-tidy under the [analysis policy](static-analysis.md); concrete Boost components and build integration remain open.
+Open: select the simulation engine or libraries, target hardware, and deployment environment, and identify the remaining domain, organizational, technical, and operational constraints. Build target support does not select the final training platform.
+
+Use the standard library first, with Boost as the preferred source for missing capabilities under the [library selection policy](cpp-guidelines.md#library-selection). GoogleTest and Google Benchmark provide the requested test and measurement frameworks through vcpkg. Static analysis uses clang-tidy under the [analysis policy](static-analysis.md). Concrete Boost components remain to be selected when required.
 
 ## 3. Context and scope
 
@@ -32,19 +34,26 @@ For each major approach, explain which goal it serves and link to the relevant d
 
 ## 5. Building block view
 
-There are no application building blocks yet.
+| Building block | Responsibility |
+| --- | --- |
+| [Console bootstrap](../src/main.cc) | Print the project name and return a startup status. |
+| [GoogleTest harness](../tests/build_test.cc) | Exercise test integration and the C++23 build contract. |
+| [Google Benchmark harness](../benchmarks/framework_benchmark.cc) | Exercise benchmark registration and execution. |
+| [Build configuration](../CMakeLists.txt) | Build the three independent executables and provide analysis and test checks. |
+
+The frameworks are linked only into their respective harnesses. [Sanitizer configuration](../cmake/Sanitizers.cmake) instruments non-Release project targets for memory checks, with a separate Linux configuration for race detection. There are no simulation modules yet.
 
 As implementation begins, document the main modules, their responsibilities, interfaces, and dependencies, with links to the source. Add detail where it helps explain important boundaries.
 
 ## 6. Runtime view
 
-There are no implemented runtime scenarios yet.
+On startup, the bootstrap writes the project name to standard output and returns success unless the write reports failure. The test and benchmark executables run their framework checks separately. CTest coordinates native executable startup and framework checks; cross-build validation must distinguish compilation from execution on the target platform.
 
 Document representative use cases and important failure paths as they are implemented, showing how the building blocks collaborate. Link scenarios to their requirements and verification evidence.
 
 ## 7. Deployment view
 
-There is no application deployment, infrastructure, or release pipeline yet.
+Local builds place outputs and dependency installations under build/. The [GitHub workflow](../.github/workflows/ci.yml) runs Linux Debug, ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic artifacts. Windows cross-builds are local build targets; they are outside CI. No application deployment or release publication pipeline exists yet.
 
 When deployment is introduced, describe the environments, infrastructure, and mapping of software components to execution locations. Link to maintained deployment configuration and operational instructions.
 
@@ -53,6 +62,8 @@ When deployment is introduced, describe the environments, infrastructure, and ma
 ### Development workflow
 
 The [development process](development-process.md) defines Kanban, selected XP practices, and fidelity validation for the team. Follow its operating limits and completion criteria alongside the arc42 activities below.
+
+Use the [build and dependency workflow](build.md), [reference editor setup](editor.md), and [Git-flow branch model](git-workflow.md) for implementation and integration.
 
 Apply the [arc42 method](https://arc42.org/method/) iteratively. The following activities inform one another; use them at the level of detail warranted by the change.
 
@@ -91,7 +102,7 @@ For each agreed quality scenario, record a stable identifier, priority, stimulus
 | R-002 | Fidelity thresholds, reference data, target hardware, and operational constraints are undefined. | Technology and deployment choices cannot yet be evaluated against measurable product needs. | Agree prioritized quality scenarios and constraints before committing to those choices. |
 | R-003 | The desired scope may exceed a one- or two-person team's capacity. | Work may expand faster than it can be integrated and validated. | Evaluate the small reference scene and observed delivery capacity before expanding the initial scope. |
 
-No implementation debt has been identified because application development has not started. Update this section as risks are discovered, mitigated, or resolved.
+The current checks validate build infrastructure only. They provide no evidence about simulation fidelity, performance budgets, or training outcomes. Update this section as implementation risks are discovered, mitigated, or resolved.
 
 ## 12. Glossary
 

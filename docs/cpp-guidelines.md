@@ -2,11 +2,11 @@
 
 ## Language and toolchain
 
-Use C++23 with Clang for project-owned application code and tests. Configure the future build to select Clang explicitly and use standard C++23 mode (`clang++ -std=c++23`), with language extensions disabled.
+Use C++23 with Clang for project-owned application code and tests. The [CMake build](build.md) selects Clang 21 and requires standard C++23 mode with language extensions disabled.
 
-Pin the Clang, standard-library, clang-format, and clang-tidy versions when the build system and supported platforms are selected. Verify the features actually used against that compiler and library combination: selecting a language mode does not guarantee complete language or library support. Consult the [Clang C++ support table](https://clang.llvm.org/cxx_status.html).
+Use the [reference toolchain](build.md#prerequisites) for validation. Verify the features actually used against that compiler and library combination: selecting a language mode does not guarantee complete language or library support. Consult the [Clang C++ support table](https://clang.llvm.org/cxx_status.html).
 
-The repository currently has no application source, build system, or CI compilation checks. These requirements guide their introduction; they do not assert that a working toolchain has been provisioned.
+The repository contains a minimal executable, GoogleTest and Google Benchmark harnesses, compiler caching, sanitizers, and analysis checks. [GitHub CI](build.md#continuous-integration) validates Linux on Ubuntu 26.04; Windows cross-builds are verified locally. Visual Studio Code is the [reference editor](editor.md).
 
 ## References and precedence
 
@@ -38,7 +38,7 @@ Use the C++23 standard library first. When it does not provide a required capabi
 
 Introduce only the components needed by a concrete requirement. Record the standard-library gap, chosen component, pinned version, transitive dependencies, and compatibility with the supported Clang and standard-library combination. Evaluate allocation behavior, thread safety, error handling, and measured cost where they affect the simulator's quality goals. If a component is unsuitable, record the reason and chosen alternative.
 
-If the standard specifies a facility but the selected standard-library implementation lacks it, record that toolchain limitation and any temporary Boost replacement. Review such replacements when the toolchain changes. Boost components and their packaging mechanism remain to be selected as needs arise.
+If the standard specifies a facility but the selected standard-library implementation lacks it, record that toolchain limitation and any temporary Boost replacement. Review such replacements when the toolchain changes. Use [vcpkg in manifest mode](build.md#vcpkg-setup) for C++ dependencies, with a reviewed baseline and the project triplets. Add required Boost components individually when a concrete gap is identified.
 
 ## Review focus
 
@@ -54,6 +54,6 @@ Document the relevant rule or item when explaining a design choice or review fin
 
 ## Formatting and verification
 
-Format code with the repository [.clang-format](../.clang-format), which uses Google's preset. Use clang-tidy with [.clang-tidy](../.clang-tidy) and the [static-analysis workflow](static-analysis.md). Add formatting and analysis checks to the build when the Clang toolchain is introduced; record scoped suppressions with their rationale.
+Format code with the repository [.clang-format](../.clang-format), which uses Google's preset. Use clang-tidy with [.clang-tidy](../.clang-tidy) and the [static-analysis workflow](static-analysis.md). Run the native CMake check target for formatting, analysis, tests, and benchmark startup, and the analyze target for cross-builds; record scoped suppressions with their rationale.
 
 Review requirements that automated tools cannot establish, and use the [development process](development-process.md) for behavioral tests and fidelity validation. Formatting success alone does not demonstrate conformance to the engineering guidelines.
