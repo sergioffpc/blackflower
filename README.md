@@ -1,3 +1,3 @@
 # Blackflower
 
-As convenções de commits do projeto estão em [AGENTS.md](AGENTS.md#commits).
+See [AGENTS.md](AGENTS.md) for project conventions.

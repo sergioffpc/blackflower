@@ -1,15 +1,19 @@
-# Convenções do projeto
+# Project conventions
+
+## Language
+
+Write all project documentation in English, including Markdown files and commit message examples. Keep conversations with the user in Portuguese.
 
 ## Commits
 
-Todos os novos commits devem seguir [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+All new commits must follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 
-- Formato: `tipo(escopo opcional): descrição`.
-- Usa `feat` para funcionalidades novas e `fix` para correções de erros.
-- Para outras alterações, usa um tipo adequado, como `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf` ou `style`.
-- O escopo é opcional; quando presente, identifica a área alterada entre parênteses, por exemplo `fix(api): corrigir validação`.
-- Assinala alterações incompatíveis com `!` antes de `:` (por exemplo `feat(api)!: remover endpoint antigo`) ou com um rodapé `BREAKING CHANGE: descrição da incompatibilidade`.
-- Se incluíres corpo ou rodapés, separa-os da secção anterior com uma linha em branco.
-- Antes de criar um commit, verifica se a mensagem respeita esta convenção e descreve as alterações incluídas.
+- Format: `type: description` or `type(scope): description`.
+- Use `feat` for new features and `fix` for bug fixes.
+- For other changes, use an appropriate type such as `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf`, or `style`.
+- Scope is optional; when present, identify the affected area in parentheses, for example `fix(api): correct validation`.
+- Mark breaking changes with `!` before `:` (for example `feat(api)!: remove legacy endpoint`) or a `BREAKING CHANGE: description of the incompatibility` footer.
+- Separate an optional body or footer section from the preceding section with a blank line.
+- Before creating a commit, verify that its message follows this convention and describes the included changes.
 
-Exemplos: `feat: adicionar autenticação`, `fix: corrigir cálculo do total`, `docs: atualizar instruções de instalação`.
+Examples: `feat: add authentication`, `fix: correct total calculation`, `docs: update installation instructions`.
