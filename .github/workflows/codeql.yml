@@ -38,8 +38,6 @@ jobs:
       VCPKG_DISABLE_METRICS: '1'
       VCPKG_MAX_CONCURRENCY: '2'
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
-      # CodeQL must observe compiler invocations, including otherwise cached ones.
-      SCCACHE_DISABLE: '1'
     steps:
       - name: Check out project
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -74,7 +72,7 @@ jobs:
         if: matrix.language == 'c-cpp'
         run: |
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
-          cmake --preset release
+          cmake --preset release -DBLACKFLOWER_USE_SCCACHE=OFF
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
