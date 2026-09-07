@@ -26,3 +26,7 @@ cmake --build --preset debug --target check
 See [build instructions](docs/build.md) for GoogleTest, Google Benchmark, sanitizers, compiler caching, and Windows cross-builds. [GitHub CI](.github/workflows/ci.yml) validates Linux on Ubuntu 26.04. Visual Studio Code is the [reference editor](docs/editor.md).
 
 Development follows [Git-flow](docs/git-workflow.md), using feature branches from develop. The AI Hero skills are [installed in the repository](docs/agents/setup.md).
+
+## License
+
+Blackflower is licensed under the [MIT License](LICENSE). Third-party materials retain their original licenses and notices, including the [AI Hero skills](.agents/skills/AIHERO-LICENSE) and the [arc42 template attribution](docs/architecture.md#template-attribution).

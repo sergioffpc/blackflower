@@ -12,7 +12,7 @@ Open: identify representative users, specific learning objectives, initial use c
 
 ## 2. Architecture constraints
 
-The repository is hosted on GitHub. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
+The repository is hosted on GitHub. Blackflower uses the [MIT License](../LICENSE); third-party materials retain their original notices. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
 
 Development capacity is one or two people. Implementation uses C++23 with Clang 21 under the [C++ engineering guidelines](cpp-guidelines.md). Build tooling uses CMake, Ninja, and sccache; vcpkg manages dependencies. Visual Studio Code is the [reference editor](editor.md). The build targets x64-linux-clang and cross-compiles x64-windows-clang from Linux; GitHub CI runs only the Linux target on Ubuntu 26.04. See the [build guide](build.md) for toolchain and platform prerequisites.
 
