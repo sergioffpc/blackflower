@@ -11,7 +11,7 @@ sudo apt-get install cmake ninja-build sccache clang-21 clang-tidy-21 clang-form
   libclang-rt-21-dev llvm-21 build-essential git curl zip unzip tar pkg-config
 ```
 
-The initial local validation baseline uses LLVM 21.1.8, libstdc++ 15.2.0, CMake 4.2.3, Ninja 1.13.2, and sccache 0.13.0. CI installs Ubuntu packages within the LLVM 21 series. This is a validation baseline, not a hermetic system image. Review toolchain upgrades together. The final simulator deployment platform remains undecided.
+The initial local validation baseline uses LLVM 21.1.8, libstdc++ 15.2.0, CMake 4.2.3, Ninja 1.13.2, and sccache 0.13.0. CI installs Ubuntu packages within the LLVM 21 series. This is a validation baseline, not a hermetic system image. Review toolchain upgrades together. The [MVP reference deployment](architecture.md#7-deployment-view) uses a Linux server and Windows clients; compatibility with those machines remains to be validated.
 
 Visual Studio Code is the [reference editor](editor.md).
 
@@ -21,7 +21,7 @@ Use [vcpkg](https://vcpkg.io/en/) in manifest mode. From the repository root:
 
 ```sh
 git clone https://github.com/microsoft/vcpkg.git build/vcpkg
-git -C build/vcpkg checkout --detach 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
+git -C build/vcpkg checkout --detach 9e593bb18ea69cc5095e012465dcd675a822ed0d
 export VCPKG_ROOT="$PWD/build/vcpkg"
 "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 ```

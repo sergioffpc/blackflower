@@ -4,9 +4,9 @@ Status: approved. These operating rules apply to a team of one or two people alo
 
 ## Purpose and scope
 
-Blackflower is intended to be a first-person simulation for military mission training, with physical, acoustic, and visual realism as product priorities. This process combines Kanban for managing work, selected Extreme Programming (XP) practices for engineering, the AI Hero skill workflow for agent collaboration, and arc42 for architecture documentation.
+Blackflower is intended to be a first-person simulation platform for training in virtual scenarios. The [project description](architecture.md#1-introduction-and-goals) defines its realism priorities and two-team session format. This process combines Kanban for managing work, selected Extreme Programming (XP) practices for engineering, the AI Hero skill workflow for agent collaboration, and arc42 for architecture documentation.
 
-Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++23 with Clang; specific training scenarios, learning objectives, hardware, the remaining technology choices, and fidelity thresholds remain to be defined.
+Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++23 with Clang. The [first MVP specification](https://github.com/sergioffpc/blackflower/issues/11) defines its reference hardware, behavior, and acceptance targets. Specific training scenarios, learning objectives, remaining technology choices, and broader realism thresholds remain to be defined.
 
 Build with [CMake, Ninja, sccache, and vcpkg](build.md). Use GoogleTest for automated C++ tests, Google Benchmark for measured workloads, and non-Release sanitizers for memory errors and data races. Use [Git-flow](git-workflow.md) for branching and integration, alongside the work limits below.
 
@@ -82,7 +82,7 @@ Store reusable reference scenes and automated checks with the project when intro
 
 Automated tests establish only the properties they check. Use human evaluation for perceptual judgments and evidence appropriate to each training claim. Compare affected reference scenes after changes; changing an accepted baseline requires an explanation of the intended improvement and a record of any trade-off.
 
-When fidelity conflicts with performance or scope, measure the alternatives and make the trade-off visible. Resolve significant choices through the project owner, record lasting architectural decisions in ADRs, and update arc42 quality scenarios. Numeric targets are pending; this document does not establish fidelity or performance results.
+When fidelity conflicts with performance or scope, measure the alternatives and make the trade-off visible. Resolve significant choices through the project owner, record lasting architectural decisions in ADRs, and update arc42 quality scenarios. Initial MVP targets are recorded in [architecture section 10](architecture.md#10-quality-requirements); this process does not establish fidelity or performance results.
 
 ## Cadence and feedback
 
@@ -112,7 +112,7 @@ Use [the AI Hero workflow](agents/workflow.md) to clarify, specify, split, imple
 
 Maintain product goals, constraints, views, decisions, quality scenarios, and risks in [the arc42 document](architecture.md). Keep the process rules here and link to them from arc42 section 8. Maintain the glossary and ADRs through [the domain documentation rules](agents/domain.md).
 
-The first milestone is a small reference scene that exercises movement, physical interaction, audio, and lighting together. Agree its acceptance criteria and target hardware before building it, then use its evidence to decide what to expand next.
+The first milestone is the [four-player LAN MVP](https://github.com/sergioffpc/blackflower/issues/11), a small fixed reference scene exercising movement, blocking collisions, hit feedback, and simple lighting. Its acceptance criteria and reference hardware are agreed; implementation and measurement remain pending. Use the resulting evidence to decide what to expand next.
 
 ## References
 
