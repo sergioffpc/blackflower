@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Lisbon"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "ci(deps)"
+    pull-request-branch-name:
+      prefix: "feature/dependabot"
+
+  - package-ecosystem: "vcpkg"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Lisbon"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "build(deps)"
+    pull-request-branch-name:
+      prefix: "feature/dependabot"
