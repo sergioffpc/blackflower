@@ -1,4 +1,4 @@
-# GLOSSARY.md Format
+# GLOSSARY.md format
 
 `GLOSSARY.md` is the canonical language for this teaching workspace. All
 explainers, exercises, and learning records should adhere to its terminology.

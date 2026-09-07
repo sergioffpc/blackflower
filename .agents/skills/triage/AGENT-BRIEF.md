@@ -1,4 +1,4 @@
-# Writing Agent Briefs
+# Writing agent briefs
 
 An agent brief is a structured comment posted on a GitHub issue or PR when it
 moves to `ready-for-agent`. It is the authoritative specification that an AFK

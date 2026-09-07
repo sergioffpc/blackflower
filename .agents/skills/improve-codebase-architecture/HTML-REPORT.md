@@ -1,4 +1,4 @@
-# HTML Report Format
+# HTML report format
 
 The architectural review is rendered as a single self-contained HTML file in the
 OS temp directory. Tailwind and Mermaid both come from CDNs. Mermaid handles

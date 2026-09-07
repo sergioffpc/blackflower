@@ -1,4 +1,4 @@
-# MISSION.md Format
+# MISSION.md format
 
 `MISSION.md` lives at the workspace root. It captures the _reason_ the user is
 learning this topic. Every teaching decision (what to teach next, which

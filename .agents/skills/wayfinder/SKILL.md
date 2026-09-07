@@ -36,7 +36,7 @@ name, never by a bare id, number, or slug. A wall of `#42, #43, #44` is
 illegible; names read at a glance. The id and URL don't vanish; a name wraps its
 link, but they ride _inside_ the name, never stand in for it.
 
-## The Map
+## The map
 
 The map is a single issue on this repo's issue tracker, labelled
 `wayfinder:map`, the canonical artifact. Its tickets are child issues of the
@@ -110,7 +110,7 @@ The answer isn't part of the body; it's recorded on resolution (see
 [Work through the map](#work-through-the-map)). Assets created while resolving a
 ticket are linked from the issue, not pasted in.
 
-## Ticket Types
+## Ticket types
 
 Every ticket is either **HITL** (human in the loop, worked _with_ a human who
 speaks for themselves) or **AFK**, driven by the agent alone. A HITL ticket only

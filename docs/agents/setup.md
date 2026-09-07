@@ -14,9 +14,10 @@ installation.
 -   License: [upstream MIT license](../../.agents/skills/AIHERO-LICENSE).
 -   Inventory and SHA-256 file hashes: [skills-lock.json](skills-lock.json).
 
-The vendored skill files are unchanged from upstream. The lock file records the
-flattened local paths. Experimental and miscellaneous upstream collections are
-outside the published catalog installed here.
+The vendored skill files retain the upstream content with the local style
+adaptations described below. The lock file records the flattened local paths and
+hashes of the adapted files. Experimental and miscellaneous upstream collections
+are outside the published catalog installed here.
 
 ## Using a new clone
 

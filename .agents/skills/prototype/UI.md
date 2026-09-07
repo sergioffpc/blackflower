@@ -1,4 +1,4 @@
-# UI Prototype
+# UI prototype
 
 Generate **several radically different UI variations** on a single route,
 switchable from a floating bottom bar. The user flips between variants in the

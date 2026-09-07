@@ -76,7 +76,8 @@ only in the ESLint configuration file. Node globals `process` and `console` are
 scoped to `tools/style/*.{js,mjs,cjs}`. The runner inventories `.js`, `.mjs`,
 and `.cjs` files through the same Git source discovery and uses ESLint's `--fix`
 in format mode. Remaining diagnostics fail validation; Prettier does not format
-JavaScript. End-to-end JavaScript validation is still in progress.
+JavaScript. All four project `.mjs` files pass the completed local validation
+recorded below.
 
 [google-javascript]: https://google.github.io/styleguide/jsguide.html
 [eslint-google]: https://github.com/google/eslint-config-google

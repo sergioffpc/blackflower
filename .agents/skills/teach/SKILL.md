@@ -10,7 +10,7 @@ argument-hint: "What would you like to learn about?"
 The user has asked you to teach them something. This is a stateful request -
 they intend to learn the topic over multiple sessions.
 
-## Teaching Workspace
+## Teaching workspace
 
 Treat the current directory as a teaching workspace. The state of their learning
 is captured in this directory in several files:
@@ -59,7 +59,7 @@ your parametric knowledge.
 Some topics may require more skills than knowledge. Learning more about
 theoretical physics might be more knowledge-based. For yoga, more skills-based.
 
-### Fluency vs Storage Strength
+### Fluency vs storage strength
 
 You should be careful to split between two types of learning:
 
@@ -117,7 +117,7 @@ A shared stylesheet is the first component every workspace earns: every lesson
 links it, so the lessons look like one consistent course rather than a pile of
 one-offs. As the workspace grows, so should the component library.
 
-## The Mission
+## The mission
 
 Every lesson should be tied into the mission - the reason that the user is
 interested in learning about the topic.
@@ -133,7 +133,7 @@ Missions may change as the user develops more skills and knowledge. This is
 normal - make sure to update the `MISSION.md` and add a learning record to
 capture the change. Confirm with the user before changing the mission.
 
-## Zone Of Proximal Development
+## Zone of proximal development
 
 Each lesson, the user should always feel as if they are being challenged 'just
 enough'.
@@ -182,7 +182,7 @@ For quizzes, each answer should be exactly the same number of words (and
 characters, if possible). Don't give the user any clues about the answer through
 formatting.
 
-## Acquiring Wisdom
+## Acquiring wisdom
 
 Wisdom comes from true real-world interaction - testing your skills outside the
 learning environment.
@@ -199,7 +199,7 @@ You should attempt to find high-reputation communities the user can join. If the
 user expresses a preference that they don't want to join a community, respect
 it.
 
-## Reference Documents
+## Reference documents
 
 While creating lessons, you should also create reference documents. Lessons can
 reference these documents - they are useful for tracking raw units of knowledge

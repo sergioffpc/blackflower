@@ -4,7 +4,7 @@ description: "Configure this repo for the engineering skills: set up its issue t
 disable-model-invocation: true
 ---
 
-# Setup Matt Pocock's Skills
+# Set up Matt Pocock's skills
 
 Scaffold the per-repo configuration that the engineering skills assume:
 

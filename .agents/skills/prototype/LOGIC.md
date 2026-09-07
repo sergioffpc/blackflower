@@ -1,4 +1,4 @@
-# Logic Prototype
+# Logic prototype
 
 A single, self-contained HTML file (a **shareable demo**) that lets anyone drive
 a state model by clicking buttons. Use this when the question is about

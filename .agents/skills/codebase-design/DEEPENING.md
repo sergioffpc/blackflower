@@ -21,7 +21,7 @@ filesystem). Deepenable if the stand-in exists. The deepened module is tested
 with the stand-in running in the test suite. The seam is internal; no port at
 the module's external interface.
 
-### 3. Remote but owned (Ports & Adapters)
+### 3. Remote but owned (ports and adapters)
 
 Your own services across a network boundary (microservices, internal APIs).
 Define a **port** (interface) at the seam. The deep module owns the logic; the
@@ -32,7 +32,7 @@ Recommendation shape: _"Define a port at the seam, implement an HTTP adapter for
 production and an in-memory adapter for testing, so the logic sits in one deep
 module even though it's deployed across a network."_
 
-### 4. True external (Mock)
+### 4. True external (mock)
 
 Third-party services (Stripe, Twilio, etc.) you don't control. The deepened
 module takes the external dependency as an injected port; tests provide a mock
