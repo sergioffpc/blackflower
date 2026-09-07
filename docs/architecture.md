@@ -12,7 +12,7 @@ Open: identify representative users, specific learning objectives, initial use c
 
 ## 2. Architecture constraints
 
-The repository is hosted on GitHub. Blackflower uses the [MIT License](../LICENSE); third-party materials retain their original notices. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
+The repository is public on GitHub. Blackflower uses the [MIT License](../LICENSE); third-party materials retain their original notices. Contribution constraints are maintained in [AGENTS.md](../AGENTS.md).
 
 Development capacity is one or two people. Implementation uses C++23 with Clang 21 under the [C++ engineering guidelines](cpp-guidelines.md). Build tooling uses CMake, Ninja, and sccache; vcpkg manages dependencies. Visual Studio Code is the [reference editor](editor.md). The build targets x64-linux-clang and cross-compiles x64-windows-clang from Linux; GitHub CI runs only the Linux target on Ubuntu 26.04. See the [build guide](build.md) for toolchain and platform prerequisites.
 
@@ -64,6 +64,8 @@ When deployment is introduced, describe the environments, infrastructure, and ma
 The [development process](development-process.md) defines Kanban, selected XP practices, and fidelity validation for the team. Follow its operating limits and completion criteria alongside the arc42 activities below.
 
 Use the [build and dependency workflow](build.md), [reference editor setup](editor.md), and [Git-flow branch model](git-workflow.md) for implementation and integration.
+
+GitHub enforces pull requests, signed commits, and required build and CodeQL checks on main and develop, including administrators. The [security policy](../SECURITY.md) defines confidential reporting for this public repository. Secret scanning and push protection supplement the [CodeQL and clang-tidy analysis](static-analysis.md). CodeQL uses a separate Linux Release build with compiler caching disabled to preserve extraction coverage; it does not replace sanitizer validation.
 
 Apply the [arc42 method](https://arc42.org/method/) iteratively. The following activities inform one another; use them at the level of detail warranted by the change.
 
