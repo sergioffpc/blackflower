@@ -28,6 +28,18 @@ These are server settings, not settings installed by cloning the repository. Mai
 
 ## Starting work
 
+After cloning, activate the versioned [commit-msg hook](../.githooks/commit-msg):
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+The hook rejects commits whose subject is neither a Conventional Commit nor a message beginning with `Merge ` followed by a description. Conventional subjects use `type: description`, an optional `(scope)`, and an optional `!` before the colon. A nonempty description is required. Types use lowercase letters and digits, starting with a letter. Bodies and footers remain available.
+
+Conventional Commit messages remain preferred for project and PR merge commits; Git-generated merge messages are also accepted. The hook does not rewrite messages or sign commits. Keep the existing signed-commit configuration enabled. Hooks run locally and can be bypassed with Git's `--no-verify`; this is not a server-side commit-message rule. Every clone needs the setup command, which replaces any existing `core.hooksPath` setting in that clone.
+
+Run `sh tests/git_hooks_test.sh` to check acceptance and rejection through actual Git commits and a generated merge in a disposable repository.
+
 With a clean working tree, update develop and create a feature branch:
 
 ```sh

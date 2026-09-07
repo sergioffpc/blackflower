@@ -40,6 +40,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate commit message hook
+        if: matrix.preset == 'debug'
+        run: sh tests/git_hooks_test.sh
+
       - name: Install toolchain
         run: |
           sudo apt-get update
