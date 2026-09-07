@@ -49,7 +49,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 llvm-21 \
+            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 \
+            llvm-21 \
             build-essential curl zip unzip tar pkg-config jq \
             autoconf autoconf-archive automake libtool python3-venv
 

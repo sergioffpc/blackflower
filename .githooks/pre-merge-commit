@@ -1,0 +1,6 @@
+#!/bin/bash
+# Apply the staged-content style gate to automatic merge commits as well.
+set -euo pipefail
+
+hook_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec bash "${hook_dir}/pre-commit"

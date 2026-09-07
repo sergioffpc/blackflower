@@ -1,8 +1,9 @@
 /build/
 /CMakeUserPresets.json
 /compile_commands.json
-**/.venv/
+**/.venv
 **/__pycache__/
 **/*.egg-info/
 /tools/cooker/build/
 **/.mypy_cache/
+**/node_modules

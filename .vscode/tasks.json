@@ -6,7 +6,7 @@
       "type": "process",
       "command": "cmake",
       "args": ["--preset", "debug"],
-      "options": {"cwd": "${workspaceFolder}"},
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
@@ -14,9 +14,9 @@
       "type": "process",
       "command": "cmake",
       "args": ["--build", "--preset", "debug"],
-      "options": {"cwd": "${workspaceFolder}"},
+      "options": { "cwd": "${workspaceFolder}" },
       "dependsOn": "Configure Debug",
-      "group": {"kind": "build", "isDefault": true},
+      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": ["$gcc"]
     },
     {
@@ -24,7 +24,7 @@
       "type": "process",
       "command": "cmake",
       "args": ["--build", "--preset", "debug", "--target", "check"],
-      "options": {"cwd": "${workspaceFolder}"},
+      "options": { "cwd": "${workspaceFolder}" },
       "dependsOn": "Configure Debug",
       "group": "test",
       "problemMatcher": ["$gcc"]

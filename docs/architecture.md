@@ -78,6 +78,13 @@ formats Python; Pylint checks conventions and static diagnostics; mypy checks
 types. Native CTest and CI include these checks alongside the C++ validation
 workflow.
 
+The [shared style guidelines](style-guidelines.md) are the entry point for C++,
+Python, JavaScript, Markdown, JSON, and shell conventions. Prettier,
+markdownlint, ESLint with Google, Stylistic, JSDoc and JSON rules, ShellCheck,
+shfmt, and actionlint enforce the documented source checks in the Linux Debug CI
+job, including vendored skills and extensionless Git hooks. Consumer schemas and
+the semantic review requirements remain authoritative.
+
 ## 3. Context and scope
 
 For the intended MVP, an operator starts the Linux server and up to four players
@@ -284,9 +291,10 @@ GitHub enforces pull requests, signed commits, and required build and CodeQL
 checks on main and develop, including administrators. The
 [security policy](../SECURITY.md) defines confidential reporting for this public
 repository. Secret scanning and push protection supplement the
-[CodeQL and clang-tidy analysis](static-analysis.md). CodeQL analyzes production targets only, excluding test and benchmark
-translation units as required by the owner. It uses a separate Linux Release build with compiler caching disabled to preserve extraction
-coverage; it does not replace sanitizer validation.
+[CodeQL and clang-tidy analysis](static-analysis.md). CodeQL analyzes production
+targets only, excluding test and benchmark translation units as required by the
+owner. It uses a separate Linux Release build with compiler caching disabled to
+preserve extraction coverage; it does not replace sanitizer validation.
 
 Apply the [arc42 method](https://arc42.org/method/) iteratively. The following
 activities inform one another; use them at the level of detail warranted by the
@@ -315,6 +323,11 @@ operations and domain documentation follow the
     appropriate tests, measurements, or review. Record unresolved risks and use
     the findings to guide the next increment.
 
+Run `npm --prefix tools/style run check` alongside the language-specific checks
+for changes to JavaScript, Markdown, JSON, or shell. The existing required Linux
+Debug status includes this check; setup and scope are in the
+[style policy](style-guidelines.md#installation-and-commands).
+
 ### Completion criteria
 
 Apply the
@@ -342,6 +355,12 @@ runtime integration remains pending.
 | OpenUSD scene input, uv-managed Python, bounded primitive pack v1, cryptography/libsodium and independent trust                                                  | [ADR-0007](adr/0007-minimal-pack-format-and-trust.md), accepted for #21.                                                                                                                                                         |
 | Vulkan as the only graphics backend, with offline SPIR-V and no DirectX 12 build or fallback                                                                     | [ADR-0006](adr/0006-use-vulkan-only.md), required by the owner; Falcor integration remains unvalidated.                                                                                                                          |
 | Contain Falcor exceptions inside the graphics adapter                                                                                                            | [ADR-0001](adr/0001-isolate-falcor-exceptions.md), proposed; the current no-exceptions project policy remains in force.                                                                                                          |
+
+The owner requires Google-derived style enforcement across C++, Python,
+JavaScript, Markdown, JSON, and shell, including the complete staged commit
+snapshot. The [style policy](style-guidelines.md) records the compatibility
+exceptions and selected tooling; the required Linux Debug CI check includes the
+same source checks and the commit-hook integration test.
 
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
@@ -407,7 +426,10 @@ The STYLE-Q01 development quality scenario requires the full source style check
 to return success with zero diagnostics for conforming files, and nonzero for
 representative malformed JSON, invalid Markdown structure, and unsafe shell. Run
 both the positive inventory and negative probes when changing its tools or
-configuration. This tests enforcement, not application behavior.
+configuration. For C++, Python, JavaScript, Markdown, JSON, and shell, stage an
+unformatted file while keeping a formatted working copy: the commit must fail
+without changing either version. Correcting and staging the source must permit
+the commit. This tests enforcement, not application behavior.
 
 Validation of CONTENT-Q01 is recorded in the
 [content evidence](validation/content-pipeline.md), including the Windows Debug
