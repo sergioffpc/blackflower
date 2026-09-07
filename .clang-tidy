@@ -19,7 +19,6 @@ Checks: >-
   google-build-using-namespace,
   google-default-arguments,
   google-global-names-in-headers,
-  google-runtime-float,
   google-runtime-int,
   google-runtime-operator,
   misc-include-cleaner,
