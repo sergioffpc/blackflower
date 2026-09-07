@@ -4,6 +4,12 @@
 
 Write all project documentation in English, including Markdown files and commit message examples. Keep conversations with the user in Portuguese.
 
+## Architecture and development
+
+Use arc42 for architecture documentation and development. Before designing, implementing, or reviewing a change, read [the architecture document](docs/architecture.md) and follow the development workflow in section 8.
+
+Update affected architecture sections in the same change as the implementation. Record significant decisions in section 9, measurable quality scenarios in section 10, and unresolved risks in section 11. Keep confirmed facts distinct from proposals and open questions; document only the detail needed to explain the system and its decisions.
+
 ## Commits
 
 All new commits must follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
