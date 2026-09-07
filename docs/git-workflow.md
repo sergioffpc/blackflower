@@ -10,9 +10,35 @@ Use [Git-flow](https://nvie.com/posts/a-successful-git-branching-model/), with m
 | release/<version> | develop | main and develop | Release preparation, stabilization, and release metadata. |
 | hotfix/<version> | The affected release on main | main and develop | Urgent fixes to a released version. If a release branch is active, also carry the fix into it. |
 
-Keep feature branches small and short-lived, within the Kanban work limits. Review and validate changes before integration. Record the review against the originating request or issue; a pull request can hold that review when used.
+Keep feature branches small and short-lived, within the Kanban work limits. Review and validate changes before integration. Record the review against the originating request or issue in the pull request.
+
+## Protected branches
+
+GitHub protects main and develop, including administrators. Both require pull requests, signed commits, resolved review conversations, and the following checks from GitHub Actions against a revision up to date with the target branch:
+
+- `Ubuntu 26.04 / debug`
+- `Ubuntu 26.04 / tsan`
+- `Ubuntu 26.04 / release`
+- `CodeQL / c-cpp`
+- `CodeQL / actions`
+
+Force pushes and branch deletion are disabled. Merge commits remain enabled to preserve Git-flow history. A pull request is required even when working alone; the enforced approval count is zero so the author can integrate reviewed work without an unavailable second person. Follow the project's review process and request the other developer's review for consequential changes when available.
+
+These are server settings, not settings installed by cloning the repository. Maintain them in GitHub's branch protection settings. The initial main baseline predates the build infrastructure; release PRs must carry the workflows and pass the checks before integration.
 
 ## Starting work
+
+After cloning, activate the versioned [commit-msg hook](../.githooks/commit-msg):
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+The hook rejects commits whose subject is neither a Conventional Commit nor a message beginning with `Merge ` followed by a description. Conventional subjects use `type: description`, an optional `(scope)`, and an optional `!` before the colon. A nonempty description is required. Types use lowercase letters and digits, starting with a letter. Bodies and footers remain available.
+
+Conventional Commit messages remain preferred for project and PR merge commits; Git-generated merge messages are also accepted. The hook does not rewrite messages or sign commits. Keep the existing signed-commit configuration enabled. Hooks run locally and can be bypassed with Git's `--no-verify`; this is not a server-side commit-message rule. Every clone needs the setup command, which replaces any existing `core.hooksPath` setting in that clone.
+
+Run `sh tests/git_hooks_test.sh` to check acceptance and rejection through actual Git commits and a generated merge in a disposable repository.
 
 With a clean working tree, update develop and create a feature branch:
 
@@ -26,23 +52,23 @@ Use a descriptive branch name and include an issue number when one exists. Work 
 
 ## Integrating a feature
 
-Run the [build checks](build.md#verification) and review the diff. Incorporate any relevant changes from develop, then validate the result before integration. Preserve the feature's history with a signed merge commit:
+Run the [build checks](build.md#verification) and review the diff. Incorporate any relevant changes from develop with a signed merge, then validate the result before integration. Push the feature branch and open a PR:
 
 ```sh
-git switch develop
-git pull --ff-only origin develop
-git merge --no-ff -S feature/example -m "feat: integrate example"
 git verify-commit HEAD
-git push origin develop
+git push -u origin feature/example
+gh pr create --base develop --head feature/example --title "feat: add example" --body-file /tmp/example-pr.md
 ```
+
+Write the PR body to the referenced file before running the command. Wait for all required checks and complete the review. Merge through GitHub using a merge commit with a Conventional Commit title, such as `feat: integrate example`; GitHub signs its web-flow merge commits. Verify the resulting commit's signature after fetching it. Do not push local merges directly to a protected branch.
 
 Choose a Conventional Commit type and description that match the actual work. All source commits and merge commits must be signed. Retain branches needed for review; remove a completed feature branch only after its work is safely integrated.
 
 ## Releases and hotfixes
 
-Create release branches only for an identified version and agreed release scope. Complete validation, merge the release into main with a signed merge commit, and create a signed annotated tag named v<version>. Merge the release fixes back into develop as well.
+Create release branches only for an identified version and agreed release scope. Complete validation, merge the release into main through a PR with a signed merge commit, and create a signed annotated tag named v<version>. Merge the release fixes back into develop through a PR as well.
 
-For a hotfix, start from the affected release, validate the correction, integrate it into main, and tag the corrected version. Carry the correction into develop and any active release branch before considering the hotfix finished.
+For a hotfix, start from the affected release, validate the correction, integrate it into main through a PR, and tag the corrected version. Carry the correction into develop and any active release branch through PRs before considering the hotfix finished.
 
 Use meaningful Conventional Commit messages for release and hotfix merges. Verify commit and tag signatures before publishing. Creating a build scaffold does not itself create a release.
 

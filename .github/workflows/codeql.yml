@@ -1,0 +1,91 @@
+name: Blackflower CodeQL Security Analysis
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop, 'release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL / ${{ matrix.language }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: c-cpp
+            build-mode: manual
+          - language: actions
+            build-mode: none
+    defaults:
+      run:
+        shell: bash
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
+      VCPKG_DISABLE_METRICS: '1'
+      VCPKG_MAX_CONCURRENCY: '2'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+    steps:
+      - name: Check out project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install C++ toolchain
+        if: matrix.language == 'c-cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 llvm-21 \
+            build-essential curl zip unzip tar pkg-config jq
+
+      - name: Read vcpkg baseline
+        if: matrix.language == 'c-cpp'
+        id: vcpkg
+        run: |
+          baseline=$(jq -er '."builtin-baseline"' vcpkg.json)
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned vcpkg
+        if: matrix.language == 'c-cpp'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: microsoft/vcpkg
+          ref: ${{ steps.vcpkg.outputs.baseline }}
+          path: build/vcpkg
+          persist-credentials: false
+
+      - name: Configure C++ build and dependencies
+        if: matrix.language == 'c-cpp'
+        run: |
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          cmake --preset release -DBLACKFLOWER_USE_SCCACHE=OFF
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - name: Build C++ targets under CodeQL
+        if: matrix.language == 'c-cpp'
+        run: cmake --build --preset release
+
+      - name: Analyze and upload security findings
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:${{ matrix.language }}

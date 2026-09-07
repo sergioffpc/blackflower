@@ -52,8 +52,19 @@ For an intentional construct or a demonstrated false positive, use a suppression
 
 Compiler warnings remain a separate build responsibility. Follow the [development process](development-process.md) for tests, profiling, reference-scene comparisons, and human evaluation.
 
+## CodeQL security analysis
+
+The [CodeQL workflow](../.github/workflows/codeql.yml) runs the `security-extended` queries for C/C++ and GitHub Actions on Ubuntu 26.04. It runs on pushes to main, develop, feature, release, and hotfix branches, and on pull requests targeting main, develop, and release branches. It can also be dispatched manually once the workflow exists on the default branch.
+
+C/C++ analysis uses a manual Release build with the project's Clang 21, C++23, CMake presets, and pinned vcpkg baseline. Dependencies are configured before CodeQL initialization; CodeQL then observes compilation of the project targets, including tests and benchmarks. The job sets `BLACKFLOWER_USE_SCCACHE=OFF` to invoke the compiler directly for project targets: a cache hit or compilation delegated to an existing sccache daemon would escape extraction. Dependency builds retain their toolchain defaults and happen before tracing. GitHub Actions analysis uses no build. The separate Linux CI remains responsible for clang-tidy, formatting, tests, and sanitizers.
+
+Inspect **Security → Code scanning** for findings and select the relevant branch. Successful analysis means the scan completed, not that all findings have been remediated. Review alerts before integration and record a reason for any dismissal. CodeQL workflow checks are required by [branch protection](git-workflow.md#protected-branches).
+
+Advanced setup is intentional: the initial main baseline has no C++ source, while develop contains the build infrastructure. Scanning starts on develop and its PRs; main gains the workflow with the first release integration. No scheduled scan is configured yet, because scheduled workflows run from the default branch. Add a schedule when the workflow reaches main. Treat coverage as project-target analysis for Linux Release, not an audit of every dependency, Windows configuration, or possible execution path.
+
 ## References
 
 - [Clang-tidy usage and configuration](https://clang.llvm.org/extra/clang-tidy/).
 - [Available checks](https://clang.llvm.org/extra/clang-tidy/checks/list.html).
 - [Narrowing conversion checks](https://clang.llvm.org/extra/clang-tidy/checks/bugprone/narrowing-conversions.html).
+- [CodeQL advanced setup](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-advanced-setup).

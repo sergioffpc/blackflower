@@ -8,17 +8,21 @@ Security fixes currently target the latest develop revision. There are no versio
 
 ## Reporting a vulnerability
 
-This repository is private. Collaborators can report a suspected vulnerability through an issue here, visible to people with repository access. Use a title beginning with `Security report:` and include:
+This repository is public. Report a suspected vulnerability through **Security → Advisories → Report a vulnerability**, using GitHub's private vulnerability reporting. Do not disclose unremediated vulnerabilities in public issues or pull requests. Include:
 
 - The affected commit, target platform, compiler, and dependency versions.
 - Reproduction steps or a minimal example, expected behavior, and observed behavior.
 - The suspected impact and relevant sanitized logs, including sanitizer output when available.
 
-Keep credentials, personal data, and sensitive training material out of reports and attachments. If the report needs a narrower audience than all collaborators, use an existing private communication channel with a maintainer before sharing details.
+Keep credentials, personal data, and sensitive training material out of reports and attachments.
 
-Maintainers assess the report, agree its scope, and track remediation and verification in the private issue or agreed private channel. Response and fix dates depend on the small team's capacity; no fixed service-level commitment is established. Preserve confidentiality while assessing and fixing the issue.
+Maintainers assess the report, agree its scope, and track remediation and verification in the private advisory. Response and fix dates depend on the small team's capacity; no fixed service-level commitment is established. Preserve confidentiality while assessing and fixing the issue, and coordinate public disclosure after remediation.
 
-Before making the repository public, enable a confidential reporting channel and update this policy. Private repository issues must be reviewed before a visibility change; they would otherwise become public with the repository.
+## Repository security controls
+
+The main and develop branches require pull requests, passing Linux validation, resolved review conversations, and signed commits. Force pushes and branch deletion are blocked; administrators are subject to these rules. See [the Git workflow](docs/git-workflow.md) for integration and the solo-developer review policy.
+
+GitHub secret scanning and push protection detect supported credentials and block their introduction. Dependabot vulnerability alerts and security updates are enabled. [CodeQL](docs/static-analysis.md#codeql-security-analysis) analyzes C/C++ and GitHub Actions alongside clang-tidy and the sanitizer checks. These tools have limited coverage and do not replace review or establish that the code is vulnerability-free.
 
 ## Dependency maintenance
 
