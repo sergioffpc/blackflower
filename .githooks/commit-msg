@@ -1,0 +1,23 @@
+#!/bin/sh
+
+set -eu
+
+subject=$(sed -n '1p' "${1:?A commit message file is required}")
+
+if printf '%s\n' "$subject" | LC_ALL=C grep -Eq \
+  '^([a-z][a-z0-9]*(\([^()]+\))?!?: [^[:space:]].*|Merge [^[:space:]].*)$'; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+Commit rejected: use a Conventional Commit or a Merge message.
+
+Examples:
+  feat: add a simulation component
+  fix(physics): correct collision handling
+  feat(api)!: change the initialization contract
+  Merge branch 'feature/example' into develop
+
+Format: type(scope)!: description (scope and ! are optional).
+EOF
+exit 1

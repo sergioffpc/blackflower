@@ -1,8 +1,10 @@
 # Agent development workflow
 
-Use the [AI Hero skills workflow](https://www.aihero.dev/skills) with the project's [arc42 architecture](../architecture.md). Read the installed SKILL.md for each stage when using it. Resume from the stage supported by the existing artifacts and the user's request.
+Use the [AI Hero skills workflow](https://www.aihero.dev/skills) with the project's [arc42 architecture](../architecture.md). The [repository installation](setup.md) pins the skills under .agents/skills; read the local SKILL.md for each stage when using it. Resume from the stage supported by the existing artifacts and the user's request.
 
 Follow the [development process](../development-process.md) for Kanban work limits, selected XP practices, and fidelity validation alongside the stage guidance below.
+
+Follow [Git-flow](../git-workflow.md): start ordinary work on a feature branch from develop and integrate validated work back into develop. Use the [build checks](../build.md#verification) during implementation and before integration.
 
 ## Main flow
 

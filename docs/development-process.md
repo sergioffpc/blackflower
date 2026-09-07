@@ -8,6 +8,8 @@ Blackflower is intended to be a first-person simulation for military mission tra
 
 Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++23 with Clang; specific training scenarios, learning objectives, hardware, the remaining technology choices, and fidelity thresholds remain to be defined.
 
+Build with [CMake, Ninja, sccache, and vcpkg](build.md). Use GoogleTest for automated C++ tests, Google Benchmark for measured workloads, and non-Release sanitizers for memory errors and data races. Use [Git-flow](git-workflow.md) for branching and integration, alongside the work limits below.
+
 ## Responsibilities
 
 The project owner prioritizes outcomes and resolves product trade-offs. Each active ticket has one responsible human, who may also implement it. Agents assist with research, implementation, tests, and review under that person's direction. With two people, share knowledge and review each other's consequential changes; pair on difficult design or implementation work when useful.
@@ -57,7 +59,7 @@ These baseline practices are adapted from XP for this project.
 | Test-driven development | For behavior with an agreed automated test boundary, write and observe a failing test, implement the behavior, then refactor. Test observable behavior. | Relevant tests pass and cover the stated acceptance criteria. |
 | Continuous integration | Integrate small changes frequently. Automate the build and relevant checks when executable code is introduced. Resolve a broken shared build before extending it. | Results from the integrated revision; local checks are identified as local until CI exists. |
 | Refactoring | Improve internal structure in small steps while preserving observable behavior. Separate intended behavior changes from structural changes when reviewing them. | Existing behavior checks remain green. |
-| Coding conventions | Follow the [C++ engineering guidelines](cpp-guidelines.md), combining Google style, the C++ Core Guidelines, and modern adaptations of Effective C++. Apply the [clang-tidy policy](static-analysis.md) to C++ changes and automate it when the Clang toolchain is introduced. | Applicable formatting, static-analysis, and review results. |
+| Coding conventions | Follow the [C++ engineering guidelines](cpp-guidelines.md), combining Google style, the C++ Core Guidelines, and modern adaptations of Effective C++. Apply the [clang-tidy policy](static-analysis.md) to C++ changes through the CMake checks and Linux CI. | Applicable formatting, static-analysis, and review results. |
 | Sustainable pace | Plan against actual capacity and leave room for uncertainty, review, and learning. Reduce scope when work no longer fits. | The weekly review adjusts workload and priorities. |
 
 Use the simplest design that satisfies current requirements and quality goals. Both developers may improve any module, using its tests and documented contracts. Use a common domain vocabulary and keep a person available to clarify product expectations.
@@ -102,7 +104,7 @@ A delivery ticket reaches Done when:
 4. Affected architecture sections, decision links, and operational documentation reflect the result. Remaining risks have a recorded next step.
 5. The requested delivery action is complete. A review-only request ends with local changes and validation evidence; committing, pushing, or publishing follows the user's authorized scope and the repository's signed Conventional Commit rules.
 
-For documentation-only work, check accuracy, internal links, consistency, and formatting. No application test suite is currently available. For investigations, apply the investigation exit criteria above and retain their evidence.
+For documentation-only work, check accuracy, internal links, consistency, and formatting. The [build checks](build.md#verification) currently include static analysis, formatting, instrumented GoogleTest and executable startup tests, and a benchmark harness check; add behavioral tests as simulation features are introduced. For investigations, apply the investigation exit criteria above and retain their evidence.
 
 ## Relationship to the agent workflow and arc42
 

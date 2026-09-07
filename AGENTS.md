@@ -20,6 +20,8 @@ Update affected architecture sections in the same change as the implementation. 
 
 ## Commits
 
+Follow [docs/git-workflow.md](docs/git-workflow.md) before creating branches, committing, integrating changes, or preparing releases. Use feature branches from develop for ordinary work; main receives releases and hotfixes.
+
 All new commits must follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 
 Sign every commit. Keep `commit.gpgsign` enabled in this repository and verify signatures with `git verify-commit` before pushing.
@@ -38,7 +40,7 @@ Examples: `feat: add authentication`, `fix: correct total calculation`, `docs: u
 
 ### Workflow
 
-Follow the AI Hero engineering workflow when taking work from an idea through implementation and review. Read [docs/agents/workflow.md](docs/agents/workflow.md) before starting or resuming a stage.
+Follow the AI Hero engineering workflow when taking work from an idea through implementation and review. Read [docs/agents/workflow.md](docs/agents/workflow.md) before starting or resuming a stage. Use the committed skills in [.agents/skills](.agents/skills); read [the setup guide](docs/agents/setup.md) when enabling or updating them.
 
 ### Issue tracker
 

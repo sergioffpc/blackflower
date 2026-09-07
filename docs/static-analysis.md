@@ -1,6 +1,6 @@
 # Static analysis
 
-Use clang-tidy with the repository [.clang-tidy](../.clang-tidy) for project-owned C++23 code and tests. The configuration is the authoritative check selection. Pin clang-tidy with the Clang toolchain and review changes to the enabled checks when upgrading it.
+Use clang-tidy with the repository [.clang-tidy](../.clang-tidy) for project-owned C++23 code, tests, and benchmarks. The configuration is the authoritative check selection. Pin clang-tidy with the Clang toolchain and review changes to the enabled checks when upgrading it.
 
 ## Coverage and rationale
 
@@ -18,24 +18,29 @@ Use selected Core Guidelines and modernization checks that support the [C++ engi
 
 ## Running the analysis
 
-The repository has no C++ source or build system yet. Execution becomes part of the build workflow when those are introduced; no source analysis has been performed as part of this setup.
+Use the [reference Clang toolchain](build.md#prerequisites). The CMake presets generate a compilation database and the check target runs configuration verification, analysis, formatting, tests, and benchmark startup:
 
-Generate compile_commands.json from the actual Clang C++23 build, including its target, standard library, include paths, and feature definitions. The build directory is a command argument below, not a prescribed directory layout.
+```sh
+cmake --preset debug
+cmake --build --preset debug --target check
+```
+
+The generated build/debug/compile_commands.json contains the actual compiler options, target, include paths, and feature definitions. Use the corresponding database for each build preset.
 
 Validate the configuration with the pinned tool:
 
 ```sh
-clang-tidy --config-file=.clang-tidy --verify-config
-clang-tidy --config-file=.clang-tidy --list-checks
+clang-tidy-21 --config-file=.clang-tidy --verify-config
+clang-tidy-21 --config-file=.clang-tidy --list-checks
 ```
 
-Analyze a translation unit, replacing the example paths with actual paths:
+Analyze the bootstrap translation unit directly:
 
 ```sh
-clang-tidy -p <build-directory> --config-file=.clang-tidy <source-file.cc>
+clang-tidy-21 -p build/debug --config-file=.clang-tidy src/main.cc
 ```
 
-When automation is added, run every project-owned translation unit in the compilation database for the acceptance check. Include test targets. Reanalyze affected translation units during development; header changes require analysis of their consumers. Preserve command failures and analysis logs in CI.
+The analyze target derives its source list from the project target list in CMakeLists.txt; the native check target depends on it. As targets are added, extend analysis to every project-owned translation unit in the compilation database, including tests and benchmarks. Reanalyze affected translation units during development; header changes require analysis of their consumers. The GitHub workflow preserves command failures and uploads check logs. Run analyze with each Windows preset to check the corresponding target options and SDK headers.
 
 ## Diagnostics and dependencies
 
@@ -47,8 +52,19 @@ For an intentional construct or a demonstrated false positive, use a suppression
 
 Compiler warnings remain a separate build responsibility. Follow the [development process](development-process.md) for tests, profiling, reference-scene comparisons, and human evaluation.
 
+## CodeQL security analysis
+
+The [CodeQL workflow](../.github/workflows/codeql.yml) runs the `security-extended` queries for C/C++ and GitHub Actions on Ubuntu 26.04. It runs on pushes to main, develop, feature, release, and hotfix branches, and on pull requests targeting main, develop, and release branches. It can also be dispatched manually once the workflow exists on the default branch.
+
+C/C++ analysis uses a manual Release build with the project's Clang 21, C++23, CMake presets, and pinned vcpkg baseline. Dependencies are configured before CodeQL initialization; CodeQL then observes compilation of the project targets, including tests and benchmarks. The job sets `BLACKFLOWER_USE_SCCACHE=OFF` to invoke the compiler directly for project targets: a cache hit or compilation delegated to an existing sccache daemon would escape extraction. Dependency builds retain their toolchain defaults and happen before tracing. GitHub Actions analysis uses no build. The separate Linux CI remains responsible for clang-tidy, formatting, tests, and sanitizers.
+
+Inspect **Security → Code scanning** for findings and select the relevant branch. Successful analysis means the scan completed, not that all findings have been remediated. Review alerts before integration and record a reason for any dismissal. CodeQL workflow checks are required by [branch protection](git-workflow.md#protected-branches).
+
+Advanced setup is intentional: the initial main baseline has no C++ source, while develop contains the build infrastructure. Scanning starts on develop and its PRs; main gains the workflow with the first release integration. No scheduled scan is configured yet, because scheduled workflows run from the default branch. Add a schedule when the workflow reaches main. Treat coverage as project-target analysis for Linux Release, not an audit of every dependency, Windows configuration, or possible execution path.
+
 ## References
 
 - [Clang-tidy usage and configuration](https://clang.llvm.org/extra/clang-tidy/).
 - [Available checks](https://clang.llvm.org/extra/clang-tidy/checks/list.html).
 - [Narrowing conversion checks](https://clang.llvm.org/extra/clang-tidy/checks/bugprone/narrowing-conversions.html).
+- [CodeQL advanced setup](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-advanced-setup).
