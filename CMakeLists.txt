@@ -6,6 +6,11 @@ endif()
 
 project(blackflower LANGUAGES CXX)
 
+if(WIN32)
+  # Compiler detection may select llvm-lib; our GNU-style archive rules use ar.
+  set(CMAKE_AR "${BLACKFLOWER_LLVM_AR}")
+endif()
+
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
    OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 21
    OR CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 22)
@@ -29,15 +34,24 @@ include(cmake/Sanitizers.cmake)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(benchmark CONFIG REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
+
+add_library(blackflower_content STATIC src/modules/content/content.cc)
+target_include_directories(blackflower_content PUBLIC src/modules/content)
+target_link_libraries(blackflower_content PRIVATE unofficial-sodium::sodium)
+add_executable(blackflower_content_harness tests/content_harness.cc)
+target_link_libraries(blackflower_content_harness PRIVATE blackflower_content)
 
 add_executable(blackflower src/main.cc)
-add_executable(blackflower_tests tests/build_test.cc)
-target_link_libraries(blackflower_tests PRIVATE GTest::gtest_main)
+add_executable(blackflower_tests tests/build_test.cc tests/content_test.cc)
+target_link_libraries(blackflower_tests PRIVATE GTest::gtest_main blackflower_content)
 add_executable(blackflower_benchmarks benchmarks/framework_benchmark.cc)
 target_link_libraries(blackflower_benchmarks PRIVATE benchmark::benchmark_main)
 
-set(BLACKFLOWER_TARGETS blackflower blackflower_tests blackflower_benchmarks)
+set(BLACKFLOWER_TARGETS blackflower blackflower_tests blackflower_benchmarks
+    blackflower_content blackflower_content_harness)
 set(BLACKFLOWER_SOURCES)
+set(BLACKFLOWER_HEADERS src/modules/content/content.h)
 foreach(target IN LISTS BLACKFLOWER_TARGETS)
   target_link_libraries(${target} PRIVATE blackflower_sanitizers)
   set_target_properties(${target} PROPERTIES
@@ -57,8 +71,37 @@ endforeach()
 
 if(NOT CMAKE_CROSSCOMPILING)
   enable_testing()
+  find_program(UV_EXECUTABLE NAMES uv REQUIRED)
+  add_test(NAME content.pipeline
+    COMMAND "${CMAKE_COMMAND}" -E env
+      "BLACKFLOWER_CONTENT_HARNESS=$<TARGET_FILE:blackflower_content_harness>"
+      "${UV_EXECUTABLE}" run --locked --no-sync
+      --project "${PROJECT_SOURCE_DIR}/tools/cooker"
+      python "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
+  add_test(NAME content.typecheck
+    COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
+      --project "${PROJECT_SOURCE_DIR}/tools/cooker" mypy
+      --config-file "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
+      "${PROJECT_SOURCE_DIR}/tools/cooker/src"
+      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
+  set_tests_properties(content.pipeline PROPERTIES TIMEOUT 120)
+  add_test(NAME content.format
+    COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
+      --project "${PROJECT_SOURCE_DIR}/tools/cooker" pyink --check
+      --config "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
+      "${PROJECT_SOURCE_DIR}/tools/cooker/src"
+      "${PROJECT_SOURCE_DIR}/tests/integration")
+  add_test(NAME content.lint
+    COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
+      --project "${PROJECT_SOURCE_DIR}/tools/cooker" pylint
+      "--rcfile=${PROJECT_SOURCE_DIR}/.pylintrc"
+      "${PROJECT_SOURCE_DIR}/tools/cooker/src/blackflower_cooker"
+      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
+  set_tests_properties(content.format content.lint PROPERTIES
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)
   include(GoogleTest)
-  gtest_discover_tests(blackflower_tests)
+  gtest_discover_tests(blackflower_tests PROPERTIES
+    ENVIRONMENT "BLACKFLOWER_CONTENT_FIXTURES=${PROJECT_SOURCE_DIR}/tests/fixtures/packs")
   add_test(NAME blackflower.smoke COMMAND blackflower)
   add_test(NAME blackflower.benchmark_smoke
     COMMAND blackflower_benchmarks --benchmark_filter=FrameworkSmoke
@@ -75,7 +118,7 @@ add_custom_target(analyze
   COMMAND "${CLANG_TIDY_EXECUTABLE}"
           "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
           -p "${PROJECT_BINARY_DIR}" ${BLACKFLOWER_SOURCES}
-  COMMAND "${CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror ${BLACKFLOWER_SOURCES}
+  COMMAND "${CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror ${BLACKFLOWER_SOURCES} ${BLACKFLOWER_HEADERS}
   DEPENDS ${BLACKFLOWER_TARGETS}
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   COMMENT "Checking C++ analysis and formatting"
