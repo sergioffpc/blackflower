@@ -2,6 +2,8 @@
 
 Status: proposal for review, not implemented or added to the published tickets. The [phase order](flecs-phases.md), world names, update rates, static-only GPU prediction, and [absence of I/O inside ECS](adr/0004-keep-io-outside-ecs.md) are already agreed. This document proposes logical value types and state permissions; it does not prescribe C++ layouts, Flecs components, SDK types, or a wire format.
 
+Startup content is supplied by the [verified cooked-pack loader](cooker-and-packs.md), outside ECS. Resource identities and scene definitions below refer to that prepared content; no phase imports or cooks source assets.
+
 ## Contract conventions
 
 Each phase reads explicit input values plus the permitted resident world state, changes only the listed state, and produces value output. A table entry is a logical data contract, not a requirement to copy the whole world or create a separate class for every row. Inputs may be borrowed read-only for one invocation; anything retained or exported must have owned, stable storage. No mutable data or ECS/SDK handle is shared across worlds or threads.
@@ -20,11 +22,12 @@ The application executes the request outside ECS and resumes the phase's result-
 
 | Proposed type | Minimum logical content and rules |
 | --- | --- |
+| `PackId` | Identity of the authenticated cooked-content manifest/header as proposed in [the pack design](cooker-and-packs.md). Supplied by external verification; ECS performs no hashing, signature verification, or file access. |
 | `SessionId`, `ParticipantId`, `ConnectionId` | Distinct project identities. A reconnect creates a new participant incarnation; delayed data from the previous connection cannot address its replacement. Session identity separates server runs. |
 | `SimulationTick`, `PredictionTick`, `PresentationFrame` | Distinct monotonic counters in their own domains. Equal numerical values do not establish a shared time or baseline. |
 | `SimulationStep`, `PredictionStep` | Respective tick, session, and fixed duration `1/240 s`. Prediction also identifies the current correction revision. |
 | `PresentationStep` | Frame identity, application-supplied monotonic sample time, and measured elapsed duration. Target 60 Hz; elapsed duration remains variable. |
-| `SceneDefinition` | Immutable scene revision, fixed geometry, spawn positions, and capsule dimensions. Physics and rendering consume the same definitions. Coordinate convention remains to be chosen; positions/distances use metres. |
+| `SceneDefinition` | Supplied by the external verified-pack loader: immutable scene revision, fixed geometry, spawn positions, and capsule dimensions. Physics and rendering consume the same definitions. Coordinate convention remains to be chosen; positions/distances use metres. |
 | `MovementState` | Position, orientation, linear velocity, and all additional movement state needed by the chosen controller for restoration. Required controller-specific values remain to be proven, rather than assuming position alone is enough. |
 | `InputIntent` | Prepared movement axes, absolute desired look orientation, independently identified fire edges, source sample identity, and local sample time. Human and agent adapters produce the same fields; source kind does not alter simulation rules. |
 | `ParticipantCommand` | Session/participant identity, command sequence, originating prediction tick, normalized movement/look values, and fire action identities. Client data is untrusted on the server. Each command represents at most one fixed movement step; receipt of extra commands cannot grant extra steps. |
@@ -41,7 +44,7 @@ The application executes the request outside ECS and resumes the phase's result-
 
 ## Simulation World contracts
 
-Every row also receives `SimulationStep` and read-only scene/rule configuration when applicable. Proposed resident state groups are participant membership, accepted movement, command resolution/history, pending interactions, and the event/output ledger.
+Every row also receives `SimulationStep` and read-only scene/rule configuration from verified runtime content when applicable. Admission compares the peer pack identity supplied as data with the configured `PackId` before participant creation. Proposed resident state groups are participant membership, accepted movement, command resolution/history, pending interactions, and the event/output ledger.
 
 | Phase | Input values | Permitted state changes | Output values |
 | --- | --- | --- | --- |

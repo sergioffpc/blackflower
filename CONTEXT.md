@@ -22,3 +22,9 @@ The scenario geometry that remains fixed during a session, such as the ground, e
 
 **Dynamic world**:
 The changing scenario state, including participants and movable objects, whose official evolution and interactions are determined by the Simulation World. A client's local movement prediction remains provisional.
+
+**Cooked content**:
+Scenario resources prepared before deployment in the representation required by the runtime, rather than source assets awaiting conversion.
+
+**Content pack**:
+The signed distribution artifact containing a coherent set of cooked scenario resources and their compatibility and integrity metadata.

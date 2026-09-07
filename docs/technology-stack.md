@@ -19,6 +19,8 @@ The implementation baseline remains C++23, Clang 21, CMake, Ninja, sccache, vcpk
 
 All three ECS worlds are restricted to in-memory processing. Application-owned adapters invoke the selected SDKs outside ECS execution, as required by [ADR-0004](adr/0004-keep-io-outside-ecs.md).
 
+The MVP also requires an [offline cooker and signed content pack](cooker-and-packs.md). The cooker runs on Linux; runtime loaders verify signatures, integrity, and compatibility before creating worlds. SHA-256 and Ed25519 through OpenSSL EVP are integration proposals, not yet selected package pins. Shader and physics target artifacts must be prepared offline and loaded without runtime asset cooking.
+
 ## Integration proposals
 
 **Audio output:** add miniaudio's device layer with WASAPI for the Windows client. Steam Audio's documented integration expects a mixer/output engine; miniaudio supplies that device connection. The audio module owns their integration and the short PCM signal. The additional library is proposed, not yet agreed. Sources: [Steam Audio integration](https://valvesoftware.github.io/steam-audio/doc/capi/integration.html), [miniaudio low-level device interface](https://miniaud.io/docs/manual/index.html).
