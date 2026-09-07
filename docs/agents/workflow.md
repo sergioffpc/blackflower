@@ -2,6 +2,8 @@
 
 Use the [AI Hero skills workflow](https://www.aihero.dev/skills) with the project's [arc42 architecture](../architecture.md). Read the installed SKILL.md for each stage when using it. Resume from the stage supported by the existing artifacts and the user's request.
 
+Follow the [development process](../development-process.md) for Kanban work limits, selected XP practices, and fidelity validation alongside the stage guidance below.
+
 ## Main flow
 
 | Stage | Skill | Result |
@@ -24,4 +26,4 @@ Use /wayfinder for a large effort with unresolved decisions, /research for evide
 
 Keep requirements and constraints in sections 1–3, the solution and views in sections 4–8, decision links in section 9, measurable quality scenarios in section 10, risks in section 11, and the glossary link in section 12. Update affected sections alongside the implementation; link to issues, ADRs, and source files instead of duplicating their contents.
 
-Completion follows arc42 section 8. Language and signed Conventional Commit rules remain defined in [AGENTS.md](../../AGENTS.md).
+Completion follows arc42 section 8. Language and signed Conventional Commit rules remain defined in [AGENTS.md](../../AGENTS.md). Respect the requested delivery scope: for review-only work, leave changes local and uncommitted even when a skill normally ends with a commit.

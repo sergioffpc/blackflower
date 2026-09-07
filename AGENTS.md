@@ -4,9 +4,19 @@
 
 Write all project documentation in English, including Markdown files and commit message examples.
 
+## C++ conventions
+
+Implement the project in C++. Follow the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html) when writing or reviewing project-owned C++ code, including tests. Consult the relevant sections for naming, headers, interfaces, ownership, language features, and formatting.
+
+The initial language baseline is C++20, matching the guide at adoption. Select a compatible compiler and build configuration when implementation begins.
+
+Use the repository [.clang-format](.clang-format) for formatting. Formatting checks cover layout; review the remaining style-guide requirements as well. Pin the formatter version with the development toolchain when it is selected.
+
 ## Architecture and development
 
 Use arc42 for architecture documentation and development. Before designing, implementing, or reviewing a change, read [the architecture document](docs/architecture.md) and follow the development workflow in section 8.
+
+Follow the Kanban, XP, and validation rules in [docs/development-process.md](docs/development-process.md) when planning, implementing, or reviewing work.
 
 Update affected architecture sections in the same change as the implementation. Index significant decisions in section 9, record measurable quality scenarios in section 10, and track unresolved risks in section 11. Keep confirmed facts distinct from proposals and open questions; document only the detail needed to explain the system and its decisions.
 

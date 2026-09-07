@@ -2,6 +2,8 @@
 
 Specifications and tickets live in GitHub Issues. Use the gh CLI from this checkout; infer the repository from the Git remote rather than hard-coding an account name.
 
+Workflow states and their distinction from triage labels are defined in the [development process](../development-process.md#kanban-workflow).
+
 ## Operations
 
 - Create: `gh issue create --title "..." --body-file <file>`.
