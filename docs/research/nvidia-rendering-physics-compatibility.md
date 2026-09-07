@@ -45,7 +45,7 @@ Falcor's [ProgramManager](https://github.com/NVIDIAGameWorks/Falcor/blob/8.0/Sou
 
 Keep three artifacts distinct: the Linux-host tools, the Windows client libraries, and shader code or shader binaries. Slang's [compiler documentation](https://shader-slang.org/slang/user-guide/compiling.html) describes target-dependent compilation and downstream compilers; its [getting-started guide](https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/01-get-started.html) documents required companion runtime libraries. Those current docs are useful concepts, but the actual names and behavior must be checked against the selected 2024.1.34 distribution.
 
-**Proposal:** choose one Falcor backend for the Windows MVP and exercise its complete shader creation path, initially with the paired Slang version. Treat DirectX 12 versus Vulkan, startup compilation/caching and runtime artifact deployment as explicit integration decisions. No source review establishes 16.7 ms frame p95 on four simultaneous clients; warm-up and any runtime shader compilation must be recorded in the measurement procedure.
+**Historical proposal, superseded by [Vulkan-only graphics](../adr/0006-use-vulkan-only.md) and [offline shader cooking](../cooker-and-packs.md):** choose one Falcor backend for the Windows MVP and exercise its complete shader creation path, initially with the paired Slang version. Treat DirectX 12 versus Vulkan, startup compilation/caching and runtime artifact deployment as explicit integration decisions. No source review establishes 16.7 ms frame p95 on four simultaneous clients; warm-up and any runtime shader compilation must be recorded in the measurement procedure.
 
 ## PhysX: Linux CPU simulation
 

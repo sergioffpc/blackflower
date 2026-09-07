@@ -28,3 +28,9 @@ Scenario resources prepared before deployment in the representation required by 
 
 **Content pack**:
 The signed distribution artifact containing a coherent set of cooked scenario resources and their compatibility and integrity metadata.
+
+**Client pack**:
+The content pack for a scenario containing the resources needed by the Prediction and Presentation Worlds.
+
+**Server pack**:
+The content pack for a scenario containing the resources needed by the Simulation World.

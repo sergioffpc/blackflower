@@ -2,7 +2,7 @@
 
 Status: proposal for review, not implemented or added to the published tickets. The [phase order](flecs-phases.md), world names, update rates, static-only GPU prediction, and [absence of I/O inside ECS](adr/0004-keep-io-outside-ecs.md) are already agreed. This document proposes logical value types and state permissions; it does not prescribe C++ layouts, Flecs components, SDK types, or a wire format.
 
-Startup content is supplied by the [verified cooked-pack loader](cooker-and-packs.md), outside ECS. Resource identities and scene definitions below refer to that prepared content; no phase imports or cooks source assets.
+Startup content is supplied by the [verified cooked-pack loader](runtime-lifecycle.md#content-preparation-boundary), outside ECS. Resource identities and scene definitions below refer to that prepared content; no phase imports or cooks source assets.
 
 ## Contract conventions
 
@@ -23,6 +23,7 @@ The application executes the request outside ECS and resumes the phase's result-
 | Proposed type | Minimum logical content and rules |
 | --- | --- |
 | `PackId` | Identity of the authenticated cooked-content manifest/header as proposed in [the pack design](cooker-and-packs.md). Supplied by external verification; ECS performs no hashing, signature verification, or file access. |
+| `ScenarioBuildId` | Common identity of the scenario cooking build, authenticated in both role-specific packs; proposed admission compatibility key. Distinct from each artifact's `PackId` and from geometry-only `SceneRevision`. |
 | `SessionId`, `ParticipantId`, `ConnectionId` | Distinct project identities. A reconnect creates a new participant incarnation; delayed data from the previous connection cannot address its replacement. Session identity separates server runs. |
 | `SimulationTick`, `PredictionTick`, `PresentationFrame` | Distinct monotonic counters in their own domains. Equal numerical values do not establish a shared time or baseline. |
 | `SimulationStep`, `PredictionStep` | Respective tick, session, and fixed duration `1/240 s`. Prediction also identifies the current correction revision. |
@@ -44,7 +45,7 @@ The application executes the request outside ECS and resumes the phase's result-
 
 ## Simulation World contracts
 
-Every row also receives `SimulationStep` and read-only scene/rule configuration from verified runtime content when applicable. Admission compares the peer pack identity supplied as data with the configured `PackId` before participant creation. Proposed resident state groups are participant membership, accepted movement, command resolution/history, pending interactions, and the event/output ledger.
+Every row also receives `SimulationStep` and read-only scene/rule configuration from verified runtime content when applicable. Admission compares the peer scenario build identity supplied as data with the configured `ScenarioBuildId` before participant creation. Proposed resident state groups are participant membership, accepted movement, command resolution/history, pending interactions, and the event/output ledger.
 
 | Phase | Input values | Permitted state changes | Output values |
 | --- | --- | --- | --- |

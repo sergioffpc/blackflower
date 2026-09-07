@@ -6,7 +6,7 @@ Status: approved. These operating rules apply to a team of one or two people alo
 
 Blackflower is intended to be a first-person simulation platform for training in virtual scenarios. The [project description](architecture.md#1-introduction-and-goals) defines its realism priorities and two-team session format. This process combines Kanban for managing work, selected Extreme Programming (XP) practices for engineering, the AI Hero skill workflow for agent collaboration, and arc42 for architecture documentation.
 
-Develop a small, measurable experience first, then expand its scope as validation supports it. Implementation uses C++23 with Clang. The [first MVP specification](https://github.com/sergioffpc/blackflower/issues/11) defines its reference hardware, behavior, and acceptance targets. Specific training scenarios, learning objectives, remaining technology choices, and broader realism thresholds remain to be defined.
+Develop a small, measurable experience first, then expand its scope as validation supports it. The client and server runtimes use C++23 with Clang; the offline cooker uses Python. The [first MVP specification](https://github.com/sergioffpc/blackflower/issues/11) defines its reference hardware, behavior, and acceptance targets. Specific training scenarios, learning objectives, remaining technology choices, and broader realism thresholds remain to be defined.
 
 Build with [CMake, Ninja, sccache, and vcpkg](build.md). Use GoogleTest for automated C++ tests, Google Benchmark for measured workloads, and non-Release sanitizers for memory errors and data races. Use [Git-flow](git-workflow.md) for branching and integration, alongside the work limits below.
 
