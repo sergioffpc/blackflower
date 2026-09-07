@@ -1,8 +1,12 @@
 # Blackflower
 
-Blackflower is intended to be a first-person simulation for military mission training, prioritizing physical, acoustic, and visual realism. The project currently has a minimal console executable and build setup; simulation requirements and implementation remain to be developed.
+Blackflower is intended to be a first-person simulation platform for training in virtual scenarios, with high physical, acoustic, and visual realism, representing situations and environments that are difficult to reproduce in the physical world. Each session will feature competition between an attacking Red Team and a defending Blue Team, with up to eight participants per team.
+
+The project currently has a minimal console executable and build setup. The [first MVP specification](https://github.com/sergioffpc/blackflower/issues/11) defines a four-player LAN experience with an authoritative Linux server and Windows clients cross-compiled on Linux; simulation implementation and validation remain pending.
 
 Architecture documentation and development follow [arc42](https://arc42.org/). Start with the [architecture document](docs/architecture.md), including the [development workflow](docs/architecture.md#8-crosscutting-concepts).
+
+The [selected technology stack](docs/technology-stack.md) and [proposed C4 views](docs/c4.md) describe the intended MVP structure and its remaining integration decisions.
 
 See [AGENTS.md](AGENTS.md) for project conventions.
 
