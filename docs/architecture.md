@@ -284,8 +284,8 @@ GitHub enforces pull requests, signed commits, and required build and CodeQL
 checks on main and develop, including administrators. The
 [security policy](../SECURITY.md) defines confidential reporting for this public
 repository. Secret scanning and push protection supplement the
-[CodeQL and clang-tidy analysis](static-analysis.md). CodeQL uses a separate
-Linux Release build with compiler caching disabled to preserve extraction
+[CodeQL and clang-tidy analysis](static-analysis.md). CodeQL analyzes production targets only, excluding test and benchmark
+translation units as required by the owner. It uses a separate Linux Release build with compiler caching disabled to preserve extraction
 coverage; it does not replace sanitizer validation.
 
 Apply the [arc42 method](https://arc42.org/method/) iteratively. The following

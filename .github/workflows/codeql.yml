@@ -90,9 +90,11 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
-      - name: Build C++ targets under CodeQL
+      - name: Build production C++ targets under CodeQL
         if: matrix.language == 'c-cpp'
-        run: cmake --build --preset release
+        # Manual extraction observes only these targets and their dependencies.
+        # Keep tests and benchmarks in the normal build/validation workflow.
+        run: cmake --build --preset release --target blackflower blackflower_content
 
       - name: Analyze and upload security findings
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
