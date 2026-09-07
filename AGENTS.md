@@ -8,6 +8,8 @@ Write all project documentation in English, including Markdown files and commit 
 
 All new commits must follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 
+Sign every commit. Keep `commit.gpgsign` enabled in this repository and verify signatures with `git verify-commit` before pushing.
+
 - Format: `type: description` or `type(scope): description`.
 - Use `feat` for new features and `fix` for bug fixes.
 - For other changes, use an appropriate type such as `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf`, or `style`.
