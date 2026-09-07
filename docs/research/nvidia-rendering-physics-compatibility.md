@@ -1,6 +1,6 @@
 # Falcor, Slang and PhysX compatibility research
 
-Status: source-based investigation of the owner's selected technologies, 2026-09-07. No dependencies were installed, no candidate was built, and no performance or target-runtime compatibility was established. Exact package versions, graphics backend and exception integration remain decisions to validate.
+Status: source-based investigation of the owner's selected technologies, 2026-09-07. No dependencies were installed, no candidate was built, and no performance or target-runtime compatibility was established. Exact package versions and exception integration remain decisions to validate. The owner subsequently selected Vulkan-only graphics and offline Slang-to-SPIR-V compilation; their integration remains unproven.
 
 ## Findings that affect the architecture
 
@@ -65,7 +65,7 @@ The Linux server's runtime ABI still needs attention: the repository [build base
 
 Falcor 8.0 carries BSD-style three-clause terms and lists separately licensed SDKs in its [license file](https://github.com/NVIDIAGameWorks/Falcor/blob/8.0/LICENSE.md). Slang 2024.1.34 uses the [MIT license](https://github.com/shader-slang/slang/blob/v2024.1.34/LICENSE). PhysX's [source license](https://github.com/NVIDIA-Omniverse/PhysX/blob/main/LICENSE.md) is BSD-3-Clause. Record notices for the actual deployed transitive libraries and selected NVIDIA SDKs; the framework's license is not a blanket license for all bundled artifacts.
 
-The next bounded compatibility experiment should produce a Windows Falcor client from the existing Linux toolchain, initialize the selected backend and paired Slang compiler on the P620, and separately build/run CPU PhysX on the Debian server and GPU PhysX prediction on Windows. Validate GPU work against static geometry, server-only dynamic response, and correction behavior. Capture complete host/target dependency lists, Debug/Release settings, exception boundary evidence and native execution results. That evidence precedes any claim that the selected stack is integrated or meets the MVP performance targets.
+The next bounded compatibility experiment should produce a Windows Falcor client from the existing Linux toolchain, compile required SPIR-V with paired Slang tooling on Linux and load the prepared modules through Vulkan on the P620 without runtime source compilation, and separately build/run CPU PhysX on the Debian server and GPU PhysX prediction on Windows. Validate GPU work against static geometry, server-only dynamic response, and correction behavior. Capture complete host/target dependency lists, Debug/Release settings, exception boundary evidence and native execution results. That evidence precedes any claim that the selected stack is integrated or meets the MVP performance targets.
 
 ## Follow-up: GPU prediction requirement
 
