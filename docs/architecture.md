@@ -52,6 +52,8 @@ When deployment is introduced, describe the environments, infrastructure, and ma
 
 Apply the [arc42 method](https://arc42.org/method/) iteratively. The following activities inform one another; use them at the level of detail warranted by the change.
 
+Use the [AI Hero agent workflow](agents/workflow.md) to move work through clarification, specification, tickets, implementation, and review. The activities below guide the architecture work within those stages. Tracker operations and domain documentation follow the [agent skills configuration](../AGENTS.md#agent-skills).
+
 1. Clarify the intended behavior, relevant constraints, and acceptance criteria. For architectural work, establish the important quality goals and measurable scenarios before choosing a solution.
 2. Design responsibilities and interfaces around the domain. Update the relevant context, building block, runtime, and deployment views.
 3. Identify concepts shared across modules, such as error handling, persistence, security, and observability, when they become relevant. Explain how they support the quality goals.
@@ -69,7 +71,7 @@ Repository language and commit rules are defined in [AGENTS.md](../AGENTS.md).
 
 No product architecture decisions have been made yet. arc42 adoption is an explicit project convention recorded in [AGENTS.md](../AGENTS.md).
 
-For significant future decisions, record the status, context, driving requirements, alternatives considered, chosen approach, and consequences. Keep decisions here initially; link to separate decision records when their detail warrants it. When replacing a decision, retain its rationale and link to the replacement.
+Record significant future decisions in docs/adr/ following the [domain documentation rules](agents/domain.md), and index them here once created. Capture the status, context, driving requirements, alternatives considered, chosen approach, and consequences. When replacing a decision, retain its rationale and link to the replacement.
 
 ## 10. Quality requirements
 
@@ -88,7 +90,7 @@ No implementation debt has been identified because application development has n
 
 ## 12. Glossary
 
-No product domain terms have been agreed yet. Add terms and precise definitions as the domain is clarified, and use them consistently in requirements, documentation, and code.
+No product domain terms have been agreed yet. When the first terms are resolved, create the root CONTEXT.md as the authoritative glossary and link it here, following the [domain documentation rules](agents/domain.md). Use its terminology consistently in requirements, documentation, and code.
 
 ## Template attribution
 
