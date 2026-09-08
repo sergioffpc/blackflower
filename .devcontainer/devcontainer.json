@@ -1,0 +1,42 @@
+{
+  "name": "Blackflower C++23 and Python",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspaces/blackflower",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/blackflower,type=bind",
+  "remoteUser": "ubuntu",
+  "overrideCommand": false,
+  "capAdd": [
+    "SYS_PTRACE"
+  ],
+  "securityOpt": [
+    "seccomp=unconfined"
+  ],
+  "mounts": [
+    "source=blackflower-${devcontainerId}-build,target=/workspaces/blackflower/build,type=volume",
+    "source=blackflower-${devcontainerId}-python,target=/workspaces/blackflower/tools/cooker/.venv,type=volume",
+    "source=blackflower-${devcontainerId}-node,target=/workspaces/blackflower/tools/style/node_modules,type=volume",
+    "source=blackflower-${devcontainerId}-cache,target=/home/ubuntu/.cache,type=volume"
+  ],
+  "postCreateCommand": "bash .devcontainer/prepare.sh debug",
+  "postStartCommand": "sccache clang++-21 --version",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "vadimcn.vscode-lldb",
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/blackflower/tools/cooker/.venv/bin/python",
+        "python-envs.workspaceSearchPaths": [
+          "./tools/cooker/.venv"
+        ]
+      }
+    }
+  }
+}

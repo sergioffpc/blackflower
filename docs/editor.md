@@ -6,6 +6,11 @@ checks as the command line and CI.
 
 ## Setup
 
+For the WSL workflow, follow the
+[development container setup](development-container.md#start-in-wsl). It
+supplies the tools below, configures Debug, and selects the cooker Python
+environment. The following host instructions apply outside the container.
+
 Complete the [build prerequisites and vcpkg setup](build.md#prerequisites), then
 install clangd 21:
 
@@ -28,11 +33,12 @@ settings; keep shared workspace files portable.
 Install the workspace's recommended extensions when prompted, or use
 **Extensions: Show Recommended Extensions**:
 
-| Extension             | Responsibility                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| Microsoft CMake Tools | Preset selection, builds, and CTest discovery in the Testing view.                    |
-| LLVM clangd           | Completion, navigation, diagnostics, and formatting using .clang-format.              |
-| CodeLLDB              | Debugging the executable and GoogleTest harness. Its extension includes the debugger. |
+| Extension                    | Responsibility                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| Microsoft CMake Tools        | Preset selection, builds, and CTest discovery in the Testing view.                    |
+| LLVM clangd                  | Completion, navigation, diagnostics, and formatting using .clang-format.              |
+| CodeLLDB                     | Debugging the executable and GoogleTest harness. Its extension includes the debugger. |
+| Microsoft Python and Pylance | Interpreter selection, completion, navigation, and diagnostics for the cooker.        |
 
 The recommendations are declared in
 [.vscode/extensions.json](../.vscode/extensions.json).

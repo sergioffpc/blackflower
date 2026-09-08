@@ -1,0 +1,9 @@
+**
+!.devcontainer/
+!.devcontainer/**
+!tools/
+!tools/style/
+!tools/style/install-shell-tools.sh
+!tools/cooker/
+!tools/cooker/.python-version
+!vcpkg.json

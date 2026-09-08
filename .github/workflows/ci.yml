@@ -18,7 +18,7 @@ jobs:
   build:
     name: Ubuntu 26.04 / ${{ matrix.preset }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -27,11 +27,6 @@ jobs:
       run:
         shell: bash
     env:
-      VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-cache
-      VCPKG_DISABLE_METRICS: '1'
-      SCCACHE_DIR: ${{ github.workspace }}/build/sccache-cache
-      SCCACHE_CACHE_SIZE: 1G
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
       VCPKG_MAX_CONCURRENCY: '2'
     steps:
@@ -44,83 +39,64 @@ jobs:
           lfs: true
           persist-credentials: false
 
-      - name: Prepare Node.js for source style checks
-        if: matrix.preset == 'debug'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.22.1'
-          package-manager-cache: false
-
-      - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 \
-            libclang-rt-21-dev llvm-21 \
-            build-essential curl zip unzip tar pkg-config jq \
-            autoconf autoconf-archive automake libtool python3-venv
-
-      - name: Prepare Python with uv
-        run: |
-          python3 -m venv build/uv-tool
-          build/uv-tool/bin/pip install uv==0.10.4
-          echo "$PWD/build/uv-tool/bin" >> "$GITHUB_PATH"
-          build/uv-tool/bin/uv sync --project tools/cooker --locked --no-editable
-
-      - name: Check source style
-        if: matrix.preset == 'debug'
-        run: |
-          npm ci --prefix tools/style --ignore-scripts
-          bash tools/style/install-shell-tools.sh
-          npm --prefix tools/style run check
-          npm --prefix tools/style test
-
-      - name: Read vcpkg baseline
-        id: vcpkg
-        run: |
-          baseline=$(jq -er '."builtin-baseline"' vcpkg.json)
-          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
-
-      - name: Check out pinned vcpkg
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: microsoft/vcpkg
-          ref: ${{ steps.vcpkg.outputs.baseline }}
-          path: build/vcpkg
-          persist-credentials: false
-
-      - name: Restore dependency and compiler caches
+      - name: Restore the fixed toolchain image
+        id: image-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-            ${{ env.SCCACHE_DIR }}
-          key: ubuntu-26.04-clang-21-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'CMakeLists.txt', 'CMakePresets.json', '.github/workflows/ci.yml') }}-${{ github.sha }}
+          path: build/container-image.tar
+          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/style/install-shell-tools.sh', 'tools/cooker/.python-version', 'vcpkg.json') }}
+
+      - name: Load the cached image
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: docker image load --input build/container-image.tar
+
+      - name: Build the pinned development image
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: docker build -f .devcontainer/Dockerfile -t blackflower-dev:ci .
+
+      - name: Save the fixed image for subsequent runs
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p build
+          docker image save --output build/container-image.tar blackflower-dev:ci
+
+      - name: Restore dependency download and compiler caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/container-cache
+          key: devcontainer-assets-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'tools/cooker/uv.lock', 'tools/style/package-lock.json') }}
           restore-keys: |
-            ubuntu-26.04-clang-21-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'CMakeLists.txt', 'CMakePresets.json', '.github/workflows/ci.yml') }}-
+            devcontainer-assets-${{ matrix.preset }}-
 
-      - name: Bootstrap vcpkg
+      - name: Start isolated validation container
         run: |
-          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE" "$SCCACHE_DIR"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p build/container-cache
+          docker run --detach --name blackflower-check --user root \
+            --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
+            --env CMAKE_BUILD_PARALLEL_LEVEL --env VCPKG_MAX_CONCURRENCY \
+            --mount "type=bind,source=$PWD,target=/workspaces/blackflower" \
+            --mount "type=bind,source=$PWD/build/container-cache,target=/home/ubuntu/.cache" \
+            --mount type=volume,target=/workspaces/blackflower/build \
+            --mount type=volume,target=/workspaces/blackflower/tools/cooker/.venv \
+            --mount type=volume,target=/workspaces/blackflower/tools/style/node_modules \
+            blackflower-dev:ci
 
-      - name: Configure
-        run: cmake --preset "${{ matrix.preset }}"
+      - name: Prepare locked dependencies
+        run: docker exec blackflower-check bash .devcontainer/prepare.sh "${{ matrix.preset }}"
 
-      - name: Build and check
-        run: |
-          cmake --build --preset "${{ matrix.preset }}" --target check \
-            2>&1 | tee "build/${{ matrix.preset }}/check.log"
+      - name: Disconnect the build from the network
+        run: docker network disconnect bridge blackflower-check
 
-      - name: Record benchmark harness output
-        if: matrix.preset == 'release'
-        run: |
-          ./build/release/blackflower_benchmarks --benchmark_min_time=0.001s \
-            --benchmark_out=build/release/benchmarks.json --benchmark_out_format=json
+      - name: Build and check from a fresh directory offline
+        run: docker exec blackflower-check bash .devcontainer/check.sh "${{ matrix.preset }}"
 
-      - name: Report compiler cache
+      - name: Collect container evidence
         if: always()
-        run: sccache --show-stats
+        run: |
+          mkdir -p build/container-evidence
+          docker image inspect blackflower-dev:ci > build/container-image.json
+          docker cp blackflower-check:/workspaces/blackflower/build/. build/container-evidence/
+          docker exec blackflower-check chown -R "$(id -u):$(id -g)" /home/ubuntu/.cache
 
       - name: Upload validation evidence
         if: always()
@@ -128,8 +104,13 @@ jobs:
         with:
           name: validation-${{ matrix.preset }}
           path: |
-            build/${{ matrix.preset }}/check.log
-            build/${{ matrix.preset }}/Testing/Temporary/
-            build/${{ matrix.preset }}/benchmarks.json
+            build/container-image.json
+            build/container-evidence/**/check.log
+            build/container-evidence/**/Testing/Temporary/
+            build/container-evidence/**/benchmarks.json
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Remove validation container and anonymous volumes
+        if: always()
+        run: docker rm --force --volumes blackflower-check
