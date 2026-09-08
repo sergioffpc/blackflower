@@ -432,8 +432,8 @@ without changing either version. Correcting and staging the source must permit
 the commit. This tests enforcement, not application behavior.
 
 Validation of CONTENT-Q01 is recorded in the
-[content evidence](validation/content-pipeline.md), including the Windows Debug
-CRT/ASan limitation.
+[content evidence](validation/content-pipeline.md), including actual Windows
+Debug ASan execution and a negative memory-error probe.
 
 ## 11. Risks and technical debt
 
@@ -451,10 +451,11 @@ CRT/ASan limitation.
 | R-010 | Primitive OpenUSD cooking and signed loading are implemented; remaining integration includes Falcor Vulkan loading of offline Slang-compiled SPIR-V, role-specific pair compatibility, and target-specific GPU physics artifacts. | A runtime importer/compiler or incomplete signature coverage could violate the required deployment model.                                       | Extend the implemented bounded path with Assimp/meshoptimizer and native SDK artifacts, provision production content trust, and test gameplay admission against the common scenario build identity. Keep the primitive conformance and invalid-pack checks. |
 | R-011 | Runtime lifecycle orchestration and adapter cancellation are unimplemented; liveness mapping, input-age bounds, and finite shutdown deadlines remain open.                                                                        | Startup races, stale movement, or outstanding SDK work could prevent safe admission or timely exit.                                             | Refine the [lifecycle proposal](runtime-lifecycle.md), update affected tickets, and validate partial startup and in-flight shutdown on both targets.                                                                                                        |
 
-The Windows Debug content and benchmark executables currently abort in Microsoft
-Debug CRT initialization under LLVM 21.1.8 ASan, before application entry.
-Windows Release execution passes. Reproduce and resolve the CRT/ASan
-compatibility issue before claiming Windows Debug sanitizer coverage; see the
+The Windows toolchain uses the dynamic release CRT for project code and
+dependencies in both configurations. This resolves the LLVM 21.1.8 ASan startup
+failure in the Microsoft Debug CRT while retaining Debug symbols, assertions,
+unoptimized code and ASan. Microsoft debug heap and debug iterator checks are
+not enabled; keep the runtime ABI consistent when adding dependencies. See the
 [validation evidence](validation/content-pipeline.md).
 
 The current checks validate build infrastructure and the bounded primitive

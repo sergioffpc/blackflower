@@ -79,11 +79,8 @@ else()
         # Modify vcpkg-make's already escaped flags; passing raw CMake flags
         # as configure arguments retains literal quotes in Autotools variables.
         function(blackflower_sodium_configure_flags config)
-            if(config STREQUAL "DEBUG")
-                set(crt "-D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd")
-            else()
-                set(crt "-D_DLL -D_MT -Xclang --dependent-lib=msvcrt")
-            endif()
+            # Match the chainloaded toolchain, including Debug builds with ASan.
+            set(crt "-D_DLL -D_MT -Xclang --dependent-lib=msvcrt")
             set(CFLAGS_${config} "${CFLAGS_${config}} ${crt}" PARENT_SCOPE)
             set(LDFLAGS_${config} "${LDFLAGS_${config}} -fuse-ld=lld-link" PARENT_SCOPE)
         endfunction()

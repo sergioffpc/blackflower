@@ -15,6 +15,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
+# Upstream LLVM ASan cannot intercept the Microsoft Debug CRT consistently.
+# Use the dynamic release CRT for project code and dependencies in every config;
+# Debug still retains its unoptimized code, symbols, assertions, and ASan.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING
+    "Windows runtime shared by project code and dependencies" FORCE)
+
 find_program(CMAKE_LINKER NAMES lld-link-21 REQUIRED)
 find_program(BLACKFLOWER_LLVM_AR NAMES llvm-ar-21 REQUIRED)
 # GNU-style Clang archive rules use ar flags, not llvm-lib flags.

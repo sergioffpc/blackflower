@@ -155,14 +155,21 @@ Microsoft license prompt:
 
 ```sh
 xwin --arch x86_64 --crt-version 14.44.35220 --sdk-version 10.0.26100 \
-  --cache-dir build/xwin-cache splat --include-debug-libs --output build/windows-sdk
+  --cache-dir build/xwin-cache splat --output build/windows-sdk
 export XWIN_ROOT="$PWD/build/windows-sdk"
 ```
 
 Retain the downloaded manifests for SDK reproducibility. The SDK's
-case-correcting symlinks are required on Linux. Debug CRT libraries are needed
-for Debug dependencies. Review the SDK and CRT together when upgrading; their
-version headers participate in vcpkg's package hash.
+case-correcting symlinks are required on Linux. Review the SDK and CRT together
+when upgrading; their version headers participate in vcpkg's package hash.
+
+Both configurations use the dynamic release CRT (`MultiThreadedDLL`), including
+vcpkg dependencies and the libsodium Autotools overlay. LLVM 21.1.8 ASan aborts
+during Debug CRT startup with this SDK; the upstream Windows port documents
+[Debug CRT incompatibility](https://github.com/google/sanitizers/wiki/AddressSanitizerWindowsPort#debug-crt-incompatibility).
+Debug retains `-O0`, symbols, assertions, and ASan, but does not use the
+Microsoft debug heap or debug iterator ABI. Keep the CRT choice consistent
+across project and dependency builds; do not mix their C++ library ABIs.
 
 For Windows Debug ASan, extract the x86_64 ASan files from the official
 [LLVM 21.1.8 Windows distribution](https://github.com/llvm/llvm-project/releases/tag/llvmorg-21.1.8).
@@ -186,8 +193,9 @@ Outputs are blackflower.exe, blackflower_tests.exe, blackflower_benchmarks.exe
 and blackflower_content_harness.exe under the corresponding build directory.
 Debug configuration copies clang_rt.asan_dynamic-x86_64.dll beside them. Keep
 that DLL with the Debug executables. Windows must also provide the matching
-Microsoft runtime; Debug CRT files are development prerequisites, not
-redistributable release dependencies.
+Microsoft release runtime for both configurations. Debug CRT DLLs are not
+required. When running from the case-sensitive WSL filesystem, DLL names must
+match PE imports exactly (for example, `MSVCP140.dll`).
 
 Cross-builds do not register runnable CTest cases and have no check target. On a
 prepared Windows machine, run all four executables and the content library,
