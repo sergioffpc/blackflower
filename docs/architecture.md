@@ -241,6 +241,11 @@ ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic
 artifacts. Windows cross-builds are local build targets; they are outside CI. No
 application deployment or release publication pipeline exists yet.
 
+Binary reference packs and their public key in tests/fixtures/packs are stored
+with Git LFS. The build workflow downloads their contents during checkout; local
+clones use the [Git LFS setup](git-workflow.md#starting-work). The versioned
+pre-push hook uploads the referenced objects before publishing commits.
+
 JavaScript actions in the build and CodeQL workflows use SHA-pinned releases
 declaring the Node.js 24 runtime. The separate Node.js version installed for
 source style checks follows the [style tooling policy](style-guidelines.md).

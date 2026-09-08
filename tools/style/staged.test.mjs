@@ -44,7 +44,7 @@ try {
   git('init', '--quiet', '--initial-branch=main');
   git('config', 'user.name', 'Style Hook Test');
   git('config', 'user.email', 'style-hook@example.invalid');
-  // Only this disposable fixture disables signing, as in git_hooks_test.sh.
+  // Only this disposable fixture disables signing.
   git('config', 'commit.gpgsign', 'false');
   git('config', 'core.hooksPath', '.githooks');
   git('add', '--all');

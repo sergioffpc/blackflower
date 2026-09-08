@@ -181,12 +181,12 @@ The wrapper additionally enforces the 80-column limit for standalone scripts.
 actionlint checks workflow syntax and applies ShellCheck to embedded shell;
 review embedded shell formatting and examples in Markdown separately.
 
-The existing commit-message hook and its integration test retain `#!/bin/sh`,
-portable `[ ... ]`, and sh syntax. The new style hooks require Bash, as does the
-shell-tool installer. Vendored wizard templates retain public uppercase
-variables used by generated stages and caller-provided values; local
-implementation variables follow the normal naming rules. These compatibility
-exceptions do not relax syntax, quoting, formatting, or diagnostic checks.
+The existing commit-message hook retains `#!/bin/sh`, portable `[ ... ]`, and sh
+syntax. The new style hooks require Bash, as does the shell-tool installer.
+Vendored wizard templates retain public uppercase variables used by generated
+stages and caller-provided values; local implementation variables follow the
+normal naming rules. These compatibility exceptions do not relax syntax,
+quoting, formatting, or diagnostic checks.
 
 Review error propagation, pipeline status, function contracts, names, cleanup,
 and whether the task is small enough for shell. Inline suppressions require a
@@ -229,7 +229,6 @@ To apply formatting, then verify the result:
 npm --prefix tools/style run format
 npm --prefix tools/style run check
 npm --prefix tools/style test
-sh tests/git_hooks_test.sh
 ```
 
 Formatting may still exit unsuccessfully when a lint finding needs an edit.

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Upload referenced LFS objects before publishing Git commits.
+set -euo pipefail
+
+exec git lfs pre-push "$@"

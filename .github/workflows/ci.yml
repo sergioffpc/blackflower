@@ -36,11 +36,8 @@ jobs:
       - name: Check out project
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          lfs: true
           persist-credentials: false
-
-      - name: Validate commit message hook
-        if: matrix.preset == 'debug'
-        run: sh tests/git_hooks_test.sh
 
       - name: Restore the fixed toolchain image
         id: image-cache

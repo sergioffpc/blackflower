@@ -17,9 +17,11 @@ succeeds in WSL. When installing Docker Engine locally, add the development user
 to the `docker` group and start a fresh WSL session so the editor receives the
 new group membership.
 
-Keep the checkout on the Linux filesystem, such as `/home/sc/src/blackflower`,
-and open it with `code .`. Run **Dev Containers: Reopen in Container**. The
-first image build installs tools; the creation hook installs locked Python and
+Keep the checkout on the Linux filesystem, such as `~/src/blackflower`. Complete
+the [Git LFS setup](git-workflow.md#starting-work) in WSL so the reference
+fixtures contain their binary contents before opening the container. Open the
+checkout with `code .`. Run **Dev Containers: Reopen in Container**. The first
+image build installs tools; the creation hook installs locked Python and
 JavaScript packages and configures C++ Debug, including vcpkg dependencies. It
 also verifies the OpenUSD import.
 
@@ -132,9 +134,11 @@ instead of promising identical times.
 
 ## Offline validation
 
-Run from a disposable ordinary clone in WSL. Root validation can leave generated
-Python package metadata in that checkout owned by root. Keep this clone separate
-from the interactive editor checkout. The container name must be unused:
+Run from a disposable ordinary clone in WSL after completing the
+[Git LFS setup](git-workflow.md#starting-work) for that clone. Root validation
+can leave generated Python package metadata in that checkout owned by root. Keep
+this clone separate from the interactive editor checkout. The container name
+must be unused:
 
 ```sh
 docker build -f .devcontainer/Dockerfile -t blackflower-dev:local .

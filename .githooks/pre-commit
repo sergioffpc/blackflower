@@ -2,7 +2,7 @@
 # Validate the index snapshot; preserve partial staging and the working tree.
 set -euo pipefail
 
-# Empty-tree commits in the commit-message integration test contain no source.
+# Empty-tree commits contain no source to validate.
 if [[ -z "$(git ls-files --cached)" ]]; then
   exit 0
 fi

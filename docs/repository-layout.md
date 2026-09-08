@@ -75,9 +75,8 @@ blackflower/
 │   ├── server/
 │   ├── modules/
 │   ├── integration/
-│   ├── fixtures/
-│   │   └── packs/                   # Small shared format/signature test vectors
-│   └── git_hooks_test.sh
+│   └── fixtures/
+│       └── packs/                   # Small shared format/signature test vectors
 ├── benchmarks/
 ├── cmake/                           # Existing toolchains and build support
 ├── docs/
