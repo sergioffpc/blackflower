@@ -5,6 +5,7 @@
   "clangd.path": "clangd-21",
   "clangd.arguments": ["--background-index", "--clang-tidy"],
   "C_Cpp.intelliSenseEngine": "disabled",
+  "python.defaultInterpreterPath": "${workspaceFolder}/tools/cooker/.venv/bin/python",
   "[cpp]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
     "editor.formatOnSave": true,

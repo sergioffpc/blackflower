@@ -225,6 +225,16 @@ existing ECS phases and remain proposals.
 
 ## 7. Deployment view
 
+The owner selected a [WSL Dev Container](development-container.md) for C++ and
+Python. Its digest-pinned Ubuntu image, complete system-package lock, and tool
+checksums define the userspace used by VS Code and native build-validation CI.
+Generated build, Python, and JavaScript directories use dedicated volumes;
+compiler and package caches persist separately. CI prepares dependencies online
+and checks fresh builds with networking disabled. Local
+[container execution checks](validation/development-container.md) pass; kernel,
+hardware, CodeQL extraction, and Windows SDK/runtime validation are separate
+boundaries.
+
 Local builds place outputs and dependency installations under build/. The
 [GitHub workflow](../.github/workflows/ci.yml) runs Linux Debug,
 ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic
@@ -366,6 +376,9 @@ snapshot. The [style policy](style-guidelines.md) records the compatibility
 exceptions and selected tooling; the required Linux Debug CI check includes the
 same source checks and the commit-hook integration test.
 
+[ADR-0008](adr/0008-pin-the-development-container.md) records the selected
+development container, fixed inputs, and offline validation boundary.
+
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
 created. Capture the status, context, driving requirements, alternatives
@@ -439,6 +452,15 @@ Validation of CONTENT-Q01 is recorded in the
 [content evidence](validation/content-pipeline.md), including actual Windows
 Debug ASan execution and a negative memory-error probe.
 
+DEV-Q01 requires the isolated container to import the locked OpenUSD bindings
+and pass native Debug, TSan, and Release checks from fresh build directories
+after dependency preparation, with networking and compiler/vcpkg binary cache
+reuse disabled. Debug also passes source style and hook tests. Record image
+identity, revision, commands, and logs; a host build does not satisfy this
+scenario. Local execution passed for #33; the
+[validation record](validation/development-container.md) identifies the tested
+image, source, commands, and remaining boundaries.
+
 ## 11. Risks and technical debt
 
 | ID    | Open issue                                                                                                                                                                                                                        | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                   |
@@ -466,6 +488,13 @@ The current checks validate build infrastructure and the bounded primitive
 content pipeline. They provide no evidence about simulation fidelity,
 performance budgets, or training outcomes. Update this section as implementation
 risks are discovered, mitigated, or resolved.
+
+The development container passed DEV-Q01 locally on the recorded WSL kernel.
+Package retention, Windows SDK provisioning, sanitizer behavior on other host
+kernels, and host/container compilation timings remain separate validation
+concerns in [#33](https://github.com/sergioffpc/blackflower/issues/33). Repeat
+the offline checks when changing the image or its locked inputs; the local
+results do not establish hosted CI execution.
 
 ## 12. Glossary
 

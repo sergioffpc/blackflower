@@ -6,6 +6,11 @@ Ninja, Clang 21, sccache, and vcpkg. Simulation behavior is not implemented yet.
 
 ## Prerequisites
 
+The [WSL development container](development-container.md) provides a pinned
+C++/Python userspace and the image recipe used by native build CI. Use it for
+the owner-selected isolated development workflow. The host setup below remains
+available for diagnostics and CodeQL; it is not a hermetic host installation.
+
 The reference host is Ubuntu 26.04 x86-64. Install CMake 3.28 or newer, Ninja,
 Clang/LLVM 21, sccache, and vcpkg's host prerequisites:
 
@@ -229,13 +234,13 @@ debug, tsan, and release for pushes to Git-flow branches and pull requests
 targeting main, develop, or release branches. Manual dispatch is defined; GitHub
 exposes that control once the workflow exists on the default branch.
 
-Each job installs host tools, checks out the manifest's vcpkg baseline, restores
-dependency and compiler caches, and runs the same configure and check commands
-as local development. Actions are pinned by commit. Compiler and package ABI
-hashes govern cache reuse. Jobs retain check logs, CTest evidence, and Release
-benchmark JSON for 14 days, including available evidence after failures. CI
-validates contributions; release publication follows the
-[Git workflow](git-workflow.md).
+Each job prepares locked dependencies inside the pinned development image, then
+disconnects networking and checks a fresh native build with compiler and vcpkg
+binary caches disabled. Image and downloaded dependency caches persist between
+jobs. Actions are pinned by commit. Jobs retain image identity, check logs,
+CTest evidence, and Release benchmark JSON for 14 days, including available
+evidence after failures. CI validates contributions; release publication follows
+the [Git workflow](git-workflow.md).
 
 ## Compiler cache
 
