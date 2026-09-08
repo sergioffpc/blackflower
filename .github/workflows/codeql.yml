@@ -39,8 +39,11 @@ jobs:
       VCPKG_MAX_CONCURRENCY: '2'
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
     steps:
+      - name: Configure Git initial branch
+        run: git config --global init.defaultBranch main
+
       - name: Check out project
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -71,7 +74,7 @@ jobs:
 
       - name: Check out pinned vcpkg
         if: matrix.language == 'c-cpp'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: microsoft/vcpkg
           ref: ${{ steps.vcpkg.outputs.baseline }}
