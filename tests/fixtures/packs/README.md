@@ -1,5 +1,9 @@
 # Independent pack fixtures
 
+The `.bfclient`, `.bfserver`, and binary `.pub` files are stored with Git LFS.
+Follow the [Git setup](../../../docs/git-workflow.md#starting-work) and run
+`git lfs pull` before testing an existing clone that contains LFS pointers.
+
 The two binary reference packs were encoded from literal fields in the pack-v1
 and scene-v1 specifications by a standalone script that did not import the
 cooker. A fresh Ed25519 key signed the transcripts through cryptography; only

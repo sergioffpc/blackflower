@@ -40,13 +40,23 @@ the checks before integration.
 
 ## Starting work
 
+Install Git LFS (`sudo apt-get install git-lfs` on the reference Ubuntu host).
 After cloning, prepare the
 [style tools](style-guidelines.md#installation-and-commands) and activate the
 versioned hooks:
 
 ```sh
 git config --local core.hooksPath .githooks
+git lfs install --local --skip-repo
+git lfs pull
 ```
+
+The versioned pre-push hook uploads LFS objects before publishing commits;
+`--skip-repo` preserves the project's hook files while enabling the local LFS
+filters. The binary test packs and public keys under tests/fixtures/packs use
+the patterns in [.gitattributes](../.gitattributes). Keep their working copies
+as binary files; Git stores LFS pointers in commits. Existing historical Git
+blobs are retained. The build CI downloads LFS contents during checkout.
 
 The [pre-commit hook](../.githooks/pre-commit) checks the complete staged source
 snapshot against the formatting rules for C++, Python, JavaScript, Markdown,
@@ -70,9 +80,8 @@ Hooks run locally and can be bypassed with Git's `--no-verify`; this is not a
 server-side commit-message rule. Every clone needs the setup command, which
 replaces any existing `core.hooksPath` setting in that clone.
 
-Run `sh tests/git_hooks_test.sh` to check acceptance and rejection through
-actual Git commits and a generated merge in a disposable repository. Run
-`npm --prefix tools/style test` for staged-content rejection and preservation.
+Run `npm --prefix tools/style test` for staged-content rejection and
+preservation through actual Git commits in a disposable repository.
 
 With a clean working tree, update develop and create a feature branch:
 
