@@ -6,10 +6,11 @@ identities; generated test private keys and runtime DLLs are not committed.
 
 ## Environment
 
-Validation ran on 2026-09-07 in Ubuntu under WSL2, with actual Windows execution
-through WSL interoperability on Windows 10.0.26200.9168. The tools were
-Clang/LLVM 21.1.8, CMake 4.2.3, CPython 3.14.4 and uv 0.10.4. Python packages
-follow `tools/cooker/uv.lock`; C++ ports follow the vcpkg manifest baseline and
+Validation ran on 2026-09-07, with the Windows Debug correction revalidated on
+2026-09-08, in Ubuntu under WSL2, with actual Windows execution through WSL
+interoperability on Windows 10.0.26200.9168. The tools were Clang/LLVM 21.1.8,
+CMake 4.2.3, CPython 3.14.4 and uv 0.10.4. Python packages follow
+`tools/cooker/uv.lock`; C++ ports follow the vcpkg manifest baseline and
 committed libsodium overlay. The local vcpkg executable checkout was
 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4; CI checks out the manifest baseline
 itself. Windows uses CRT headers/libraries 14.44.35220 and SDK 10.0.26100 from
@@ -23,8 +24,8 @@ the documented xwin setup.
     build-contract tests, executable startup, benchmark startup, Pyink, Pylint
     and mypy. Clang-tidy and formatting pass.
 -   Windows Debug and Release: cross-compilation and `analyze` pass.
--   Windows Release execution: ten Python-to-C++ integration methods, both C++
-    tests, bootstrap and benchmark startup pass on the Windows host.
+-   Windows Debug and Release execution: ten Python-to-C++ integration methods,
+    both C++ tests, bootstrap and benchmark startup pass on the Windows host.
 -   Git commit-message hook integration and actionlint pass.
 -   Separate Standards and Spec reviews completed; all three observations were
     resolved. Regression coverage now rejects USD inherits, specializes,
@@ -36,28 +37,35 @@ signed metadata/scene values, wrong trust/role/profile, tampering, truncation,
 repeatability and failures of either signing, file production, verification and
 pair publication.
 
-## Windows Debug limitation
+## Windows Debug CRT correction
 
-Windows Debug builds and analyzes successfully, but execution with the LLVM
-21.1.8 ASan DLL and the available Microsoft Debug CRT aborts during CRT
-initialization before the content harness reaches `main`. The report is
-`bad-malloc_usable_size`, from `ucrtbased.dll` `recalloc_dbg` through
-`register_onexit_function` while initializing `MSVCP140D.dll`. The same failure
-occurs in the existing benchmark harness; the console bootstrap runs
-successfully. No ASan errors are suppressed and no sanitizer is disabled for the
-reported passing Linux checks. Windows Release provides the required actual
-Windows content-consumption evidence; Windows Debug sanitizer runtime
-compatibility remains an unresolved development-environment risk.
+The original Windows Debug executables aborted before `main` with
+`bad-malloc_usable_size`: `ucrtbased.dll` `recalloc_dbg` called ASan during
+`MSVCP140D.dll` initialization. A minimal `iostream` program reproduced the
+failure twice. Compiling the same program with the same LLVM 21.1.8 ASan
+runtime, symbols and `-O0`, but selecting the release CRT, passed. This matches
+the
+[upstream Debug CRT incompatibility](https://github.com/google/sanitizers/wiki/AddressSanitizerWindowsPort#debug-crt-incompatibility).
 
-The Debug CRT was extracted locally from the Microsoft Visual Studio package
-manifest: `Microsoft.VisualCpp.RuntimeDebug.14` x64, MSI SHA-256
-4fd8cbe4ab8f1dc9b26f0e531ab0355780dc40ca0fd4f514e22de730c377ca38, CAB SHA-256
-25e3a560327797998ac10357ed5ed41d5b638d36a9b092d2004fb912da027a43. The debug UCRT
-came from the cached x64 SDK package. Release runtime DLLs were copied from the
-host's installed Blender CRT directory for local execution. On the
-case-sensitive WSL filesystem their names must match the PE imports, including
-`MSVCP140.dll` and `VCRUNTIME140_1.dll`. Production redistribution is outside
-this test harness delivery.
+The Windows toolchain now selects `MultiThreadedDLL` for all configurations,
+including CMake dependencies; the libsodium Autotools overlay uses the same CRT.
+GoogleTest, Benchmark and libsodium were rebuilt and their generated flags
+checked for `msvcrt` without `_DEBUG`. Project Debug commands retain `-O0`,
+symbols and `-fsanitize=address`, without `NDEBUG`. The Microsoft debug heap and
+debug iterator ABI are not used.
+
+The original startup probe now exits zero. A separate disposable probe, compiled
+with the generated project Debug flags, allocates `new int[1]` and writes to
+index one. It exits one with `AddressSanitizer: heap-buffer-overflow`,
+confirming that memory checking remains active. No ASan diagnostic is
+suppressed. The existing Windows integration and C++ tests exercise the original
+failing startup path and pass with the corrected configuration.
+
+Release runtime DLLs were copied from the host's installed Blender CRT directory
+for local execution; Debug CRT DLLs are no longer needed. On the case-sensitive
+WSL filesystem their names must match the PE imports, including `MSVCP140.dll`
+and `VCRUNTIME140_1.dll`. Production redistribution is outside this test harness
+delivery.
 
 These results establish the bounded primitive content contract. They do not
 establish gameplay startup, rendering, GPU/CPU physics, audio, admission,

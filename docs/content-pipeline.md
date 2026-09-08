@@ -96,10 +96,10 @@ BLACKFLOWER_CONTENT_HARNESS="$PWD/build/windows-release/blackflower_content_harn
 
 For native GoogleTest execution, set `BLACKFLOWER_CONTENT_FIXTURES` to a path
 Windows can read, pointing at `tests/fixtures/packs`, then run
-`blackflower_tests.exe`. Debug execution also needs the ASan DLL and development
-CRT described in the build guide. Copy only the appropriate pack, public trust
-and runtime dependencies for isolated deployment checks; do not copy source USD,
-Python packages or private keys.
+`blackflower_tests.exe`. Debug execution also needs the ASan DLL and the same
+release CRT as Release, as described in the build guide. Copy only the
+appropriate pack, public trust and runtime dependencies for isolated deployment
+checks; do not copy source USD, Python packages or private keys.
 
 Repeated identical inputs/settings/tool versions yield identical prepared
 payloads, provenance, build identities and packs when using the same key.
