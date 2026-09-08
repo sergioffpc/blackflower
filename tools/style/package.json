@@ -1,0 +1,24 @@
+{
+  "name": "blackflower-style",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.13.0 || >=24"
+  },
+  "scripts": {
+    "check": "node check.mjs",
+    "check:staged": "node check-staged.mjs",
+    "test": "node staged.test.mjs",
+    "format": "node check.mjs --write"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@eslint/json": "2.1.0",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "eslint": "10.0.0",
+    "eslint-config-google": "0.14.0",
+    "eslint-plugin-jsdoc": "63.0.0",
+    "markdownlint-cli2": "0.23.2",
+    "prettier": "2.8.8"
+  }
+}

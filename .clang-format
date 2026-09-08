@@ -1,2 +1,69 @@
 Language: Cpp
 BasedOnStyle: Google
+
+# Reference: https://google.github.io/styleguide/cppguide.html
+# Validated with clang-format 21. Inherit Google's preset for unlisted options.
+# The project uses C++23; clang-format 21 has no dedicated c++23 option.
+Standard: Latest
+
+# Line Length; Spaces vs. Tabs; Function Declarations and Definitions.
+ColumnLimit: 80
+UseTab: Never
+IndentWidth: 2
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Attach
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: BinPack
+# The guide permits short functions and lambdas on one line.
+AllowShortFunctionsOnASingleLine: All
+AllowShortLambdasOnASingleLine: All
+
+# Looping and branching statements: enforce the recommended braced form.
+# The guide permits, but discourages, compact one-/two-line exceptions.
+# Review inserted braces: macros and preprocessor boundaries limit automation.
+InsertBraces: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+IndentCaseLabels: true
+
+# Class Format; Constructor Initializer Lists; Namespace Formatting.
+AccessModifierOffset: -1
+EmptyLineBeforeAccessModifier: Always
+EmptyLineAfterAccessModifier: Never
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+# Pointer and Reference Expressions and Types; Horizontal Whitespace.
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+SpaceBeforeParens: ControlStatements
+SpacesInParens: Never
+SpacesInAngles: Never
+SpacesBeforeTrailingComments: 2
+IndentPPDirectives: None
+
+# Names and Order of Includes: inherit the preset's categories and main-header
+# detection. Quoted third-party versus project headers still need review;
+# clang-format cannot infer ownership from arbitrary include paths.
+IncludeBlocks: Regroup
+SortIncludes:
+  Enabled: true
+  IgnoreCase: false
+
+# Vertical Whitespace: preserve paragraph breaks without redundant padding.
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: false
+# Project choice implementing the guide's grouping advice, not a Google mandate
+# to separate every definition. Logical breaks inside functions remain manual.
+SeparateDefinitionBlocks: Always
+
+# Naming, header guards, declaration order, comment meaning, and language-use
+# restrictions require static analysis and review; formatting cannot check them.

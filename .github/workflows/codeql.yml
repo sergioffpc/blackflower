@@ -49,8 +49,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 llvm-21 \
-            build-essential curl zip unzip tar pkg-config jq
+            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 \
+            llvm-21 \
+            build-essential curl zip unzip tar pkg-config jq \
+            autoconf autoconf-archive automake libtool python3-venv
+
+      - name: Prepare Python with uv
+        if: matrix.language == 'c-cpp'
+        run: |
+          python3 -m venv build/uv-tool
+          build/uv-tool/bin/pip install uv==0.10.4
+          echo "$PWD/build/uv-tool/bin" >> "$GITHUB_PATH"
+          build/uv-tool/bin/uv sync --project tools/cooker --locked --no-editable
 
       - name: Read vcpkg baseline
         if: matrix.language == 'c-cpp'
@@ -81,9 +91,11 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
-      - name: Build C++ targets under CodeQL
+      - name: Build production C++ targets under CodeQL
         if: matrix.language == 'c-cpp'
-        run: cmake --build --preset release
+        # Manual extraction observes only these targets and their dependencies.
+        # Keep tests and benchmarks in the normal build/validation workflow.
+        run: cmake --build --preset release --target blackflower blackflower_content
 
       - name: Analyze and upload security findings
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Reject commit subjects outside the repository's Conventional Commit policy.
 
 set -eu
 

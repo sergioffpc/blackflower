@@ -44,12 +44,35 @@ jobs:
         if: matrix.preset == 'debug'
         run: sh tests/git_hooks_test.sh
 
+      - name: Prepare Node.js for source style checks
+        if: matrix.preset == 'debug'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.1'
+
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 libclang-rt-21-dev llvm-21 \
-            build-essential curl zip unzip tar pkg-config jq
+            cmake ninja-build sccache clang-21 clang-tidy-21 clang-format-21 \
+            libclang-rt-21-dev llvm-21 \
+            build-essential curl zip unzip tar pkg-config jq \
+            autoconf autoconf-archive automake libtool python3-venv
+
+      - name: Prepare Python with uv
+        run: |
+          python3 -m venv build/uv-tool
+          build/uv-tool/bin/pip install uv==0.10.4
+          echo "$PWD/build/uv-tool/bin" >> "$GITHUB_PATH"
+          build/uv-tool/bin/uv sync --project tools/cooker --locked --no-editable
+
+      - name: Check source style
+        if: matrix.preset == 'debug'
+        run: |
+          npm ci --prefix tools/style --ignore-scripts
+          bash tools/style/install-shell-tools.sh
+          npm --prefix tools/style run check
+          npm --prefix tools/style test
 
       - name: Read vcpkg baseline
         id: vcpkg
@@ -84,7 +107,9 @@ jobs:
         run: cmake --preset "${{ matrix.preset }}"
 
       - name: Build and check
-        run: cmake --build --preset "${{ matrix.preset }}" --target check 2>&1 | tee "build/${{ matrix.preset }}/check.log"
+        run: |
+          cmake --build --preset "${{ matrix.preset }}" --target check \
+            2>&1 | tee "build/${{ matrix.preset }}/check.log"
 
       - name: Record benchmark harness output
         if: matrix.preset == 'release'

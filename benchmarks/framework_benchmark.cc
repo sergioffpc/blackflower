@@ -10,6 +10,7 @@ void FrameworkSmoke(benchmark::State& state) {
     benchmark::DoNotOptimize(state.iterations());
   }
 }
+
 BENCHMARK(FrameworkSmoke);
 
 }  // namespace

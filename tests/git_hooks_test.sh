@@ -40,7 +40,8 @@ reject 'feat:add a component'
 reject 'feat: '
 reject 'feat(): add a component'
 reject 'Merge '
-reject "$(printf 'invalid subject\n\nfeat: valid body does not repair the subject')"
+reject "$(printf '%s\n\n%s' \
+  'invalid subject' 'feat: valid body does not repair the subject')"
 
 # Confirm that Git-generated merge messages also reach and pass the hook.
 base_branch=$(git branch --show-current)

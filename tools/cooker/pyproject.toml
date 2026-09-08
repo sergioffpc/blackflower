@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools==82.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackflower-cooker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["cryptography==46.0.5", "usd-core==26.8"]
+
+[project.scripts]
+blackflower-cooker = "blackflower_cooker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pyink>=26.5.1",
+    "pylint>=4.0.8",
+]
+
+[tool.mypy]
+check_untyped_defs = true
+ignore_missing_imports = true
+cache_dir = ".mypy_cache"
+
+[tool.pyink]
+line-length = 80
+target-version = ["py312"]
+pyink-indentation = 4
+pyink-use-majority-quotes = true
