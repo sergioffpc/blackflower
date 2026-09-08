@@ -231,6 +231,10 @@ ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic
 artifacts. Windows cross-builds are local build targets; they are outside CI. No
 application deployment or release publication pipeline exists yet.
 
+JavaScript actions in the build and CodeQL workflows use SHA-pinned releases
+declaring the Node.js 24 runtime. The separate Node.js version installed for
+source style checks follows the [style tooling policy](style-guidelines.md).
+
 The agreed reference deployment places the authoritative server on the owner's
 Dell R630 running Debian 13.6 and four concurrently rendering Windows client
 processes on the owner's Lenovo P620 running Windows 11 Pro, connected by LAN.
