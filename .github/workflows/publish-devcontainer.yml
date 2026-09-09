@@ -5,6 +5,8 @@ on:
     branches: [develop, 'feature/**']
     paths:
       - .github/workflows/publish-devcontainer.yml
+      - .dockerignore
+      - .devcontainer/image-inputs.sh
       - .devcontainer/Dockerfile
       - .devcontainer/install-system.sh
       - .devcontainer/install-tools.sh
@@ -41,9 +43,11 @@ jobs:
 
       - name: Build candidate image
         run: |
+          inputs=$(bash .devcontainer/image-inputs.sh)
           docker build -f .devcontainer/Dockerfile \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "io.blackflower.devcontainer.inputs=$inputs" \
             -t "$IMAGE:$GITHUB_SHA" .
 
       - name: Authenticate to GHCR
