@@ -67,6 +67,9 @@ if (python.length) {
     ...(write ? [] : ['--check']),
     '--config', 'tools/cooker/pyproject.toml', ...python,
   ]);
+  run(resolve(root, 'tools/cooker/.venv/bin/python'), [
+    'tools/style/python_function_size.py', ...python,
+  ]);
 }
 if (markdown.length + json.length) {
   npmTool('prettier', [write ? '--write' : '--check', ...markdown, ...json]);

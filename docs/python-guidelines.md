@@ -39,6 +39,18 @@ newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
     [development process](development-process.md). Formatting and analysis do
     not establish behavioral correctness.
 
+## Function size
+
+Function and method bodies must not exceed 40 lines after formatting, including
+blank lines but excluding docstrings and comment-only documentation lines. The
+limit applies to production code, nested functions, tests and tooling. Extract
+coherent responsibilities into named functions; do not compress statements or
+remove useful documentation to meet the limit.
+
+The repository style check enforces this rule with
+[the Python body-length checker](../tools/style/python_function_size.py).
+Violations must be resolved without suppressing the rule.
+
 ## Automated enforcement
 
 | Tool                                               | Role                                                     | Configuration and limits                                                                                                                                                                                                |
@@ -81,15 +93,15 @@ Run from the repository root, with
 ```sh
 uv sync --locked --project tools/cooker
 uv run --locked --no-sync --project tools/cooker pyink \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration
+  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker pyink --check \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration
+  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker pylint \
   --rcfile=.pylintrc tools/cooker/src/content \
-  tests/integration/content_pipeline_test.py
+  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker mypy \
   --config-file tools/cooker/pyproject.toml tools/cooker/src \
-  tests/integration/content_pipeline_test.py
+  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
 ```
 
 Then run `cmake --build --preset debug --target check` after following the

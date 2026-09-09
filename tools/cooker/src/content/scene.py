@@ -94,42 +94,47 @@ def encode(data: SceneData) -> bytes:
             len(data["spawns"]),
         )
         for collision_shape in data["collision_shapes"]:
-            encoding = (
-                "<2I3i3I"
-                if collision_shape["kind"] == CollisionShapeKind.BOX
-                else "<2I3iI"
-            )
-            result += struct.pack(
-                encoding,
-                collision_shape["kind"],
-                collision_shape["id"],
-                *collision_shape["center_mm"],
-                *collision_shape["dimensions_mm"],
-            )
+            result += _encode_collision_shape(collision_shape)
         for light in data["lights"]:
-            if light["kind"] == LightKind.POINT:
-                result += struct.pack(
-                    "<2I3i4f",
-                    light["kind"],
-                    light["id"],
-                    *light["position_mm"],
-                    *light["color"],
-                    light["intensity"],
-                )
-            else:
-                result += struct.pack(
-                    "<2I7f",
-                    light["kind"],
-                    light["id"],
-                    *light["direction"],
-                    *light["color"],
-                    light["intensity"],
-                )
+            result += _encode_light(light)
         for spawn in data["spawns"]:
             result += struct.pack("<I3i", spawn["id"], *spawn["position_mm"])
     except (struct.error, OverflowError) as error:
         raise ValueError("scene field cannot be encoded") from error
     return result
+
+
+def _encode_collision_shape(shape: CollisionShapeData) -> bytes:
+    encoding = (
+        "<2I3i3I" if shape["kind"] == CollisionShapeKind.BOX else "<2I3iI"
+    )
+    return struct.pack(
+        encoding,
+        shape["kind"],
+        shape["id"],
+        *shape["center_mm"],
+        *shape["dimensions_mm"],
+    )
+
+
+def _encode_light(light: LightData) -> bytes:
+    if light["kind"] == LightKind.POINT:
+        return struct.pack(
+            "<2I3i4f",
+            light["kind"],
+            light["id"],
+            *light["position_mm"],
+            *light["color"],
+            light["intensity"],
+        )
+    return struct.pack(
+        "<2I7f",
+        light["kind"],
+        light["id"],
+        *light["direction"],
+        *light["color"],
+        light["intensity"],
+    )
 
 
 def decode(payload: bytes) -> SceneData:
@@ -150,57 +155,60 @@ def decode(payload: bytes) -> SceneData:
     data: SceneData = {"collision_shapes": [], "lights": [], "spawns": []}
     offset = 12
     for _ in range(collision_shape_count):
-        if offset + 4 > len(payload):
-            raise ValueError("invalid collision shape record length")
-        kind = CollisionShapeKind(struct.unpack_from("<I", payload, offset)[0])
-        encoding = struct.Struct(
-            "<2I3i3I" if kind == CollisionShapeKind.BOX else "<2I3iI"
-        )
-        if offset + encoding.size > len(payload):
-            raise ValueError("invalid collision shape record length")
-        _, identity, *values = encoding.unpack_from(payload, offset)
-        data["collision_shapes"].append(
-            {
-                "kind": kind,
-                "id": identity,
-                "center_mm": values[:3],
-                "dimensions_mm": values[3:],
-            }
-        )
-        offset += encoding.size
+        shape, offset = _decode_collision_shape(payload, offset)
+        data["collision_shapes"].append(shape)
     if offset + 36 * lights + 16 * spawns != len(payload):
         raise ValueError("invalid scene length")
     for _ in range(lights):
-        light_kind = LightKind(struct.unpack_from("<I", payload, offset)[0])
-        if light_kind == LightKind.POINT:
-            _, identity, x, y, z, red, green, blue, intensity = (
-                struct.unpack_from("<2I3i4f", payload, offset)
-            )
-            data["lights"].append(
-                {
-                    "kind": LightKind.POINT,
-                    "id": identity,
-                    "position_mm": [x, y, z],
-                    "color": [red, green, blue],
-                    "intensity": intensity,
-                }
-            )
-        else:
-            _, identity, dx, dy, dz, red, green, blue, intensity = (
-                struct.unpack_from("<2I7f", payload, offset)
-            )
-            data["lights"].append(
-                {
-                    "kind": LightKind.DIRECTIONAL,
-                    "id": identity,
-                    "direction": [dx, dy, dz],
-                    "color": [red, green, blue],
-                    "intensity": intensity,
-                }
-            )
+        data["lights"].append(_decode_light(payload, offset))
         offset += 36
     for _ in range(spawns):
         identity, *position = struct.unpack_from("<I3i", payload, offset)
         data["spawns"].append({"id": identity, "position_mm": position})
         offset += 16
     return data
+
+
+def _decode_collision_shape(
+    payload: bytes, offset: int
+) -> tuple[CollisionShapeData, int]:
+    if offset + 4 > len(payload):
+        raise ValueError("invalid collision shape record length")
+    kind = CollisionShapeKind(struct.unpack_from("<I", payload, offset)[0])
+    encoding = struct.Struct(
+        "<2I3i3I" if kind == CollisionShapeKind.BOX else "<2I3iI"
+    )
+    if offset + encoding.size > len(payload):
+        raise ValueError("invalid collision shape record length")
+    _, identity, *values = encoding.unpack_from(payload, offset)
+    return {
+        "kind": kind,
+        "id": identity,
+        "center_mm": values[:3],
+        "dimensions_mm": values[3:],
+    }, offset + encoding.size
+
+
+def _decode_light(payload: bytes, offset: int) -> LightData:
+    kind = LightKind(struct.unpack_from("<I", payload, offset)[0])
+    if kind == LightKind.POINT:
+        _, identity, x, y, z, red, green, blue, intensity = struct.unpack_from(
+            "<2I3i4f", payload, offset
+        )
+        return {
+            "kind": LightKind.POINT,
+            "id": identity,
+            "position_mm": [x, y, z],
+            "color": [red, green, blue],
+            "intensity": intensity,
+        }
+    _, identity, dx, dy, dz, red, green, blue, intensity = struct.unpack_from(
+        "<2I7f", payload, offset
+    )
+    return {
+        "kind": LightKind.DIRECTIONAL,
+        "id": identity,
+        "direction": [dx, dy, dz],
+        "color": [red, green, blue],
+        "intensity": intensity,
+    }

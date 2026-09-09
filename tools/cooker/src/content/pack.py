@@ -155,7 +155,21 @@ def encode(
     manifest = (
         struct.pack("<I", len(provenance_bytes)) + provenance_bytes + record
     )
-    header = HEADER.pack(
+    header = _encode_header(payload, manifest, build_id, public_key, pack_type)
+    signature = sign(PACK_DOMAIN + header + manifest)
+    if len(signature) != 64:
+        raise ValueError("signer returned an invalid signature size")
+    return header + manifest + payload + signature
+
+
+def _encode_header(
+    payload: bytes,
+    manifest: bytes,
+    build_id: bytes,
+    public_key: bytes,
+    pack_type: PackType,
+) -> bytes:
+    return HEADER.pack(
         pack_type.value,
         1,
         1,
@@ -165,10 +179,6 @@ def encode(
         hashlib.sha256(public_key).digest(),
         build_id,
     )
-    signature = sign(PACK_DOMAIN + header + manifest)
-    if len(signature) != 64:
-        raise ValueError("signer returned an invalid signature size")
-    return header + manifest + payload + signature
 
 
 def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
@@ -185,6 +195,26 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
         ValueError: Invalid layout, identity, provenance, digest or scene.
         cryptography.exceptions.InvalidSignature: Signature verification fails.
     """
+    pack_type, manifest_size, payload_size, key_id, build_id = _decode_header(
+        data
+    )
+    payload_start = HEADER.size + manifest_size
+    transcript = _authenticate(data, payload_start, key_id, trusted_keys)
+    provenance_bytes, payload = _decode_resource(
+        data, manifest_size, payload_size
+    )
+    _validate_scene(payload, pack_type)
+    return VerifiedPack(
+        data,
+        pack_type,
+        provenance_bytes,
+        build_id,
+        hashlib.sha256(transcript).digest(),
+        payload,
+    )
+
+
+def _decode_header(data: bytes) -> tuple[PackType, int, int, bytes, bytes]:
     if len(data) < HEADER.size + 64:
         raise ValueError("invalid pack length")
     (
@@ -205,6 +235,15 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     payload_start = HEADER.size + manifest_size
     if total != len(data) or total != payload_start + payload_size + 64:
         raise ValueError("invalid pack layout")
+    return pack_type, manifest_size, payload_size, key_id, build_id
+
+
+def _authenticate(
+    data: bytes,
+    payload_start: int,
+    key_id: bytes,
+    trusted_keys: Sequence[bytes],
+) -> bytes:
     public = next(
         (
             key
@@ -219,6 +258,13 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     ed25519.Ed25519PublicKey.from_public_bytes(public).verify(
         data[-64:], transcript
     )
+    return transcript
+
+
+def _decode_resource(
+    data: bytes, manifest_size: int, payload_size: int
+) -> tuple[bytes, bytes]:
+    payload_start = HEADER.size + manifest_size
     (provenance_size,) = struct.unpack_from("<I", data, HEADER.size)
     if 4 + provenance_size + ENTRY.size != manifest_size:
         raise ValueError("invalid manifest layout")
@@ -239,16 +285,12 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     payload = data[payload_start:-64]
     if hashlib.sha256(payload).digest() != digest:
         raise ValueError("resource digest mismatch")
+    return provenance_bytes, payload
+
+
+def _validate_scene(payload: bytes, pack_type: PackType) -> None:
     decoded = scene.decode(payload)
     if (pack_type != PackType.CLIENT and decoded["lights"]) or (
         pack_type != PackType.SERVER and decoded["spawns"]
     ):
         raise ValueError("collections are incompatible with the scene type")
-    return VerifiedPack(
-        data,
-        pack_type,
-        provenance_bytes,
-        build_id,
-        hashlib.sha256(transcript).digest(),
-        payload,
-    )

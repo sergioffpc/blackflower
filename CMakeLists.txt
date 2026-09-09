@@ -95,20 +95,23 @@ if(NOT CMAKE_CROSSCOMPILING)
       --project "${PROJECT_SOURCE_DIR}/tools/cooker" mypy
       --config-file "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
       "${PROJECT_SOURCE_DIR}/tools/cooker/src"
-      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
+      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py"
+      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
   set_tests_properties(content.pipeline PROPERTIES TIMEOUT 120)
   add_test(NAME content.format
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
       --project "${PROJECT_SOURCE_DIR}/tools/cooker" pyink --check
       --config "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
       "${PROJECT_SOURCE_DIR}/tools/cooker/src"
-      "${PROJECT_SOURCE_DIR}/tests/integration")
+      "${PROJECT_SOURCE_DIR}/tests/integration"
+      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
   add_test(NAME content.lint
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
       --project "${PROJECT_SOURCE_DIR}/tools/cooker" pylint
       "--rcfile=${PROJECT_SOURCE_DIR}/.pylintrc"
       "${PROJECT_SOURCE_DIR}/tools/cooker/src/content"
-      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
+      "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py"
+      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
   set_tests_properties(content.format content.lint PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)
   include(GoogleTest)

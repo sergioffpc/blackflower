@@ -69,9 +69,22 @@ def cook(
     payloads = _encode_scenes(raw)
     provenance = pack.provenance(raw)
     build_id = pack.build_identity(provenance, list(payloads.values()))
+    return _publish(
+        output, source.stem, payloads, provenance, build_id, public_key, sign
+    )
+
+
+def _publish(
+    output: pathlib.Path,
+    stem: str,
+    payloads: dict[str, bytes],
+    provenance: bytes,
+    build_id: bytes,
+    public_key: bytes,
+    sign: Callable[[bytes], bytes],
+) -> dict[str, str]:
     output.parent.mkdir(parents=True, exist_ok=True)
-    # The final directory must be new. An exclusive reservation prevents a
-    # concurrent publisher from replacing even an empty destination directory.
+    # An exclusive reservation prevents concurrent destination replacement.
     reservation = output.with_name(output.name + ".lock")
     with reservation.open("x"):
         try:
@@ -82,42 +95,69 @@ def cook(
             ) as temporary:
                 stage = pathlib.Path(temporary) / "packs"
                 stage.mkdir()
-                for name, content in payloads.items():
-                    data = pack.encode(
-                        content,
-                        provenance,
-                        build_id,
-                        public_key,
-                        sign,
-                        pack_type=pack.PackType[name.upper()],
-                    )
-                    (stage / f"{source.stem}.bf{name}").write_bytes(data)
-                verified = {
-                    name: pack.verify(
-                        (stage / f"{source.stem}.bf{name}").read_bytes(),
-                        [public_key],
-                    )
-                    for name in payloads
-                }
-                expected = pack.build_identity(
-                    provenance, [value.payload for value in verified.values()]
+                _write_packs(
+                    stage,
+                    stem,
+                    payloads,
+                    provenance,
+                    build_id,
+                    public_key,
+                    sign,
                 )
-                if any(
-                    value.pack_type != pack.PackType[name.upper()]
-                    or value.build_id != expected
-                    or value.provenance != provenance
-                    or value.payload != payloads[name]
-                    for name, value in verified.items()
-                ):
-                    raise ValueError(
-                        "completed packs disagree on build or scene"
-                    )
-                identities = {
-                    name: value.pack_id.hex()
-                    for name, value in verified.items()
-                }
-                identities["scenario_build_id"] = expected.hex()
+                identities = _verify_staged(
+                    stage, stem, payloads, provenance, public_key
+                )
                 stage.rename(output)
                 return identities
         finally:
             reservation.unlink()
+
+
+def _write_packs(
+    stage: pathlib.Path,
+    stem: str,
+    payloads: dict[str, bytes],
+    provenance: bytes,
+    build_id: bytes,
+    public_key: bytes,
+    sign: Callable[[bytes], bytes],
+) -> None:
+    for name, payload in payloads.items():
+        data = pack.encode(
+            payload,
+            provenance,
+            build_id,
+            public_key,
+            sign,
+            pack_type=pack.PackType[name.upper()],
+        )
+        (stage / f"{stem}.bf{name}").write_bytes(data)
+
+
+def _verify_staged(
+    stage: pathlib.Path,
+    stem: str,
+    payloads: dict[str, bytes],
+    provenance: bytes,
+    public_key: bytes,
+) -> dict[str, str]:
+    verified = {
+        name: pack.verify(
+            (stage / f"{stem}.bf{name}").read_bytes(), [public_key]
+        )
+        for name in payloads
+    }
+    expected = pack.build_identity(
+        provenance, [value.payload for value in verified.values()]
+    )
+    if any(
+        value.pack_type != pack.PackType[name.upper()]
+        or value.build_id != expected
+        or value.provenance != provenance
+        or value.payload != payloads[name]
+        for name, value in verified.items()
+    ):
+        raise ValueError("completed packs disagree on build or scene")
+    identities = {name: value.pack_id.hex() for name, value in verified.items()}
+    identities["scenario_build_id"] = expected.hex()
+    return identities
