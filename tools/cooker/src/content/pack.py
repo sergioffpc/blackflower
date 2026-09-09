@@ -118,7 +118,7 @@ def build_identity(provenance_bytes: bytes, payloads: Sequence[bytes]) -> bytes:
     return hashlib.sha256(transcript).digest()
 
 
-def encode(
+def encode_and_sign(
     payload: bytes,
     provenance_bytes: bytes,
     content_build_id: bytes,
@@ -197,7 +197,7 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
         _decode_header(data)
     )
     payload_start = HEADER.size + manifest_size
-    _authenticate(data, payload_start, key_id, trusted_keys)
+    _verify_signature(data, payload_start, key_id, trusted_keys)
     provenance_bytes, payload = _decode_resource(
         data, manifest_size, payload_size
     )
@@ -234,7 +234,7 @@ def _decode_header(data: bytes) -> tuple[PackType, int, int, bytes, bytes]:
     return pack_type, manifest_size, payload_size, key_id, content_build_id
 
 
-def _authenticate(
+def _verify_signature(
     data: bytes,
     payload_start: int,
     key_id: bytes,

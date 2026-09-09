@@ -205,8 +205,8 @@ Digest Hash(std::span<const unsigned char> bytes) {
   return digest;
 }
 
-// Authenticates the original header/manifest encoding.
-std::expected<void, PackError> Authenticate(
+// Verifies the header and manifest signature against a trusted public key.
+std::expected<void, PackError> VerifySignature(
     const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
   const auto key =
       std::ranges::find_if(trusted_keys, [&layout](const auto& candidate) {
@@ -494,9 +494,9 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   if (!layout) {
     return std::unexpected(layout.error());
   }
-  const auto authenticated = Authenticate(*layout, trusted_keys);
-  if (!authenticated) {
-    return std::unexpected(authenticated.error());
+  const auto verified = VerifySignature(*layout, trusted_keys);
+  if (!verified) {
+    return std::unexpected(verified.error());
   }
   auto scene = DecodeResource(*layout);
   if (!scene) {

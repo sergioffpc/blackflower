@@ -128,7 +128,7 @@ def _write_packs(
     sign: Callable[[bytes], bytes],
 ) -> None:
     for name, payload in payloads.items():
-        data = pack.encode(
+        data = pack.encode_and_sign(
             payload,
             provenance,
             content_build_id,
