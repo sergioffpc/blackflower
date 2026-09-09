@@ -3,7 +3,8 @@
 set -euo pipefail
 
 main() {
-  local download_dir digest url
+  local download_dir digest url script_dir
+  script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
   download_dir=$(mktemp -d)
   chown _apt:root "$download_dir"
   # Capture this local value while it remains in scope.
@@ -11,10 +12,11 @@ main() {
   trap "$(printf 'rm -rf -- %q' "$download_dir")" EXIT
   while read -r digest url; do
     [[ "$digest" =~ ^[[:xdigit:]]{64}$ ]]
-    [[ "$url" == http://archive.ubuntu.com/ubuntu/pool/*.deb ||
-      "$url" == http://security.ubuntu.com/ubuntu/pool/*.deb ]]
+    [[ "$url" == https://snapshot.ubuntu.com/ubuntu/*/pool/*.deb ]]
     printf 'Downloading %s\n' "${url##*/}"
-    /usr/lib/apt/apt-helper download-file "$url" \
+    /usr/lib/apt/apt-helper \
+      -o "Acquire::https::CaInfo=${script_dir}/snapshot-ca.pem" \
+      download-file "$url" \
       "${download_dir}/${url##*/}" "SHA256:${digest}" >/dev/null
   done </opt/blackflower/system-packages.lock
 
