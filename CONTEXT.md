@@ -45,6 +45,9 @@ conversion.
 **Content pack**: The signed distribution artifact containing a coherent set of
 cooked scenario resources and their compatibility and integrity metadata.
 
+**ContentBuildId**: The shared identity of a produced set of cooked content,
+covering its source, production settings and resources across consumer scenes.
+
 **ServerScene**: The complete scenario content required by the authoritative
 server, including collision data and participant placement information.
 

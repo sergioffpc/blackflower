@@ -50,7 +50,7 @@ The MVP also requires an
 The Python cooker runs on Linux and produces portable `.bfserver`, `.bfagent`
 and `.bfclient` files. Applications select the appropriate paths. Each runtime
 verifies the pack's integrity and resource-schema compatibility before creating
-worlds; admission compares the proposed common scenario build identity. Pack v1
+worlds; admission compares the proposed common content build identity. Pack v1
 fixes SHA-256 and Ed25519. Python uses cryptography 46.0.5 and usd-core 26.8 in
 a uv-locked environment; the C++ loader uses libsodium 1.0.22#1.
 [ADR-0007](adr/0007-minimal-pack-format-and-trust.md) records the primitive

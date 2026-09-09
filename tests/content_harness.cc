@@ -122,8 +122,7 @@ void PrintScene(const T& value) {
 
 // Emits prepared values consumed by the integration driver.
 void PrintContent(const blackflower::content::VerifiedPack& pack) {
-  std::cout << "{\"pack_id\":\"" << Hex(pack.pack_id())
-            << "\",\"scenario_build_id\":\"" << Hex(pack.scenario_build_id())
+  std::cout << "{\"content_build_id\":\"" << Hex(pack.content_build_id())
             << '\"';
   std::visit([](const auto& value) { PrintScene(value); }, pack.scene());
   std::cout << "}\n";

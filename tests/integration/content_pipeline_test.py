@@ -132,8 +132,9 @@ class ContentPipelineTest(unittest.TestCase):
         verified = pack.verify(data, [public])
         self.assertEqual(verified.pack_type, pack.PackType[name.upper()])
         self.assertEqual(verified.payload.hex(), reference["scenes"][name])
-        self.assertEqual(verified.pack_id.hex(), reference["pack_ids"][name])
-        self.assertEqual(verified.build_id.hex(), reference["build_id"])
+        self.assertEqual(
+            verified.content_build_id.hex(), reference["content_build_id"]
+        )
         (work / f"reference.bf{name}").write_bytes(data)
         result = subprocess.run(
             _harness_command(work / f"reference.bf{name}", work / "public.key"),
@@ -144,8 +145,9 @@ class ContentPipelineTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         content = json.loads(result.stdout)
         self.assertEqual(content["scene_type"], name)
-        self.assertEqual(content["pack_id"], reference["pack_ids"][name])
-        self.assertEqual(content["scenario_build_id"], reference["build_id"])
+        self.assertEqual(
+            content["content_build_id"], reference["content_build_id"]
+        )
 
     def test_cooked_pack_preserves_authored_scene(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -207,10 +209,9 @@ class ContentPipelineTest(unittest.TestCase):
         self.assertEqual(content["scene_type"], name)
         self._check_collision_shapes(content)
         self._check_placements(content, name)
-        self.assertEqual(content["pack_id"], identities[name])
         self.assertEqual(
-            content["scenario_build_id"],
-            identities["scenario_build_id"],
+            content["content_build_id"],
+            identities["content_build_id"],
         )
 
     def _check_collision_shapes(self, content: dict[str, Any]) -> None:

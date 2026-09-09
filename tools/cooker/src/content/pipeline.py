@@ -51,8 +51,7 @@ def cook(
         sign: Callback accepting transcript bytes and returning a signature.
 
     Returns:
-        Server, agent, client and scenario build digests as hexadecimal
-        strings.
+        The common content build digest as a hexadecimal string in JSON data.
 
     Raises:
         ValueError: The source, destination or completed pack set is invalid.
@@ -68,9 +67,15 @@ def cook(
         raw = stream.read()
     payloads = _encode_scenes(raw)
     provenance = pack.provenance(raw)
-    build_id = pack.build_identity(provenance, list(payloads.values()))
+    content_build_id = pack.build_identity(provenance, list(payloads.values()))
     return _publish(
-        output, source.stem, payloads, provenance, build_id, public_key, sign
+        output,
+        source.stem,
+        payloads,
+        provenance,
+        content_build_id,
+        public_key,
+        sign,
     )
 
 
@@ -79,7 +84,7 @@ def _publish(
     stem: str,
     payloads: dict[str, bytes],
     provenance: bytes,
-    build_id: bytes,
+    content_build_id: bytes,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
 ) -> dict[str, str]:
@@ -100,7 +105,7 @@ def _publish(
                     stem,
                     payloads,
                     provenance,
-                    build_id,
+                    content_build_id,
                     public_key,
                     sign,
                 )
@@ -118,7 +123,7 @@ def _write_packs(
     stem: str,
     payloads: dict[str, bytes],
     provenance: bytes,
-    build_id: bytes,
+    content_build_id: bytes,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
 ) -> None:
@@ -126,7 +131,7 @@ def _write_packs(
         data = pack.encode(
             payload,
             provenance,
-            build_id,
+            content_build_id,
             public_key,
             sign,
             pack_type=pack.PackType[name.upper()],
@@ -152,12 +157,10 @@ def _verify_staged(
     )
     if any(
         value.pack_type != pack.PackType[name.upper()]
-        or value.build_id != expected
+        or value.content_build_id != expected
         or value.provenance != provenance
         or value.payload != payloads[name]
         for name, value in verified.items()
     ):
         raise ValueError("completed packs disagree on build or scene")
-    identities = {name: value.pack_id.hex() for name, value in verified.items()}
-    identities["scenario_build_id"] = expected.hex()
-    return identities
+    return {"content_build_id": expected.hex()}

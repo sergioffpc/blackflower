@@ -50,14 +50,13 @@ uv run --project tools/cooker --locked --no-sync blackflower-cooker cook \
 ```
 
 The output directory must not exist. Success produces `.bfserver`, `.bfagent`
-and `.bfclient` files named after the source stem and prints their `server`,
-`agent` and `client` PackIds and common `scenario_build_id` as JSON. All
-finished files are reopened and verified before the set is published. Failure
-exits nonzero with a concrete console error. Existing output is preserved; use a
-new directory for a recook. A sibling `.lock` file coordinates publishers. If a
-process is killed, confirm it is no longer active before removing its stale lock
-or private staging data. No power-loss durability or network-filesystem
-transaction guarantee is made.
+and `.bfclient` files named after the source stem and prints their common
+`content_build_id` as JSON. All finished files are reopened and verified before
+the set is published. Failure exits nonzero with a concrete console error.
+Existing output is preserved; use a new directory for a recook. A sibling
+`.lock` file coordinates publishers. If a process is killed, confirm it is no
+longer active before removing its stale lock or private staging data. No
+power-loss durability or network-filesystem transaction guarantee is made.
 
 Run the C++ harness with an independently provisioned raw 32-byte public key:
 

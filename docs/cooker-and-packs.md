@@ -193,14 +193,13 @@ extensions are `.bfserver`, `.bfagent` and `.bfclient`.
 
 ## Scenario compatibility
 
-`PackId` identifies the signed artifact. Its header also contains a
-`ScenarioBuildId`, derived from source and settings provenance and all three
-packs' cooked resource summaries in server/agent/client order. Signatures, final
-`PackId` values and the build identifier itself are excluded from the build
+Each pack header contains a `ContentBuildId`, derived from source and settings
+provenance and all three packs' cooked resource summaries in server/agent/client
+order. Signatures and the build identifier itself are excluded from the build
 transcript. The exact encoding is specified in pack v1.
 
-Admission compares `ScenarioBuildId`; signing-key changes need not change the
-scenario build identity. The loader validates resource schemas and authenticates
+Admission compares `ContentBuildId`; signing-key changes need not change the
+content build identity. The loader validates resource schemas and authenticates
 the build identity. The cooker recomputes it before publication. Rejecting peers
 with a different build remains a subsequent admission responsibility. Scene
 revision alone does not identify the complete build.
@@ -216,10 +215,10 @@ Production executable provisioning and rotation remain future deployment
 choices. Automated tests use disposable signing keys; only public keys and
 signed reference artifacts are committed.
 
-| Logical contract | Input                                                                              | Output and owner                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Cook content     | `CookRequest`: source set, scene definition, pinned tool settings                  | Three `CookedContentSet` values and a common build description, owned by the offline cooker. |
-| Package/sign     | Cooked resources, canonical manifest with `ScenarioBuildId`, signing configuration | Three signed artifacts and their verification results, owned by packaging.                   |
+| Logical contract | Input                                                                             | Output and owner                                                                             |
+| ---------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Cook content     | `CookRequest`: source set, scene definition, pinned tool settings                 | Three `CookedContentSet` values and a common build description, owned by the offline cooker. |
+| Package/sign     | Cooked resources, canonical manifest with `ContentBuildId`, signing configuration | Three signed artifacts and their verification results, owned by packaging.                   |
 
 Publish the set only after verification of all signatures, the common build
 identity and scene values. A failed cook or signing step must not publish

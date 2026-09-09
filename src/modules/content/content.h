@@ -147,7 +147,7 @@ struct ClientScene {
 using Scene = std::variant<ServerScene, AgentScene, ClientScene>;
 
 // Owns authenticated bytes and the structurally validated scene decoded from
-// them. Accessor references and views borrow this object's storage; do not
+// them. Accessor references borrow this object's storage; do not
 // retain them across destruction, assignment, or moving the pack.
 class VerifiedPack {
  public:
@@ -163,14 +163,9 @@ class VerifiedPack {
 
   [[nodiscard]] const Scene& scene() const { return scene_; }
 
-  // Identifies this signed artifact.
-  [[nodiscard]] const Digest& pack_id() const { return pack_id_; }
-
   // Authenticated identity of the source, settings and cooked resources.
-  [[nodiscard]] const Digest& scenario_build_id() const { return build_id_; }
-
-  [[nodiscard]] std::span<const unsigned char> bytes() const {
-    return {data_.get(), data_ ? size_ : 0};
+  [[nodiscard]] const Digest& content_build_id() const {
+    return content_build_id_;
   }
 
  private:
@@ -183,10 +178,8 @@ class VerifiedPack {
       std::span<const PublicKey> trusted_keys);
 
   std::shared_ptr<const unsigned char> data_;
-  std::size_t size_ = 0;
   Scene scene_;
-  Digest pack_id_{};
-  Digest build_id_{};
+  Digest content_build_id_{};
 };
 
 // Maps a file read-only and verifies it without copying the complete artifact.

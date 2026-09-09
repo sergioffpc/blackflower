@@ -39,19 +39,15 @@ class VerifiedPack:
     """An authenticated pack with a validated primitive scene.
 
     Attributes:
-        data: Complete signed pack bytes.
         pack_type: Concrete file type authenticated by its magic.
         provenance: Authenticated source, settings and toolchain provenance.
-        build_id: Scenario build digest.
-        pack_id: Digest of the signed transcript.
+        content_build_id: Content build digest.
         payload: Validated scene bytes.
     """
 
-    data: bytes
     pack_type: PackType
     provenance: bytes
-    build_id: bytes
-    pack_id: bytes
+    content_build_id: bytes
     payload: bytes
 
 
@@ -113,7 +109,7 @@ def build_identity(provenance_bytes: bytes, payloads: Sequence[bytes]) -> bytes:
         payloads: Encoded scene resources in server, agent then client order.
 
     Returns:
-        The SHA-256 digest of the canonical scenario build transcript.
+        The SHA-256 digest of the canonical content build transcript.
     """
     transcript = BUILD_DOMAIN + provenance_bytes
     for payload in payloads:
@@ -125,7 +121,7 @@ def build_identity(provenance_bytes: bytes, payloads: Sequence[bytes]) -> bytes:
 def encode(
     payload: bytes,
     provenance_bytes: bytes,
-    build_id: bytes,
+    content_build_id: bytes,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
     *,
@@ -137,7 +133,7 @@ def encode(
         payload: Encoded primitive scene.
         pack_type: File type whose magic identifies the concrete scene contract.
         provenance_bytes: Canonical provenance record.
-        build_id: Scenario build digest.
+        content_build_id: Content build digest.
         public_key: Raw Ed25519 public key identifying the signer.
         sign: Callback accepting transcript bytes and returning a signature.
 
@@ -155,7 +151,9 @@ def encode(
     manifest = (
         struct.pack("<I", len(provenance_bytes)) + provenance_bytes + record
     )
-    header = _encode_header(payload, manifest, build_id, public_key, pack_type)
+    header = _encode_header(
+        payload, manifest, content_build_id, public_key, pack_type
+    )
     signature = sign(PACK_DOMAIN + header + manifest)
     if len(signature) != 64:
         raise ValueError("signer returned an invalid signature size")
@@ -165,7 +163,7 @@ def encode(
 def _encode_header(
     payload: bytes,
     manifest: bytes,
-    build_id: bytes,
+    content_build_id: bytes,
     public_key: bytes,
     pack_type: PackType,
 ) -> bytes:
@@ -177,7 +175,7 @@ def _encode_header(
         len(manifest),
         len(payload),
         hashlib.sha256(public_key).digest(),
-        build_id,
+        content_build_id,
     )
 
 
@@ -195,21 +193,19 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
         ValueError: Invalid layout, identity, provenance, digest or scene.
         cryptography.exceptions.InvalidSignature: Signature verification fails.
     """
-    pack_type, manifest_size, payload_size, key_id, build_id = _decode_header(
-        data
+    pack_type, manifest_size, payload_size, key_id, content_build_id = (
+        _decode_header(data)
     )
     payload_start = HEADER.size + manifest_size
-    transcript = _authenticate(data, payload_start, key_id, trusted_keys)
+    _authenticate(data, payload_start, key_id, trusted_keys)
     provenance_bytes, payload = _decode_resource(
         data, manifest_size, payload_size
     )
     _validate_scene(payload, pack_type)
     return VerifiedPack(
-        data,
         pack_type,
         provenance_bytes,
-        build_id,
-        hashlib.sha256(transcript).digest(),
+        content_build_id,
         payload,
     )
 
@@ -225,7 +221,7 @@ def _decode_header(data: bytes) -> tuple[PackType, int, int, bytes, bytes]:
         manifest_size,
         payload_size,
         key_id,
-        build_id,
+        content_build_id,
     ) = HEADER.unpack_from(data)
     pack_type = PackType(magic)
     if version != 1:
@@ -235,7 +231,7 @@ def _decode_header(data: bytes) -> tuple[PackType, int, int, bytes, bytes]:
     payload_start = HEADER.size + manifest_size
     if total != len(data) or total != payload_start + payload_size + 64:
         raise ValueError("invalid pack layout")
-    return pack_type, manifest_size, payload_size, key_id, build_id
+    return pack_type, manifest_size, payload_size, key_id, content_build_id
 
 
 def _authenticate(
@@ -243,7 +239,7 @@ def _authenticate(
     payload_start: int,
     key_id: bytes,
     trusted_keys: Sequence[bytes],
-) -> bytes:
+) -> None:
     public = next(
         (
             key
@@ -258,7 +254,6 @@ def _authenticate(
     ed25519.Ed25519PublicKey.from_public_bytes(public).verify(
         data[-64:], transcript
     )
-    return transcript
 
 
 def _decode_resource(

@@ -28,6 +28,12 @@ sources and distinguishes each tool's coverage from review obligations.
 [google-shell]: https://google.github.io/styleguide/shellguide.html
 [research]: research/google-style-enforcement.md
 
+## Public interfaces
+
+Keep public interfaces minimal. Expose operations only when a current consumer
+needs them; keep implementation details private. Tests should exercise the
+supported contract rather than require extra public accessors.
+
 ## Error contracts
 
 Project-owned errors must be enums or class instances, never raw strings,

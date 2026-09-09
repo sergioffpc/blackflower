@@ -133,7 +133,7 @@ struct PackLayout {
   std::span<const unsigned char> manifest;
   std::span<const unsigned char> payload;
   std::span<const unsigned char> key_id;
-  std::span<const unsigned char> build_id;
+  std::span<const unsigned char> content_build_id;
   std::span<const unsigned char> signed_bytes;
   std::span<const unsigned char> signature;
 };
@@ -186,14 +186,14 @@ std::expected<PackLayout, PackError> DecodeLayout(
     return std::unexpected(PackError::kInvalidLayout);
   }
   const auto key_id = header.Take(kDigestSize);
-  const auto build_id = header.Take(kDigestSize);
+  const auto content_build_id = header.Take(kDigestSize);
   const auto payload_start =
       kHeaderSize + static_cast<std::size_t>(manifest_size);
   return PackLayout{.scene_kind = *compatible,
                     .manifest = bytes.subspan(kHeaderSize, manifest_size),
                     .payload = bytes.subspan(payload_start, payload_size),
                     .key_id = key_id,
-                    .build_id = build_id,
+                    .content_build_id = content_build_id,
                     .signed_bytes = bytes.first(payload_start),
                     .signature = bytes.last(kSignatureSize)};
 }
@@ -205,8 +205,8 @@ Digest Hash(std::span<const unsigned char> bytes) {
   return digest;
 }
 
-// Authenticates the original header/manifest encoding and returns its PackId.
-std::expected<Digest, PackError> Authenticate(
+// Authenticates the original header/manifest encoding.
+std::expected<void, PackError> Authenticate(
     const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
   const auto key =
       std::ranges::find_if(trusted_keys, [&layout](const auto& candidate) {
@@ -225,7 +225,7 @@ std::expected<Digest, PackError> Authenticate(
                                   transcript.size(), key->data()) != 0) {
     return std::unexpected(PackError::kInvalidSignature);
   }
-  return Hash(transcript);
+  return {};
 }
 
 std::expected<Box, PackError> DecodeBox(Reader& reader) {
@@ -494,9 +494,9 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   if (!layout) {
     return std::unexpected(layout.error());
   }
-  const auto pack_id = Authenticate(*layout, trusted_keys);
-  if (!pack_id) {
-    return std::unexpected(pack_id.error());
+  const auto authenticated = Authenticate(*layout, trusted_keys);
+  if (!authenticated) {
+    return std::unexpected(authenticated.error());
   }
   auto scene = DecodeResource(*layout);
   if (!scene) {
@@ -504,10 +504,8 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   }
   VerifiedPack result;
   result.scene_ = std::move(*scene);
-  result.pack_id_ = *pack_id;
-  std::ranges::copy(layout->build_id, result.build_id_.begin());
+  std::ranges::copy(layout->content_build_id, result.content_build_id_.begin());
   result.data_ = std::move(data);
-  result.size_ = size;
   return result;
 }
 

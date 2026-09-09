@@ -158,7 +158,7 @@ and C++ implementations consume that specification and common vectors under
 
 Conformance checks must have Python produce a signed pack that the C++ loader
 accepts, and have both implementations agree on canonical bytes, payload hashes,
-and scenario build identity. Each staged runtime receives the files it needs and
+and content build identity. Each staged runtime receives the files it needs and
 its independently provisioned trust set. Production signing private keys never
 enter this tree. Disposable test material must be clearly identified and cannot
 become the runtime trust set.

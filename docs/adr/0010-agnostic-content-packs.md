@@ -15,7 +15,7 @@ millimetres; runtime adapters create SDK resources from the portable
 definitions.
 
 [Pack v1](../../schemas/pack/v1.md) defines `.bfserver`, `.bfagent` and
-`.bfclient` publication and their common scenario build identity. Autonomous
+`.bfclient` publication and their common content build identity. Autonomous
 participants will connect and send inputs through the client protocol. Only
 their content is prepared here; their runtime and model-driven control are not
 defined.

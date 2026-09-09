@@ -78,15 +78,15 @@ applies to every active state.
 Transport connection and gameplay admission are distinct. A connected peer is
 not yet a participant.
 
-| Peer state | Gate and effect                                                                                                                                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pending    | The external transport supplies connection status and decoded admission data. Compare the client's verified `ScenarioBuildId` with the server's configured scenario build identity before participant creation. No gameplay commands are accepted yet. |
-| Admitting  | `UpdateParticipants` checks capacity and stages a free predefined spawn. Count pending spawn reservations toward the four-slot limit. Complete any requested physics membership/spawn work externally before committing membership.                    |
-| Active     | Export admission success only after participant creation succeeds, together with the initial authoritative baseline. The participant can interact immediately without waiting for others.                                                              |
-| Removing   | Explicit disconnect or communication expiry becomes a prepared `PeerChange`. Remove participant state, histories, and physics membership; release the slot and spawn reservation once removal completes. Remaining participants continue.              |
-| Closed     | Discard old connection data and late results. A later connection gets a new participant identity and a new free predefined spawn.                                                                                                                      |
+| Peer state | Gate and effect                                                                                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pending    | The external transport supplies connection status and decoded admission data. Compare the client's verified `ContentBuildId` with the server's configured content build identity before participant creation. No gameplay commands are accepted yet. |
+| Admitting  | `UpdateParticipants` checks capacity and stages a free predefined spawn. Count pending spawn reservations toward the four-slot limit. Complete any requested physics membership/spawn work externally before committing membership.                  |
+| Active     | Export admission success only after participant creation succeeds, together with the initial authoritative baseline. The participant can interact immediately without waiting for others.                                                            |
+| Removing   | Explicit disconnect or communication expiry becomes a prepared `PeerChange`. Remove participant state, histories, and physics membership; release the slot and spawn reservation once removal completes. Remaining participants continue.            |
+| Closed     | Discard old connection data and late results. A later connection gets a new participant identity and a new free predefined spawn.                                                                                                                    |
 
-Reject a fifth admission with `server full`; reject a different scenario build
+Reject a fifth admission with `server full`; reject a different content build
 with a content-mismatch reason. The external adapter transmits rejection and
 closes the connection. A failed or abandoned admission releases its reservation
 through the same removal path. Propose a separate five-second server-side
@@ -186,7 +186,7 @@ creating worlds:
 Reject missing packs, unknown keys, invalid signatures/hashes, truncation,
 unsupported required variants, or inconsistent scene data. No fallback to
 unsigned packs or loose source files is permitted. Matching the signed
-`ScenarioBuildId` between peers during admission is a proposed compatibility
+`ContentBuildId` between peers during admission is a proposed compatibility
 check, not remote attestation of a client process.
 
 | Logical contract  | Input                                            | Output and owner                                                   |
@@ -196,11 +196,11 @@ check, not remote attestation of a client process.
 | Initialize worlds | Validated scene/rule values and content identity | Initial ECS state; no file, signature, decoder, or SDK operation.  |
 
 `RuntimeContent` supplies the `SceneDefinition` and resource identities in the
-phase contracts. Worlds receive the local `PackId` and common `ScenarioBuildId`
-as configuration data; `SceneRevision` labels geometry compatibility. Bootstrap
-is application orchestration, not an extra ECS phase. Observers, hooks, and
-destructors invoked inside ECS must also respect the no-I/O boundary throughout
-startup and teardown.
+phase contracts. Worlds receive the common `ContentBuildId` as configuration
+data; `SceneRevision` labels geometry compatibility. Bootstrap is application
+orchestration, not an extra ECS phase. Observers, hooks, and destructors invoked
+inside ECS must also respect the no-I/O boundary throughout startup and
+teardown.
 
 ## Ordered shutdown and failure
 
@@ -243,8 +243,8 @@ exercise real integrations on Linux and Windows:
 -   Inject failure/cancellation at each startup stage and confirm no later stage
     runs and all acquired resources are released once.
 -   Reject invalid packs before world creation and server listening; reject
-    mismatched scenario builds before participant creation. Accept peers whose
-    authenticated scenario build identities match.
+    mismatched content builds before participant creation. Accept peers whose
+    authenticated content build identities match.
 -   Delay admission/baseline stages and confirm the client uses one five-second
     connection deadline. Verify no gameplay command or prediction movement
     occurs before a usable baseline.
