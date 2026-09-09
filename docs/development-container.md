@@ -152,13 +152,17 @@ additional Debian packages by URL and SHA-256, including LLVM 21, libstdc++,
 libc, CMake, Ninja, sccache, and Python. This closure was resolved against
 authenticated Ubuntu indexes on 2026-09-08. Image construction verifies these
 exact files and installs them locally after removing live APT sources. It never
-resolves package versions from a current package index. Missing files and hash
-mismatches fail construction.
+resolves package versions from a current package index. If a locked download
+fails, the installer retries the same package path through Ubuntu's US archive
+with the same SHA-256 check. This handles archive replicas that temporarily
+disagree about package availability. Construction fails if neither location
+supplies the hash-verified file.
 
 The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
-that use the `bwrap` executable. These additions have verified package hashes
-and an executable version check; a full image rebuild and offline validation
-remain pending.
+that use the `bwrap` executable. These additions have verified package hashes,
+an executable version check, and a successful
+[image rebuild](validation/development-container.md#archive-download-fallback).
+Offline native validation for these additions remains pending.
 
 The lock includes GitHub CLI (`gh`) 2.46.0-4 from Ubuntu for the repository's
 issue and pull-request workflow. Image construction runs `gh --version` to

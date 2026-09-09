@@ -3,7 +3,7 @@
 set -euo pipefail
 
 main() {
-  local download_dir digest url
+  local download_dir digest url fallback_url
   download_dir=$(mktemp -d)
   chown _apt:root "$download_dir"
   # Capture this local value while it remains in scope.
@@ -14,8 +14,15 @@ main() {
     [[ "$url" == http://archive.ubuntu.com/ubuntu/pool/*.deb ||
       "$url" == http://security.ubuntu.com/ubuntu/pool/*.deb ]]
     printf 'Downloading %s\n' "${url##*/}"
-    /usr/lib/apt/apt-helper download-file "$url" \
-      "${download_dir}/${url##*/}" "SHA256:${digest}" >/dev/null
+    if ! /usr/lib/apt/apt-helper download-file "$url" \
+      "${download_dir}/${url##*/}" "SHA256:${digest}" >/dev/null; then
+      # Archive replicas can disagree during synchronization. Retry the same
+      # package through Ubuntu's US archive, retaining the locked digest.
+      fallback_url="http://us.archive.ubuntu.com/ubuntu/${url#*/ubuntu/}"
+      printf 'Retrying download from %s\n' "$fallback_url" >&2
+      /usr/lib/apt/apt-helper download-file "$fallback_url" \
+        "${download_dir}/${url##*/}" "SHA256:${digest}" >/dev/null
+    fi
   done </opt/blackflower/system-packages.lock
 
   # Only local, hash-verified files can satisfy installation. The base image
