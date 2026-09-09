@@ -47,6 +47,13 @@ change; use an ADR for a lasting architectural trade-off.
 | Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                       |
 | Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                   |
 
+## Function organization
+
+Within a module, group callers with the helpers they invoke and keep related
+call paths together. Place shared helpers near their consumer group. Source
+order does not guarantee instruction-cache locality; establish performance
+effects from the compiled program and representative measurements.
+
 ## Aggregate initialization
 
 Use designated initializers when supplying field values to aggregate structs.

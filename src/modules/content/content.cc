@@ -39,6 +39,15 @@ constexpr std::size_t kResourceRecordSize =
 constexpr std::size_t kManifestFixedSize =
     sizeof(std::uint32_t) + kResourceRecordSize;
 constexpr char kPackDomain[] = "Blackflower.Pack.v1";
+constexpr std::uint32_t kSceneResourceId = 1;
+constexpr std::uint32_t kSceneSchemaVersion = 1;
+constexpr std::uint32_t kReservedResourceValue = 0;
+constexpr std::uint64_t kSingleResourceOffset = 0;
+
+enum class ResourceType : std::uint8_t {
+  // Geometry, light and spawn collections encoded by the scene schema.
+  kScene = 1
+};
 
 // Borrows little-endian encoded storage. Checked scene reads return typed
 // errors; pack metadata readers check completion through done().
@@ -103,185 +112,6 @@ class Reader {
   bool valid_ = true;
 };
 
-// Computes SHA-256 over the exact bytes, without canonicalizing the input.
-Digest Hash(std::span<const unsigned char> bytes) {
-  Digest digest{};
-  crypto_hash_sha256(digest.data(), bytes.data(), bytes.size());
-  return digest;
-}
-
-// Checks the provenance encoding from pack v1, not the claims made by its text.
-bool ValidProvenance(std::span<const unsigned char> bytes) {
-  Reader reader(bytes);
-  // Source and settings hashes are authenticated opaque values.
-  reader.Take(2 * kDigestSize);
-  for (int i = 0; i < 5; ++i) {
-    const auto size = reader.U32();
-    if (size == 0) {
-      return false;
-    }
-    const auto text = reader.Take(size);
-    if (text.size() != size || !std::ranges::all_of(text, [](unsigned char c) {
-          return c >= 32 && c <= 126;
-        })) {
-      return false;
-    }
-  }
-  return reader.done();
-}
-
-std::expected<Box, PackError> DecodeBox(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  const auto center = reader.ReadArray<std::int32_t, 3>();
-  if (!center) {
-    return std::unexpected(center.error());
-  }
-  const auto size = reader.ReadArray<std::uint32_t, 3>();
-  if (!size) {
-    return std::unexpected(size.error());
-  }
-  return Box{.id = *id, .center_mm = *center, .size_mm = *size};
-}
-
-std::expected<Spawn, PackError> DecodeSpawn(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  const auto position = reader.ReadArray<std::int32_t, 3>();
-  if (!position) {
-    return std::unexpected(position.error());
-  }
-  return Spawn{.id = *id, .position_mm = *position};
-}
-
-std::expected<Sphere, PackError> DecodeSphere(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  const auto center = reader.ReadArray<std::int32_t, 3>();
-  if (!center) {
-    return std::unexpected(center.error());
-  }
-  const auto radius = reader.Read<std::uint32_t>();
-  if (!radius) {
-    return std::unexpected(radius.error());
-  }
-  return Sphere{.id = *id, .center_mm = *center, .radius_mm = *radius};
-}
-
-template <typename T>
-std::expected<T, PackError> DecodeLightBody(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  using Coordinate =
-      std::conditional_t<std::same_as<T, PointLight>, std::int32_t, float>;
-  const auto coordinates = reader.ReadArray<Coordinate, 3>();
-  if (!coordinates) {
-    return std::unexpected(coordinates.error());
-  }
-  const auto color = reader.ReadArray<float, 3>();
-  if (!color) {
-    return std::unexpected(color.error());
-  }
-  const auto intensity = reader.Read<float>();
-  if (!intensity) {
-    return std::unexpected(intensity.error());
-  }
-  T light;
-  light.id = *id;
-  if constexpr (std::same_as<T, PointLight>) {
-    light.position_mm = *coordinates;
-  } else {
-    light.direction = *coordinates;
-  }
-  light.color = *color;
-  light.intensity = *intensity;
-  return light;
-}
-
-std::expected<Geometry, PackError> DecodeGeometry(Reader& reader) {
-  const auto kind = reader.Read<std::uint32_t>();
-  if (!kind) {
-    return std::unexpected(kind.error());
-  }
-  switch (static_cast<GeometryKind>(*kind)) {
-    case GeometryKind::kBox:
-      return DecodeBox(reader);
-    case GeometryKind::kSphere:
-      return DecodeSphere(reader);
-  }
-  return std::unexpected(PackError::kUnsupportedGeometry);
-}
-
-std::expected<Light, PackError> DecodeLight(Reader& reader) {
-  const auto kind = reader.Read<std::uint32_t>();
-  if (!kind) {
-    return std::unexpected(kind.error());
-  }
-  switch (static_cast<LightKind>(*kind)) {
-    case LightKind::kPoint:
-      return DecodeLightBody<PointLight>(reader);
-    case LightKind::kDirectional:
-      return DecodeLightBody<DirectionalLight>(reader);
-  }
-  return std::unexpected(PackError::kUnsupportedLight);
-}
-
-// Allocate only after successfully decoding records, not from an unchecked
-// count.
-template <typename T, typename Decoder>
-std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
-                                                          std::uint32_t count,
-                                                          Decoder decode) {
-  std::vector<T> values;
-  for (std::uint32_t i = 0; i < count; ++i) {
-    auto value = decode(reader);
-    if (!value) {
-      return std::unexpected(value.error());
-    }
-    values.push_back(std::move(*value));
-  }
-  return values;
-}
-
-// Reading each field validates structure; geometry and gameplay rules belong
-// to consumers. No partial scene escapes on failure.
-std::expected<Scene, PackError> DecodeScene(
-    std::span<const unsigned char> bytes) {
-  Reader reader(bytes);
-  const auto counts = reader.ReadArray<std::uint32_t, 3>();
-  if (!counts) {
-    return std::unexpected(counts.error());
-  }
-  const auto [geometry_count, light_count, spawn_count] = *counts;
-  auto geometries =
-      DecodeCollection<Geometry>(reader, geometry_count, DecodeGeometry);
-  if (!geometries) {
-    return std::unexpected(geometries.error());
-  }
-  auto lights = DecodeCollection<Light>(reader, light_count, DecodeLight);
-  if (!lights) {
-    return std::unexpected(lights.error());
-  }
-  auto spawns = DecodeCollection<Spawn>(reader, spawn_count, DecodeSpawn);
-  if (!spawns) {
-    return std::unexpected(spawns.error());
-  }
-  if (!reader.done()) {
-    return std::unexpected(PackError::kInvalidSceneLength);
-  }
-  return Scene{.geometries = std::move(*geometries),
-               .lights = std::move(*lights),
-               .spawns = std::move(*spawns)};
-}
-
 // Views borrow the input artifact; ranges have been checked against its size.
 struct PackLayout {
   std::span<const unsigned char> manifest;
@@ -345,6 +175,13 @@ std::expected<PackLayout, PackError> DecodeLayout(
                     .signature = bytes.last(kSignatureSize)};
 }
 
+// Computes SHA-256 over the exact bytes, without canonicalizing the input.
+Digest Hash(std::span<const unsigned char> bytes) {
+  Digest digest{};
+  crypto_hash_sha256(digest.data(), bytes.data(), bytes.size());
+  return digest;
+}
+
 // Authenticates the original header/manifest encoding and returns its PackId.
 std::expected<Digest, PackError> Authenticate(
     const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
@@ -368,6 +205,204 @@ std::expected<Digest, PackError> Authenticate(
   return Hash(transcript);
 }
 
+std::expected<Box, PackError> DecodeBox(Reader& reader) {
+  const auto id = reader.Read<std::uint32_t>();
+  if (!id) {
+    return std::unexpected(id.error());
+  }
+  const auto center = reader.ReadArray<std::int32_t, 3>();
+  if (!center) {
+    return std::unexpected(center.error());
+  }
+  const auto size = reader.ReadArray<std::uint32_t, 3>();
+  if (!size) {
+    return std::unexpected(size.error());
+  }
+  return Box{.id = *id, .center_mm = *center, .size_mm = *size};
+}
+
+std::expected<Sphere, PackError> DecodeSphere(Reader& reader) {
+  const auto id = reader.Read<std::uint32_t>();
+  if (!id) {
+    return std::unexpected(id.error());
+  }
+  const auto center = reader.ReadArray<std::int32_t, 3>();
+  if (!center) {
+    return std::unexpected(center.error());
+  }
+  const auto radius = reader.Read<std::uint32_t>();
+  if (!radius) {
+    return std::unexpected(radius.error());
+  }
+  return Sphere{.id = *id, .center_mm = *center, .radius_mm = *radius};
+}
+
+std::expected<Geometry, PackError> DecodeGeometry(Reader& reader) {
+  const auto kind = reader.Read<std::uint32_t>();
+  if (!kind) {
+    return std::unexpected(kind.error());
+  }
+  switch (static_cast<GeometryKind>(*kind)) {
+    case GeometryKind::kBox:
+      return DecodeBox(reader);
+    case GeometryKind::kSphere:
+      return DecodeSphere(reader);
+  }
+  return std::unexpected(PackError::kUnsupportedGeometry);
+}
+
+template <typename T>
+std::expected<T, PackError> DecodeLightBody(Reader& reader) {
+  const auto id = reader.Read<std::uint32_t>();
+  if (!id) {
+    return std::unexpected(id.error());
+  }
+  using Coordinate =
+      std::conditional_t<std::same_as<T, PointLight>, std::int32_t, float>;
+  const auto coordinates = reader.ReadArray<Coordinate, 3>();
+  if (!coordinates) {
+    return std::unexpected(coordinates.error());
+  }
+  const auto color = reader.ReadArray<float, 3>();
+  if (!color) {
+    return std::unexpected(color.error());
+  }
+  const auto intensity = reader.Read<float>();
+  if (!intensity) {
+    return std::unexpected(intensity.error());
+  }
+  T light;
+  light.id = *id;
+  if constexpr (std::same_as<T, PointLight>) {
+    light.position_mm = *coordinates;
+  } else {
+    light.direction = *coordinates;
+  }
+  light.color = *color;
+  light.intensity = *intensity;
+  return light;
+}
+
+std::expected<Light, PackError> DecodeLight(Reader& reader) {
+  const auto kind = reader.Read<std::uint32_t>();
+  if (!kind) {
+    return std::unexpected(kind.error());
+  }
+  switch (static_cast<LightKind>(*kind)) {
+    case LightKind::kPoint:
+      return DecodeLightBody<PointLight>(reader);
+    case LightKind::kDirectional:
+      return DecodeLightBody<DirectionalLight>(reader);
+  }
+  return std::unexpected(PackError::kUnsupportedLight);
+}
+
+std::expected<Spawn, PackError> DecodeSpawn(Reader& reader) {
+  const auto id = reader.Read<std::uint32_t>();
+  if (!id) {
+    return std::unexpected(id.error());
+  }
+  const auto position = reader.ReadArray<std::int32_t, 3>();
+  if (!position) {
+    return std::unexpected(position.error());
+  }
+  return Spawn{.id = *id, .position_mm = *position};
+}
+
+// Allocate only after successfully decoding records, not from an unchecked
+// count.
+template <typename T, typename Decoder>
+std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
+                                                          std::uint32_t count,
+                                                          Decoder decode) {
+  std::vector<T> values;
+  for (std::uint32_t i = 0; i < count; ++i) {
+    auto value = decode(reader);
+    if (!value) {
+      return std::unexpected(value.error());
+    }
+    values.push_back(std::move(*value));
+  }
+  return values;
+}
+
+// Reading each field validates structure; geometry and gameplay rules belong
+// to consumers. No partial scene escapes on failure.
+std::expected<Scene, PackError> DecodeScene(
+    std::span<const unsigned char> bytes) {
+  Reader reader(bytes);
+  const auto counts = reader.ReadArray<std::uint32_t, 3>();
+  if (!counts) {
+    return std::unexpected(counts.error());
+  }
+  const auto [geometry_count, light_count, spawn_count] = *counts;
+  auto geometries =
+      DecodeCollection<Geometry>(reader, geometry_count, DecodeGeometry);
+  if (!geometries) {
+    return std::unexpected(geometries.error());
+  }
+  auto lights = DecodeCollection<Light>(reader, light_count, DecodeLight);
+  if (!lights) {
+    return std::unexpected(lights.error());
+  }
+  auto spawns = DecodeCollection<Spawn>(reader, spawn_count, DecodeSpawn);
+  if (!spawns) {
+    return std::unexpected(spawns.error());
+  }
+  if (!reader.done()) {
+    return std::unexpected(PackError::kInvalidSceneLength);
+  }
+  return Scene{.geometries = std::move(*geometries),
+               .lights = std::move(*lights),
+               .spawns = std::move(*spawns)};
+}
+
+// Checks the provenance encoding from pack v1, not the claims made by its text.
+bool ValidProvenance(std::span<const unsigned char> bytes) {
+  Reader reader(bytes);
+  // Source and settings hashes are authenticated opaque values.
+  reader.Take(2 * kDigestSize);
+  for (int i = 0; i < 5; ++i) {
+    const auto size = reader.U32();
+    if (size == 0) {
+      return false;
+    }
+    const auto text = reader.Take(size);
+    if (text.size() != size || !std::ranges::all_of(text, [](unsigned char c) {
+          return c >= 32 && c <= 126;
+        })) {
+      return false;
+    }
+  }
+  return reader.done();
+}
+
+// Pack v1 contains one scene resource occupying the entire payload.
+std::expected<void, PackError> ValidateResourceRecord(
+    Reader& manifest, std::size_t payload_size) {
+  const auto resource_id = manifest.U32();
+  const auto resource_type = manifest.U32();
+  const auto schema_version = manifest.U32();
+  const auto reserved = manifest.U32();
+  const auto payload_offset = manifest.U64();
+  const auto resource_size = manifest.U64();
+  switch (resource_type) {
+    case static_cast<std::uint32_t>(ResourceType::kScene):
+      if (schema_version != kSceneSchemaVersion) {
+        return std::unexpected(PackError::kInvalidResource);
+      }
+      break;
+    default:
+      return std::unexpected(PackError::kInvalidResource);
+  }
+  if (resource_id != kSceneResourceId || reserved != kReservedResourceValue ||
+      payload_offset != kSingleResourceOffset ||
+      resource_size != payload_size) {
+    return std::unexpected(PackError::kInvalidResource);
+  }
+  return {};
+}
+
 // Requires authenticated metadata. Checks the resource record and payload
 // before decoding scene values, preserving the distinction between failure
 // categories.
@@ -379,10 +414,10 @@ std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
       !ValidProvenance(manifest.Take(provenance_size))) {
     return std::unexpected(PackError::kInvalidProvenance);
   }
-  if (manifest.U32() != 1 || manifest.U32() != 1 || manifest.U32() != 1 ||
-      manifest.U32() != 0 || manifest.U64() != 0 ||
-      manifest.U64() != layout.payload.size()) {
-    return std::unexpected(PackError::kInvalidResource);
+  const auto valid_record =
+      ValidateResourceRecord(manifest, layout.payload.size());
+  if (!valid_record) {
+    return std::unexpected(valid_record.error());
   }
   const auto digest = manifest.Take(kDigestSize);
   if (!manifest.done() || !std::ranges::equal(Hash(layout.payload), digest)) {
@@ -392,6 +427,60 @@ std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
 }
 
 }  // namespace
+
+std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
+    std::shared_ptr<const unsigned char> data, std::size_t size, Role role,
+    std::span<const PublicKey> trusted_keys) {
+  const std::span<const unsigned char> bytes(data.get(), size);
+  if (bytes.size() < kHeaderSize + kSignatureSize) {
+    return std::unexpected(PackError::kInvalidLength);
+  }
+  if (sodium_init() < 0) {
+    return std::unexpected(PackError::kCryptoInitializationFailed);
+  }
+  const auto layout = DecodeLayout(bytes, role);
+  if (!layout) {
+    return std::unexpected(layout.error());
+  }
+  const auto pack_id = Authenticate(*layout, trusted_keys);
+  if (!pack_id) {
+    return std::unexpected(pack_id.error());
+  }
+  auto scene = DecodeResource(*layout);
+  if (!scene) {
+    return std::unexpected(scene.error());
+  }
+  VerifiedPack result;
+  result.scene_ = std::move(*scene);
+  result.pack_id_ = *pack_id;
+  std::ranges::copy(layout->build_id, result.build_id_.begin());
+  result.data_ = std::move(data);
+  result.size_ = size;
+  return result;
+}
+
+std::expected<VerifiedPack, PackError> VerifiedPack::Load(
+    std::vector<unsigned char> bytes, Role role,
+    std::span<const PublicKey> trusted_keys) {
+  auto storage =
+      std::make_shared<const std::vector<unsigned char>>(std::move(bytes));
+  const auto size = storage->size();
+  const auto* data = storage->data();
+  return LoadStorage(
+      std::shared_ptr<const unsigned char>(std::move(storage), data), size,
+      role, trusted_keys);
+}
+
+std::expected<VerifiedPack, PackError> LoadFile(
+    const std::filesystem::path& path, Role role,
+    std::span<const PublicKey> trusted_keys) {
+  auto mapped = internal::MapFile(path);
+  if (!mapped) {
+    return std::unexpected(mapped.error());
+  }
+  return VerifiedPack::LoadStorage(std::move(mapped->data), mapped->size, role,
+                                   trusted_keys);
+}
 
 std::string_view PackErrorMessage(PackError error) {
   switch (error) {
@@ -429,60 +518,6 @@ std::string_view PackErrorMessage(PackError error) {
       return "mapping allocation failed";
   }
   return "unknown pack error";
-}
-
-std::expected<VerifiedPack, PackError> VerifiedPack::Load(
-    std::vector<unsigned char> bytes, Role role,
-    std::span<const PublicKey> trusted_keys) {
-  auto storage =
-      std::make_shared<const std::vector<unsigned char>>(std::move(bytes));
-  const auto size = storage->size();
-  const auto* data = storage->data();
-  return LoadStorage(
-      std::shared_ptr<const unsigned char>(std::move(storage), data), size,
-      role, trusted_keys);
-}
-
-std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
-    std::shared_ptr<const unsigned char> data, std::size_t size, Role role,
-    std::span<const PublicKey> trusted_keys) {
-  const std::span<const unsigned char> bytes(data.get(), size);
-  if (bytes.size() < kHeaderSize + kSignatureSize) {
-    return std::unexpected(PackError::kInvalidLength);
-  }
-  if (sodium_init() < 0) {
-    return std::unexpected(PackError::kCryptoInitializationFailed);
-  }
-  const auto layout = DecodeLayout(bytes, role);
-  if (!layout) {
-    return std::unexpected(layout.error());
-  }
-  const auto pack_id = Authenticate(*layout, trusted_keys);
-  if (!pack_id) {
-    return std::unexpected(pack_id.error());
-  }
-  auto scene = DecodeResource(*layout);
-  if (!scene) {
-    return std::unexpected(scene.error());
-  }
-  VerifiedPack result;
-  result.scene_ = std::move(*scene);
-  result.pack_id_ = *pack_id;
-  std::ranges::copy(layout->build_id, result.build_id_.begin());
-  result.data_ = std::move(data);
-  result.size_ = size;
-  return result;
-}
-
-std::expected<VerifiedPack, PackError> LoadFile(
-    const std::filesystem::path& path, Role role,
-    std::span<const PublicKey> trusted_keys) {
-  auto mapped = internal::MapFile(path);
-  if (!mapped) {
-    return std::unexpected(mapped.error());
-  }
-  return VerifiedPack::LoadStorage(std::move(mapped->data), mapped->size, role,
-                                   trusted_keys);
 }
 
 }  // namespace blackflower::content
