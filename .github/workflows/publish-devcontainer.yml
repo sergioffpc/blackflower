@@ -1,0 +1,73 @@
+name: Publish development container
+
+on:
+  push:
+    branches: [develop, 'feature/**']
+    paths:
+      - .github/workflows/publish-devcontainer.yml
+      - .devcontainer/Dockerfile
+      - .devcontainer/install-system.sh
+      - .devcontainer/install-tools.sh
+      - .devcontainer/system-packages.lock
+      - .devcontainer/snapshot-ca.pem
+      - .devcontainer/entrypoint.sh
+      - tools/code_quality/install-shell-tools.sh
+      - tools/content_pipeline/.python-version
+      - vcpkg.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-devcontainer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish candidate image
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-devcontainer
+    steps:
+      - name: Check out image sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build candidate image
+        run: |
+          docker build -f .devcontainer/Dockerfile \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$IMAGE:$GITHUB_SHA" .
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish candidate and record immutable reference
+        run: |
+          docker push "$IMAGE:$GITHUB_SHA"
+          reference=$(docker image inspect "$IMAGE:$GITHUB_SHA" \
+            --format '{{index .RepoDigests 0}}')
+          printf '%s\n' "$reference" > devcontainer-image.txt
+          printf 'Candidate image: %s\n\n' "$reference" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Promote this digest through a PR after all native checks pass.\n' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload candidate reference
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: devcontainer-image
+          path: devcontainer-image.txt
+          retention-days: 90
+
+      - name: Sign out of GHCR
+        if: always()
+        run: docker logout ghcr.io
