@@ -17,5 +17,6 @@
   },
   "search.exclude": {
     "build/**": true
-  }
+  },
+  "python-envs.workspaceSearchPaths": ["./tools/content_pipeline/.venv"]
 }

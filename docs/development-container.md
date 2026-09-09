@@ -31,11 +31,15 @@ their shared Git metadata mounted too; a bind mount of the worktree alone cannot
 resolve its external `.git` pointer.
 
 VS Code selects `tools/content_pipeline/.venv/bin/python`, clangd 21, and the
-Debug compilation database. CMake tasks and debugger configurations remain those
-in the [editor guide](editor.md). The container grants `SYS_PTRACE` for
-debugging and disables Docker's seccomp filter so ThreadSanitizer can adjust its
-process address layout on WSL. This development environment is for trusted
-project code; it is not a sandbox for executing untrusted programs.
+Debug compilation database. Shared Python and editor settings live in
+[workspace settings](../.vscode/settings.json), which VS Code also reads inside
+the container. The Dev Container lists extensions for automatic installation;
+[workspace recommendations](../.vscode/extensions.json) contain the same list.
+CMake tasks and debugger configurations remain those in the
+[editor guide](editor.md). The container grants `SYS_PTRACE` for debugging and
+disables Docker's seccomp filter so ThreadSanitizer can adjust its process
+address layout on WSL. This development environment is for trusted project code;
+it is not a sandbox for executing untrusted programs.
 
 Signing requires the developer's forwarded SSH/GPG agent and Git identity;
 private keys are not included in the image. For SSH signing, host key-file paths

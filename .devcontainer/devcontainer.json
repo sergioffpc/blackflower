@@ -29,13 +29,7 @@
         "ms-python.vscode-pylance",
         "GitHub.vscode-pull-request-github",
         "GitHub.vscode-github-actions"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": "/workspaces/blackflower/tools/content_pipeline/.venv/bin/python",
-        "python-envs.workspaceSearchPaths": [
-          "./tools/content_pipeline/.venv"
-        ]
-      }
+      ]
     }
   }
 }
