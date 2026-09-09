@@ -199,6 +199,12 @@ verifies trusted-key authentication and scene encoding, then reports complete
 scene values. Invalid input returns an error without partial content. See
 [pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
 
+The pipeline reports cooking stages through an optional observer. The CLI owns
+the terminal progress display on stderr and retains JSON results on stdout;
+redirected stderr stays silent on success. Progress reaches completion only
+after publication succeeds. See the
+[cooker output contract](content-pipeline.md#cooking-and-verification).
+
 The intended MVP flow is direct connection by IP address and port, entry at a
 free predefined position, and independent play without waiting for another
 player. Departure frees a slot while other players continue. Initial connection

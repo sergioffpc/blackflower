@@ -1,12 +1,24 @@
 """Publish complete consumer scenes after verifying all signed artifacts."""
 
 from collections.abc import Callable
+import enum
 import pathlib
 import tempfile
 
 from cooker import pack
 from cooker import scene
 from cooker import usd_source
+
+
+class CookStage(enum.IntEnum):
+    """Ordered work boundaries; COMPLETE means publication succeeded."""
+
+    READING = 0
+    ENCODING = 1
+    SIGNING = 2
+    VERIFYING = 3
+    PUBLISHING = 4
+    COMPLETE = 5
 
 
 def _encode_scenes(source: bytes) -> dict[str, bytes]:
@@ -38,6 +50,7 @@ def cook(
     output: pathlib.Path,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
+    progress: Callable[[CookStage], None] = lambda stage: None,
 ) -> dict[str, str]:
     """Publishes all consumer scene packs using a caller-owned signer.
 
@@ -49,6 +62,7 @@ def cook(
         output: New directory in which to publish the completed pack set.
         public_key: Independently supplied raw Ed25519 public key.
         sign: Callback accepting transcript bytes and returning a signature.
+        progress: Observer called at stage boundaries; must not raise.
 
     Returns:
         The common content build digest as a hexadecimal string in JSON data.
@@ -63,12 +77,15 @@ def cook(
     """
     if output.exists():
         raise ValueError("output directory already exists")
+    progress(CookStage.READING)
     with source.open("rb") as stream:
         raw = stream.read()
+    progress(CookStage.ENCODING)
     payloads = _encode_scenes(raw)
     provenance = pack.provenance(raw)
     content_build_id = pack.build_identity(provenance, list(payloads.values()))
-    return _publish(
+    progress(CookStage.SIGNING)
+    result = _publish(
         output,
         source.stem,
         payloads,
@@ -76,7 +93,10 @@ def cook(
         content_build_id,
         public_key,
         sign,
+        progress,
     )
+    progress(CookStage.COMPLETE)
+    return result
 
 
 def _publish(
@@ -87,6 +107,7 @@ def _publish(
     content_build_id: bytes,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
+    progress: Callable[[CookStage], None],
 ) -> dict[str, str]:
     output.parent.mkdir(parents=True, exist_ok=True)
     # An exclusive reservation prevents concurrent destination replacement.
@@ -109,9 +130,11 @@ def _publish(
                     public_key,
                     sign,
                 )
+                progress(CookStage.VERIFYING)
                 identities = _verify_staged(
                     stage, stem, payloads, provenance, public_key
                 )
+                progress(CookStage.PUBLISHING)
                 stage.rename(output)
                 return identities
         finally:

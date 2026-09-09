@@ -72,6 +72,12 @@ Existing output is preserved; use a new directory for a recook. A sibling
 longer active before removing its stale lock or private staging data. No
 power-loss durability or network-filesystem transaction guarantee is made.
 
+On an interactive terminal, `cook` shows a compact progress bar on stderr,
+followed by the pack count and elapsed time. Percentages track completed stages
+(reading, encoding, signing, verification and publication), not estimated time.
+Stdout remains JSON. Redirected stderr and `TERM=dumb` disable the display;
+`NO_COLOR=1` disables color. Terminals without UTF-8 use ASCII bar characters.
+
 Run the C++ harness with an independently provisioned raw 32-byte public key:
 
 ```sh

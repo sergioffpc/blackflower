@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
 from cooker import pipeline
+from cooker import progress
 
 
 def _write_key(path: pathlib.Path, data: bytes) -> None:
@@ -56,7 +57,10 @@ def _cook(args: argparse.Namespace) -> dict[str, str]:
     public = key.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
     )
-    return pipeline.cook(args.source, args.output, public, key.sign)
+    with progress.display() as report:
+        return pipeline.cook(
+            args.source, args.output, public, key.sign, progress=report
+        )
 
 
 def _parse_args() -> argparse.Namespace:
