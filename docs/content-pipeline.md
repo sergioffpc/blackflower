@@ -13,16 +13,16 @@ minor series in the cooker `.python-version`; the validation baseline is CPython
 setuptools build backend is pinned separately in `pyproject.toml`.
 
 ```sh
-uv sync --project tools/cooker --locked --no-editable
-uv run --project tools/cooker --locked --no-sync mypy \
-  --config-file tools/cooker/pyproject.toml tools/cooker/src \
+uv sync --project tools/content_pipeline --locked --no-editable
+uv run --project tools/content_pipeline --locked --no-sync mypy \
+  --config-file tools/content_pipeline/pyproject.toml tools/content_pipeline/src \
   tests/integration/content_pipeline_test.py
 ```
 
 After changing package source, reinstall its non-editable build before testing:
 
 ```sh
-uv sync --project tools/cooker --locked --no-editable \
+uv sync --project tools/content_pipeline --locked --no-editable \
   --reinstall-package cooker
 ```
 
@@ -35,15 +35,29 @@ geometry, light and spawn-point encoding.
 
 ## Cooking and verification
 
-Provision a dedicated Ed25519 signing key in PEM/PKCS8 form outside this
-checkout and runtime staging. The CLI accepts an unencrypted PEM file; use
-filesystem access controls or an external signing adapter for protected keys.
-The public `cook` interface accepts a signer callable and raw public key, so
-signing authority does not belong to the scene or runtime loader. Future
-hardware/key-service integrations can implement that existing external seam.
+Generate a dedicated Ed25519 key pair outside this checkout and runtime staging:
 
 ```sh
-uv run --project tools/cooker --locked --no-sync cooker cook \
+uv run --project tools/content_pipeline --locked --no-sync cooker keygen \
+  --private-key /path/outside/checkout/content-signing.pem \
+  --public-key /path/outside/checkout/content-public.key
+```
+
+The parent directories must exist and both destination files must be new. The
+command creates an unencrypted PEM/PKCS8 private key and a raw 32-byte public
+key, with owner-only permissions (`0600`, further restricted by the process
+umask), and prints their paths as JSON. Existing files are never overwritten. If
+creating the public key fails, the newly created private key is removed. Keep
+the private key in the signing environment; provision only the public key to
+consumers through an independent trusted channel. The CLI accepts an unencrypted
+PEM file; use filesystem access controls or an external signing adapter for
+protected keys. The public `cook` interface accepts a signer callable and raw
+public key, so signing authority does not belong to the scene or runtime loader.
+Future hardware/key-service integrations can implement that existing external
+seam.
+
+```sh
+uv run --project tools/content_pipeline --locked --no-sync cooker cook \
   --source assets/scenes/mvp.usda \
   --output build/packs/mvp \
   --private-key /path/outside/checkout/content-signing.pem
@@ -57,6 +71,12 @@ Existing output is preserved; use a new directory for a recook. A sibling
 `.lock` file coordinates publishers. If a process is killed, confirm it is no
 longer active before removing its stale lock or private staging data. No
 power-loss durability or network-filesystem transaction guarantee is made.
+
+On an interactive terminal, `cook` shows a compact progress bar on stderr,
+followed by the pack count and elapsed time. Percentages track completed stages
+(reading, encoding, signing, verification and publication), not estimated time.
+Stdout remains JSON. Redirected stderr and `TERM=dumb` disable the display;
+`NO_COLOR=1` disables color. Terminals without UTF-8 use ASCII bar characters.
 
 Run the C++ harness with an independently provisioned raw 32-byte public key:
 
@@ -98,7 +118,7 @@ Windows harness directly; the test driver converts data paths through `wslpath`:
 
 ```sh
 BLACKFLOWER_CONTENT_HARNESS="$PWD/build/windows-release/blackflower_content_harness.exe" \
-  uv run --project tools/cooker --locked --no-sync \
+  uv run --project tools/content_pipeline --locked --no-sync \
   python tests/integration/content_pipeline_test.py
 ```
 

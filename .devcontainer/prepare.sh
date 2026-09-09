@@ -17,10 +17,10 @@ main() {
   mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE" "$VCPKG_DOWNLOADS" "$SCCACHE_DIR"
   # Start the daemon before vcpkg can pass its filesystem locks to it.
   sccache clang++-21 --version
-  uv sync --locked --project tools/cooker
-  uv run --locked --no-sync --project tools/cooker \
+  uv sync --locked --project tools/content_pipeline
+  uv run --locked --no-sync --project tools/content_pipeline \
     python -c 'from pxr import Usd; print("OpenUSD:", Usd.GetVersion())'
-  npm ci --prefix tools/style --ignore-scripts
+  npm ci --prefix tools/code_quality --ignore-scripts
   git config --local core.hooksPath .githooks
 
   if [[ "$#" == 0 ]]; then

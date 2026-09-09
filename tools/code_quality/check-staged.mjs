@@ -16,14 +16,15 @@ const snapshot = mkdtempSync(resolve(tmpdir(), 'blackflower-staged-style-'));
 try {
   execFileSync('git', ['checkout-index', '--all', `--prefix=${snapshot}/`],
       {cwd: root, stdio: 'inherit'});
-  const checker = resolve(snapshot, 'tools/style/check.mjs');
+  const checker = resolve(snapshot, 'tools/code_quality/check.mjs');
   if (!existsSync(checker)) {
     throw new Error('Stage the style tooling before committing source files.');
   }
 
   // Tool installations are local prerequisites, not source files in the index.
   for (const path of [
-    'tools/style/node_modules', 'tools/cooker/.venv', 'build/style/bin',
+    'tools/code_quality/node_modules', 'tools/content_pipeline/.venv',
+    'build/style/bin',
   ]) {
     const installed = resolve(root, path);
     if (existsSync(installed)) {

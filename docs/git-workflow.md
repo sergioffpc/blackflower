@@ -80,7 +80,7 @@ Hooks run locally and can be bypassed with Git's `--no-verify`; this is not a
 server-side commit-message rule. Every clone needs the setup command, which
 replaces any existing `core.hooksPath` setting in that clone.
 
-Run `npm --prefix tools/style test` for staged-content rejection and
+Run `npm --prefix tools/code_quality test` for staged-content rejection and
 preservation through actual Git commits in a disposable repository.
 
 With a clean working tree, update develop and create a feature branch:

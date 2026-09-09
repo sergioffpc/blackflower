@@ -86,6 +86,7 @@
 78de3c5c3ec5657bcbdc10c2b2bcd9cedd78e6814182566f1522af422b26d3ce http://archive.ubuntu.com/ubuntu/pool/main/a/adduser/adduser_3.153ubuntu1_all.deb
 790ced8d61606015e15ce4b39c12feb013fcc1e4ac2497f3933c14ae2aa600ff http://archive.ubuntu.com/ubuntu/pool/universe/g/git-lfs/git-lfs_3.7.1-1_amd64.deb
 792701d9c82e5f237879cc0bda552d8a127ea24b0c7d520e815aff14bd314b03 http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-21/clang-21_21.1.8-6ubuntu1_amd64.deb
+7fac1b0a1a18397c67a8fc3c454d0556db36cb3b274ad3fbab2e936bce83b39b http://archive.ubuntu.com/ubuntu/pool/universe/g/gh/gh_2.46.0-4_amd64.deb
 82fa61135e7154d7958feaa91ec1808a688eb1e0e06822ab35e99e2480feb148 http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-16/libatomic1_16-20260322-1ubuntu1_amd64.deb
 83a2a924c11759a2ed6e6f98f456d28e1b026974ce9e6e7ef12c9ac43b2d543e http://archive.ubuntu.com/ubuntu/pool/main/n/nettle/libnettle8t64_3.10.2-1_amd64.deb
 84c1afe45fdeada1772ab88be29e21b9e0970174bac3dc348e8f797d8f6f073f http://archive.ubuntu.com/ubuntu/pool/main/a/abseil/libabsl20260107_20260107.0-4_amd64.deb

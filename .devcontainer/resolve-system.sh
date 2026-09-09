@@ -6,7 +6,7 @@ main() {
   local packages=(
     autoconf autoconf-archive automake bubblewrap build-essential
     ca-certificates
-    clang-21 clangd-21 clang-format-21 clang-tidy-21 cmake curl git git-lfs
+    clang-21 clangd-21 clang-format-21 clang-tidy-21 cmake curl gh git git-lfs
     gnupg jq libclang-rt-21-dev libtool lld-21 llvm-21 ninja-build
     openssh-client pkg-config python3.14 python3.14-venv sccache
     tar unzip xz-utils zip 7zip

@@ -31,7 +31,7 @@ load-plugins =
 jobs = 1
 unsafe-load-any-extension = no
 py-version = 3.12
-source-roots = tools/cooker/src
+source-roots = tools/content_pipeline/src
 
 [MESSAGES CONTROL]
 confidence =

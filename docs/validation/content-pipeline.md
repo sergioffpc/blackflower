@@ -15,8 +15,8 @@ Validation ran on 2026-09-07, with the Windows Debug correction revalidated on
 2026-09-08, in Ubuntu under WSL2, with actual Windows execution through WSL
 interoperability on Windows 10.0.26200.9168. The tools were Clang/LLVM 21.1.8,
 CMake 4.2.3, CPython 3.14.4 and uv 0.10.4. Python packages follow
-`tools/cooker/uv.lock`; C++ ports follow the vcpkg manifest baseline and
-committed libsodium overlay. The local vcpkg executable checkout was
+`tools/content_pipeline/uv.lock`; C++ ports follow the vcpkg manifest baseline
+and committed libsodium overlay. The local vcpkg executable checkout was
 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4; CI checks out the manifest baseline
 itself. Windows uses CRT headers/libraries 14.44.35220 and SDK 10.0.26100 from
 the documented xwin setup.

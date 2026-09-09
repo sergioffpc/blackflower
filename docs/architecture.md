@@ -132,15 +132,15 @@ decision in section 9. Treat unvalidated choices as proposals.
 
 ## 5. Building block view
 
-| Building block                                                   | Responsibility                                                                                                                       |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [Console bootstrap](../src/main.cc)                              | Print the project name and return a startup status.                                                                                  |
-| [GoogleTest harness](../tests/build_test.cc)                     | Exercise test integration and the C++23 build contract.                                                                              |
-| [Google Benchmark harness](../benchmarks/framework_benchmark.cc) | Exercise benchmark registration and execution.                                                                                       |
-| [Offline cooker](../tools/cooker/src/content/pipeline.py)        | Validate self-contained OpenUSD, encode primitive content, sign and verify all three packs, then publish their directory atomically. |
-| [Content module](../src/modules/content/content.h)               | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                  |
-| [Content harness](../tests/content_harness.cc)                   | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                  |
-| [Build configuration](../CMakeLists.txt)                         | Build four executables and the content library; run analysis, Python checks and integration tests.                                   |
+| Building block                                                     | Responsibility                                                                                                                       |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [Console bootstrap](../src/main.cc)                                | Print the project name and return a startup status.                                                                                  |
+| [GoogleTest harness](../tests/build_test.cc)                       | Exercise test integration and the C++23 build contract.                                                                              |
+| [Google Benchmark harness](../benchmarks/framework_benchmark.cc)   | Exercise benchmark registration and execution.                                                                                       |
+| [Offline cooker](../tools/content_pipeline/src/cooker/pipeline.py) | Validate self-contained OpenUSD, encode primitive content, sign and verify all three packs, then publish their directory atomically. |
+| [Content module](../src/modules/content/content.h)                 | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                  |
+| [Content harness](../tests/content_harness.cc)                     | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                  |
+| [Build configuration](../CMakeLists.txt)                           | Build four executables and the content library; run analysis, Python checks and integration tests.                                   |
 
 The content loader accepts packs independently of consumer purpose or host
 platform. The shared content build identity relates the three artifacts; there
@@ -186,6 +186,11 @@ their framework checks separately. CTest coordinates native executable startup
 and framework checks; cross-build validation must distinguish compilation from
 execution on the target platform.
 
+The cooker also provides `keygen` to create an Ed25519 private PEM/PKCS8 key and
+raw public key for pack signing and independent runtime verification. Key files
+use exclusive creation and owner-only permissions; see the
+[key provisioning commands](content-pipeline.md#cooking-and-verification).
+
 The cooker reads the source once, checks representability and encodes primitive
 geometry, derives the common build identity, and writes server, agent and client
 packs in private staging. It reopens and verifies all completed files before
@@ -193,6 +198,12 @@ publishing their directory. The C++ content harness maps one file read-only,
 verifies trusted-key authentication and scene encoding, then reports complete
 scene values. Invalid input returns an error without partial content. See
 [pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
+
+The pipeline reports cooking stages through an optional observer. The CLI owns
+the terminal progress display on stderr and retains JSON results on stdout;
+redirected stderr stays silent on success. Progress reaches completion only
+after publication succeeds. See the
+[cooker output contract](content-pipeline.md#cooking-and-verification).
 
 The intended MVP flow is direct connection by IP address and port, entry at a
 free predefined position, and independent play without waiting for another
@@ -239,9 +250,10 @@ phases and remain proposals.
 The owner selected a [WSL Dev Container](development-container.md) for C++ and
 Python. Its digest-pinned Ubuntu image, complete system-package lock, and tool
 checksums define the userspace used by VS Code and native build-validation CI.
-The locked system tools include bubblewrap. Generated build, Python, and
-JavaScript directories use dedicated volumes; compiler and package caches
-persist separately. CI prepares dependencies online and checks fresh builds with
+The locked system tools include bubblewrap and GitHub CLI (`gh`) for repository
+issue and pull-request operations. Generated build, Python, and JavaScript
+directories use dedicated volumes; compiler and package caches persist
+separately. CI prepares dependencies online and checks fresh builds with
 networking disabled. Local
 [container execution checks](validation/development-container.md) pass; kernel,
 hardware, CodeQL extraction, and Windows SDK/runtime validation are separate
@@ -379,9 +391,9 @@ operations and domain documentation follow the
     appropriate tests, measurements, or review. Record unresolved risks and use
     the findings to guide the next increment.
 
-Run `npm --prefix tools/style run check` alongside the language-specific checks
-for changes to JavaScript, Markdown, JSON, or shell. The existing required Linux
-Debug status includes this check; setup and scope are in the
+Run `npm --prefix tools/code_quality run check` alongside the language-specific
+checks for changes to JavaScript, Markdown, JSON, or shell. The existing
+required Linux Debug status includes this check; setup and scope are in the
 [style policy](style-guidelines.md#installation-and-commands).
 
 ### Completion criteria
