@@ -28,6 +28,17 @@ sources and distinguishes each tool's coverage from review obligations.
 [google-shell]: https://google.github.io/styleguide/shellguide.html
 [research]: research/google-style-enforcement.md
 
+## Error contracts
+
+Project-owned errors must be enums or class instances, never raw strings,
+integers, numeric sentinels, or aliases of those primitives. Text is diagnostic
+context, not error identity. Translate foreign status codes at integration
+boundaries; operating-system process exit codes and required foreign ABIs are
+boundary encodings, not internal error contracts. In Python and JavaScript,
+raise or throw error/exception class instances and discriminate by type or typed
+fields, not message text. Shell exit statuses remain at the process boundary.
+Follow the [C++ typed-error rules](cpp-guidelines.md#typed-errors) for C++ APIs.
+
 ## C++ rules and enforcement
 
 Use C++23 with Clang and follow the
@@ -103,6 +114,13 @@ contract and validate plugin compatibility when upgrading the tooling.
 [google-javascript]: https://google.github.io/styleguide/jsguide.html
 
 ## Markdown rules
+
+Document stable rules, contracts, decisions and essential rationale. State a
+rule's full scope directly; avoid concrete implementation examples in general
+policies. Keep technical specifics in the contracts or operational references
+that require them. Do not transcribe conversations, intermediate choices or
+incidental library comparisons. Link authoritative rules instead of repeating
+them across documents.
 
 Use a single H1 title, ATX headings, descriptive and distinct heading names,
 sentence case, and blank lines around headings, lists, and fenced code blocks.

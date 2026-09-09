@@ -47,6 +47,23 @@ change; use an ADR for a lasting architectural trade-off.
 | Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                                                                   |
 | Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                                                               |
 
+## Typed errors
+
+Project-owned error contracts must use enums or classes. Use scoped enums for
+closed failure categories and classes for structured error context. Prefer
+`std::expected<T, E>` for fallible operations. Raw strings, integers, aliases
+and numeric sentinels must not represent errors.
+
+Keep error identity separate from diagnostic text. Handle failures by their
+types or typed values, never by parsing messages. Translate foreign status codes
+at integration boundaries; process exit codes and foreign ABI encodings stay at
+those boundaries. Boolean predicates express conditions, not failure categories.
+
+C++ exceptions remain prohibited. Check an expected result before accessing its
+value or error; do not rely on throwing accessors. Apply the library-selection
+policy to error handling as to any other capability. Review error contracts for
+semantic conformance; automated tooling does not establish it.
+
 ## Library selection
 
 Use the C++23 standard library first. When it does not provide a required

@@ -4,6 +4,11 @@ Scope: #21, OpenUSD input, uv-managed Python and distinct `.bfclient` and
 `.bfserver` extensions. The committed reference pack fixtures provide stable
 identities; generated test private keys and runtime DLLs are not committed.
 
+This record describes validation of an earlier revision. Current coverage is
+defined by the
+[test policy](../development-process.md#current-application-test-scope) and the
+[pipeline guide](../content-pipeline.md#validation).
+
 ## Environment
 
 Validation ran on 2026-09-07, with the Windows Debug correction revalidated on

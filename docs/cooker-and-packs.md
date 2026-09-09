@@ -180,12 +180,15 @@ exact target/version compatibility still needs testing.
 ## Implemented primitive pack format
 
 [Pack v1](../schemas/pack/v1.md) is the normative byte contract: explicit
-little-endian fields, a bounded canonical manifest, one primitive scenario
-payload, SHA-256 digests and a detached Ed25519 signature over the exact
-header/manifest transcript. [Scene v1](../schemas/scene/v1.md) defines OpenUSD
-authoring and the runtime primitive layout. The C++ loader owns the bytes it
-verifies and returns a complete value only after structural, cryptographic and
-scene validation.
+little-endian fields, a canonical manifest, one primitive scenario payload,
+SHA-256 digests and a detached Ed25519 signature over the exact header/manifest
+transcript. [Scene v1](../schemas/scene/v1.md) defines OpenUSD authoring and the
+runtime primitive layout. The C++ loader owns the bytes it verifies and returns
+a complete value only after structural, cryptographic and scene validation.
+Failures are typed values, with diagnostic text rendered separately. There are
+no policy byte caps on source files, packs, manifests or provenance;
+[ADR-0009](adr/0009-typed-errors-and-content-size-policy.md) records the
+decision and reader compatibility.
 
 Python uses cryptography 46.0.5; C++ uses libsodium 1.0.22#1 through vcpkg and a
 scoped Windows cross-build overlay.

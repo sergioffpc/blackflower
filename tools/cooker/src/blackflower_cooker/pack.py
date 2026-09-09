@@ -19,7 +19,6 @@ ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
 SETTINGS = b"primitive-usd-v1;units=mm;client=1;server=2"
-MAX_PACK = 16 * 1024 * 1024
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,7 +65,7 @@ def provenance(source: bytes) -> bytes:
         ".".join(map(str, Usd.GetVersion())),
     ):
         raw = value.encode("ascii")
-        if not 1 <= len(raw) <= 96 or any(c < 32 or c > 126 for c in raw):
+        if not raw or any(c < 32 or c > 126 for c in raw):
             raise ValueError("invalid provenance string")
         result += struct.pack("<I", len(raw)) + raw
     return result
@@ -81,7 +80,7 @@ def _validate_provenance(raw: bytes) -> None:
             raise ValueError("truncated provenance length")
         (size,) = struct.unpack_from("<I", raw, cursor)
         cursor += 4
-        if not 1 <= size <= 96 or cursor + size > len(raw):
+        if size == 0 or cursor + size > len(raw):
             raise ValueError("invalid provenance length")
         if any(c < 32 or c > 126 for c in raw[cursor : cursor + size]):
             raise ValueError("invalid provenance text")
@@ -181,7 +180,7 @@ def verify(
         ValueError: Invalid layout, identity, provenance, digest or scene.
         cryptography.exceptions.InvalidSignature: Signature verification fails.
     """
-    if not HEADER.size + 64 <= len(data) <= MAX_PACK:
+    if len(data) < HEADER.size + 64:
         raise ValueError("invalid pack length")
     (
         magic,
@@ -202,7 +201,7 @@ def verify(
         actual_profile,
     ) != (role, profile):
         raise ValueError("wrong pack role or incompatible profile")
-    if count != 1 or not 4 + ENTRY.size <= manifest_size <= 65536:
+    if count != 1 or manifest_size < 4 + ENTRY.size:
         raise ValueError("unsupported resource count or manifest size")
     payload_start = HEADER.size + manifest_size
     if total != len(data) or total != payload_start + payload_size + 64:

@@ -32,7 +32,10 @@ newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
 -   Use context managers for files and similar resources. Catch specific
     exceptions and preserve exception causes when translating errors. Validate
     external input explicitly; assertions are not input validation.
--   Test observable behavior and failure paths under the
+-   Follow the [project error contract](style-guidelines.md#error-contracts):
+    raise exception class instances, never return raw string/integer errors.
+    Messages provide context; handlers distinguish types rather than text.
+-   Test observable behavior within the scope defined by the
     [development process](development-process.md). Formatting and analysis do
     not establish behavioral correctness.
 

@@ -6,7 +6,7 @@
 #include <expected>
 #include <filesystem>
 #include <span>
-#include <string>
+#include <string_view>
 #include <vector>
 
 namespace blackflower::content {
@@ -18,6 +18,31 @@ enum class Profile : std::uint8_t {
   kWindowsPrimitives = 1,
   kLinuxPrimitives = 2
 };
+
+// Failure categories are independent of diagnostic text.
+enum class PackError : std::uint8_t {
+  kInvalidSceneLength,
+  kInvalidPrimitiveCounts,
+  kInvalidScene,
+  kInvalidLength,
+  kCryptoInitializationFailed,
+  kUnsupportedFormat,
+  kIncompatibleRoleOrProfile,
+  kUnsupportedResourceCount,
+  kInvalidLayout,
+  kUnknownSigningKey,
+  kInvalidSignature,
+  kInvalidProvenance,
+  kInvalidResource,
+  kDigestMismatch,
+  kCannotOpenFile,
+  kInvalidFileLength,
+  kReadFailed,
+  kSizeNotRepresentable,
+};
+
+// Diagnostic text for presentation only; branch on PackError values.
+std::string_view PackErrorMessage(PackError error);
 
 struct Box {
   std::uint32_t id = 0;
@@ -43,7 +68,7 @@ struct Scene {
 // exposes immutable project values, with no SDK resources or borrowed storage.
 class VerifiedPack {
  public:
-  static std::expected<VerifiedPack, std::string> Load(
+  static std::expected<VerifiedPack, PackError> Load(
       std::vector<unsigned char> bytes, Role role, Profile profile,
       std::span<const PublicKey> trusted_keys);
 
@@ -63,9 +88,9 @@ class VerifiedPack {
   Digest build_id_{};
 };
 
-// Bounded, single-open file ingestion. Callers may also supply owned bytes
-// directly. Failure never returns partial content.
-std::expected<VerifiedPack, std::string> LoadFile(
+// Single-open file ingestion without a policy size cap. Callers may supply
+// bytes directly. Failure never returns partial content.
+std::expected<VerifiedPack, PackError> LoadFile(
     const std::filesystem::path& path, Role role, Profile profile,
     std::span<const PublicKey> trusted_keys);
 

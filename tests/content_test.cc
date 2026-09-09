@@ -48,7 +48,7 @@ TEST(Content, OwnsVerifiedBytesAfterCallerStorageChanges) {
   ASSERT_TRUE(public_key);
   const auto loaded = VerifiedPack::Load(input, Role::kClient,
                                          Profile::kWindowsPrimitives, keys);
-  ASSERT_TRUE(loaded) << loaded.error();
+  ASSERT_TRUE(loaded) << PackErrorMessage(loaded.error());
   std::ranges::fill(input, 0);
   keys[0].fill(0);
   EXPECT_TRUE(std::ranges::equal(loaded->bytes(), original));

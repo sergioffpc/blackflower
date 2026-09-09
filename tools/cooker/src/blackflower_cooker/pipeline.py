@@ -20,7 +20,7 @@ def cook_pair(
     pair. Private signing-key ownership stays with the caller.
 
     Args:
-        source: Self-contained OpenUSD scenario file, at most 64 KiB.
+        source: Self-contained OpenUSD scenario file.
         output: New directory in which to publish the completed pair.
         public_key: Independently supplied raw Ed25519 public key.
         sign: Callback accepting transcript bytes and returning a signature.
@@ -40,9 +40,7 @@ def cook_pair(
     if output.exists():
         raise ValueError("output directory already exists")
     with source.open("rb") as stream:
-        raw = stream.read(65537)
-    if len(raw) > 65536:
-        raise ValueError("source exceeds 64 KiB")
+        raw = stream.read()
     payload = scene.encode(raw)
     provenance = pack.provenance(raw)
     resources = [(1, 1, payload), (2, 2, payload)]

@@ -6,7 +6,11 @@ additionally requires OpenUSD scenario sources, uv for Python, and separate
 client/server filename extensions. These requirements supplement ADR-0005
 without changing the selected model-import or runtime SDK roles.
 
-Use the bounded, uncompressed [pack v1](../../schemas/pack/v1.md), with explicit
+The original size caps are superseded by
+[ADR-0009](0009-typed-errors-and-content-size-policy.md); the remaining
+decisions below still apply.
+
+Use the uncompressed [pack v1](../../schemas/pack/v1.md), with explicit
 little-endian fields, integer-millimetre
 [scene values](../../schemas/scene/v1.md), SHA-256 resource digests and detached
 Ed25519 signatures over exact header and manifest bytes. Each artifact has its

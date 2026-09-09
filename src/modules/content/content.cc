@@ -16,14 +16,13 @@
 #include <ios>
 #include <iterator>
 #include <span>
-#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace blackflower::content {
 namespace {
 constexpr std::size_t kHeaderSize = 112;
-constexpr std::size_t kMaxPackSize = 16UZ * 1024 * 1024;
 constexpr std::array<unsigned char, 8> kMagic{'B', 'F', 'P', 'A',
                                               'C', 'K', '1', 0};
 constexpr char kPackDomain[] = "Blackflower.Pack.v1";
@@ -77,7 +76,7 @@ bool ValidProvenance(std::span<const unsigned char> bytes) {
   reader.Take(64);  // Source/settings digests are opaque authenticated values.
   for (int i = 0; i < 5; ++i) {
     const auto size = reader.U32();
-    if (size < 1 || size > 96) {
+    if (size == 0) {
       return false;
     }
     const auto text = reader.Take(size);
@@ -176,10 +175,10 @@ bool ValidScene(const Scene& scene) {
   return true;
 }
 
-std::expected<Scene, std::string> DecodeScene(
+std::expected<Scene, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   if (bytes.size() != 152) {
-    return std::unexpected("invalid scene length");
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   Reader reader(bytes);
   Scene scene;
@@ -193,7 +192,7 @@ std::expected<Scene, std::string> DecodeScene(
     n = reader.U32();
   }
   if (reader.U32() != 2 || reader.U32() != 4) {
-    return std::unexpected("invalid primitive counts");
+    return std::unexpected(PackError::kInvalidPrimitiveCounts);
   }
   for (auto& box : scene.boxes) {
     box.id = reader.U32();
@@ -211,42 +210,86 @@ std::expected<Scene, std::string> DecodeScene(
     }
   }
   if (!reader.done() || !ValidScene(scene)) {
-    return std::unexpected("invalid scenario dimensions or references");
+    return std::unexpected(PackError::kInvalidScene);
   }
   return scene;
 }
 }  // namespace
 
-std::expected<VerifiedPack, std::string> VerifiedPack::Load(
+std::string_view PackErrorMessage(PackError error) {
+  switch (error) {
+    case PackError::kInvalidSceneLength:
+      return "invalid scene length";
+    case PackError::kInvalidPrimitiveCounts:
+      return "invalid primitive counts";
+    case PackError::kInvalidScene:
+      return "invalid scenario dimensions or references";
+    case PackError::kInvalidLength:
+      return "invalid pack length";
+    case PackError::kCryptoInitializationFailed:
+      return "cryptographic initialization failed";
+    case PackError::kUnsupportedFormat:
+      return "unsupported pack format";
+    case PackError::kIncompatibleRoleOrProfile:
+      return "wrong pack role or incompatible profile";
+    case PackError::kUnsupportedResourceCount:
+      return "unsupported resource count";
+    case PackError::kInvalidLayout:
+      return "invalid pack layout";
+    case PackError::kUnknownSigningKey:
+      return "unknown signing key";
+    case PackError::kInvalidSignature:
+      return "invalid pack signature";
+    case PackError::kInvalidProvenance:
+      return "invalid provenance layout";
+    case PackError::kInvalidResource:
+      return "invalid resource identity, schema or range";
+    case PackError::kDigestMismatch:
+      return "resource digest mismatch";
+    case PackError::kCannotOpenFile:
+      return "cannot open pack";
+    case PackError::kInvalidFileLength:
+      return "invalid pack file length";
+    case PackError::kReadFailed:
+      return "pack changed or read failed";
+    case PackError::kSizeNotRepresentable:
+      return "pack size is not representable by this platform";
+  }
+  return "unknown pack error";
+}
+
+std::expected<VerifiedPack, PackError> VerifiedPack::Load(
     std::vector<unsigned char> bytes, Role role, Profile profile,
     std::span<const PublicKey> trusted_keys) {
-  if (bytes.size() < kHeaderSize + 64 || bytes.size() > kMaxPackSize) {
-    return std::unexpected("invalid pack length");
+  if (bytes.size() < kHeaderSize + 64) {
+    return std::unexpected(PackError::kInvalidLength);
   }
   if (sodium_init() < 0) {
-    return std::unexpected("cryptographic initialization failed");
+    return std::unexpected(PackError::kCryptoInitializationFailed);
   }
   Reader header(std::span<const unsigned char>(bytes).first(kHeaderSize));
   if (!std::ranges::equal(header.Take(8), kMagic) || header.U32() != 1) {
-    return std::unexpected("unsupported pack format");
+    return std::unexpected(PackError::kUnsupportedFormat);
   }
   const auto actual_role = header.U32();
   const auto actual_profile = header.U32();
   if ((actual_role != 1 && actual_role != 2) || actual_profile != actual_role ||
       actual_role != static_cast<std::uint32_t>(role) ||
       actual_profile != static_cast<std::uint32_t>(profile)) {
-    return std::unexpected("wrong pack role or incompatible profile");
+    return std::unexpected(PackError::kIncompatibleRoleOrProfile);
   }
   if (header.U32() != 1) {
-    return std::unexpected("unsupported resource count");
+    return std::unexpected(PackError::kUnsupportedResourceCount);
   }
   const auto total = header.U64();
   const auto manifest_size = header.U64();
   const auto payload_size = header.U64();
-  if (total != bytes.size() || manifest_size < 68 || manifest_size > 65536 ||
-      payload_size > kMaxPackSize ||
-      kHeaderSize + manifest_size + payload_size + 64 != total) {
-    return std::unexpected("invalid pack layout");
+  // Subtract only from verified available storage; untrusted u64 lengths
+  // must not overflow before they are checked against the actual file.
+  const auto body_size = bytes.size() - kHeaderSize - 64;
+  if (total != bytes.size() || manifest_size < 68 ||
+      manifest_size > body_size || payload_size != body_size - manifest_size) {
+    return std::unexpected(PackError::kInvalidLayout);
   }
   const auto key_id = header.Take(32);
   const auto build_id = header.Take(32);
@@ -255,7 +298,7 @@ std::expected<VerifiedPack, std::string> VerifiedPack::Load(
         return std::ranges::equal(Hash(candidate), key_id);
       });
   if (key == trusted_keys.end()) {
-    return std::unexpected("unknown signing key");
+    return std::unexpected(PackError::kUnknownSigningKey);
   }
   const auto payload_start =
       kHeaderSize + static_cast<std::size_t>(manifest_size);
@@ -266,25 +309,25 @@ std::expected<VerifiedPack, std::string> VerifiedPack::Load(
   if (crypto_sign_verify_detached(bytes.data() + bytes.size() - 64,
                                   transcript.data(), transcript.size(),
                                   key->data()) != 0) {
-    return std::unexpected("invalid pack signature");
+    return std::unexpected(PackError::kInvalidSignature);
   }
   Reader manifest(std::span<const unsigned char>(bytes).subspan(kHeaderSize,
                                                                 manifest_size));
   const auto provenance_size = manifest.U32();
   if (static_cast<std::uint64_t>(provenance_size) + 68 != manifest_size ||
       !ValidProvenance(manifest.Take(provenance_size))) {
-    return std::unexpected("invalid provenance layout");
+    return std::unexpected(PackError::kInvalidProvenance);
   }
   if (manifest.U32() != 1 || manifest.U32() != 1 || manifest.U32() != 1 ||
       manifest.U32() != 0 || manifest.U64() != 0 ||
       manifest.U64() != payload_size) {
-    return std::unexpected("invalid resource identity, schema or range");
+    return std::unexpected(PackError::kInvalidResource);
   }
   const auto digest = manifest.Take(32);
   const auto payload = std::span<const unsigned char>(bytes).subspan(
       payload_start, payload_size);
   if (!manifest.done() || !std::ranges::equal(Hash(payload), digest)) {
-    return std::unexpected("resource digest mismatch");
+    return std::unexpected(PackError::kDigestMismatch);
   }
   auto scene = DecodeScene(payload);
   if (!scene) {
@@ -298,24 +341,30 @@ std::expected<VerifiedPack, std::string> VerifiedPack::Load(
   return result;
 }
 
-std::expected<VerifiedPack, std::string> LoadFile(
+std::expected<VerifiedPack, PackError> LoadFile(
     const std::filesystem::path& path, Role role, Profile profile,
     std::span<const PublicKey> trusted_keys) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file) {
-    return std::unexpected("cannot open pack");
+    return std::unexpected(PackError::kCannotOpenFile);
   }
-  const auto size = file.tellg();
-  if (size < 0 || size > static_cast<std::streamoff>(kMaxPackSize)) {
-    return std::unexpected("invalid pack file length");
+  const auto size = static_cast<std::streamoff>(file.tellg());
+  if (size < 0) {
+    return std::unexpected(PackError::kInvalidFileLength);
   }
-  std::vector<unsigned char> bytes(static_cast<std::size_t>(size));
+  std::vector<unsigned char> bytes;
+  if (!std::in_range<std::size_t>(size) ||
+      !std::in_range<std::streamsize>(size) ||
+      static_cast<std::size_t>(size) > bytes.max_size()) {
+    return std::unexpected(PackError::kSizeNotRepresentable);
+  }
+  bytes.resize(static_cast<std::size_t>(size));
   file.seekg(0);
   // Binary byte transfer: char is the stream's byte representation.
   file.read(reinterpret_cast<char*>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
   if (!file || file.peek() != std::ifstream::traits_type::eof()) {
-    return std::unexpected("pack changed or read failed");
+    return std::unexpected(PackError::kReadFailed);
   }
   return VerifiedPack::Load(std::move(bytes), role, profile, trusted_keys);
 }

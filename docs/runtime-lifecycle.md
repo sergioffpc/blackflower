@@ -166,9 +166,9 @@ here.
 The external loader performs this sequence before publishing any content or
 creating worlds:
 
-1.  Read a bounded artifact and validate fixed-header syntax, file size, ranges,
-    overflow, manifest limits, duplicate identities, and supported format. Avoid
-    unchecked allocations and traversal/extraction of asset paths.
+1.  Read the artifact and validate fixed-header syntax, file size, ranges,
+    overflow, manifest structure, duplicate identities, and supported format.
+    Avoid unchecked allocations and traversal/extraction of asset paths.
 2.  Resolve the signing-key identifier against the independently provisioned
     runtime trust set and verify the signature over the exact authenticated
     header/manifest transcript.

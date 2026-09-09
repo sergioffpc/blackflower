@@ -48,7 +48,8 @@ int main(int argc, char** argv) {
                                 : Profile::kLinuxPrimitives,
       keys);
   if (!pack) {
-    std::cerr << "content rejected: " << pack.error() << '\n';
+    std::cerr << "content rejected: "
+              << blackflower::content::PackErrorMessage(pack.error()) << '\n';
     return 1;
   }
   const auto& scene = pack->scene();

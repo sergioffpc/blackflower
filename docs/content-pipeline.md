@@ -79,10 +79,9 @@ operation runs in ECS, and no third product runtime is introduced.
 The normal native `check` target includes the installed Python package's type
 checks and production-to-consumption integration suite. Tests use disposable
 signing keys, the real C++ harness, and independently encoded shared fixtures.
-Negative cases include validly signed invalid structures/scene values, corrupt
-payload/metadata/signatures, unknown keys, wrong roles/profiles, truncation,
-invalid USD, and production/signing/verification/publication failures. A C++
-public-interface test checks ownership after the caller's buffers change.
+Functional coverage checks compatibility, production and independent consumption
+of prepared content, and ownership of loaded data. Follow the
+[application test scope](development-process.md#current-application-test-scope).
 
 Compile with the [normal checks](build.md#verification). Windows cross-builds
 also use `analyze` and must then be executed on Windows. WSL2 can execute the
