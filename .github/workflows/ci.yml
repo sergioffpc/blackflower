@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build/container-image.tar
-          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/code_quality/install-shell-tools.sh', 'tools/content_pipeline/.python-version', 'vcpkg.json') }}
+          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/snapshot-ca.pem', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/code_quality/install-shell-tools.sh', 'tools/content_pipeline/.python-version', 'vcpkg.json') }}
 
       - name: Load the cached image
         if: steps.image-cache.outputs.cache-hit == 'true'
