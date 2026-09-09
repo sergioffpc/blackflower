@@ -4,6 +4,7 @@
 05a64873a18fb10d52ba2c8ee1fd0a605a974d75264d824ef2771c799f49ea63 http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-defaults/cpp_15.2.0-5ubuntu1_amd64.deb
 06118ba5b19b77279bdacff19344ed43803afc743c0ec7e610a544fbaed5c29e http://archive.ubuntu.com/ubuntu/pool/main/r/re2/libre2-11_20250805-1build3_amd64.deb
 0752eddff4c494d682f433cac2f1d25196f0a405eb8c6b0b10ec46432f6fec71 http://archive.ubuntu.com/ubuntu/pool/main/g/gdbm/libgdbm6t64_1.26-1build1_amd64.deb
+090bb705b6d49213b288f19d78be78a55a1b72843efb12eae73ab5cca0f54b8d http://archive.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.11.1-1_amd64.deb
 0c21d2572880614763ce3dd23a2d6a96e25fc71ca038e2cdc0844cb017af0e17 http://archive.ubuntu.com/ubuntu/pool/main/g/gnupg2/dirmngr_2.4.8-4ubuntu3.1_amd64.deb
 0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19 http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.5_amd64.deb
 0e5a899095d92d6db9585183a5225504f5dc5ecaffdfe2a25d745a9502de3b30 http://archive.ubuntu.com/ubuntu/pool/main/p/patch/patch_2.8-2build1_amd64.deb
@@ -13,6 +14,7 @@
 12e4e287c484578827f3a9b0c81798e9af940514c82ac8e3e6498533c7437655 http://archive.ubuntu.com/ubuntu/pool/universe/g/grpc/libgrpc%2b%2b1.51t64_1.51.1-8ubuntu1_amd64.deb
 1376a5e49c8dc2ba938fadc15fce40dd01c7fbf1adf2d506a2a7cf7148e347c8 http://archive.ubuntu.com/ubuntu/pool/main/b/binutils/libbinutils_2.46-3ubuntu2_amd64.deb
 14211c45bb75f9543e6053207533370047873ade7e4c70f7285400f1df6c898f http://archive.ubuntu.com/ubuntu/pool/main/libx/libxml2/libxml2-16_2.15.2%2bdfsg-0.1ubuntu0.1_amd64.deb
+150603a0792b1d22aa0bde0a26c27b413018c799284003e4b43cba587a5b3a18 http://archive.ubuntu.com/ubuntu/pool/main/libc/libcap2/libcap2_2.75-10ubuntu2_amd64.deb
 163c4c1b52abbd150dd3d1e112cbf2db528d75c09146b36f69f535218319ce23 http://archive.ubuntu.com/ubuntu/pool/main/c/c-ares/libcares2_1.34.6-1_amd64.deb
 1649aa71c45b047feda5b9ca303c94799bdba5befa5c9de9735cbfc59c3ef93f http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-15/cpp-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb
 179a3b73e9001313fd4f5ba2ccca68b66da5b88ec07322686c179600583b66b7 http://archive.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2.4_amd64.deb
