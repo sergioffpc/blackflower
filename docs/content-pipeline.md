@@ -112,6 +112,14 @@ Functional coverage checks compatibility, production and independent consumption
 of prepared content, and ownership of loaded data. Follow the
 [application test scope](development-process.md#current-application-test-scope).
 
+[#22](https://github.com/sergioffpc/blackflower/issues/22) additionally
+authorizes malformed-artifact coverage at the C++ content boundary. The
+integration driver independently encodes and signs disposable fixtures,
+including invalid authenticated manifests and scenes. Rejection must exit with a
+concrete diagnostic and no prepared-content output. The
+[invalid-pack evidence](validation/invalid-packs.md) maps the matrix to the
+current schemas and records platform limits.
+
 Compile with the [normal checks](build.md#verification). Windows cross-builds
 also use `analyze` and must then be executed on Windows. WSL2 can execute the
 Windows harness directly; the test driver converts data paths through `wslpath`:
