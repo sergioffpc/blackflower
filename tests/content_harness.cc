@@ -1,10 +1,14 @@
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
 
 #include "content.h"
 
@@ -19,41 +23,106 @@ std::string Hex(const blackflower::content::Digest& digest) {
   return text;
 }
 
-// Emits the prepared values consumed by the integration driver.
-void PrintContent(const blackflower::content::VerifiedPack& pack) {
-  const auto& scene = pack.scene();
-  std::cout << "{\"pack_id\":\"" << Hex(pack.pack_id())
-            << "\",\"scenario_build_id\":\"" << Hex(pack.scenario_build_id())
-            << "\",\"interior_mm\":[" << scene.interior_mm[0] << ','
-            << scene.interior_mm[1] << "],\"capsule_mm\":["
-            << scene.capsule_mm[0] << ',' << scene.capsule_mm[1]
-            << "],\"box_count\":" << scene.boxes.size() << ",\"spawns_mm\":[";
+template <typename T, std::size_t N>
+void PrintArray(const std::array<T, N>& values) {
+  std::cout << '[';
+  for (std::size_t i = 0; i < N; ++i) {
+    std::cout << (i == 0 ? "" : ",") << values[i];
+  }
+  std::cout << ']';
+}
+
+void PrintGeometry(const blackflower::content::Geometry& geometry) {
+  std::visit(
+      [](const auto& value) {
+        std::cout << "{\"id\":" << value.id << ",\"center_mm\":";
+        PrintArray(value.center_mm);
+        if constexpr (requires { value.size_mm; }) {
+          std::cout << ",\"kind\":"
+                    << std::to_underlying(
+                           blackflower::content::GeometryKind::kBox)
+                    << ",\"dimensions_mm\":";
+          PrintArray(value.size_mm);
+        } else {
+          std::cout << ",\"kind\":"
+                    << std::to_underlying(
+                           blackflower::content::GeometryKind::kSphere)
+                    << ",\"dimensions_mm\":[" << value.radius_mm << ']';
+        }
+        std::cout << '}';
+      },
+      geometry);
+}
+
+void PrintLight(const blackflower::content::Light& light) {
+  std::visit(
+      [](const auto& value) {
+        std::cout << "{\"id\":" << value.id;
+        if constexpr (requires { value.position_mm; }) {
+          std::cout << ",\"kind\":"
+                    << std::to_underlying(
+                           blackflower::content::LightKind::kPoint)
+                    << ",\"position_mm\":";
+          PrintArray(value.position_mm);
+        } else {
+          std::cout << ",\"kind\":"
+                    << std::to_underlying(
+                           blackflower::content::LightKind::kDirectional)
+                    << ",\"direction\":";
+          PrintArray(value.direction);
+        }
+        std::cout << ",\"color\":";
+        PrintArray(value.color);
+        std::cout << ",\"intensity\":" << value.intensity << '}';
+      },
+      light);
+}
+
+void PrintSpawn(const blackflower::content::Spawn& spawn) {
+  std::cout << "{\"id\":" << spawn.id << ",\"position_mm\":";
+  PrintArray(spawn.position_mm);
+  std::cout << '}';
+}
+
+template <typename T, typename Printer>
+void PrintCollection(const std::vector<T>& values, Printer print) {
+  std::cout << '[';
   bool first = true;
-  for (const auto& spawn : scene.spawns) {
-    std::cout << (first ? "" : ",") << '[' << spawn.foot_mm[0] << ','
-              << spawn.foot_mm[1] << ',' << spawn.foot_mm[2] << ']';
+  for (const auto& value : values) {
+    std::cout << (first ? "" : ",");
+    print(value);
     first = false;
   }
-  std::cout << "]}\n";
+  std::cout << ']';
+}
+
+// Emits prepared values consumed by the integration driver.
+void PrintContent(const blackflower::content::VerifiedPack& pack) {
+  std::cout << "{\"pack_id\":\"" << Hex(pack.pack_id())
+            << "\",\"scenario_build_id\":\"" << Hex(pack.scenario_build_id())
+            << "\",\"geometries\":";
+  PrintCollection(pack.scene().geometries, PrintGeometry);
+  std::cout << ",\"lights\":";
+  PrintCollection(pack.scene().lights, PrintLight);
+  std::cout << ",\"spawns\":";
+  PrintCollection(pack.scene().spawns, PrintSpawn);
+  std::cout << "}\n";
 }
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 5) {
-    std::cerr << "usage: content_harness PACK client|server windows|linux "
+  if (argc != 4) {
+    std::cerr << "usage: content_harness PACK simulation|presentation "
                  "PUBLIC_KEY\n";
     return 2;
   }
-  using blackflower::content::Profile;
   using blackflower::content::Role;
   const std::string_view role_name(argv[2]);
-  const std::string_view profile_name(argv[3]);
-  if ((role_name != "client" && role_name != "server") ||
-      (profile_name != "windows" && profile_name != "linux")) {
+  if (role_name != "simulation" && role_name != "presentation") {
     return 2;
   }
   std::array<blackflower::content::PublicKey, 1> keys{};
-  std::ifstream public_key(std::filesystem::path(argv[4]), std::ios::binary);
+  std::ifstream public_key(std::filesystem::path(argv[3]), std::ios::binary);
   public_key.read(reinterpret_cast<char*>(keys[0].data()), keys[0].size());
   if (!public_key || public_key.peek() != std::ifstream::traits_type::eof()) {
     std::cerr << "expected an independently provisioned 32-byte public key\n";
@@ -61,9 +130,7 @@ int main(int argc, char** argv) {
   }
   const auto pack = blackflower::content::LoadFile(
       std::filesystem::path(argv[1]),
-      role_name == "client" ? Role::kClient : Role::kServer,
-      profile_name == "windows" ? Profile::kWindowsPrimitives
-                                : Profile::kLinuxPrimitives,
+      role_name == "simulation" ? Role::kSimulation : Role::kPresentation,
       keys);
   if (!pack) {
     std::cerr << "content rejected: "

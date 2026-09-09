@@ -1,6 +1,7 @@
 # Typed errors and content size policy
 
-Status: accepted.
+Status: accepted. The full-file ingestion strategy is superseded by
+[ADR-0011](0011-map-content-files.md).
 
 Error contracts use enums or classes, with diagnostic text separate from error
 identity. Standard-library facilities provide typed result transport without an

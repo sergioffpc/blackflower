@@ -122,6 +122,14 @@ For prototypes, documentation, visual output, and audio perception, choose
 suitable checks instead of manufacturing unit tests that do not demonstrate the
 result.
 
+## Schema versioning
+
+Change schema versions only with a major project release. Until then, evolve
+contracts in place and keep documentation, producers, consumers and fixtures
+aligned under the current version. Regenerate development artifacts when their
+encoding changes; intermediate revisions do not require separate versioned
+schemas or compatibility paths.
+
 ## Current application test scope
 
 Maintain the minimum functional tests needed to demonstrate working features

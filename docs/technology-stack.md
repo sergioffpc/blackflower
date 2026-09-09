@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The content roles are
+simulation and presentation; their extensions are `.bfsimulation` and
+`.bfpresentation`.
 
 Status: the owner selected the six runtime technologies below and Python,
 Assimp, meshoptimizer, and Slang-to-SPIR-V compilation for the offline cooker.
@@ -58,12 +59,12 @@ be prepared offline and loaded without runtime asset cooking.
 
 ## Selected offline cooker stack
 
-| Responsibility     | Technology    | Placement                                                                                          |
-| ------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
-| Language           | Python        | Linux offline tool `blackflower-cooker`.                                                           |
-| 3D model import    | Assimp        | Cooker import stage; source models become validated intermediate data.                             |
-| Mesh optimization  | meshoptimizer | Cooker optimization stage before final runtime-format encoding.                                    |
-| Shader compilation | Slang         | Linux-host offline compilation to SPIR-V, included with required metadata only in the client pack. |
+| Responsibility     | Technology    | Placement                                                                                                |
+| ------------------ | ------------- | -------------------------------------------------------------------------------------------------------- |
+| Language           | Python        | Linux offline tool `blackflower-cooker`.                                                                 |
+| 3D model import    | Assimp        | Cooker import stage; source models become validated intermediate data.                                   |
+| Mesh optimization  | meshoptimizer | Cooker optimization stage before final runtime-format encoding.                                          |
+| Shader compilation | Slang         | Linux-host offline compilation to SPIR-V, included with required metadata only in the presentation pack. |
 
 The
 [cooker design](cooker-and-packs.md#selected-cooker-stack-and-model-processing)

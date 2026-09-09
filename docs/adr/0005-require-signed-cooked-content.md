@@ -1,5 +1,8 @@
 # Require verified signed packs of cooked content
 
+The pack-role and format decisions below are superseded by
+[ADR-0010](0010-platform-independent-content-roles.md).
+
 Status: accepted for the signed cooked-content requirement, the offline Python
 cooker, offline Slang-to-SPIR-V compilation, and two role-specific packs per
 scenario, explicitly requested by the owner. Pack format, cryptographic

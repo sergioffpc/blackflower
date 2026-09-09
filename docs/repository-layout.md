@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The content roles are
+simulation and presentation; their extensions are `.bfsimulation` and
+`.bfpresentation`.
 
 Status: directory and build-target proposal. The owner requires exactly two
 product runtimes, client and server in C++23, and one offline cooker in Python.
@@ -193,16 +194,17 @@ build/
 │   ├── cache/                       # Intermediate cooked resources
 │   └── dist/                        # Python package artifacts
 ├── packs/
-│   ├── mvp.bfclient
-│   └── mvp.bfserver
+│   ├── mvp.bfpresentation
+│   └── mvp.bfsimulation
 └── stage/
     ├── server-linux-x64/
     │   ├── bin/blackflower-server
-    │   ├── content/mvp.bfserver
+    │   ├── content/mvp.bfsimulation
     │   └── licenses/
     └── client-windows-x64/
         ├── bin/blackflower-client.exe
-        ├── content/mvp.bfclient
+        ├── content/mvp.bfsimulation
+        ├── content/mvp.bfpresentation
         └── licenses/
 ```
 

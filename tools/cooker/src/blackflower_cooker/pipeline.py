@@ -26,8 +26,8 @@ def cook_pair(
         sign: Callback accepting transcript bytes and returning a signature.
 
     Returns:
-        Client and server pack digests and the shared scenario build digest,
-        encoded as hexadecimal strings.
+        Simulation and presentation pack digests and the shared scenario build
+        digest, encoded as hexadecimal strings.
 
     Raises:
         ValueError: The source, destination or completed pair is invalid.
@@ -43,7 +43,10 @@ def cook_pair(
         raw = stream.read()
     payload = scene.encode(raw)
     provenance = pack.provenance(raw)
-    resources = [(1, 1, payload), (2, 2, payload)]
+    resources = [
+        (pack.Role.SIMULATION, payload),
+        (pack.Role.PRESENTATION, payload),
+    ]
     build_id = pack.build_identity(provenance, resources)
     output.parent.mkdir(parents=True, exist_ok=True)
     # The final directory must be new. An exclusive reservation prevents a
@@ -58,12 +61,11 @@ def cook_pair(
             ) as temporary:
                 stage = pathlib.Path(temporary) / "pair"
                 stage.mkdir()
-                for role, profile, content in resources:
-                    name = "client" if role == 1 else "server"
+                for role, content in resources:
+                    name = role.name.lower()
                     data = pack.encode(
                         content,
                         role,
-                        profile,
                         provenance,
                         build_id,
                         public_key,
@@ -71,15 +73,13 @@ def cook_pair(
                     )
                     (stage / f"mvp.bf{name}").write_bytes(data)
                 verified = []
-                for role, profile, _ in resources:
-                    name = "client" if role == 1 else "server"
+                for role, _ in resources:
+                    name = role.name.lower()
                     data = (stage / f"mvp.bf{name}").read_bytes()
-                    verified.append(
-                        pack.verify(data, role, profile, [public_key])
-                    )
+                    verified.append(pack.verify(data, role, [public_key]))
                 expected = pack.build_identity(
                     verified[0].provenance,
-                    [(p.role, p.profile, p.payload) for p in verified],
+                    [(p.role, p.payload) for p in verified],
                 )
                 if any(
                     p.build_id != expected
@@ -91,8 +91,8 @@ def cook_pair(
                         "completed pair disagrees on scenario build or scene"
                     )
                 identities = {
-                    "client": verified[0].pack_id.hex(),
-                    "server": verified[1].pack_id.hex(),
+                    "simulation": verified[0].pack_id.hex(),
+                    "presentation": verified[1].pack_id.hex(),
                     "scenario_build_id": expected.hex(),
                 }
                 stage.rename(output)

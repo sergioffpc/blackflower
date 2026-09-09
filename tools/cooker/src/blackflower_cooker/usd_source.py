@@ -1,9 +1,8 @@
-"""Read the self-contained OpenUSD primitive scenario authoring profile."""
+"""Read the self-contained OpenUSD primitive scenario authoring subset."""
 
 import math
 import pathlib
 import tempfile
-from typing import TYPE_CHECKING
 
 from pxr import Gf
 from pxr import Sdf
@@ -11,21 +10,20 @@ from pxr import Tf
 from pxr import Usd
 from pxr import UsdGeom
 
-if TYPE_CHECKING:
-    from blackflower_cooker import scene
+from blackflower_cooker import scene
 
 
 def read(source: bytes) -> "scene.SceneData":
-    """Reads the self-contained primitive profile from exact source bytes.
+    """Reads the self-contained primitive subset from exact source bytes.
 
     Args:
         source: Text or binary OpenUSD layer bytes.
 
     Returns:
-        Scenario data in millimetres, with boxes and spawns sorted by identity.
+        Scenario data in millimetres, with collections sorted by identity.
 
     Raises:
-        ValueError: The layer cannot be parsed or violates the source profile.
+        ValueError: The layer cannot be parsed or violates the source contract.
         OSError: Temporary source storage fails.
     """
     # Parse precisely the bytes whose hash is recorded, with no ambient asset
@@ -57,7 +55,6 @@ def _read_stage(stage) -> "scene.SceneData":
         distance = float(value) * units * 1000
         if (
             not math.isfinite(distance)
-            or abs(distance) > 20000
             or abs(distance - round(distance)) > 0.001
         ):
             raise ValueError(
@@ -66,12 +63,12 @@ def _read_stage(stage) -> "scene.SceneData":
         return round(distance)
 
     root = stage.GetPrimAtPath("/Scenario")
-    capsule = UsdGeom.Capsule(stage.GetPrimAtPath("/Scenario/Participant"))
-    blocks = stage.GetPrimAtPath("/Scenario/Blocks")
+    blocks = stage.GetPrimAtPath("/Scenario/Geometry")
+    lights = stage.GetPrimAtPath("/Scenario/Lights")
     spawns = stage.GetPrimAtPath("/Scenario/Spawns")
     if (
         not root
-        or not capsule
+        or not lights
         or not blocks
         or not spawns
         or stage.GetDefaultPrim() != root
@@ -81,14 +78,16 @@ def _read_stage(stage) -> "scene.SceneData":
         root.GetTypeName() != "Xform"
         or blocks.GetTypeName() != "Scope"
         or spawns.GetTypeName() != "Scope"
+        or lights.GetTypeName() != "Scope"
     ):
         raise ValueError("invalid USD scenario container types")
     allowed = {
         root.GetPath(),
-        capsule.GetPath(),
+        lights.GetPath(),
         blocks.GetPath(),
         spawns.GetPath(),
     }
+    allowed.update(p.GetPath() for p in lights.GetChildren())
     allowed.update(p.GetPath() for p in blocks.GetChildren())
     allowed.update(p.GetPath() for p in spawns.GetChildren())
     for prim in stage.TraverseAll():
@@ -120,14 +119,6 @@ def _read_stage(stage) -> "scene.SceneData":
         Usd.TimeCode.Default()
     ) != Gf.Matrix4d(1):
         raise ValueError("Scenario transform must be identity")
-    if (
-        capsule.GetAxisAttr().Get() != UsdGeom.Tokens.y
-        or capsule.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        != Gf.Matrix4d(1)
-    ):
-        raise ValueError(
-            "participant capsule must be untransformed and Y aligned"
-        )
 
     def attr(prim, name):
         value = prim.GetAttribute(name).Get()
@@ -137,24 +128,15 @@ def _read_stage(stage) -> "scene.SceneData":
             )
         return value
 
-    radius, height = (
-        capsule.GetRadiusAttr().Get(),
-        capsule.GetHeightAttr().Get(),
-    )
-    result: "scene.SceneData" = {
-        "schema": attr(root, "blackflower:schema"),
-        "scenario": attr(root, "blackflower:scenario"),
-        "interior_mm": [mm(v) for v in attr(root, "blackflower:interior")],
-        "wall_mm": [mm(v) for v in attr(root, "blackflower:wall")],
-        "capsule_mm": [mm(height + 2 * radius), mm(2 * radius)],
-        "boxes": [],
-        "spawns": [],
-    }
+    if attr(root, "blackflower:schema") != 1:
+        raise ValueError("unsupported scene schema")
+    result: "scene.SceneData" = {"geometries": [], "lights": [], "spawns": []}
     for prim in blocks.GetChildren():
-        cube = UsdGeom.Cube(prim)
-        if not cube:
-            raise ValueError("static blocks must be USD cubes")
-        matrix = cube.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        if prim.GetTypeName() not in ("Cube", "Sphere"):
+            raise ValueError("unsupported geometry kind")
+        matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default()
+        )
         if any(
             not math.isfinite(matrix[i][j]) for i in range(4) for j in range(4)
         ):
@@ -172,31 +154,68 @@ def _read_stage(stage) -> "scene.SceneData":
             raise ValueError(
                 "blocks require positive axis-aligned USD transforms"
             )
-        result["boxes"].append(
+        if prim.GetTypeName() == "Cube":
+            kind = scene.GeometryKind.BOX
+            dimensions = [
+                mm(attr(prim, "size") * matrix[i][i]) for i in range(3)
+            ]
+        else:
+            if matrix[0][0] != matrix[1][1] or matrix[1][1] != matrix[2][2]:
+                raise ValueError("spheres require uniform scale")
+            kind = scene.GeometryKind.SPHERE
+            dimensions = [mm(attr(prim, "radius") * matrix[0][0])]
+        result["geometries"].append(
             {
                 "id": attr(prim, "blackflower:id"),
+                "kind": kind,
                 "center_mm": [mm(matrix[3][i]) for i in range(3)],
-                "size_mm": [
-                    mm(cube.GetSizeAttr().Get() * matrix[i][i])
-                    for i in range(3)
-                ],
+                "dimensions_mm": dimensions,
             }
         )
+    for prim in lights.GetChildren():
+        light_kind = attr(prim, "blackflower:lightType")
+        position = _position(prim, mm)
+        if light_kind == "point":
+            result["lights"].append(
+                {
+                    "kind": scene.LightKind.POINT,
+                    "id": attr(prim, "blackflower:id"),
+                    "position_mm": position,
+                    "color": list(attr(prim, "blackflower:color")),
+                    "intensity": attr(prim, "blackflower:intensity"),
+                }
+            )
+        elif light_kind == "directional":
+            result["lights"].append(
+                {
+                    "kind": scene.LightKind.DIRECTIONAL,
+                    "id": attr(prim, "blackflower:id"),
+                    "direction": list(attr(prim, "blackflower:direction")),
+                    "color": list(attr(prim, "blackflower:color")),
+                    "intensity": attr(prim, "blackflower:intensity"),
+                }
+            )
+        else:
+            raise ValueError("unsupported light kind")
     for prim in spawns.GetChildren():
-        if prim.GetTypeName() != "Xform":
-            raise ValueError("spawns must be USD Xforms")
-        matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
-            Usd.TimeCode.Default()
-        )
-        translation = matrix.ExtractTranslation()
-        if matrix != Gf.Matrix4d(1).SetTranslate(translation):
-            raise ValueError("spawns require translation-only transforms")
         result["spawns"].append(
             {
                 "id": attr(prim, "blackflower:id"),
-                "foot_mm": [mm(v) for v in translation],
+                "position_mm": _position(prim, mm),
             }
         )
-    for key in ("boxes", "spawns"):
+    for key in ("geometries", "lights", "spawns"):
         result[key].sort(key=lambda value: value["id"])
     return result
+
+
+def _position(prim, mm):
+    if prim.GetTypeName() != "Xform":
+        raise ValueError("placements must be USD Xforms")
+    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+        Usd.TimeCode.Default()
+    )
+    translation = matrix.ExtractTranslation()
+    if matrix != Gf.Matrix4d(1).SetTranslate(translation):
+        raise ValueError("placements require translation-only transforms")
+    return [mm(v) for v in translation]

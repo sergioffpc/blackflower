@@ -1,8 +1,8 @@
 # Minimal content pipeline validation
 
 Scope: #21, OpenUSD input, uv-managed Python and distinct `.bfclient` and
-`.bfserver` extensions. The committed reference pack fixtures provide stable
-identities; generated test private keys and runtime DLLs are not committed.
+`.bfserver` extensions. Generated test private keys and runtime DLLs are not
+committed.
 
 This record describes validation of an earlier revision. Current coverage is
 defined by the

@@ -30,6 +30,10 @@ such as the ground, enclosure, and fixed blocks.
 movable objects, whose official evolution and interactions are determined by the
 Simulation World. A client's local movement prediction remains provisional.
 
+**Scene**: A collection of geometric primitives, lights and spawn points that
+describes a scenario's spatial contents independently of participant properties
+and gameplay rules.
+
 **Cooked content**: Scenario resources prepared before deployment in the
 representation required by the runtime, rather than source assets awaiting
 conversion.
@@ -37,8 +41,8 @@ conversion.
 **Content pack**: The signed distribution artifact containing a coherent set of
 cooked scenario resources and their compatibility and integrity metadata.
 
-**Client pack**: The content pack for a scenario containing the resources needed
-by the Prediction and Presentation Worlds.
+**Simulation pack**: Scenario resources shared by the Simulation and Prediction
+Worlds, independent of the machine or application consuming them.
 
-**Server pack**: The content pack for a scenario containing the resources needed
-by the Simulation World.
+**Presentation pack**: Scenario resources used by the Presentation World,
+independent of the machine or application consuming them.

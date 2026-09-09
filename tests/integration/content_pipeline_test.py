@@ -11,6 +11,10 @@ import unittest
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
+from pxr import Sdf
+from pxr import Usd
+from pxr import UsdGeom
+
 from blackflower_cooker import pack
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -22,7 +26,7 @@ HARNESS = pathlib.Path(
 )
 
 
-def _harness_command(pack_path, role, profile, public):
+def _harness_command(pack_path, role, public):
     def runtime_path(path):
         if HARNESS.suffix == ".exe" and sys.platform == "linux":
             return subprocess.check_output(
@@ -34,7 +38,6 @@ def _harness_command(pack_path, role, profile, public):
         str(HARNESS),
         runtime_path(pack_path),
         role,
-        profile,
         runtime_path(public),
     ]
 
@@ -49,11 +52,12 @@ class ContentPipelineTest(unittest.TestCase):
             work = pathlib.Path(directory)
             public = bytes.fromhex(reference["public_key"])
             (work / "public.key").write_bytes(public)
-            for role, value in [("client", 1), ("server", 2)]:
+            for value in pack.Role:
+                role = value.name.lower()
                 data = (
                     ROOT / f"tests/fixtures/packs/reference.bf{role}"
                 ).read_bytes()
-                verified = pack.verify(data, value, value, [public])
+                verified = pack.verify(data, value, [public])
                 self.assertEqual(verified.payload.hex(), reference["scene"])
                 self.assertEqual(
                     verified.pack_id.hex(), reference[f"{role}_id"]
@@ -64,7 +68,6 @@ class ContentPipelineTest(unittest.TestCase):
                     _harness_command(
                         work / f"reference.bf{role}",
                         role,
-                        "windows" if value == 1 else "linux",
                         work / "public.key",
                     ),
                     capture_output=True,
@@ -77,7 +80,7 @@ class ContentPipelineTest(unittest.TestCase):
                     reference[f"{role}_id"],
                 )
 
-    def test_each_role_reads_the_fixed_scene_without_its_counterpart(self):
+    def test_each_role_reads_an_independent_scene_without_its_counterpart(self):
         with tempfile.TemporaryDirectory() as directory:
             work = pathlib.Path(directory)
             key = ed25519.Ed25519PrivateKey.generate()
@@ -95,6 +98,45 @@ class ContentPipelineTest(unittest.TestCase):
                     serialization.Encoding.Raw, serialization.PublicFormat.Raw
                 )
             )
+            source = work / "scene.usda"
+            stage = Usd.Stage.Open(str(ROOT / "assets/scenes/mvp.usda"))
+            sphere = UsdGeom.Sphere.Define(stage, "/Scenario/Geometry/Ball")
+            sphere.GetRadiusAttr().Set(0.5)
+            sphere.GetPrim().CreateAttribute(
+                "blackflower:id",
+                stage.GetPrimAtPath("/Scenario/Geometry/West")
+                .GetAttribute("blackflower:id")
+                .GetTypeName(),
+            ).Set(8)
+            UsdGeom.Xformable(sphere).AddTranslateOp().Set((1, 5, 2))
+            light = stage.GetPrimAtPath("/Scenario/Lights/Ceiling")
+            light.GetAttribute("blackflower:color").Set((0.5, 0.25, 0.125))
+            light.GetAttribute("blackflower:intensity").Set(2)
+            directional = UsdGeom.Xform.Define(
+                stage, "/Scenario/Lights/Sun"
+            ).GetPrim()
+            directional.CreateAttribute(
+                "blackflower:id", Sdf.ValueTypeNames.UInt
+            ).Set(2)
+            directional.CreateAttribute(
+                "blackflower:lightType", Sdf.ValueTypeNames.Token
+            ).Set("directional")
+            directional.CreateAttribute(
+                "blackflower:direction", Sdf.ValueTypeNames.Float3
+            ).Set((0, -1, 0))
+            directional.CreateAttribute(
+                "blackflower:color", Sdf.ValueTypeNames.Float3
+            ).Set((1, 1, 1))
+            directional.CreateAttribute(
+                "blackflower:intensity", Sdf.ValueTypeNames.Float
+            ).Set(3)
+            layer = stage.GetRootLayer()
+            for name in ("NorthWest", "SouthEast", "NorthEast"):
+                stage.RemovePrim(f"/Scenario/Spawns/{name}")
+            stage.GetPrimAtPath("/Scenario/Spawns/SouthWest").GetAttribute(
+                "xformOp:translate"
+            ).Set((-3, 5, 0))
+            layer.Export(str(source))
             output = work / "pair"
             result = subprocess.run(
                 [
@@ -103,7 +145,7 @@ class ContentPipelineTest(unittest.TestCase):
                     "blackflower_cooker",
                     "cook",
                     "--source",
-                    str(ROOT / "assets/scenes/mvp.usda"),
+                    str(source),
                     "--output",
                     str(output),
                     "--private-key",
@@ -116,16 +158,16 @@ class ContentPipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 sorted(p.name for p in output.iterdir()),
-                ["mvp.bfclient", "mvp.bfserver"],
+                ["mvp.bfpresentation", "mvp.bfsimulation"],
             )
             results = []
-            for role, profile in [("client", "windows"), ("server", "linux")]:
+            for role in ("simulation", "presentation"):
                 isolated = work / role
                 isolated.mkdir()
-                pack_path = isolated / f"scenario.bf{role}"
+                pack_path = isolated / f"cenário.bf{role}"
                 pack_path.write_bytes((output / f"mvp.bf{role}").read_bytes())
                 loaded = subprocess.run(
-                    _harness_command(pack_path, role, profile, public),
+                    _harness_command(pack_path, role, public),
                     capture_output=True,
                     text=True,
                     check=False,
@@ -133,17 +175,47 @@ class ContentPipelineTest(unittest.TestCase):
                 )
                 self.assertEqual(loaded.returncode, 0, loaded.stderr)
                 content = json.loads(loaded.stdout)
-                self.assertEqual(content["interior_mm"], [20000, 20000])
-                self.assertEqual(content["capsule_mm"], [1800, 600])
-                self.assertEqual(content["box_count"], 2)
+                self.assertEqual(len(content["geometries"]), 8)
                 self.assertEqual(
-                    content["spawns_mm"],
+                    content["geometries"][0],
+                    {
+                        "id": 1,
+                        "kind": 1,
+                        "center_mm": [-3000, 1000, 0],
+                        "dimensions_mm": [2000, 2000, 2000],
+                    },
+                )
+                self.assertEqual(
+                    content["geometries"][-1],
+                    {
+                        "id": 8,
+                        "kind": 2,
+                        "center_mm": [1000, 5000, 2000],
+                        "dimensions_mm": [500],
+                    },
+                )
+                self.assertEqual(
+                    content["lights"],
                     [
-                        [-8000, 0, -8000],
-                        [-8000, 0, 8000],
-                        [8000, 0, -8000],
-                        [8000, 0, 8000],
+                        {
+                            "kind": 1,
+                            "id": 1,
+                            "position_mm": [0, 3000, 0],
+                            "color": [0.5, 0.25, 0.125],
+                            "intensity": 2,
+                        },
+                        {
+                            "kind": 2,
+                            "id": 2,
+                            "direction": [0, -1, 0],
+                            "color": [1, 1, 1],
+                            "intensity": 3,
+                        },
                     ],
+                )
+                self.assertEqual(
+                    content["spawns"],
+                    [{"id": 1, "position_mm": [-3000, 5000, 0]}],
                 )
                 results.append(content)
             self.assertNotEqual(results[0]["pack_id"], results[1]["pack_id"])

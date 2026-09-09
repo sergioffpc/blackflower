@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The content roles are
+simulation and presentation; their extensions are `.bfsimulation` and
+`.bfpresentation`.
 
 Status: proposal for review, not implemented. The two runtime roles, world
 separation, update rates, cooked signed content, and absence of I/O inside ECS
@@ -28,15 +29,15 @@ same cleanup path as an ordinary stop. An error or stop request in any
 nonterminal state transitions to `Stopping`. Cleanup handles partially
 initialized resources and repeated stop requests.
 
-| State                 | Input                                                                       | Completion output and transition gate                                                                                    |
-| --------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `Configuring`         | Process arguments and supported deployment settings                         | Validated runtime configuration, including pack location and network endpoint; otherwise stop with an error.             |
-| `LoadingContent`      | Configuration, artifact bytes, independent trust set, compatibility profile | Verified immutable content; otherwise stop before world creation.                                                        |
-| `Initializing`        | Verified content and runtime configuration                                  | Required adapters/resources and initialized world state; no gameplay can start while required preparation is incomplete. |
-| `Connecting` (client) | Prepared client and configured server endpoint                              | Accepted admission and a usable authoritative baseline, or failure within the connection deadline.                       |
-| `Running`             | Prepared runtime, external input/status and completed adapter results       | Completed world updates and output requests, until an explicit stop or fatal failure.                                    |
-| `Stopping`            | Stop reason and resources actually acquired                                 | Scheduling and external work quiesced, resources released, final process outcome.                                        |
-| `Stopped`             | Final outcome                                                               | Process exit; no automatic restart or reconnection in the MVP.                                                           |
+| State                 | Input                                                                        | Completion output and transition gate                                                                                    |
+| --------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Configuring`         | Process arguments and supported deployment settings                          | Validated runtime configuration, including pack location and network endpoint; otherwise stop with an error.             |
+| `LoadingContent`      | Configuration, artifact bytes, independent trust set, required content roles | Verified immutable content; otherwise stop before world creation.                                                        |
+| `Initializing`        | Verified content and runtime configuration                                   | Required adapters/resources and initialized world state; no gameplay can start while required preparation is incomplete. |
+| `Connecting` (client) | Prepared client and configured server endpoint                               | Accepted admission and a usable authoritative baseline, or failure within the connection deadline.                       |
+| `Running`             | Prepared runtime, external input/status and completed adapter results        | Completed world updates and output requests, until an explicit stop or fatal failure.                                    |
+| `Stopping`            | Stop reason and resources actually acquired                                  | Scheduling and external work quiesced, resources released, final process outcome.                                        |
+| `Stopped`             | Final outcome                                                                | Process exit; no automatic restart or reconnection in the MVP.                                                           |
 
 ## Server lifecycle
 
@@ -54,8 +55,8 @@ stateDiagram-v2
 The diagram shows the successful startup path; the common error/stop transition
 applies to every active state.
 
-1.  Validate configuration, then verify and load the server pack before opening
-    the admission listener.
+1.  Validate configuration, then verify and load the simulation pack before
+    opening the admission listener.
 2.  Prepare CPU PhysX and the static scene through external adapters. Initialize
     an empty Simulation World from validated scene/rule values. Create a fresh
     `SessionId`; no participant exists yet. The server needs no graphics or
@@ -112,7 +113,7 @@ The common error/stop transition also applies during configuration, loading, and
 initialization.
 
 1.  Validate server IP/port and local configuration, then verify and load the
-    client pack.
+    simulation and presentation packs.
 2.  Prepare window, Vulkan-only rendering, cooked SPIR-V shader resources, GPU
     PhysX static geometry, audio, input source, and transport through external
     adapters. Initialize Prediction and Presentation Worlds from verified
@@ -173,11 +174,10 @@ creating worlds:
     runtime trust set and verify the signature over the exact authenticated
     header/manifest transcript.
 3.  Validate all declared payload digests, layout/padding, resource schemas,
-    references, scene invariants, and target compatibility. Reject the wrong
-    pack role; validate the entire local server pack against server requirements
-    or the entire local client pack against client requirements. Neither runtime
-    reads the other role's pack. Signed data still needs structural and semantic
-    validation.
+    references and scene encoding. Require simulation content for the server and
+    both simulation and presentation content for the client. Validate each
+    artifact against its required role and resource schemas; deployment platform
+    is not part of the pack contract.
 4.  Publish `VerifiedPack` and immutable `RuntimeContent` only after all checks
     succeed. Retain the exact bytes that were verified; do not reopen a
     potentially changed pathname for consumption.
@@ -191,11 +191,11 @@ unsigned packs or loose source files is permitted. Matching the signed
 `ScenarioBuildId` across the two different role packs during admission is a
 proposed compatibility check, not remote attestation of a client process.
 
-| Logical contract  | Input                                                                      | Output and owner                                                   |
-| ----------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Verify/load       | Artifact bytes, trusted public keys, limits, runtime compatibility profile | `VerifiedPack` or explicit failure; application loader.            |
-| Prepare runtime   | Verified prepared payloads                                                 | Immutable `RuntimeContent` and separately owned adapter resources. |
-| Initialize worlds | Validated scene/rule values and content identity                           | Initial ECS state; no file, signature, decoder, or SDK operation.  |
+| Logical contract  | Input                                                       | Output and owner                                                   |
+| ----------------- | ----------------------------------------------------------- | ------------------------------------------------------------------ |
+| Verify/load       | Artifact bytes, trusted public keys, required content roles | `VerifiedPack` or explicit failure; application loader.            |
+| Prepare runtime   | Verified prepared payloads                                  | Immutable `RuntimeContent` and separately owned adapter resources. |
+| Initialize worlds | Validated scene/rule values and content identity            | Initial ECS state; no file, signature, decoder, or SDK operation.  |
 
 `RuntimeContent` supplies the `SceneDefinition` and resource identities in the
 phase contracts. Worlds receive the local `PackId` and common `ScenarioBuildId`

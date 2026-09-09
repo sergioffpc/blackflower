@@ -31,7 +31,7 @@ Linux cooker dependency only. The package imports the official `pxr` bindings,
 reads USDA or USDC, and rejects unsupported authoring content explicitly. The
 [authoring contract](../schemas/scene/v1.md) and
 [reference scene](../assets/scenes/mvp.usda) define units, transforms, IDs,
-valid spawn geometry, and the capsule's total-height conversion.
+geometry, light and spawn-point encoding.
 
 ## Cooking and verification
 
@@ -49,11 +49,11 @@ uv run --project tools/cooker --locked --no-sync blackflower-cooker cook \
   --private-key /path/outside/checkout/content-signing.pem
 ```
 
-The output directory must not exist. Success produces exactly `mvp.bfclient` and
-`mvp.bfserver` and prints their two PackIds and common ScenarioBuildId as JSON.
-Each finished file is independently reopened and verified before the pair is
-published. Failure exits nonzero with a concrete console error. Existing output
-is preserved; use a new directory for a recook. A sibling `.lock` file
+The output directory must not exist. Success produces exactly `mvp.bfsimulation`
+and `mvp.bfpresentation` and prints their two PackIds and common ScenarioBuildId
+as JSON. Each finished file is independently reopened and verified before the
+pair is published. Failure exits nonzero with a concrete console error. Existing
+output is preserved; use a new directory for a recook. A sibling `.lock` file
 coordinates publishers. If a process is killed, confirm it is no longer active
 before removing its stale lock or private staging data. No power-loss durability
 or network-filesystem transaction guarantee is made.
@@ -62,17 +62,21 @@ Run the C++ harness with an independently provisioned raw 32-byte public key:
 
 ```sh
 build/debug/blackflower_content_harness \
-  build/packs/mvp/mvp.bfclient client windows /path/to/content-public.key
+  build/packs/mvp/mvp.bfsimulation simulation /path/to/content-public.key
 build/debug/blackflower_content_harness \
-  build/packs/mvp/mvp.bfserver server linux /path/to/content-public.key
+  build/packs/mvp/mvp.bfpresentation presentation /path/to/content-public.key
 ```
 
-The profile arguments describe prepared primitive data, not a claim that this
-harness creates graphics/PhysX resources. Each role can be checked in isolation
-on either host. Product callers supply their own required role/profile and trust
-set. The public `VerifiedPack` object owns the original verified bytes and
-provides immutable project-owned scene values. No file, USD, crypto or SDK
-operation runs in ECS, and no third product runtime is introduced.
+The role argument selects simulation or presentation content on any supported
+host. The server consumes simulation content; the client uses that same content
+for prediction and also consumes presentation content. Callers supply their
+required role and independent trust set. The public `VerifiedPack` retains the
+read-only file mapping and exposes immutable scene values. Keep backing files
+unchanged until all pack copies are released. Hashing touches the whole payload;
+decoded scene values are allocated separately. SDK resource creation and pack
+I/O remain outside ECS.
+
+The [pack v1 contract](../schemas/pack/v1.md) has no platform profile.
 
 ## Validation
 
@@ -105,8 +109,8 @@ payloads, provenance, build identities and packs when using the same key.
 Changing source bytes (even authoring whitespace) changes the conservative build
 identity. Provenance records source/settings hashes, cooker revision, Python,
 cryptography/OpenSSL and OpenUSD versions. Record the vcpkg baseline, libsodium
-revision, compiler and OS with runtime evidence. The initial profile has no
-Assimp, meshoptimizer, Slang or PhysX processing to report yet.
+revision, compiler and OS with runtime evidence. The initial implementation has
+no Assimp, meshoptimizer, Slang or PhysX processing to report yet.
 
 Recorded results and environment limitations are in the
 [validation evidence](validation/content-pipeline.md). On case-sensitive WSL

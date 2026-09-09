@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from collections.abc import Sequence
 import dataclasses
+import enum
 import hashlib
 import platform
 import struct
@@ -14,11 +15,20 @@ from pxr import Usd
 
 from blackflower_cooker import scene
 
-HEADER = struct.Struct("<8s4I3Q32s32s")
+HEADER = struct.Struct("<8s3I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
-SETTINGS = b"primitive-usd-v1;units=mm;client=1;server=2"
+SETTINGS = b"primitive-usd-v1;units=mm;simulation=1;presentation=2"
+
+
+class Role(enum.IntEnum):
+    """Purpose of content, independent of consumer platform or deployment."""
+
+    # World rules and geometry shared by simulation and prediction.
+    SIMULATION = 1
+    # Resources used to render and present the scenario.
+    PRESENTATION = 2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -27,8 +37,7 @@ class VerifiedPack:
 
     Attributes:
         data: Complete signed pack bytes.
-        role: Consumer role identifier.
-        profile: Target profile identifier.
+        role: Content purpose.
         provenance: Authenticated source, settings and toolchain provenance.
         build_id: Shared scenario build digest.
         pack_id: Digest of this role's signed transcript.
@@ -36,8 +45,7 @@ class VerifiedPack:
     """
 
     data: bytes
-    role: int
-    profile: int
+    role: Role
     provenance: bytes
     build_id: bytes
     pack_id: bytes
@@ -90,30 +98,27 @@ def _validate_provenance(raw: bytes) -> None:
 
 
 def build_identity(
-    provenance_bytes: bytes, payloads: Sequence[tuple[int, int, bytes]]
+    provenance_bytes: bytes, payloads: Sequence[tuple[Role, bytes]]
 ) -> bytes:
     """Computes the shared scenario identity in the supplied role order.
 
     Args:
         provenance_bytes: Canonical provenance record shared by both packs.
-        payloads: Ordered role, profile and encoded payload triples.
+        payloads: Role/payload pairs in simulation then presentation order.
 
     Returns:
         The SHA-256 digest of the canonical scenario build transcript.
     """
     transcript = BUILD_DOMAIN + provenance_bytes
-    for role, profile, payload in payloads:
-        transcript += struct.pack(
-            "<6IQ", role, profile, 1, 1, 1, 1, len(payload)
-        )
+    for role, payload in payloads:
+        transcript += struct.pack("<5IQ", role, 1, 1, 1, 1, len(payload))
         transcript += hashlib.sha256(payload).digest()
     return hashlib.sha256(transcript).digest()
 
 
 def encode(
     payload: bytes,
-    role: int,
-    profile: int,
+    role: Role,
     provenance_bytes: bytes,
     build_id: bytes,
     public_key: bytes,
@@ -123,8 +128,7 @@ def encode(
 
     Args:
         payload: Encoded primitive scene.
-        role: Consumer role identifier.
-        profile: Target profile identifier.
+        role: Content purpose.
         provenance_bytes: Canonical provenance record.
         build_id: Shared scenario build digest.
         public_key: Raw Ed25519 public key identifying the signer.
@@ -148,7 +152,6 @@ def encode(
         b"BFPACK1\0",
         1,
         role,
-        profile,
         1,
         HEADER.size + len(manifest) + len(payload) + 64,
         len(manifest),
@@ -163,14 +166,13 @@ def encode(
 
 
 def verify(
-    data: bytes, role: int, profile: int, trusted_keys: Sequence[bytes]
+    data: bytes, role: Role, trusted_keys: Sequence[bytes]
 ) -> VerifiedPack:
     """Authenticates a pack and validates its layout and primitive scene.
 
     Args:
         data: Complete pack bytes.
-        role: Expected consumer role identifier.
-        profile: Expected target profile identifier.
+        role: Required content purpose.
         trusted_keys: Independently provisioned raw Ed25519 public keys.
 
     Returns:
@@ -186,7 +188,6 @@ def verify(
         magic,
         version,
         actual_role,
-        actual_profile,
         count,
         total,
         manifest_size,
@@ -196,11 +197,8 @@ def verify(
     ) = HEADER.unpack_from(data)
     if magic != b"BFPACK1\0" or version != 1:
         raise ValueError("unsupported pack format")
-    if (actual_role, actual_profile) not in ((1, 1), (2, 2)) or (
-        actual_role,
-        actual_profile,
-    ) != (role, profile):
-        raise ValueError("wrong pack role or incompatible profile")
+    if actual_role not in Role or actual_role != role:
+        raise ValueError("wrong or unsupported pack role")
     if count != 1 or manifest_size < 4 + ENTRY.size:
         raise ValueError("unsupported resource count or manifest size")
     payload_start = HEADER.size + manifest_size
@@ -244,7 +242,6 @@ def verify(
     return VerifiedPack(
         data,
         role,
-        profile,
         provenance_bytes,
         build_id,
         hashlib.sha256(transcript).digest(),

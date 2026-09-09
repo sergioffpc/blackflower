@@ -37,15 +37,21 @@ change; use an ADR for a lasting architectural trade-off.
 
 ## Project adaptations
 
-| Topic                        | Project interpretation                                                                                                                                                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Language version             | C++23 is the project baseline, overriding Google's C++20 ceiling. Other language-use restrictions still apply.                                                                                                                                             |
-| Resource ownership           | Use RAII and standard resource-owning types. Prefer unique ownership; use shared ownership when the lifetime model requires it. Replace historical auto_ptr and TR1 examples with current standard facilities.                                             |
-| Special member functions     | Prefer the rule of zero. Use `= default` or `= delete` to express intent; define copy and move behavior consistently when a type requires custom resource management.                                                                                      |
-| Parameters and return values | Consider cost, ownership, and lifetime. Pass cheap values by value, borrow larger inputs appropriately, and return owned results by value when appropriate. Account for move semantics and copy elision.                                                   |
-| Errors                       | Preserve Google's existing restriction on C++ exceptions. Apply the Core Guidelines' guidance for environments without exceptions, including systematic error reporting and resource cleanup. Define dependency error boundaries when selecting libraries. |
-| Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                                                                   |
-| Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                                                               |
+| Topic                        | Project interpretation                                                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Language version             | C++23 is the project baseline, overriding Google's C++20 ceiling. Other language-use restrictions still apply.                                                                                                 |
+| Resource ownership           | Use RAII and standard resource-owning types. Prefer unique ownership; use shared ownership when the lifetime model requires it. Replace historical auto_ptr and TR1 examples with current standard facilities. |
+| Special member functions     | Prefer the rule of zero. Use `= default` or `= delete` to express intent; define copy and move behavior consistently when a type requires custom resource management.                                          |
+| Parameters and return values | Consider cost, ownership, and lifetime. Pass cheap values by value, borrow larger inputs appropriately, and return owned results by value when appropriate. Account for move semantics and copy elision.       |
+| Errors                       | Confine dependency exceptions to isolated adapters that return typed errors. Keep other project code exception-free, following the Core Guidelines for systematic error reporting and resource cleanup.        |
+| Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                       |
+| Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                   |
+
+## Aggregate initialization
+
+Use designated initializers when supplying field values to aggregate structs.
+Name each initialized field and follow declaration order; do not use positional
+field values. Empty initialization for defaults remains valid.
 
 ## Function size
 
@@ -94,10 +100,13 @@ types or typed values, never by parsing messages. Translate foreign status codes
 at integration boundaries; process exit codes and foreign ABI encodings stay at
 those boundaries. Boolean predicates express conditions, not failure categories.
 
-C++ exceptions remain prohibited. Check an expected result before accessing its
-value or error; do not rely on throwing accessors. Apply the library-selection
-policy to error handling as to any other capability. Review error contracts for
-semantic conformance; automated tooling does not establish it.
+Project interfaces must not propagate exceptions. Enable exceptions only in
+isolated dependency adapters that catch failures and translate them into typed
+results before returning. Keep the rest of the project compiled without
+exceptions. Check an expected result before accessing its value or error; do not
+rely on throwing accessors. Apply the library-selection policy to error handling
+as to any other capability. Review error contracts for semantic conformance;
+automated tooling does not establish it.
 
 ## Library selection
 

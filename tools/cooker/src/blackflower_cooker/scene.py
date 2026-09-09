@@ -1,215 +1,208 @@
-"""Fixed scenario source validation and primitive encoding."""
+"""Structural encoding of geometry, point lights and spawn points."""
 
-from collections.abc import Sequence
+import enum
 import struct
+from typing import Literal
 from typing import TypedDict
 
 from blackflower_cooker import usd_source
 
 
-class BoxData(TypedDict):
-    """A static box identity, center and dimensions in millimetres."""
+class GeometryKind(enum.IntEnum):
+    """Geometry record discriminator in the scene encoding."""
+
+    # Axis-aligned box with full extents.
+    BOX = 1
+    # Sphere with a centre and radius.
+    SPHERE = 2
+
+
+class GeometryData(TypedDict):
+    """Geometry identity, kind, centre and dimensions in millimetres.
+
+    Dimensions contains three full extents for boxes or one radius for spheres.
+    """
 
     id: int
+    kind: GeometryKind
     center_mm: list[int]
-    size_mm: list[int]
+    dimensions_mm: list[int]
+
+
+class LightKind(enum.IntEnum):
+    """Light record discriminator in the scene encoding."""
+
+    # Omnidirectional emitter at a position.
+    POINT = 1
+    # Parallel emitter with a scene-space direction of travel.
+    DIRECTIONAL = 2
+
+
+class PointLightData(TypedDict):
+    """Point emitter with linear RGB color and dimensionless intensity."""
+
+    kind: Literal[LightKind.POINT]
+    id: int
+    position_mm: list[int]
+    color: list[float]
+    intensity: float
+
+
+class DirectionalLightData(TypedDict):
+    """Parallel emitter; direction is normalized by the consumer."""
+
+    kind: Literal[LightKind.DIRECTIONAL]
+    id: int
+    direction: list[float]
+    color: list[float]
+    intensity: float
+
+
+LightData = PointLightData | DirectionalLightData
 
 
 class SpawnData(TypedDict):
-    """A spawn identity and foot position in millimetres."""
+    """Placement origin in millimetres; consumers define what is spawned."""
 
     id: int
-    foot_mm: list[int]
+    position_mm: list[int]
 
 
 class SceneData(TypedDict):
-    """The primitive scenario schema, dimensions, boxes and spawns."""
+    """Independent collections of geometry, lights and spawns."""
 
-    schema: int
-    scenario: str
-    interior_mm: list[int]
-    wall_mm: list[int]
-    capsule_mm: list[int]
-    boxes: list[BoxData]
+    geometries: list[GeometryData]
+    lights: list[LightData]
     spawns: list[SpawnData]
 
 
-def _fields(value: object, names: str) -> None:
-    if not isinstance(value, dict) or set(value) != set(names.split()):
-        raise ValueError(f"expected fields: {names}")
-
-
-def _numbers(value: object, count: int) -> list[int]:
-    if not isinstance(value, list) or len(value) != count:
-        raise ValueError(f"expected {count} coordinates/dimensions")
-    # Reject bool and int subclasses: the schema requires exact integers.
-    # pylint: disable-next=unidiomatic-typecheck
-    if any(type(n) is not int or abs(n) > 20000 for n in value):
-        raise ValueError("dimensions must be integer millimetres within 20000")
-    return value
-
-
-def _identities(
-    items: Sequence[BoxData] | Sequence[SpawnData], fields: str
-) -> None:
-    previous = 0
-    for item in items:
-        _fields(item, fields)
-        identity = item["id"]
-        # Reject bool and int subclasses for canonical numeric identities.
-        # pylint: disable-next=unidiomatic-typecheck
-        if type(identity) is not int or not previous < identity <= 0xFFFFFFFF:
-            raise ValueError("identities must be positive, unique and sorted")
-        previous = identity
-
-
-def validate(scene: SceneData) -> SceneData:
-    """Validates dimensions, identities, ground support and separation.
-
-    Args:
-        scene: Parsed primitive scenario to validate.
-
-    Returns:
-        The original scene after successful validation.
-
-    Raises:
-        ValueError: A scenario field or geometric constraint is invalid.
-    """
-    _fields(
-        scene, "schema scenario interior_mm wall_mm capsule_mm boxes spawns"
-    )
-    if (
-        # A boolean must not be accepted as schema version 1.
-        type(scene["schema"]) is not int  # pylint: disable=unidiomatic-typecheck
-        or scene["schema"] != 1
-        or scene["scenario"] != "mvp"
-    ):
-        raise ValueError("unsupported scenario schema or identity")
-    if _numbers(scene["interior_mm"], 2) != [20000, 20000]:
-        raise ValueError("interior must be 20000 by 20000 mm")
-    if _numbers(scene["capsule_mm"], 2) != [1800, 600]:
-        raise ValueError("capsule must be 1800 mm high and 600 mm in diameter")
-    height, thickness = _numbers(scene["wall_mm"], 2)
-    if height < 1800 or thickness <= 0:
-        raise ValueError("invalid wall dimensions")
-    boxes, spawns = scene["boxes"], scene["spawns"]
-    if (
-        not isinstance(boxes, list)
-        or not isinstance(spawns, list)
-        or len(boxes) != 2
-        or len(spawns) != 4
-    ):
-        raise ValueError("scenario requires two boxes and four spawns")
-    _identities(boxes, "id center_mm size_mm")
-    _identities(spawns, "id foot_mm")
-    for box in boxes:
-        center = _numbers(box["center_mm"], 3)
-        size = _numbers(box["size_mm"], 3)
-        if any(n <= 0 or n % 2 for n in size) or center[1] * 2 != size[1]:
-            raise ValueError(
-                "boxes require positive even sizes and ground support"
-            )
-        if any(abs(center[i]) + size[i] // 2 > 10000 for i in (0, 2)):
-            raise ValueError("box outside interior")
-    a, b = boxes
-    if all(
-        abs(a["center_mm"][i] - b["center_mm"][i]) * 2
-        < a["size_mm"][i] + b["size_mm"][i]
-        for i in range(3)
-    ):
-        raise ValueError("boxes overlap")
-    for index, spawn in enumerate(spawns):
-        foot = _numbers(spawn["foot_mm"], 3)
-        if foot[1] != 0 or any(abs(foot[i]) + 300 >= 10000 for i in (0, 2)):
-            raise ValueError("spawn outside valid ground area")
-        for box in boxes:
-            distance = sum(
-                max(
-                    abs(foot[i] - box["center_mm"][i]) - box["size_mm"][i] // 2,
-                    0,
-                )
-                ** 2
-                for i in (0, 2)
-            )
-            if distance <= 300**2:
-                raise ValueError("spawn intersects box")
-        for other in spawns[:index]:
-            if (
-                sum((foot[i] - other["foot_mm"][i]) ** 2 for i in (0, 2))
-                <= 600**2
-            ):
-                raise ValueError("spawns overlap")
-    return scene
-
-
 def encode(source: bytes) -> bytes:
-    """Reads an OpenUSD source and encodes its validated primitive scene.
+    """Encodes the supported OpenUSD scene subset without gameplay validation.
 
     Args:
-        source: Exact bytes of a self-contained OpenUSD scenario.
+        source: Exact bytes of a self-contained OpenUSD scene.
 
     Returns:
-        The canonical 152-byte scene payload.
+        A scene header followed by geometry, light and spawn records.
 
     Raises:
-        ValueError: The source or its scenario geometry is invalid.
+        ValueError: The source cannot be represented by this schema.
         OSError: Temporary source storage fails.
     """
-    scene = validate(usd_source.read(source))
-    values = (
-        scene["interior_mm"] + scene["wall_mm"] + scene["capsule_mm"] + [2, 4]
-    )
-    result = struct.pack("<8I", *values)
-    for box in scene["boxes"]:
-        result += struct.pack(
-            "<I3i3I", box["id"], *box["center_mm"], *box["size_mm"]
+    data = usd_source.read(source)
+    try:
+        result = struct.pack(
+            "<3I",
+            len(data["geometries"]),
+            len(data["lights"]),
+            len(data["spawns"]),
         )
-    for spawn in scene["spawns"]:
-        result += struct.pack("<I3i", spawn["id"], *spawn["foot_mm"])
+        for geometry in data["geometries"]:
+            encoding = (
+                "<2I3i3I" if geometry["kind"] == GeometryKind.BOX else "<2I3iI"
+            )
+            result += struct.pack(
+                encoding,
+                geometry["kind"],
+                geometry["id"],
+                *geometry["center_mm"],
+                *geometry["dimensions_mm"],
+            )
+        for light in data["lights"]:
+            if light["kind"] == LightKind.POINT:
+                result += struct.pack(
+                    "<2I3i4f",
+                    light["kind"],
+                    light["id"],
+                    *light["position_mm"],
+                    *light["color"],
+                    light["intensity"],
+                )
+            else:
+                result += struct.pack(
+                    "<2I7f",
+                    light["kind"],
+                    light["id"],
+                    *light["direction"],
+                    *light["color"],
+                    light["intensity"],
+                )
+        for spawn in data["spawns"]:
+            result += struct.pack("<I3i", spawn["id"], *spawn["position_mm"])
+    except (struct.error, OverflowError) as error:
+        raise ValueError("scene field cannot be encoded") from error
     return result
 
 
 def decode(payload: bytes) -> SceneData:
-    """Decodes and validates a primitive scene payload.
+    """Checks record boundaries and decodes scene data without geometry rules.
 
     Args:
-        payload: Canonical scene bytes from a role pack.
+        payload: Encoded scene bytes.
 
     Returns:
-        The validated scene data.
+        Collections in their encoded order.
 
     Raises:
-        ValueError: The payload length, counts or geometry is invalid.
+        ValueError: Record types or lengths do not match the scene schema.
     """
-    if len(payload) != 152:
+    if len(payload) < 12:
         raise ValueError("invalid scene length")
-    (
-        interior_width,
-        interior_depth,
-        wall_height,
-        wall_thickness,
-        capsule_height,
-        capsule_diameter,
-        box_count,
-        spawn_count,
-    ) = struct.unpack_from("<8I", payload)
-    if (box_count, spawn_count) != (2, 4):
-        raise ValueError("invalid primitive counts")
-    scene: SceneData = {
-        "schema": 1,
-        "scenario": "mvp",
-        "interior_mm": [interior_width, interior_depth],
-        "wall_mm": [wall_height, wall_thickness],
-        "capsule_mm": [capsule_height, capsule_diameter],
-        "boxes": [],
-        "spawns": [],
-    }
-    for offset in (32, 60):
-        identity, *values = struct.unpack_from("<I3i3I", payload, offset)
-        scene["boxes"].append(
-            {"id": identity, "center_mm": values[:3], "size_mm": values[3:]}
+    geometry_count, lights, spawns = struct.unpack_from("<3I", payload)
+    data: SceneData = {"geometries": [], "lights": [], "spawns": []}
+    offset = 12
+    for _ in range(geometry_count):
+        if offset + 4 > len(payload):
+            raise ValueError("invalid geometry record length")
+        kind = GeometryKind(struct.unpack_from("<I", payload, offset)[0])
+        encoding = struct.Struct(
+            "<2I3i3I" if kind == GeometryKind.BOX else "<2I3iI"
         )
-    for offset in (88, 104, 120, 136):
-        identity, *foot = struct.unpack_from("<I3i", payload, offset)
-        scene["spawns"].append({"id": identity, "foot_mm": foot})
-    return validate(scene)
+        if offset + encoding.size > len(payload):
+            raise ValueError("invalid geometry record length")
+        _, identity, *values = encoding.unpack_from(payload, offset)
+        data["geometries"].append(
+            {
+                "kind": kind,
+                "id": identity,
+                "center_mm": values[:3],
+                "dimensions_mm": values[3:],
+            }
+        )
+        offset += encoding.size
+    if offset + 36 * lights + 16 * spawns != len(payload):
+        raise ValueError("invalid scene length")
+    for _ in range(lights):
+        light_kind = LightKind(struct.unpack_from("<I", payload, offset)[0])
+        if light_kind == LightKind.POINT:
+            _, identity, x, y, z, red, green, blue, intensity = (
+                struct.unpack_from("<2I3i4f", payload, offset)
+            )
+            data["lights"].append(
+                {
+                    "kind": LightKind.POINT,
+                    "id": identity,
+                    "position_mm": [x, y, z],
+                    "color": [red, green, blue],
+                    "intensity": intensity,
+                }
+            )
+        else:
+            _, identity, dx, dy, dz, red, green, blue, intensity = (
+                struct.unpack_from("<2I7f", payload, offset)
+            )
+            data["lights"].append(
+                {
+                    "kind": LightKind.DIRECTIONAL,
+                    "id": identity,
+                    "direction": [dx, dy, dz],
+                    "color": [red, green, blue],
+                    "intensity": intensity,
+                }
+            )
+        offset += 36
+    for _ in range(spawns):
+        identity, *position = struct.unpack_from("<I3i", payload, offset)
+        data["spawns"].append({"id": identity, "position_mm": position})
+        offset += 16
+    return data
