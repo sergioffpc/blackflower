@@ -1,4 +1,4 @@
-"""Publish a pair only after verifying both completed role artifacts."""
+"""Publish complete consumer scenes after verifying all signed artifacts."""
 
 from collections.abc import Callable
 import pathlib
@@ -6,31 +6,56 @@ import tempfile
 
 from blackflower_cooker import pack
 from blackflower_cooker import scene
+from blackflower_cooker import usd_source
 
 
-def cook_pair(
+def _encode_scenes(source: bytes) -> dict[str, bytes]:
+    data = usd_source.read(source)
+    server_scene: scene.SceneData = {
+        "collision_shapes": data["collision_shapes"],
+        "lights": [],
+        "spawns": data["spawns"],
+    }
+    agent_scene: scene.SceneData = {
+        "collision_shapes": data["collision_shapes"],
+        "lights": [],
+        "spawns": [],
+    }
+    client_scene: scene.SceneData = {
+        "collision_shapes": data["collision_shapes"],
+        "lights": data["lights"],
+        "spawns": [],
+    }
+    return {
+        "server": scene.encode(server_scene),
+        "agent": scene.encode(agent_scene),
+        "client": scene.encode(client_scene),
+    }
+
+
+def cook(
     source: pathlib.Path,
     output: pathlib.Path,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
 ) -> dict[str, str]:
-    """Publishes both verified role packs using a caller-owned signer.
+    """Publishes all consumer scene packs using a caller-owned signer.
 
     The output directory must not exist. Exceptions leave no newly published
-    pair. Private signing-key ownership stays with the caller.
+    pack set. Private signing-key ownership stays with the caller.
 
     Args:
         source: Self-contained OpenUSD scenario file.
-        output: New directory in which to publish the completed pair.
+        output: New directory in which to publish the completed pack set.
         public_key: Independently supplied raw Ed25519 public key.
         sign: Callback accepting transcript bytes and returning a signature.
 
     Returns:
-        Simulation and presentation pack digests and the shared scenario build
-        digest, encoded as hexadecimal strings.
+        Server, agent, client and scenario build digests as hexadecimal
+        strings.
 
     Raises:
-        ValueError: The source, destination or completed pair is invalid.
+        ValueError: The source, destination or completed pack set is invalid.
         OSError: Reading, staging, reserving or publishing files fails.
         cryptography.exceptions.InvalidSignature: A completed signature fails
             verification.
@@ -41,13 +66,9 @@ def cook_pair(
         raise ValueError("output directory already exists")
     with source.open("rb") as stream:
         raw = stream.read()
-    payload = scene.encode(raw)
+    payloads = _encode_scenes(raw)
     provenance = pack.provenance(raw)
-    resources = [
-        (pack.Role.SIMULATION, payload),
-        (pack.Role.PRESENTATION, payload),
-    ]
-    build_id = pack.build_identity(provenance, resources)
+    build_id = pack.build_identity(provenance, list(payloads.values()))
     output.parent.mkdir(parents=True, exist_ok=True)
     # The final directory must be new. An exclusive reservation prevents a
     # concurrent publisher from replacing even an empty destination directory.
@@ -59,42 +80,43 @@ def cook_pair(
             with tempfile.TemporaryDirectory(
                 prefix=".cook-", dir=output.parent
             ) as temporary:
-                stage = pathlib.Path(temporary) / "pair"
+                stage = pathlib.Path(temporary) / "packs"
                 stage.mkdir()
-                for role, content in resources:
-                    name = role.name.lower()
+                for name, content in payloads.items():
                     data = pack.encode(
                         content,
-                        role,
                         provenance,
                         build_id,
                         public_key,
                         sign,
+                        pack_type=pack.PackType[name.upper()],
                     )
-                    (stage / f"mvp.bf{name}").write_bytes(data)
-                verified = []
-                for role, _ in resources:
-                    name = role.name.lower()
-                    data = (stage / f"mvp.bf{name}").read_bytes()
-                    verified.append(pack.verify(data, role, [public_key]))
+                    (stage / f"{source.stem}.bf{name}").write_bytes(data)
+                verified = {
+                    name: pack.verify(
+                        (stage / f"{source.stem}.bf{name}").read_bytes(),
+                        [public_key],
+                    )
+                    for name in payloads
+                }
                 expected = pack.build_identity(
-                    verified[0].provenance,
-                    [(p.role, p.payload) for p in verified],
+                    provenance, [value.payload for value in verified.values()]
                 )
                 if any(
-                    p.build_id != expected
-                    or p.provenance != provenance
-                    or p.payload != payload
-                    for p in verified
+                    value.pack_type != pack.PackType[name.upper()]
+                    or value.build_id != expected
+                    or value.provenance != provenance
+                    or value.payload != payloads[name]
+                    for name, value in verified.items()
                 ):
                     raise ValueError(
-                        "completed pair disagrees on scenario build or scene"
+                        "completed packs disagree on build or scene"
                     )
                 identities = {
-                    "simulation": verified[0].pack_id.hex(),
-                    "presentation": verified[1].pack_id.hex(),
-                    "scenario_build_id": expected.hex(),
+                    name: value.pack_id.hex()
+                    for name, value in verified.items()
                 }
+                identities["scenario_build_id"] = expected.hex()
                 stage.rename(output)
                 return identities
         finally:

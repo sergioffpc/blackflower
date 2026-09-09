@@ -112,7 +112,7 @@ if(NOT CMAKE_CROSSCOMPILING)
   set_tests_properties(content.format content.lint PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)
   include(GoogleTest)
-  foreach(fixture IN ITEMS reference.bfsimulation reference.pub)
+  foreach(fixture IN ITEMS reference.bfserver reference.pub)
     configure_file("tests/fixtures/packs/${fixture}"
       "test-fixtures/${fixture}" COPYONLY)
   endforeach()

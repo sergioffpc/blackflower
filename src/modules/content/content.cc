@@ -24,13 +24,20 @@
 
 namespace blackflower::content {
 namespace {
-constexpr std::array<unsigned char, 8> kMagic{'B', 'F', 'P', 'A',
-                                              'C', 'K', '1', 0};
+constexpr std::array<unsigned char, 8> kServerMagic{'B', 'F', 'S', 'E',
+                                                    'R', 'V', '1', 0};
+constexpr std::array<unsigned char, 8> kAgentMagic{'B', 'F', 'A', 'G',
+                                                   'N', 'T', '1', 0};
+constexpr std::array<unsigned char, 8> kClientMagic{'B', 'F', 'C', 'L',
+                                                    'N', 'T', '1', 0};
+enum class SceneKind : std::uint8_t { kServer, kAgent, kClient };
+
 constexpr std::size_t kDigestSize = crypto_hash_sha256_BYTES;
 constexpr std::size_t kSignatureSize = crypto_sign_BYTES;
-// Pack v1: magic, version/role/count, total/manifest/payload sizes, key/build
+// Pack v1: magic, version/count, total/manifest/payload sizes, key/build
 // IDs.
-constexpr std::size_t kHeaderSize = kMagic.size() + 3 * sizeof(std::uint32_t) +
+constexpr std::size_t kHeaderSize = kServerMagic.size() +
+                                    2 * sizeof(std::uint32_t) +
                                     3 * sizeof(std::uint64_t) + 2 * kDigestSize;
 // Resource record: identity/type/schema/reserved, offset/size, payload digest.
 constexpr std::size_t kResourceRecordSize =
@@ -45,7 +52,7 @@ constexpr std::uint32_t kReservedResourceValue = 0;
 constexpr std::uint64_t kSingleResourceOffset = 0;
 
 enum class ResourceType : std::uint8_t {
-  // Geometry, light and spawn collections encoded by the scene schema.
+  // CollisionShape, light and spawn collections encoded by the scene schema.
   kScene = 1
 };
 
@@ -112,8 +119,17 @@ class Reader {
   bool valid_ = true;
 };
 
+// Temporary decoded collections; the file kind determines the public scene
+// type.
+struct DecodedScene {
+  std::vector<CollisionShape> collision_shapes;
+  std::vector<Light> lights;
+  std::vector<Spawn> spawns;
+};
+
 // Views borrow the input artifact; ranges have been checked against its size.
 struct PackLayout {
+  SceneKind scene_kind;
   std::span<const unsigned char> manifest;
   std::span<const unsigned char> payload;
   std::span<const unsigned char> key_id;
@@ -122,35 +138,41 @@ struct PackLayout {
   std::span<const unsigned char> signature;
 };
 
-// Validates and consumes the format and compatibility prefix of a pack header.
-std::expected<void, PackError> ValidateHeader(Reader& header, Role role) {
-  if (!std::ranges::equal(header.Take(kMagic.size()), kMagic) ||
-      header.U32() != 1) {
-    return std::unexpected(PackError::kUnsupportedFormat);
+std::expected<SceneKind, PackError> DecodeMagic(
+    std::span<const unsigned char> magic) {
+  if (std::ranges::equal(magic, kServerMagic)) {
+    return SceneKind::kServer;
   }
-  const auto actual_role = header.U32();
-  switch (actual_role) {
-    case static_cast<std::uint32_t>(Role::kSimulation):
-    case static_cast<std::uint32_t>(Role::kPresentation):
-      if (actual_role != static_cast<std::uint32_t>(role)) {
-        return std::unexpected(PackError::kIncompatibleRole);
-      }
-      break;
-    default:
-      return std::unexpected(PackError::kIncompatibleRole);
+  if (std::ranges::equal(magic, kAgentMagic)) {
+    return SceneKind::kAgent;
+  }
+  if (std::ranges::equal(magic, kClientMagic)) {
+    return SceneKind::kClient;
+  }
+  return std::unexpected(PackError::kUnsupportedFormat);
+}
+
+// Consumes the header prefix and identifies the scene encoding.
+std::expected<SceneKind, PackError> ValidateHeader(Reader& header) {
+  const auto kind = DecodeMagic(header.Take(kServerMagic.size()));
+  if (!kind) {
+    return std::unexpected(kind.error());
+  }
+  if (header.U32() != 1) {
+    return std::unexpected(PackError::kUnsupportedFormat);
   }
   if (header.U32() != 1) {
     return std::unexpected(PackError::kUnsupportedResourceCount);
   }
-  return {};
+  return *kind;
 }
 
 // Requires space for the fixed header and signature. Returned views borrow
 // bytes.
 std::expected<PackLayout, PackError> DecodeLayout(
-    std::span<const unsigned char> bytes, Role role) {
+    std::span<const unsigned char> bytes) {
   Reader header(bytes.first(kHeaderSize));
-  const auto compatible = ValidateHeader(header, role);
+  const auto compatible = ValidateHeader(header);
   if (!compatible) {
     return std::unexpected(compatible.error());
   }
@@ -167,7 +189,8 @@ std::expected<PackLayout, PackError> DecodeLayout(
   const auto build_id = header.Take(kDigestSize);
   const auto payload_start =
       kHeaderSize + static_cast<std::size_t>(manifest_size);
-  return PackLayout{.manifest = bytes.subspan(kHeaderSize, manifest_size),
+  return PackLayout{.scene_kind = *compatible,
+                    .manifest = bytes.subspan(kHeaderSize, manifest_size),
                     .payload = bytes.subspan(payload_start, payload_size),
                     .key_id = key_id,
                     .build_id = build_id,
@@ -237,18 +260,18 @@ std::expected<Sphere, PackError> DecodeSphere(Reader& reader) {
   return Sphere{.id = *id, .center_mm = *center, .radius_mm = *radius};
 }
 
-std::expected<Geometry, PackError> DecodeGeometry(Reader& reader) {
+std::expected<CollisionShape, PackError> DecodeCollisionShape(Reader& reader) {
   const auto kind = reader.Read<std::uint32_t>();
   if (!kind) {
     return std::unexpected(kind.error());
   }
-  switch (static_cast<GeometryKind>(*kind)) {
-    case GeometryKind::kBox:
+  switch (static_cast<CollisionShapeKind>(*kind)) {
+    case CollisionShapeKind::kBox:
       return DecodeBox(reader);
-    case GeometryKind::kSphere:
+    case CollisionShapeKind::kSphere:
       return DecodeSphere(reader);
   }
-  return std::unexpected(PackError::kUnsupportedGeometry);
+  return std::unexpected(PackError::kUnsupportedCollisionShape);
 }
 
 template <typename T>
@@ -328,18 +351,18 @@ std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
 
 // Reading each field validates structure; geometry and gameplay rules belong
 // to consumers. No partial scene escapes on failure.
-std::expected<Scene, PackError> DecodeScene(
+std::expected<DecodedScene, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   Reader reader(bytes);
   const auto counts = reader.ReadArray<std::uint32_t, 3>();
   if (!counts) {
     return std::unexpected(counts.error());
   }
-  const auto [geometry_count, light_count, spawn_count] = *counts;
-  auto geometries =
-      DecodeCollection<Geometry>(reader, geometry_count, DecodeGeometry);
-  if (!geometries) {
-    return std::unexpected(geometries.error());
+  const auto [collision_shape_count, light_count, spawn_count] = *counts;
+  auto collision_shapes = DecodeCollection<CollisionShape>(
+      reader, collision_shape_count, DecodeCollisionShape);
+  if (!collision_shapes) {
+    return std::unexpected(collision_shapes.error());
   }
   auto lights = DecodeCollection<Light>(reader, light_count, DecodeLight);
   if (!lights) {
@@ -352,9 +375,9 @@ std::expected<Scene, PackError> DecodeScene(
   if (!reader.done()) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }
-  return Scene{.geometries = std::move(*geometries),
-               .lights = std::move(*lights),
-               .spawns = std::move(*spawns)};
+  return DecodedScene{.collision_shapes = std::move(*collision_shapes),
+                      .lights = std::move(*lights),
+                      .spawns = std::move(*spawns)};
 }
 
 // Checks the provenance encoding from pack v1, not the claims made by its text.
@@ -403,6 +426,31 @@ std::expected<void, PackError> ValidateResourceRecord(
   return {};
 }
 
+// Rejects collections outside the selected schema before exposing a typed
+// scene.
+std::expected<Scene, PackError> MakeScene(DecodedScene data, SceneKind kind) {
+  switch (kind) {
+    case SceneKind::kServer:
+      if (!data.lights.empty()) {
+        return std::unexpected(PackError::kInvalidSceneLength);
+      }
+      return ServerScene{.collision_shapes = std::move(data.collision_shapes),
+                         .spawns = std::move(data.spawns)};
+    case SceneKind::kAgent:
+      if (!data.lights.empty() || !data.spawns.empty()) {
+        return std::unexpected(PackError::kInvalidSceneLength);
+      }
+      return AgentScene{.collision_shapes = std::move(data.collision_shapes)};
+    case SceneKind::kClient:
+      if (!data.spawns.empty()) {
+        return std::unexpected(PackError::kInvalidSceneLength);
+      }
+      return ClientScene{.collision_shapes = std::move(data.collision_shapes),
+                         .lights = std::move(data.lights)};
+  }
+  return std::unexpected(PackError::kUnsupportedFormat);
+}
+
 // Requires authenticated metadata. Checks the resource record and payload
 // before decoding scene values, preserving the distinction between failure
 // categories.
@@ -423,13 +471,17 @@ std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
   if (!manifest.done() || !std::ranges::equal(Hash(layout.payload), digest)) {
     return std::unexpected(PackError::kDigestMismatch);
   }
-  return DecodeScene(layout.payload);
+  auto decoded = DecodeScene(layout.payload);
+  if (!decoded) {
+    return std::unexpected(decoded.error());
+  }
+  return MakeScene(std::move(*decoded), layout.scene_kind);
 }
 
 }  // namespace
 
 std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
-    std::shared_ptr<const unsigned char> data, std::size_t size, Role role,
+    std::shared_ptr<const unsigned char> data, std::size_t size,
     std::span<const PublicKey> trusted_keys) {
   const std::span<const unsigned char> bytes(data.get(), size);
   if (bytes.size() < kHeaderSize + kSignatureSize) {
@@ -438,7 +490,7 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   if (sodium_init() < 0) {
     return std::unexpected(PackError::kCryptoInitializationFailed);
   }
-  const auto layout = DecodeLayout(bytes, role);
+  const auto layout = DecodeLayout(bytes);
   if (!layout) {
     return std::unexpected(layout.error());
   }
@@ -460,25 +512,24 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
 }
 
 std::expected<VerifiedPack, PackError> VerifiedPack::Load(
-    std::vector<unsigned char> bytes, Role role,
-    std::span<const PublicKey> trusted_keys) {
+    std::vector<unsigned char> bytes, std::span<const PublicKey> trusted_keys) {
   auto storage =
       std::make_shared<const std::vector<unsigned char>>(std::move(bytes));
   const auto size = storage->size();
   const auto* data = storage->data();
   return LoadStorage(
       std::shared_ptr<const unsigned char>(std::move(storage), data), size,
-      role, trusted_keys);
+      trusted_keys);
 }
 
 std::expected<VerifiedPack, PackError> LoadFile(
-    const std::filesystem::path& path, Role role,
+    const std::filesystem::path& path,
     std::span<const PublicKey> trusted_keys) {
   auto mapped = internal::MapFile(path);
   if (!mapped) {
     return std::unexpected(mapped.error());
   }
-  return VerifiedPack::LoadStorage(std::move(mapped->data), mapped->size, role,
+  return VerifiedPack::LoadStorage(std::move(mapped->data), mapped->size,
                                    trusted_keys);
 }
 
@@ -486,8 +537,8 @@ std::string_view PackErrorMessage(PackError error) {
   switch (error) {
     case PackError::kInvalidSceneLength:
       return "invalid scene length";
-    case PackError::kUnsupportedGeometry:
-      return "unsupported geometry kind";
+    case PackError::kUnsupportedCollisionShape:
+      return "unsupported collision shape kind";
     case PackError::kUnsupportedLight:
       return "unsupported light kind";
     case PackError::kInvalidLength:
@@ -496,8 +547,6 @@ std::string_view PackErrorMessage(PackError error) {
       return "cryptographic initialization failed";
     case PackError::kUnsupportedFormat:
       return "unsupported pack format";
-    case PackError::kIncompatibleRole:
-      return "wrong or unsupported pack role";
     case PackError::kUnsupportedResourceCount:
       return "unsupported resource count";
     case PackError::kInvalidLayout:

@@ -63,7 +63,7 @@ def _read_stage(stage) -> "scene.SceneData":
         return round(distance)
 
     root = stage.GetPrimAtPath("/Scenario")
-    blocks = stage.GetPrimAtPath("/Scenario/Geometry")
+    blocks = stage.GetPrimAtPath("/Scenario/CollisionShapes")
     lights = stage.GetPrimAtPath("/Scenario/Lights")
     spawns = stage.GetPrimAtPath("/Scenario/Spawns")
     if (
@@ -130,10 +130,14 @@ def _read_stage(stage) -> "scene.SceneData":
 
     if attr(root, "blackflower:schema") != 1:
         raise ValueError("unsupported scene schema")
-    result: "scene.SceneData" = {"geometries": [], "lights": [], "spawns": []}
+    result: "scene.SceneData" = {
+        "collision_shapes": [],
+        "lights": [],
+        "spawns": [],
+    }
     for prim in blocks.GetChildren():
         if prim.GetTypeName() not in ("Cube", "Sphere"):
-            raise ValueError("unsupported geometry kind")
+            raise ValueError("unsupported collision shape kind")
         matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
             Usd.TimeCode.Default()
         )
@@ -155,16 +159,16 @@ def _read_stage(stage) -> "scene.SceneData":
                 "blocks require positive axis-aligned USD transforms"
             )
         if prim.GetTypeName() == "Cube":
-            kind = scene.GeometryKind.BOX
+            kind = scene.CollisionShapeKind.BOX
             dimensions = [
                 mm(attr(prim, "size") * matrix[i][i]) for i in range(3)
             ]
         else:
             if matrix[0][0] != matrix[1][1] or matrix[1][1] != matrix[2][2]:
                 raise ValueError("spheres require uniform scale")
-            kind = scene.GeometryKind.SPHERE
+            kind = scene.CollisionShapeKind.SPHERE
             dimensions = [mm(attr(prim, "radius") * matrix[0][0])]
-        result["geometries"].append(
+        result["collision_shapes"].append(
             {
                 "id": attr(prim, "blackflower:id"),
                 "kind": kind,
@@ -204,7 +208,7 @@ def _read_stage(stage) -> "scene.SceneData":
                 "position_mm": _position(prim, mm),
             }
         )
-    for key in ("geometries", "lights", "spawns"):
+    for key in ("collision_shapes", "lights", "spawns"):
         result[key].sort(key=lambda value: value["id"])
     return result
 

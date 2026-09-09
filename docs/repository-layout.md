@@ -3,9 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The content roles are
-simulation and presentation; their extensions are `.bfsimulation` and
-`.bfpresentation`.
+The rest of the runtime/SDK design below remains proposed. The cooker produces
+`.bfserver`, `.bfagent` and `.bfclient` files. Applications select paths; the
+loader validates resource schemas without a role parameter.
 
 Status: directory and build-target proposal. The owner requires exactly two
 product runtimes, client and server in C++23, and one offline cooker in Python.
@@ -158,11 +158,10 @@ and C++ implementations consume that specification and common vectors under
 
 Conformance checks must have Python produce a signed pack that the C++ loader
 accepts, and have both implementations agree on canonical bytes, payload hashes,
-and altered/invalid-pack rejection. Verify both role packs independently and
-check their common scenario build identity; each staged runtime receives only
-its own pack. Production signing private keys never enter this tree. Disposable
-test material must be clearly identified and cannot become the runtime trust
-set.
+and scenario build identity. Each staged runtime receives the files it needs and
+its independently provisioned trust set. Production signing private keys never
+enter this tree. Disposable test material must be clearly identified and cannot
+become the runtime trust set.
 
 `assets/` contains authoring inputs. Cooked artifacts go under `build/packs/`,
 with only small test vectors committed as fixtures. Runtime staging contains the
@@ -194,17 +193,17 @@ build/
 │   ├── cache/                       # Intermediate cooked resources
 │   └── dist/                        # Python package artifacts
 ├── packs/
-│   ├── mvp.bfpresentation
-│   └── mvp.bfsimulation
+│   ├── mvp.bfserver
+│   ├── mvp.bfagent
+│   └── mvp.bfclient
 └── stage/
     ├── server-linux-x64/
     │   ├── bin/blackflower-server
-    │   ├── content/mvp.bfsimulation
+    │   ├── content/mvp.bfserver
     │   └── licenses/
     └── client-windows-x64/
         ├── bin/blackflower-client.exe
-        ├── content/mvp.bfsimulation
-        ├── content/mvp.bfpresentation
+        ├── content/mvp.bfclient
         └── licenses/
 ```
 

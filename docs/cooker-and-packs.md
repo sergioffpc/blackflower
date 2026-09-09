@@ -3,9 +3,9 @@
 Status: the owner requires two C++ runtimes (client and server), one offline
 Python cooker using Assimp for 3D model import and meshoptimizer for mesh
 optimization before final-format conversion, Slang for offline shader
-compilation to SPIR-V, and two verified, digitally signed packs per scenario:
-one for simulation and one for presentation. The minimal OpenUSD cooker, signed
-primitive pack format and C++ loader are implemented by
+compilation to SPIR-V, and three verified, digitally signed content packs per
+scenario. The minimal OpenUSD cooker, signed primitive pack format and C++
+loader are implemented by
 [#21](https://github.com/sergioffpc/blackflower/issues/21); see the
 [implemented pipeline](content-pipeline.md). Mesh, shader, GPU physics and audio
 processing below remain proposals for subsequent tickets. See
@@ -24,11 +24,13 @@ flowchart LR
     source["Source assets and scene definition"]
     cooker["Offline cooker on Linux"]
     signer["Signing step in the packaging tool"]
-    presentationPack["Signed presentation pack"]
-    simulationPack["Signed simulation pack"]
+    server["ServerScene"]
+    agent["AgentScene"]
+    client["ClientScene"]
     source --> cooker --> signer
-    signer --> presentationPack
-    signer --> simulationPack
+    signer --> server
+    signer --> agent
+    signer --> client
 ```
 
 The owner selected Python for the offline Linux CLI tool, `blackflower-cooker`;
@@ -41,23 +43,19 @@ source code is not assumed to be shared. The
 packages, and build outputs. Signing is an explicit packaging stage; runtime
 applications only need verification capabilities and public keys.
 
-The cooker produces two independently signed packs: simulation content for the
-Simulation and Prediction Worlds, and presentation content for the Presentation
-World. Their formats are independent of the deployment platform. The server
-loads simulation content; the client loads both roles. Each artifact can be
-verified without reading its counterpart.
+The cooker derives complete ServerScene, AgentScene and ClientScene artifacts
+from one source scene, using `.bfserver`, `.bfagent` and `.bfclient` extensions.
+The server, autonomous participant and human client each select their own file.
+The loader accepts a path and trusted keys without a role selector; each file
+has its own authenticated magic. The loader returns a variant of the concrete
+scene types, and consumers do not need companion packs.
 
-Simulation content contains world rules, collision geometry and interaction
-data. Presentation content contains meshes, materials, textures, SPIR-V shaders
-and audio. Portable resource schemas define their representations; runtime
-adapters prepare platform-specific resources. Resource identities and shared
-scene values stay consistent across the two content roles. Prediction remains
-subject to its existing limits on client-side simulation.
-
-The implemented primitive slice contains only the shared validated scenario
-resource in each independently signed artifact. The source scene is OpenUSD, and
-uv manages the Python environment and locked dependencies. Different extensions
-do not replace authenticated role checks.
+ServerScene and AgentScene currently share collision geometry, without lights or
+visual/audio assets. Only ServerScene contains spawn points. ClientScene
+contains that geometry and the source lights, without spawn points. Visual mesh
+and audio encoding remain future work. Runtime adapters prepare SDK resources
+from these portable definitions. The autonomous participant will use the client
+protocol; its runtime and model-driven control are outside this preparation.
 
 ## Selected cooker stack and model processing
 
@@ -67,7 +65,7 @@ do not replace authenticated role checks.
 | Scene source               | OpenUSD                   | Read the self-contained USDA/USDC primitive scene through official Python bindings.                              |
 | 3D model import            | Assimp                    | Read supported source models and expose their geometry, scene transforms, and material references to the cooker. |
 | Mesh optimization          | meshoptimizer             | Optimize imported mesh data before conversion to the runtime format.                                             |
-| Shader compilation         | Slang                     | Compile all required shader entry points and variants to SPIR-V offline for the presentation pack.               |
+| Shader compilation         | Slang                     | Compile all required shader entry points and variants to SPIR-V offline for rendering resources.                 |
 
 The canonical library name is `meshoptimizer`. Assimp exposes C/C++ interfaces
 and Python bindings; its upstream PyAssimp wrapper uses `ctypes` and requires
@@ -190,27 +188,22 @@ Python uses cryptography 46.0.5; C++ uses libsodium 1.0.22#1 through vcpkg and a
 scoped Windows cross-build overlay.
 [ADR-0007](adr/0007-minimal-pack-format-and-trust.md) records these selections,
 replacing the earlier OpenSSL EVP proposal for the C++ loader. Independent
-literal-encoded reference fixtures check the two implementations. Extensions are
-`.bfpresentation` and `.bfsimulation`.
+literal-encoded reference fixtures check the two implementations. The artifact
+extensions are `.bfserver`, `.bfagent` and `.bfclient`.
 
 ## Scenario compatibility
 
-`PackId` identifies one artifact and therefore differs between simulation and
-presentation. Both signed headers contain a common `ScenarioBuildId`. The cooker
-derives it from a canonical build description containing the scenario inputs,
-common scene/rule contract, both content roles, pinned tool/settings revisions,
-and both roles' cooked resource digests. Exclude signatures, final `PackId`
-values, and the build identifier itself to avoid circular hashing. The exact
-encoding is specified in pack v1.
+`PackId` identifies the signed artifact. Its header also contains a
+`ScenarioBuildId`, derived from source and settings provenance and all three
+packs' cooked resource summaries in server/agent/client order. Signatures, final
+`PackId` values and the build identifier itself are excluded from the build
+transcript. The exact encoding is specified in pack v1.
 
-Admission compares `ScenarioBuildId`, not equality of the two `PackId` values.
-Each loader checks the required content role and resource schemas. The cooker
-verifies pair agreement before publication. Rejecting peers with a different
-build is a subsequent admission responsibility, not a local loader comparison
-against a second pack. This conservative MVP policy also rejects a
-presentation-only recook paired with an older simulation pack. More permissive
-compatibility is a future decision. Scene revision alone does not identify the
-complete build.
+Admission compares `ScenarioBuildId`; signing-key changes need not change the
+scenario build identity. The loader validates resource schemas and authenticates
+the build identity. The cooker recomputes it before publication. Rejecting peers
+with a different build remains a subsequent admission responsibility. Scene
+revision alone does not identify the complete build.
 
 ## Signing trust and production contracts
 
@@ -223,23 +216,23 @@ Production executable provisioning and rotation remain future deployment
 choices. Automated tests use disposable signing keys; only public keys and
 signed reference artifacts are committed.
 
-| Logical contract | Input                                                                                      | Output and owner                                                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Cook content     | `CookRequest`: source set, scene definition, both content roles, pinned tool settings      | Two role-specific `CookedContentSet` values and a common build description, owned by the offline cooker. |
-| Package/sign     | Both cooked sets, canonical manifests with common `ScenarioBuildId`, signing configuration | Two independently signed artifacts plus a pair verification report, owned by packaging.                  |
+| Logical contract | Input                                                                              | Output and owner                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Cook content     | `CookRequest`: source set, scene definition, pinned tool settings                  | Three `CookedContentSet` values and a common build description, owned by the offline cooker. |
+| Package/sign     | Cooked resources, canonical manifest with `ScenarioBuildId`, signing configuration | Three signed artifacts and their verification results, owned by packaging.                   |
 
-Publish the pair only after both artifacts pass verification and agree on their
-scenario build identity and common scene/rule values. A failed cook or signing
-step must not publish an incomplete pair as a successful build. The
+Publish the set only after verification of all signatures, the common build
+identity and scene values. A failed cook or signing step must not publish
+incomplete content as a successful build. The
 [runtime lifecycle](runtime-lifecycle.md#content-preparation-boundary) owns
 verification/loading, SDK preparation, and world initialization; these are not
 cooker responsibilities.
 
 ## MVP validation and delivery impact
 
-The first playable slice needs the signed pack pair, role-aware loading and
-resource initialization. Functional checks cover each role's standalone
-verification and the runtime's required content. Follow the
+The first playable slice needs the signed pack set, verified loading and
+resource initialization. Functional checks cover production, consumption and
+preservation of the authored scene. Follow the
 [current test scope](development-process.md#current-application-test-scope).
 
 Run the delivered applications without source assets available and establish
@@ -251,6 +244,6 @@ their own evidence.
 
 Outstanding work includes production public-key provisioning, portable resource
 schemas, Assimp/meshoptimizer bindings and exact versions, native SDK tool
-integration, and the Falcor precompiled-shader path. The required outcome is two
-verified, independently signed packs per scenario, with offline Slang-compiled
-SPIR-V in the presentation pack.
+integration, and the Falcor precompiled-shader path. The required outcome is
+three verified, signed content packs per scenario, including offline
+Slang-compiled SPIR-V resources.

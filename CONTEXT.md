@@ -30,7 +30,11 @@ such as the ground, enclosure, and fixed blocks.
 movable objects, whose official evolution and interactions are determined by the
 Simulation World. A client's local movement prediction remains provisional.
 
-**Scene**: A collection of geometric primitives, lights and spawn points that
+**CollisionShape**: A geometric shape that defines a surface or volume for
+collision with participants or objects, independently of its visual
+representation.
+
+**Scene**: A collection of collision shapes, lights and spawn points that
 describes a scenario's spatial contents independently of participant properties
 and gameplay rules.
 
@@ -41,8 +45,12 @@ conversion.
 **Content pack**: The signed distribution artifact containing a coherent set of
 cooked scenario resources and their compatibility and integrity metadata.
 
-**Simulation pack**: Scenario resources shared by the Simulation and Prediction
-Worlds, independent of the machine or application consuming them.
+**ServerScene**: The complete scenario content required by the authoritative
+server, including collision data and participant placement information.
 
-**Presentation pack**: Scenario resources used by the Presentation World,
-independent of the machine or application consuming them.
+**AgentScene**: The complete scenario content required by an autonomous
+participant, including collision data without visual or audio assets.
+
+**ClientScene**: The complete scenario content required by a human participant's
+client, including collision, visual and audio data. Spawn placement is owned by
+the server.

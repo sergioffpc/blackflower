@@ -20,17 +20,9 @@ namespace blackflower::content {
 // SHA-256 identity and raw Ed25519 verification key, respectively.
 using Digest = std::array<unsigned char, 32>;
 using PublicKey = std::array<unsigned char, 32>;
-// Selects the content's purpose independently of deployment or host platform.
-enum class Role : std::uint8_t {
-  // World rules and geometry shared by simulation and prediction.
-  kSimulation = 1,
-  // Resources used to render and present the scenario.
-  kPresentation = 2
-};
-
 // Preserve the full encoded discriminator so unknown values cannot truncate.
 // NOLINTNEXTLINE(performance-enum-size)
-enum class GeometryKind : std::uint32_t {
+enum class CollisionShapeKind : std::uint32_t {
   // Axis-aligned box with a centre and full extents.
   kBox = 1,
   // Sphere with a centre and radius.
@@ -48,10 +40,10 @@ enum class LightKind : std::uint32_t {
 
 // Failure conditions exposed by pack ingestion, authentication and validation.
 enum class PackError : std::uint8_t {
-  // Scene payload length differs from the layout required by its schema.
+  // Scene length or collection counts violate the concrete scene's layout.
   kInvalidSceneLength,
-  // A geometry record uses a geometry tag unsupported by this schema.
-  kUnsupportedGeometry,
+  // A collision shape record uses a kind unsupported by this schema.
+  kUnsupportedCollisionShape,
   // A light record uses a kind unsupported by this schema.
   kUnsupportedLight,
   // Input bytes are too short to contain the pack header and signature.
@@ -60,8 +52,6 @@ enum class PackError : std::uint8_t {
   kCryptoInitializationFailed,
   // The pack magic or format version is not supported.
   kUnsupportedFormat,
-  // The embedded role is unsupported or differs from the caller's requirement.
-  kIncompatibleRole,
   // The declared resource count is unsupported by the pack format.
   kUnsupportedResourceCount,
   // Declared total, manifest and payload lengths do not partition the input
@@ -106,7 +96,8 @@ struct Sphere {
   std::uint32_t radius_mm = 0;
 };
 
-using Geometry = std::variant<Box, Sphere>;
+// Collision shape independent of visual representation.
+using CollisionShape = std::variant<Box, Sphere>;
 
 // Omnidirectional point emitter. Color is linear RGB; intensity is a
 // dimensionless multiplier of that color, independent of a rendering backend.
@@ -134,13 +125,26 @@ struct Spawn {
   std::array<std::int32_t, 3> position_mm{};
 };
 
-// Scene contents in the coordinate system defined by scene v1. Collections may
-// be empty; no enclosure or participant dimensions are implied.
-struct Scene {
-  std::vector<Geometry> geometries;
-  std::vector<Light> lights;
+// Authoritative collision geometry and spawn points, in scene v1 coordinates.
+struct ServerScene {
+  std::vector<CollisionShape> collision_shapes;
   std::vector<Spawn> spawns;
 };
+
+// Autonomous participant collision shapes, without presentation or spawns.
+struct AgentScene {
+  std::vector<CollisionShape> collision_shapes;
+};
+
+// Human client collision and presentation content, without spawn points.
+struct ClientScene {
+  std::vector<CollisionShape> collision_shapes;
+  std::vector<Light> lights;
+};
+
+// The authenticated file magic selects the alternative; collections may be
+// empty.
+using Scene = std::variant<ServerScene, AgentScene, ClientScene>;
 
 // Owns authenticated bytes and the structurally validated scene decoded from
 // them. Accessor references and views borrow this object's storage; do not
@@ -149,21 +153,20 @@ class VerifiedPack {
  public:
   // Authenticates a complete artifact and checks scene encoding, without
   // evaluating geometry or gameplay rules. The application supplies the
-  // required role and trusted keys independently of the artifact; keys are not
+  // trusted keys independently of the artifact; keys are not
   // retained. After ownership transfer, callers must not mutate the bytes
   // through retained aliases. Performs preparation outside ECS execution;
   // creates no runtime SDK resources.
   static std::expected<VerifiedPack, PackError> Load(
-      std::vector<unsigned char> bytes, Role role,
+      std::vector<unsigned char> bytes,
       std::span<const PublicKey> trusted_keys);
 
   [[nodiscard]] const Scene& scene() const { return scene_; }
 
-  // Identifies this role-specific artifact.
+  // Identifies this signed artifact.
   [[nodiscard]] const Digest& pack_id() const { return pack_id_; }
 
-  // Authenticated identity shared by the matching role packs. Verifying one
-  // artifact does not establish that its counterpart is available or valid.
+  // Authenticated identity of the source, settings and cooked resources.
   [[nodiscard]] const Digest& scenario_build_id() const { return build_id_; }
 
   [[nodiscard]] std::span<const unsigned char> bytes() const {
@@ -173,10 +176,10 @@ class VerifiedPack {
  private:
   VerifiedPack() = default;
   static std::expected<VerifiedPack, PackError> LoadStorage(
-      std::shared_ptr<const unsigned char> data, std::size_t size, Role role,
+      std::shared_ptr<const unsigned char> data, std::size_t size,
       std::span<const PublicKey> trusted_keys);
   friend std::expected<VerifiedPack, PackError> LoadFile(
-      const std::filesystem::path& path, Role role,
+      const std::filesystem::path& path,
       std::span<const PublicKey> trusted_keys);
 
   std::shared_ptr<const unsigned char> data_;
@@ -192,8 +195,7 @@ class VerifiedPack {
 // Hash verification touches all payload bytes; decoded scene values use
 // separate allocations. Call outside ECS execution.
 std::expected<VerifiedPack, PackError> LoadFile(
-    const std::filesystem::path& path, Role role,
-    std::span<const PublicKey> trusted_keys);
+    const std::filesystem::path& path, std::span<const PublicKey> trusted_keys);
 
 }  // namespace blackflower::content
 #endif  // BLACKFLOWER_CONTENT_CONTENT_H_

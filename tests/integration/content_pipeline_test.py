@@ -26,7 +26,7 @@ HARNESS = pathlib.Path(
 )
 
 
-def _harness_command(pack_path, role, public):
+def _harness_command(pack_path, public):
     def runtime_path(path):
         if HARNESS.suffix == ".exe" and sys.platform == "linux":
             return subprocess.check_output(
@@ -37,14 +37,13 @@ def _harness_command(pack_path, role, public):
     return [
         str(HARNESS),
         runtime_path(pack_path),
-        role,
         runtime_path(public),
     ]
 
 
 class ContentPipelineTest(unittest.TestCase):
 
-    def test_independently_encoded_reference_packs(self):
+    def test_independently_encoded_reference_pack(self):
         reference = json.loads(
             (ROOT / "tests/fixtures/packs/reference.json").read_text()
         )
@@ -52,35 +51,41 @@ class ContentPipelineTest(unittest.TestCase):
             work = pathlib.Path(directory)
             public = bytes.fromhex(reference["public_key"])
             (work / "public.key").write_bytes(public)
-            for value in pack.Role:
-                role = value.name.lower()
+            for name in ("server", "agent", "client"):
                 data = (
-                    ROOT / f"tests/fixtures/packs/reference.bf{role}"
+                    ROOT / f"tests/fixtures/packs/reference.bf{name}"
                 ).read_bytes()
-                verified = pack.verify(data, value, [public])
-                self.assertEqual(verified.payload.hex(), reference["scene"])
+                verified = pack.verify(data, [public])
                 self.assertEqual(
-                    verified.pack_id.hex(), reference[f"{role}_id"]
+                    verified.pack_type, pack.PackType[name.upper()]
+                )
+                self.assertEqual(
+                    verified.payload.hex(), reference["scenes"][name]
+                )
+                self.assertEqual(
+                    verified.pack_id.hex(), reference["pack_ids"][name]
                 )
                 self.assertEqual(verified.build_id.hex(), reference["build_id"])
-                (work / f"reference.bf{role}").write_bytes(data)
+                (work / f"reference.bf{name}").write_bytes(data)
                 result = subprocess.run(
                     _harness_command(
-                        work / f"reference.bf{role}",
-                        role,
-                        work / "public.key",
+                        work / f"reference.bf{name}", work / "public.key"
                     ),
                     capture_output=True,
                     text=True,
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+                content = json.loads(result.stdout)
+                self.assertEqual(content["scene_type"], name)
                 self.assertEqual(
-                    json.loads(result.stdout)["pack_id"],
-                    reference[f"{role}_id"],
+                    content["pack_id"], reference["pack_ids"][name]
+                )
+                self.assertEqual(
+                    content["scenario_build_id"], reference["build_id"]
                 )
 
-    def test_each_role_reads_an_independent_scene_without_its_counterpart(self):
+    def test_cooked_pack_preserves_authored_scene(self):
         with tempfile.TemporaryDirectory() as directory:
             work = pathlib.Path(directory)
             key = ed25519.Ed25519PrivateKey.generate()
@@ -100,11 +105,13 @@ class ContentPipelineTest(unittest.TestCase):
             )
             source = work / "scene.usda"
             stage = Usd.Stage.Open(str(ROOT / "assets/scenes/mvp.usda"))
-            sphere = UsdGeom.Sphere.Define(stage, "/Scenario/Geometry/Ball")
+            sphere = UsdGeom.Sphere.Define(
+                stage, "/Scenario/CollisionShapes/Ball"
+            )
             sphere.GetRadiusAttr().Set(0.5)
             sphere.GetPrim().CreateAttribute(
                 "blackflower:id",
-                stage.GetPrimAtPath("/Scenario/Geometry/West")
+                stage.GetPrimAtPath("/Scenario/CollisionShapes/West")
                 .GetAttribute("blackflower:id")
                 .GetTypeName(),
             ).Set(8)
@@ -137,7 +144,7 @@ class ContentPipelineTest(unittest.TestCase):
                 "xformOp:translate"
             ).Set((-3, 5, 0))
             layer.Export(str(source))
-            output = work / "pair"
+            output = work / "cooked"
             result = subprocess.run(
                 [
                     sys.executable,
@@ -156,18 +163,14 @@ class ContentPipelineTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                sorted(p.name for p in output.iterdir()),
-                ["mvp.bfpresentation", "mvp.bfsimulation"],
-            )
-            results = []
-            for role in ("simulation", "presentation"):
-                isolated = work / role
+            identities = json.loads(result.stdout)
+            for name in ("server", "agent", "client"):
+                isolated = work / name
                 isolated.mkdir()
-                pack_path = isolated / f"cenário.bf{role}"
-                pack_path.write_bytes((output / f"mvp.bf{role}").read_bytes())
+                pack_path = isolated / "cenário.pack"
+                pack_path.write_bytes((output / f"scene.bf{name}").read_bytes())
                 loaded = subprocess.run(
-                    _harness_command(pack_path, role, public),
+                    _harness_command(pack_path, public),
                     capture_output=True,
                     text=True,
                     check=False,
@@ -175,9 +178,10 @@ class ContentPipelineTest(unittest.TestCase):
                 )
                 self.assertEqual(loaded.returncode, 0, loaded.stderr)
                 content = json.loads(loaded.stdout)
-                self.assertEqual(len(content["geometries"]), 8)
+                self.assertEqual(content["scene_type"], name)
+                self.assertEqual(len(content["collision_shapes"]), 8)
                 self.assertEqual(
-                    content["geometries"][0],
+                    content["collision_shapes"][0],
                     {
                         "id": 1,
                         "kind": 1,
@@ -186,7 +190,7 @@ class ContentPipelineTest(unittest.TestCase):
                     },
                 )
                 self.assertEqual(
-                    content["geometries"][-1],
+                    content["collision_shapes"][-1],
                     {
                         "id": 8,
                         "kind": 2,
@@ -211,17 +215,21 @@ class ContentPipelineTest(unittest.TestCase):
                             "color": [1, 1, 1],
                             "intensity": 3,
                         },
-                    ],
+                    ]
+                    if name == "client"
+                    else [],
                 )
                 self.assertEqual(
                     content["spawns"],
-                    [{"id": 1, "position_mm": [-3000, 5000, 0]}],
+                    [{"id": 1, "position_mm": [-3000, 5000, 0]}]
+                    if name == "server"
+                    else [],
                 )
-                results.append(content)
-            self.assertNotEqual(results[0]["pack_id"], results[1]["pack_id"])
-            self.assertEqual(
-                results[0]["scenario_build_id"], results[1]["scenario_build_id"]
-            )
+                self.assertEqual(content["pack_id"], identities[name])
+                self.assertEqual(
+                    content["scenario_build_id"],
+                    identities["scenario_build_id"],
+                )
 
 
 if __name__ == "__main__":

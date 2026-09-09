@@ -1,15 +1,13 @@
-"""Structural encoding of geometry, point lights and spawn points."""
+"""Structural encoding of collision shapes, lights and spawn points."""
 
 import enum
 import struct
 from typing import Literal
 from typing import TypedDict
 
-from blackflower_cooker import usd_source
 
-
-class GeometryKind(enum.IntEnum):
-    """Geometry record discriminator in the scene encoding."""
+class CollisionShapeKind(enum.IntEnum):
+    """CollisionShape record discriminator in the scene encoding."""
 
     # Axis-aligned box with full extents.
     BOX = 1
@@ -17,14 +15,14 @@ class GeometryKind(enum.IntEnum):
     SPHERE = 2
 
 
-class GeometryData(TypedDict):
-    """Geometry identity, kind, centre and dimensions in millimetres.
+class CollisionShapeData(TypedDict):
+    """CollisionShape identity, kind, centre and dimensions in millimetres.
 
     Dimensions contains three full extents for boxes or one radius for spheres.
     """
 
     id: int
-    kind: GeometryKind
+    kind: CollisionShapeKind
     center_mm: list[int]
     dimensions_mm: list[int]
 
@@ -69,44 +67,44 @@ class SpawnData(TypedDict):
 
 
 class SceneData(TypedDict):
-    """Independent collections of geometry, lights and spawns."""
+    """Independent collections of collision shapes, lights and spawns."""
 
-    geometries: list[GeometryData]
+    collision_shapes: list[CollisionShapeData]
     lights: list[LightData]
     spawns: list[SpawnData]
 
 
-def encode(source: bytes) -> bytes:
-    """Encodes the supported OpenUSD scene subset without gameplay validation.
+def encode(data: SceneData) -> bytes:
+    """Encodes scene collections without gameplay validation.
 
     Args:
-        source: Exact bytes of a self-contained OpenUSD scene.
+        data: CollisionShape, light and spawn collections to serialize.
 
     Returns:
-        A scene header followed by geometry, light and spawn records.
+        A scene header followed by collision shape, light and spawn records.
 
     Raises:
-        ValueError: The source cannot be represented by this schema.
-        OSError: Temporary source storage fails.
+        ValueError: A field cannot be represented by this schema.
     """
-    data = usd_source.read(source)
     try:
         result = struct.pack(
             "<3I",
-            len(data["geometries"]),
+            len(data["collision_shapes"]),
             len(data["lights"]),
             len(data["spawns"]),
         )
-        for geometry in data["geometries"]:
+        for collision_shape in data["collision_shapes"]:
             encoding = (
-                "<2I3i3I" if geometry["kind"] == GeometryKind.BOX else "<2I3iI"
+                "<2I3i3I"
+                if collision_shape["kind"] == CollisionShapeKind.BOX
+                else "<2I3iI"
             )
             result += struct.pack(
                 encoding,
-                geometry["kind"],
-                geometry["id"],
-                *geometry["center_mm"],
-                *geometry["dimensions_mm"],
+                collision_shape["kind"],
+                collision_shape["id"],
+                *collision_shape["center_mm"],
+                *collision_shape["dimensions_mm"],
             )
         for light in data["lights"]:
             if light["kind"] == LightKind.POINT:
@@ -148,20 +146,20 @@ def decode(payload: bytes) -> SceneData:
     """
     if len(payload) < 12:
         raise ValueError("invalid scene length")
-    geometry_count, lights, spawns = struct.unpack_from("<3I", payload)
-    data: SceneData = {"geometries": [], "lights": [], "spawns": []}
+    collision_shape_count, lights, spawns = struct.unpack_from("<3I", payload)
+    data: SceneData = {"collision_shapes": [], "lights": [], "spawns": []}
     offset = 12
-    for _ in range(geometry_count):
+    for _ in range(collision_shape_count):
         if offset + 4 > len(payload):
-            raise ValueError("invalid geometry record length")
-        kind = GeometryKind(struct.unpack_from("<I", payload, offset)[0])
+            raise ValueError("invalid collision shape record length")
+        kind = CollisionShapeKind(struct.unpack_from("<I", payload, offset)[0])
         encoding = struct.Struct(
-            "<2I3i3I" if kind == GeometryKind.BOX else "<2I3iI"
+            "<2I3i3I" if kind == CollisionShapeKind.BOX else "<2I3iI"
         )
         if offset + encoding.size > len(payload):
-            raise ValueError("invalid geometry record length")
+            raise ValueError("invalid collision shape record length")
         _, identity, *values = encoding.unpack_from(payload, offset)
-        data["geometries"].append(
+        data["collision_shapes"].append(
             {
                 "kind": kind,
                 "id": identity,

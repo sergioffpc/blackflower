@@ -9,7 +9,7 @@ def Xform "Scenario"
 {
     custom int blackflower:schema = 1
 
-    def Scope "Geometry"
+    def Scope "CollisionShapes"
     {
         def Cube "West"
         {

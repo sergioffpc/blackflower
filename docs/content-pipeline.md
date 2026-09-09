@@ -38,8 +38,8 @@ geometry, light and spawn-point encoding.
 Provision a dedicated Ed25519 signing key in PEM/PKCS8 form outside this
 checkout and runtime staging. The CLI accepts an unencrypted PEM file; use
 filesystem access controls or an external signing adapter for protected keys.
-The public `cook_pair` interface accepts a signer callable and raw public key,
-so signing authority does not belong to the scene or runtime loader. Future
+The public `cook` interface accepts a signer callable and raw public key, so
+signing authority does not belong to the scene or runtime loader. Future
 hardware/key-service integrations can implement that existing external seam.
 
 ```sh
@@ -49,32 +49,38 @@ uv run --project tools/cooker --locked --no-sync blackflower-cooker cook \
   --private-key /path/outside/checkout/content-signing.pem
 ```
 
-The output directory must not exist. Success produces exactly `mvp.bfsimulation`
-and `mvp.bfpresentation` and prints their two PackIds and common ScenarioBuildId
-as JSON. Each finished file is independently reopened and verified before the
-pair is published. Failure exits nonzero with a concrete console error. Existing
-output is preserved; use a new directory for a recook. A sibling `.lock` file
-coordinates publishers. If a process is killed, confirm it is no longer active
-before removing its stale lock or private staging data. No power-loss durability
-or network-filesystem transaction guarantee is made.
+The output directory must not exist. Success produces `.bfserver`, `.bfagent`
+and `.bfclient` files named after the source stem and prints their `server`,
+`agent` and `client` PackIds and common `scenario_build_id` as JSON. All
+finished files are reopened and verified before the set is published. Failure
+exits nonzero with a concrete console error. Existing output is preserved; use a
+new directory for a recook. A sibling `.lock` file coordinates publishers. If a
+process is killed, confirm it is no longer active before removing its stale lock
+or private staging data. No power-loss durability or network-filesystem
+transaction guarantee is made.
 
 Run the C++ harness with an independently provisioned raw 32-byte public key:
 
 ```sh
 build/debug/blackflower_content_harness \
-  build/packs/mvp/mvp.bfsimulation simulation /path/to/content-public.key
+  build/packs/mvp/mvp.bfserver /path/to/content-public.key
 build/debug/blackflower_content_harness \
-  build/packs/mvp/mvp.bfpresentation presentation /path/to/content-public.key
+  build/packs/mvp/mvp.bfagent /path/to/content-public.key
+build/debug/blackflower_content_harness \
+  build/packs/mvp/mvp.bfclient /path/to/content-public.key
 ```
 
-The role argument selects simulation or presentation content on any supported
-host. The server consumes simulation content; the client uses that same content
-for prediction and also consumes presentation content. Callers supply their
-required role and independent trust set. The public `VerifiedPack` retains the
-read-only file mapping and exposes immutable scene values. Keep backing files
-unchanged until all pack copies are released. Hashing touches the whole payload;
-decoded scene values are allocated separately. SDK resource creation and pack
-I/O remain outside ECS.
+ServerScene, AgentScene and ClientScene are complete for their respective
+consumers. All files contain collision geometry. Only ServerScene contains spawn
+points, and only ClientScene contains the source lights. Visual mesh and audio
+resources are not yet implemented. Applications supply their own pack path and
+independent trust set; the loader has no role parameter. The public
+`VerifiedPack` retains the read-only file mapping and exposes a
+`std::variant<ServerScene, AgentScene, ClientScene>`. The authenticated magic
+selects the alternative regardless of filename. Keep backing files unchanged
+until all pack copies are released. Hashing touches the whole payload; decoded
+scene values are allocated separately. SDK resource creation and pack I/O remain
+outside ECS.
 
 The [pack v1 contract](../schemas/pack/v1.md) has no platform profile.
 

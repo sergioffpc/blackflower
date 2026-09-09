@@ -1,7 +1,7 @@
 # Define the minimal pack format and independent content trust
 
 The pack-role and format decisions below are superseded by
-[ADR-0010](0010-platform-independent-content-roles.md).
+[ADR-0010](0010-agnostic-content-packs.md).
 
 Status: accepted implementation decision for
 [#21](https://github.com/sergioffpc/blackflower/issues/21). The owner
