@@ -18,6 +18,24 @@ std::string Hex(const blackflower::content::Digest& digest) {
   }
   return text;
 }
+
+// Emits the prepared values consumed by the integration driver.
+void PrintContent(const blackflower::content::VerifiedPack& pack) {
+  const auto& scene = pack.scene();
+  std::cout << "{\"pack_id\":\"" << Hex(pack.pack_id())
+            << "\",\"scenario_build_id\":\"" << Hex(pack.scenario_build_id())
+            << "\",\"interior_mm\":[" << scene.interior_mm[0] << ','
+            << scene.interior_mm[1] << "],\"capsule_mm\":["
+            << scene.capsule_mm[0] << ',' << scene.capsule_mm[1]
+            << "],\"box_count\":" << scene.boxes.size() << ",\"spawns_mm\":[";
+  bool first = true;
+  for (const auto& spawn : scene.spawns) {
+    std::cout << (first ? "" : ",") << '[' << spawn.foot_mm[0] << ','
+              << spawn.foot_mm[1] << ',' << spawn.foot_mm[2] << ']';
+    first = false;
+  }
+  std::cout << "]}\n";
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -52,19 +70,6 @@ int main(int argc, char** argv) {
               << blackflower::content::PackErrorMessage(pack.error()) << '\n';
     return 1;
   }
-  const auto& scene = pack->scene();
-  std::cout << "{\"pack_id\":\"" << Hex(pack->pack_id())
-            << "\",\"scenario_build_id\":\"" << Hex(pack->scenario_build_id())
-            << "\",\"interior_mm\":[" << scene.interior_mm[0] << ','
-            << scene.interior_mm[1] << "],\"capsule_mm\":["
-            << scene.capsule_mm[0] << ',' << scene.capsule_mm[1]
-            << "],\"box_count\":" << scene.boxes.size() << ",\"spawns_mm\":[";
-  bool first = true;
-  for (const auto& spawn : scene.spawns) {
-    std::cout << (first ? "" : ",") << '[' << spawn.foot_mm[0] << ','
-              << spawn.foot_mm[1] << ',' << spawn.foot_mm[2] << ']';
-    first = false;
-  }
-  std::cout << "]}\n";
+  PrintContent(*pack);
   return std::cout ? 0 : 1;
 }

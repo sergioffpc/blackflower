@@ -47,6 +47,18 @@ change; use an ADR for a lasting architectural trade-off.
 | Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                                                                   |
 | Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                                                               |
 
+## Function size
+
+Function bodies must not exceed 40 lines after formatting, including blank lines
+and comments. This applies to production code, tests and benchmarks. Extract
+coherent responsibilities into named functions; do not compress statements,
+remove useful documentation or introduce arbitrary forwarding layers to meet the
+limit.
+
+The `readability-function-size` clang-tidy check enforces a `LineThreshold`
+of 40. Its body line span is the automated measure. Violations fail the existing
+analysis check and must be resolved without suppressing this rule.
+
 ## Code documentation
 
 Document the observable contract needed to use an interface without reading its

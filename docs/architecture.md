@@ -143,6 +143,10 @@ decision in section 9. Treat unvalidated choices as proposals.
 | [Content harness](../tests/content_harness.cc)                       | Consume either pack alone using independent public-key trust; expose IDs and dimensions for cross-language integration checks.      |
 | [Build configuration](../CMakeLists.txt)                             | Build four executables and the content library; run analysis, Python checks and integration tests.                                  |
 
+The content loader separates layout decoding, authentication and resource
+validation internally while retaining one public loading contract. Scene
+validation groups geometry and identity checks into focused internal operations.
+
 The frameworks are linked only into their respective harnesses.
 [Sanitizer configuration](../cmake/Sanitizers.cmake) instruments non-Release
 project targets for memory checks, with a separate Linux configuration for race

@@ -94,6 +94,80 @@ bool ValidProvenance(std::span<const unsigned char> bytes) {
   return reader.done();
 }
 
+// Checks ground support, integral faces and containment in the scene interior.
+bool ValidBox(const Box& box) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (box.size_mm[i] == 0 || box.size_mm[i] > 20000 ||
+        box.size_mm[i] % 2 != 0 ||
+        std::abs(static_cast<std::int64_t>(box.center_mm[i])) > 20000) {
+      return false;
+    }
+  }
+  if (static_cast<std::int64_t>(box.center_mm[1]) * 2 != box.size_mm[1]) {
+    return false;
+  }
+  for (const auto axis : {0U, 2U}) {
+    if (std::abs(static_cast<std::int64_t>(box.center_mm[axis])) +
+            box.size_mm[axis] / 2 >
+        10000) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Requires validated boxes. Shared faces do not constitute volume overlap.
+bool BoxesOverlap(const Box& a, const Box& b) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (std::abs(static_cast<std::int64_t>(a.center_mm[i]) - b.center_mm[i]) *
+            2 >=
+        a.size_mm[i] + b.size_mm[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Checks a spawn's horizontal footprint against validated scene geometry.
+// Tangency is excluded by the scene contract.
+bool ValidSpawn(const Spawn& spawn, const Scene& scene) {
+  if (spawn.foot_mm[1] != 0) {
+    return false;
+  }
+  for (const auto axis : {0U, 2U}) {
+    if (std::abs(static_cast<std::int64_t>(spawn.foot_mm[axis])) + 300 >=
+        10000) {
+      return false;
+    }
+  }
+  for (const auto& box : scene.boxes) {
+    std::int64_t squared_distance = 0;
+    for (const auto axis : {0U, 2U}) {
+      const auto distance = std::max<std::int64_t>(
+          std::abs(static_cast<std::int64_t>(spawn.foot_mm[axis]) -
+                   box.center_mm[axis]) -
+              box.size_mm[axis] / 2,
+          0);
+      squared_distance += distance * distance;
+    }
+    if (squared_distance <= 90000) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Requires validated spawn positions. Touching footprints count as overlap.
+bool SpawnsOverlap(const Spawn& a, const Spawn& b) {
+  std::int64_t squared_distance = 0;
+  for (const auto axis : {0U, 2U}) {
+    const auto distance =
+        static_cast<std::int64_t>(a.foot_mm[axis]) - b.foot_mm[axis];
+    squared_distance += distance * distance;
+  }
+  return squared_distance <= 360000;
+}
+
 // Enforces the geometric and identity contract in schemas/scene/v1.md.
 bool ValidScene(const Scene& scene) {
   if (scene.interior_mm != std::array<std::uint32_t, 2>{20000, 20000} ||
@@ -104,78 +178,23 @@ bool ValidScene(const Scene& scene) {
   }
   std::uint32_t previous = 0;
   for (const auto& box : scene.boxes) {
-    if (box.id <= previous) {
+    if (box.id <= previous || !ValidBox(box)) {
       return false;
     }
     previous = box.id;
-    for (std::size_t i = 0; i < 3; ++i) {
-      if (box.size_mm[i] == 0 || box.size_mm[i] > 20000 ||
-          box.size_mm[i] % 2 != 0 ||
-          std::abs(static_cast<std::int64_t>(box.center_mm[i])) > 20000) {
-        return false;
-      }
-    }
-    if (static_cast<std::int64_t>(box.center_mm[1]) * 2 != box.size_mm[1]) {
-      return false;
-    }
-    for (const auto axis : {0U, 2U}) {
-      if (std::abs(static_cast<std::int64_t>(box.center_mm[axis])) +
-              box.size_mm[axis] / 2 >
-          10000) {
-        return false;
-      }
-    }
   }
-  bool overlap = true;
-  for (std::size_t i = 0; i < 3; ++i) {
-    const auto& a = scene.boxes[0];
-    const auto& b = scene.boxes[1];
-    if (std::abs(static_cast<std::int64_t>(a.center_mm[i]) - b.center_mm[i]) *
-            2 >=
-        a.size_mm[i] + b.size_mm[i]) {
-      overlap = false;
-    }
-  }
-  if (overlap) {
+  if (BoxesOverlap(scene.boxes[0], scene.boxes[1])) {
     return false;
   }
   previous = 0;
   for (std::size_t index = 0; index < scene.spawns.size(); ++index) {
     const auto& spawn = scene.spawns[index];
-    if (spawn.id <= previous || spawn.foot_mm[1] != 0) {
+    if (spawn.id <= previous || !ValidSpawn(spawn, scene)) {
       return false;
     }
     previous = spawn.id;
-    for (const auto axis : {0U, 2U}) {
-      if (std::abs(static_cast<std::int64_t>(spawn.foot_mm[axis])) + 300 >=
-          10000) {
-        return false;
-      }
-    }
-    // Spawn clearance uses the capsule's horizontal footprint. Tangency is
-    // excluded by the scene contract.
-    for (const auto& box : scene.boxes) {
-      std::int64_t squared_distance = 0;
-      for (const auto axis : {0U, 2U}) {
-        const auto distance = std::max<std::int64_t>(
-            std::abs(static_cast<std::int64_t>(spawn.foot_mm[axis]) -
-                     box.center_mm[axis]) -
-                box.size_mm[axis] / 2,
-            0);
-        squared_distance += distance * distance;
-      }
-      if (squared_distance <= 90000) {
-        return false;
-      }
-    }
     for (std::size_t other = 0; other < index; ++other) {
-      std::int64_t squared_distance = 0;
-      for (const auto axis : {0U, 2U}) {
-        const auto distance = static_cast<std::int64_t>(spawn.foot_mm[axis]) -
-                              scene.spawns[other].foot_mm[axis];
-        squared_distance += distance * distance;
-      }
-      if (squared_distance <= 360000) {
+      if (SpawnsOverlap(spawn, scene.spawns[other])) {
         return false;
       }
     }
@@ -223,6 +242,112 @@ std::expected<Scene, PackError> DecodeScene(
   }
   return scene;
 }
+
+// Views borrow the input artifact; ranges have been checked against its size.
+struct PackLayout {
+  std::span<const unsigned char> manifest;
+  std::span<const unsigned char> payload;
+  std::span<const unsigned char> key_id;
+  std::span<const unsigned char> build_id;
+  std::span<const unsigned char> signed_bytes;
+  std::span<const unsigned char> signature;
+};
+
+// Validates and consumes the format and compatibility prefix of a pack header.
+std::expected<void, PackError> ValidateHeader(Reader& header, Role role,
+                                              Profile profile) {
+  if (!std::ranges::equal(header.Take(8), kMagic) || header.U32() != 1) {
+    return std::unexpected(PackError::kUnsupportedFormat);
+  }
+  const auto actual_role = header.U32();
+  const auto actual_profile = header.U32();
+  if ((actual_role != 1 && actual_role != 2) || actual_profile != actual_role ||
+      actual_role != static_cast<std::uint32_t>(role) ||
+      actual_profile != static_cast<std::uint32_t>(profile)) {
+    return std::unexpected(PackError::kIncompatibleRoleOrProfile);
+  }
+  if (header.U32() != 1) {
+    return std::unexpected(PackError::kUnsupportedResourceCount);
+  }
+  return {};
+}
+
+// Requires space for the fixed header and signature. Returned views borrow
+// bytes.
+std::expected<PackLayout, PackError> DecodeLayout(
+    std::span<const unsigned char> bytes, Role role, Profile profile) {
+  Reader header(bytes.first(kHeaderSize));
+  const auto compatible = ValidateHeader(header, role, profile);
+  if (!compatible) {
+    return std::unexpected(compatible.error());
+  }
+  const auto total = header.U64();
+  const auto manifest_size = header.U64();
+  const auto payload_size = header.U64();
+  // Check actual storage before subtraction; summing untrusted sizes can wrap.
+  const auto body_size = bytes.size() - kHeaderSize - 64;
+  if (total != bytes.size() || manifest_size < 68 ||
+      manifest_size > body_size || payload_size != body_size - manifest_size) {
+    return std::unexpected(PackError::kInvalidLayout);
+  }
+  const auto key_id = header.Take(32);
+  const auto build_id = header.Take(32);
+  const auto payload_start =
+      kHeaderSize + static_cast<std::size_t>(manifest_size);
+  return PackLayout{bytes.subspan(kHeaderSize, manifest_size),
+                    bytes.subspan(payload_start, payload_size),
+                    key_id,
+                    build_id,
+                    bytes.first(payload_start),
+                    bytes.last(64)};
+}
+
+// Authenticates the original header/manifest encoding and returns its PackId.
+std::expected<Digest, PackError> Authenticate(
+    const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
+  const auto key =
+      std::ranges::find_if(trusted_keys, [&layout](const auto& candidate) {
+        return std::ranges::equal(Hash(candidate), layout.key_id);
+      });
+  if (key == trusted_keys.end()) {
+    return std::unexpected(PackError::kUnknownSigningKey);
+  }
+  // Reserialization could change the message. The terminating zero belongs to
+  // the pack v1 signature domain.
+  std::vector<unsigned char> transcript(std::begin(kPackDomain),
+                                        std::end(kPackDomain));
+  transcript.insert(transcript.end(), layout.signed_bytes.begin(),
+                    layout.signed_bytes.end());
+  if (crypto_sign_verify_detached(layout.signature.data(), transcript.data(),
+                                  transcript.size(), key->data()) != 0) {
+    return std::unexpected(PackError::kInvalidSignature);
+  }
+  return Hash(transcript);
+}
+
+// Requires authenticated metadata. Checks the resource record and payload
+// before decoding scene values, preserving the distinction between failure
+// categories.
+std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
+  Reader manifest(layout.manifest);
+  const auto provenance_size = manifest.U32();
+  if (static_cast<std::uint64_t>(provenance_size) + 68 !=
+          layout.manifest.size() ||
+      !ValidProvenance(manifest.Take(provenance_size))) {
+    return std::unexpected(PackError::kInvalidProvenance);
+  }
+  if (manifest.U32() != 1 || manifest.U32() != 1 || manifest.U32() != 1 ||
+      manifest.U32() != 0 || manifest.U64() != 0 ||
+      manifest.U64() != layout.payload.size()) {
+    return std::unexpected(PackError::kInvalidResource);
+  }
+  const auto digest = manifest.Take(32);
+  if (!manifest.done() || !std::ranges::equal(Hash(layout.payload), digest)) {
+    return std::unexpected(PackError::kDigestMismatch);
+  }
+  return DecodeScene(layout.payload);
+}
+
 }  // namespace
 
 std::string_view PackErrorMessage(PackError error) {
@@ -276,78 +401,22 @@ std::expected<VerifiedPack, PackError> VerifiedPack::Load(
   if (sodium_init() < 0) {
     return std::unexpected(PackError::kCryptoInitializationFailed);
   }
-  Reader header(std::span<const unsigned char>(bytes).first(kHeaderSize));
-  if (!std::ranges::equal(header.Take(8), kMagic) || header.U32() != 1) {
-    return std::unexpected(PackError::kUnsupportedFormat);
+  const auto layout = DecodeLayout(bytes, role, profile);
+  if (!layout) {
+    return std::unexpected(layout.error());
   }
-  const auto actual_role = header.U32();
-  const auto actual_profile = header.U32();
-  if ((actual_role != 1 && actual_role != 2) || actual_profile != actual_role ||
-      actual_role != static_cast<std::uint32_t>(role) ||
-      actual_profile != static_cast<std::uint32_t>(profile)) {
-    return std::unexpected(PackError::kIncompatibleRoleOrProfile);
+  const auto pack_id = Authenticate(*layout, trusted_keys);
+  if (!pack_id) {
+    return std::unexpected(pack_id.error());
   }
-  if (header.U32() != 1) {
-    return std::unexpected(PackError::kUnsupportedResourceCount);
-  }
-  const auto total = header.U64();
-  const auto manifest_size = header.U64();
-  const auto payload_size = header.U64();
-  // Bound lengths by actual storage before subtracting or slicing. Summing
-  // untrusted lengths could wrap and make an invalid layout appear consistent.
-  const auto body_size = bytes.size() - kHeaderSize - 64;
-  if (total != bytes.size() || manifest_size < 68 ||
-      manifest_size > body_size || payload_size != body_size - manifest_size) {
-    return std::unexpected(PackError::kInvalidLayout);
-  }
-  const auto key_id = header.Take(32);
-  const auto build_id = header.Take(32);
-  const auto key =
-      std::ranges::find_if(trusted_keys, [key_id](const auto& candidate) {
-        return std::ranges::equal(Hash(candidate), key_id);
-      });
-  if (key == trusted_keys.end()) {
-    return std::unexpected(PackError::kUnknownSigningKey);
-  }
-  const auto payload_start =
-      kHeaderSize + static_cast<std::size_t>(manifest_size);
-  // Authenticate the original encoding; reserialization could change the signed
-  // message. The domain's terminating zero is part of the pack v1 transcript.
-  std::vector<unsigned char> transcript(std::begin(kPackDomain),
-                                        std::end(kPackDomain));
-  transcript.insert(transcript.end(), bytes.begin(),
-                    bytes.begin() + static_cast<std::ptrdiff_t>(payload_start));
-  if (crypto_sign_verify_detached(bytes.data() + bytes.size() - 64,
-                                  transcript.data(), transcript.size(),
-                                  key->data()) != 0) {
-    return std::unexpected(PackError::kInvalidSignature);
-  }
-  Reader manifest(std::span<const unsigned char>(bytes).subspan(kHeaderSize,
-                                                                manifest_size));
-  const auto provenance_size = manifest.U32();
-  if (static_cast<std::uint64_t>(provenance_size) + 68 != manifest_size ||
-      !ValidProvenance(manifest.Take(provenance_size))) {
-    return std::unexpected(PackError::kInvalidProvenance);
-  }
-  if (manifest.U32() != 1 || manifest.U32() != 1 || manifest.U32() != 1 ||
-      manifest.U32() != 0 || manifest.U64() != 0 ||
-      manifest.U64() != payload_size) {
-    return std::unexpected(PackError::kInvalidResource);
-  }
-  const auto digest = manifest.Take(32);
-  const auto payload = std::span<const unsigned char>(bytes).subspan(
-      payload_start, payload_size);
-  if (!manifest.done() || !std::ranges::equal(Hash(payload), digest)) {
-    return std::unexpected(PackError::kDigestMismatch);
-  }
-  auto scene = DecodeScene(payload);
+  const auto scene = DecodeResource(*layout);
   if (!scene) {
     return std::unexpected(scene.error());
   }
   VerifiedPack result;
   result.scene_ = *scene;
-  result.pack_id_ = Hash(transcript);
-  std::ranges::copy(build_id, result.build_id_.begin());
+  result.pack_id_ = *pack_id;
+  std::ranges::copy(layout->build_id, result.build_id_.begin());
   result.bytes_ = std::move(bytes);
   return result;
 }

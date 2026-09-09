@@ -23,6 +23,11 @@ require review; the tool does not encode every recommendation. A clean analysis
 result does not establish numerical fidelity, race freedom, bounded frame time,
 or training effectiveness.
 
+The `readability-function-size` check enforces the
+[40-line function-body limit](cpp-guidelines.md#function-size), including blank
+lines and comments. It applies to all project-owned C++ functions and methods in
+the analysis scope.
+
 ## Running the analysis
 
 Use the [reference Clang toolchain](build.md#prerequisites). The CMake presets
