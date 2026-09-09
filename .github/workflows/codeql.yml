@@ -63,7 +63,7 @@ jobs:
           python3 -m venv build/uv-tool
           build/uv-tool/bin/pip install uv==0.10.4
           echo "$PWD/build/uv-tool/bin" >> "$GITHUB_PATH"
-          build/uv-tool/bin/uv sync --project tools/cooker --locked --no-editable
+          build/uv-tool/bin/uv sync --project tools/content_pipeline --locked --no-editable
 
       - name: Read vcpkg baseline
         if: matrix.language == 'c-cpp'

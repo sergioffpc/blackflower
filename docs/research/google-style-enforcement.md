@@ -24,16 +24,17 @@ header. This formatting gate complements the build-dependent analysis and tests.
 
 The [Python guidelines](../python-guidelines.md) already adopt Google's Python
 style. [Pyink][pyink] is Google's Black fork; the
-[cooker configuration](../../tools/cooker/pyproject.toml) selects 80 columns and
-four spaces. [Pylint][pylint] checks conventions and static diagnostics using
-[.pylintrc](../../.pylintrc); [mypy][mypy] checks types with untyped bodies
-included and missing dependency stubs tolerated. Exact dependencies are in
-[uv.lock](../../tools/cooker/uv.lock). Native CTest runs `content.format`,
-`content.lint`, `content.typecheck`, and `content.pipeline`. Import conventions,
-docstring accuracy, ownership, and exception contracts still need review. The
-shared runner also invokes the installed Pyink with the cooker configuration on
-every inventoried `.py` file, extending formatting coverage beyond the cooker
-and integration-test directories.
+[cooker configuration](../../tools/content_pipeline/pyproject.toml) selects 80
+columns and four spaces. [Pylint][pylint] checks conventions and static
+diagnostics using [.pylintrc](../../.pylintrc); [mypy][mypy] checks types with
+untyped bodies included and missing dependency stubs tolerated. Exact
+dependencies are in [uv.lock](../../tools/content_pipeline/uv.lock). Native
+CTest runs `content.format`, `content.lint`, `content.typecheck`, and
+`content.pipeline`. Import conventions, docstring accuracy, ownership, and
+exception contracts still need review. The shared runner also invokes the
+installed Pyink with the cooker configuration on every inventoried `.py` file,
+extending formatting coverage beyond the cooker and integration-test
+directories.
 
 [clang-format]: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
 [clang-tidy]: https://clang.llvm.org/extra/clang-tidy/
@@ -56,12 +57,12 @@ its published 0.14.0 configuration needs adaptation for modern ESLint. [ESLint's
 migration guide][eslint-migration] confirms removal of `require-jsdoc` and
 `valid-jsdoc` and recommends `eslint-plugin-jsdoc` replacements. [ESLint
 Stylistic][stylistic-migration] supplies the migrated formatting rules. The
-[repository adapter](../../tools/style/eslint.config.mjs) maps supported Google
-rule names to that plugin and retains their options. It maps `func-call-spacing`
-to `function-call-spacing` and deprecated `no-new-object` to its documented
-successor, [`no-object-constructor`][eslint-object]. It adds `@eslint/js`
-recommended checks for defects beyond the Google style baseline, and adapts
-quote options and the ES import/export line-length exception.
+[repository adapter](../../tools/code_quality/eslint.config.mjs) maps supported
+Google rule names to that plugin and retains their options. It maps
+`func-call-spacing` to `function-call-spacing` and deprecated `no-new-object` to
+its documented successor, [`no-object-constructor`][eslint-object]. It adds
+`@eslint/js` recommended checks for defects beyond the Google style baseline,
+and adapts quote options and the ES import/export line-length exception.
 
 [eslint-plugin-jsdoc][jsdoc-plugin] provides flat configurations and rules for
 required documentation, parameter/return tags, and types. Its
@@ -73,11 +74,11 @@ dependency cycles; review remains necessary.
 
 The project adaptations permit `.mjs` for Node ES modules and a default export
 only in the ESLint configuration file. Node globals `process` and `console` are
-scoped to `tools/style/*.{js,mjs,cjs}`. The runner inventories `.js`, `.mjs`,
-and `.cjs` files through the same Git source discovery and uses ESLint's `--fix`
-in format mode. Remaining diagnostics fail validation; Prettier does not format
-JavaScript. All four project `.mjs` files pass the completed local validation
-recorded below.
+scoped to `tools/code_quality/*.{js,mjs,cjs}`. The runner inventories `.js`,
+`.mjs`, and `.cjs` files through the same Git source discovery and uses ESLint's
+`--fix` in format mode. Remaining diagnostics fail validation; Prettier does not
+format JavaScript. All four project `.mjs` files pass the completed local
+validation recorded below.
 
 [google-javascript]: https://google.github.io/styleguide/jsguide.html
 [eslint-google]: https://github.com/google/eslint-config-google
@@ -98,11 +99,12 @@ envelopes, omission rules, and reserved names require design review; a formatter
 cannot infer their semantics.
 
 [ESLint's JSON plugin][eslint-json] provides separate JSON and JSONC languages.
-The [repository configuration](../../tools/style/eslint.config.mjs) uses strict
-JSON by default, with explicit duplicate-key and unsafe-value errors. Only
-`.jsonc` files and `.vscode/*.json` use JSONC; trailing commas remain errors.
-The [runner](../../tools/style/check.mjs) validates before formatting,
-preventing a permissive formatter from silently repairing invalid input.
+The [repository configuration](../../tools/code_quality/eslint.config.mjs) uses
+strict JSON by default, with explicit duplicate-key and unsafe-value errors.
+Only `.jsonc` files and `.vscode/*.json` use JSONC; trailing commas remain
+errors. The [runner](../../tools/code_quality/check.mjs) validates before
+formatting, preventing a permissive formatter from silently repairing invalid
+input.
 
 Selected Prettier 2.8.8 formats strict files with `json-stringify` and comment
 configurations with its `json` parser, as configured in
@@ -152,10 +154,11 @@ The [markdownlint Prettier guidance][markdownlint-prettier] describes four-space
 indentation compatibility. Local comparison found that Prettier 3.9.6 and 3.6.2
 with `tabWidth: 4` still produced one space after a dash and two-space wrapped
 content. Prettier 2.8.8 produced three spaces after a dash and four-space
-wrapped content. The [selected dependency](../../tools/style/package.json)
-therefore remains 2.8.8; a newer release is not automatically a compatible
-upgrade. The [lint configuration](../../.markdownlint-cli2.jsonc) pairs it with
-MD030 marker spacing of three for bullets and two for ordered lists. The
+wrapped content. The
+[selected dependency](../../tools/code_quality/package.json) therefore remains
+2.8.8; a newer release is not automatically a compatible upgrade. The
+[lint configuration](../../.markdownlint-cli2.jsonc) pairs it with MD030 marker
+spacing of three for bullets and two for ordered lists. The
 [CLI][markdownlint-cli] supports `--fix` for fixable violations. This formatting
 experiment establishes the selected list behavior, not full guide compliance.
 
@@ -195,46 +198,48 @@ scripts for substantial shell logic; review remaining snippets for formatting.
 
 ## Selected versions and validation
 
-The [npm manifest](../../tools/style/package.json) and lockfile select the
-JavaScript tools; supported Node.js versions are `^22.13.0 || >=24`. The
-[installer](../../tools/style/install-shell-tools.sh) selects the shell tools
-and verifies release asset SHA-256 digests before installation.
+The [npm manifest](../../tools/code_quality/package.json) and lockfile select
+the JavaScript tools; supported Node.js versions are `^22.13.0 || >=24`. The
+[installer](../../tools/code_quality/install-shell-tools.sh) selects the shell
+tools and verifies release asset SHA-256 digests before installation.
 
-| Tool                     | Selected version | Evidence                                                                        |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------- |
-| Prettier                 | 2.8.8            | [Repository manifest](../../tools/style/package.json) and list experiment above |
-| ESLint / JSON plugin     | 10.0.0 / 2.1.0   | [Repository manifest](../../tools/style/package.json)                           |
-| @eslint/js               | 10.0.1           | [Repository manifest](../../tools/style/package.json)                           |
-| @stylistic/eslint-plugin | 5.10.0           | [Repository manifest](../../tools/style/package.json)                           |
-| eslint-config-google     | 0.14.0           | [Repository manifest](../../tools/style/package.json)                           |
-| eslint-plugin-jsdoc      | 63.0.0           | [Repository manifest](../../tools/style/package.json)                           |
-| markdownlint-cli2        | 0.23.2           | [Package manifest][markdownlint-package]                                        |
-| shfmt                    | 3.14.0           | [Release][shfmt-release]                                                        |
-| ShellCheck               | 0.11.0           | [Release][shellcheck-release]                                                   |
-| actionlint               | 1.7.12           | [Release][actionlint-release]                                                   |
+| Tool                     | Selected version | Evidence                                                                               |
+| ------------------------ | ---------------- | -------------------------------------------------------------------------------------- |
+| Prettier                 | 2.8.8            | [Repository manifest](../../tools/code_quality/package.json) and list experiment above |
+| ESLint / JSON plugin     | 10.0.0 / 2.1.0   | [Repository manifest](../../tools/code_quality/package.json)                           |
+| @eslint/js               | 10.0.1           | [Repository manifest](../../tools/code_quality/package.json)                           |
+| @stylistic/eslint-plugin | 5.10.0           | [Repository manifest](../../tools/code_quality/package.json)                           |
+| eslint-config-google     | 0.14.0           | [Repository manifest](../../tools/code_quality/package.json)                           |
+| eslint-plugin-jsdoc      | 63.0.0           | [Repository manifest](../../tools/code_quality/package.json)                           |
+| markdownlint-cli2        | 0.23.2           | [Package manifest][markdownlint-package]                                               |
+| shfmt                    | 3.14.0           | [Release][shfmt-release]                                                               |
+| ShellCheck               | 0.11.0           | [Release][shellcheck-release]                                                          |
+| actionlint               | 1.7.12           | [Release][actionlint-release]                                                          |
 
-Run `npm --prefix tools/style run check` after the installation commands in the
-central guide. The runner inventories tracked and non-ignored untracked source
-files, including vendored skills, hidden directories, and extensionless shell
-hooks. Ignored build outputs and installed dependencies remain outside scope.
-The [CI workflow](../../.github/workflows/ci.yml) pins Node.js 22.22.1 and runs
-this command after installing the native and Python tooling in the Debug job, so
-a failure blocks the existing required `Ubuntu 26.04 / debug` status.
+Run `npm --prefix tools/code_quality run check` after the installation commands
+in the central guide. The runner inventories tracked and non-ignored untracked
+source files, including vendored skills, hidden directories, and extensionless
+shell hooks. Ignored build outputs and installed dependencies remain outside
+scope. The [CI workflow](../../.github/workflows/ci.yml) pins Node.js 22.22.1
+and runs this command after installing the native and Python tooling in the
+Debug job, so a failure blocks the existing required `Ubuntu 26.04 / debug`
+status.
 
 ## Commit enforcement evidence
 
-The [staged checker](../../tools/style/check-staged.mjs) exports the complete
-Git index to a temporary directory, links installed tool dependencies, and runs
-the snapshot's checker against its staged source and configuration. It checks
-the proposed commit contents, including partially staged files, without changing
-the working tree or index. The [pre-commit hook](../../.githooks/pre-commit),
+The [staged checker](../../tools/code_quality/check-staged.mjs) exports the
+complete Git index to a temporary directory, links installed tool dependencies,
+and runs the snapshot's checker against its staged source and configuration. It
+checks the proposed commit contents, including partially staged files, without
+changing the working tree or index. The
+[pre-commit hook](../../.githooks/pre-commit),
 [merge hook](../../.githooks/pre-merge-commit), and
 [git am hook](../../.githooks/pre-applypatch) invoke this gate.
 
-The [commit integration test](../../tools/style/staged.test.mjs), run by
-`npm --prefix tools/style test` locally and in CI, exercises real commits in a
-disposable repository. It stages malformed examples for all six languages and
-repairs only their working-tree copies to verify that validation reads the
+The [commit integration test](../../tools/code_quality/staged.test.mjs), run by
+`npm --prefix tools/code_quality test` locally and in CI, exercises real commits
+in a disposable repository. It stages malformed examples for all six languages
+and repairs only their working-tree copies to verify that validation reads the
 index. It also exercises acceptance after corrected content is staged. The
 [central guide](../style-guidelines.md) owns installation and acceptance policy.
 

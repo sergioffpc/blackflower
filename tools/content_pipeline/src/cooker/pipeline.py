@@ -4,9 +4,9 @@ from collections.abc import Callable
 import pathlib
 import tempfile
 
-from content import pack
-from content import scene
-from content import usd_source
+from cooker import pack
+from cooker import scene
+from cooker import usd_source
 
 
 def _encode_scenes(source: bytes) -> dict[str, bytes]:

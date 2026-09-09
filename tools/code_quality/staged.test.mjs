@@ -35,7 +35,8 @@ try {
     cpSync(resolve(root, path), resolve(fixture, path));
   }
   for (const path of [
-    'tools/style/node_modules', 'tools/cooker/.venv', 'build/style/bin',
+    'tools/code_quality/node_modules', 'tools/content_pipeline/.venv',
+    'build/style/bin',
   ]) {
     mkdirSync(dirname(resolve(fixture, path)), {recursive: true});
     symlinkSync(resolve(root, path), resolve(fixture, path), 'dir');

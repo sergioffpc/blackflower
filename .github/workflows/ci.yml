@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build/container-image.tar
-          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/style/install-shell-tools.sh', 'tools/cooker/.python-version', 'vcpkg.json') }}
+          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/code_quality/install-shell-tools.sh', 'tools/content_pipeline/.python-version', 'vcpkg.json') }}
 
       - name: Load the cached image
         if: steps.image-cache.outputs.cache-hit == 'true'
@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build/container-cache
-          key: devcontainer-assets-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'tools/cooker/uv.lock', 'tools/style/package-lock.json') }}
+          key: devcontainer-assets-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'cmake/**', 'tools/content_pipeline/uv.lock', 'tools/code_quality/package-lock.json') }}
           restore-keys: |
             devcontainer-assets-${{ matrix.preset }}-
 
@@ -77,8 +77,8 @@ jobs:
             --mount "type=bind,source=$PWD,target=/workspaces/blackflower" \
             --mount "type=bind,source=$PWD/build/container-cache,target=/home/ubuntu/.cache" \
             --mount type=volume,target=/workspaces/blackflower/build \
-            --mount type=volume,target=/workspaces/blackflower/tools/cooker/.venv \
-            --mount type=volume,target=/workspaces/blackflower/tools/style/node_modules \
+            --mount type=volume,target=/workspaces/blackflower/tools/content_pipeline/.venv \
+            --mount type=volume,target=/workspaces/blackflower/tools/code_quality/node_modules \
             blackflower-dev:ci
 
       - name: Prepare locked dependencies

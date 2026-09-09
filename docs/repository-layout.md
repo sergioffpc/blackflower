@@ -171,11 +171,11 @@ actually exist.
 
 ## Targets and generated outputs
 
-| Product                      | Source root     | Proposed entry point / artifact                                                                                                                                                   |
-| ---------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows client, C++23        | `src/client/`   | CMake target `blackflower_client`, installed executable `blackflower-client.exe`.                                                                                                 |
-| Linux server, C++23          | `src/server/`   | CMake target `blackflower_server`, installed executable `blackflower-server`.                                                                                                     |
-| Offline Linux cooker, Python | `tools/cooker/` | Installed CLI `cooker`, also runnable as an installed module `python -m content`. A Python package distribution is sufficient; no frozen executable is required by this proposal. |
+| Product                      | Source root               | Proposed entry point / artifact                                                                                                                                                  |
+| ---------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows client, C++23        | `src/client/`             | CMake target `blackflower_client`, installed executable `blackflower-client.exe`.                                                                                                |
+| Linux server, C++23          | `src/server/`             | CMake target `blackflower_server`, installed executable `blackflower-server`.                                                                                                    |
+| Offline Linux cooker, Python | `tools/content_pipeline/` | Installed CLI `cooker`, also runnable as an installed module `python -m cooker`. A Python package distribution is sufficient; no frozen executable is required by this proposal. |
 
 Test and benchmark executables remain development artifacts. Shared libraries or
 SDK helper tools do not introduce additional Blackflower product runtimes.

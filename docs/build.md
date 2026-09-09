@@ -95,8 +95,8 @@ Machine-specific preset overrides belong in the ignored CMakeUserPresets.json.
 ## Verification
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run
-`uv sync --locked --project tools/cooker` before native configuration. The
-cooker and Python integration tests follow the
+`uv sync --locked --project tools/content_pipeline` before native configuration.
+The cooker and Python integration tests follow the
 [Google Python conventions and enforcement workflow](python-guidelines.md).
 Native CTest runs Pyink, Pylint, mypy and the content pipeline checks alongside
 the C++ checks.

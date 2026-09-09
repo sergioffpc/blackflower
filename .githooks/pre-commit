@@ -8,4 +8,4 @@ if [[ -z "$(git ls-files --cached)" ]]; then
 fi
 
 project_root=$(git rev-parse --show-toplevel)
-node "${project_root}/tools/style/check-staged.mjs"
+node "${project_root}/tools/code_quality/check-staged.mjs"

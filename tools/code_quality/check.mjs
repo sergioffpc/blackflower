@@ -10,7 +10,7 @@ process.chdir(root);
 process.env.PATH = `${root}/build/style/bin:${process.env.PATH}`;
 const write = process.argv.includes('--write');
 if (process.argv.slice(2).some((argument) => argument !== '--write')) {
-  throw new Error('Usage: npm --prefix tools/style run check|format');
+  throw new Error('Usage: npm --prefix tools/code_quality run check|format');
 }
 const files = [...new Set(execFileSync('git', [
   'ls-files', '--cached', '--others', '--exclude-standard', '-z',
@@ -50,12 +50,12 @@ function npmTool(name, args) {
 // Syntax checks precede formatting so permissive formatters cannot repair and
 // silently accept invalid JSON (such as comments in a strict JSON file).
 if (json.length) {
-  npmTool('eslint', ['--config', 'tools/style/eslint.config.mjs',
+  npmTool('eslint', ['--config', 'tools/code_quality/eslint.config.mjs',
     '--max-warnings', '0', ...json]);
 }
 if (failed) process.exit(1);
 if (javascript.length) {
-  npmTool('eslint', ['--config', 'tools/style/eslint.config.mjs',
+  npmTool('eslint', ['--config', 'tools/code_quality/eslint.config.mjs',
     '--max-warnings', '0', ...(write ? ['--fix'] : []), ...javascript]);
 }
 if (cpp.length) {
@@ -63,12 +63,12 @@ if (cpp.length) {
       [write ? '-i' : '--dry-run', '--Werror', ...cpp]);
 }
 if (python.length) {
-  run(resolve(root, 'tools/cooker/.venv/bin/pyink'), [
+  run(resolve(root, 'tools/content_pipeline/.venv/bin/pyink'), [
     ...(write ? [] : ['--check']),
-    '--config', 'tools/cooker/pyproject.toml', ...python,
+    '--config', 'tools/content_pipeline/pyproject.toml', ...python,
   ]);
-  run(resolve(root, 'tools/cooker/.venv/bin/python'), [
-    'tools/style/python_function_size.py', ...python,
+  run(resolve(root, 'tools/content_pipeline/.venv/bin/python'), [
+    'tools/code_quality/python_function_size.py', ...python,
   ]);
 }
 if (markdown.length + json.length) {

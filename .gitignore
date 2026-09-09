@@ -5,6 +5,6 @@
 **/.venv
 **/__pycache__/
 **/*.egg-info/
-/tools/cooker/build/
+/tools/content_pipeline/build/
 **/.mypy_cache/
 **/node_modules

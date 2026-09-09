@@ -16,8 +16,8 @@
   ],
   "mounts": [
     "source=blackflower-${devcontainerId}-build,target=/workspaces/blackflower/build,type=volume",
-    "source=blackflower-${devcontainerId}-python,target=/workspaces/blackflower/tools/cooker/.venv,type=volume",
-    "source=blackflower-${devcontainerId}-node,target=/workspaces/blackflower/tools/style/node_modules,type=volume",
+    "source=blackflower-${devcontainerId}-python,target=/workspaces/blackflower/tools/content_pipeline/.venv,type=volume",
+    "source=blackflower-${devcontainerId}-node,target=/workspaces/blackflower/tools/code_quality/node_modules,type=volume",
     "source=blackflower-${devcontainerId}-cache,target=/home/ubuntu/.cache,type=volume"
   ],
   "postCreateCommand": "bash .devcontainer/prepare.sh debug",
@@ -32,9 +32,9 @@
         "ms-python.vscode-pylance"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/workspaces/blackflower/tools/cooker/.venv/bin/python",
+        "python.defaultInterpreterPath": "/workspaces/blackflower/tools/content_pipeline/.venv/bin/python",
         "python-envs.workspaceSearchPaths": [
-          "./tools/cooker/.venv"
+          "./tools/content_pipeline/.venv"
         ]
       }
     }

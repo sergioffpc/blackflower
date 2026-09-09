@@ -33,8 +33,8 @@ image at `/opt/blackflower/system-packages.tsv`.
 The Dev Containers CLI bundled with VS Code's extension completed the actual
 `postCreateCommand` and `postStartCommand` as `ubuntu` (UID 1000). Preparation
 installed locked dependencies and configured Debug. The selected interpreter,
-`/workspaces/blackflower/tools/cooker/.venv/bin/python`, imported OpenUSD
-`(0, 26, 8)`, and the Debug compilation database existed.
+`/workspaces/blackflower/tools/content_pipeline/.venv/bin/python`, imported
+OpenUSD `(0, 26, 8)`, and the Debug compilation database existed.
 
 Dependencies were prepared online before native validation. The final validation
 container used `--network none`, `SYS_PTRACE`, and `seccomp=unconfined`. Each
@@ -91,3 +91,17 @@ SDK/runtime validation, GPU/audio compatibility, signed commits through the
 editor's forwarded agent, and a controlled host/container compilation comparison
 remain outside these local results. Long-term offline recovery still requires
 retaining the image and downloaded assets.
+
+## GitHub CLI package validation
+
+On 2026-09-09, the image recipe added Ubuntu's `gh` 2.46.0-4 package to the
+system-package lock and maintenance resolver. The downloaded amd64 package
+matched the SHA-256 published on the
+[Ubuntu download page](https://packages.ubuntu.com/resolute/amd64/gh/download).
+Its only declared dependency is `libc6 (>= 2.34)`, already satisfied by the
+locked system packages. Extracting the package and running its executable on
+Ubuntu 26.04 reported `gh version 2.46.0 (2025-12-13 Ubuntu 2.46.0-4)`.
+
+The image installation now runs `gh --version`. Docker is unavailable in the
+editing environment, so a full image rebuild and offline checks for this
+addition remain pending; the earlier image results above do not cover it.

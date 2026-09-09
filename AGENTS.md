@@ -31,8 +31,8 @@ Pylint, mypy, and the affected tests for Python changes.
 Before writing or reviewing Markdown, JSON/JSONC, shell, or JavaScript, read
 [docs/style-guidelines.md](docs/style-guidelines.md) for the adopted Google
 guides, schema and portability exceptions, tool setup, and review requirements.
-Run `npm --prefix tools/style run check` for every change to these files. All
-tracked and non-ignored source files, including skills and Git hooks, are in
+Run `npm --prefix tools/code_quality run check` for every change to these files.
+All tracked and non-ignored source files, including skills and Git hooks, are in
 scope; resolve diagnostics and review the rules tools cannot establish.
 
 ## Architecture and development

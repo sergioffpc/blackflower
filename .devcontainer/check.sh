@@ -20,10 +20,10 @@ main() {
   # isolation, applied by the caller, covers every build tool.
   export UV_OFFLINE=1
   sccache clang++-21 --version
-  uv sync --locked --offline --project tools/cooker
+  uv sync --locked --offline --project tools/content_pipeline
   if [[ "$preset" == debug ]]; then
-    npm --prefix tools/style run check
-    npm --prefix tools/style test
+    npm --prefix tools/code_quality run check
+    npm --prefix tools/code_quality test
   fi
   local build_dir
   build_dir=$(mktemp -d "${PWD}/build/offline-${preset}-XXXXXX")

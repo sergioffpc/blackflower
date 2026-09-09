@@ -120,16 +120,17 @@ import extensions, and JSDoc for classes and declared functions. The 80-column
 limit has the guide's exceptions for imports, exports, and URLs.
 
 ESLint combines its recommended checks with the published Google rule options.
-The [flat configuration](../tools/style/eslint.config.mjs) maps formatting rules
-to ESLint Stylistic and replaces removed JSDoc rules with eslint-plugin-jsdoc in
-Closure mode. Diagnostics fail the shared style check; the shared `format`
-command runs ESLint `--fix` for JavaScript.
+The [flat configuration](../tools/code_quality/eslint.config.mjs) maps
+formatting rules to ESLint Stylistic and replaces removed JSDoc rules with
+eslint-plugin-jsdoc in Closure mode. Diagnostics fail the shared style check;
+the shared `format` command runs ESLint `--fix` for JavaScript.
 
 Node's explicit module extensions are a project adaptation to the guide's `.js`
 filename rule. ESLint configuration keeps its required filename and default
 export; other source uses named exports. Node globals are declared only for the
-`tools/style` scripts. Declare an appropriate environment when adding browser or
-other Node code rather than disabling undefined-variable checks globally.
+`tools/code_quality` scripts. Declare an appropriate environment when adding
+browser or other Node code rather than disabling undefined-variable checks
+globally.
 
 Review module boundaries and import cycles, meaningful names, error handling,
 JSDoc completeness and type accuracy, and the remaining language restrictions.
@@ -245,33 +246,35 @@ and the locked [Python environment](python-guidelines.md#commands). From the
 repository root:
 
 ```shell
-npm ci --prefix tools/style --ignore-scripts
-bash tools/style/install-shell-tools.sh
-uv sync --locked --project tools/cooker
-npm --prefix tools/style run check
+npm ci --prefix tools/code_quality --ignore-scripts
+bash tools/code_quality/install-shell-tools.sh
+uv sync --locked --project tools/content_pipeline
+npm --prefix tools/code_quality run check
 git config --local core.hooksPath .githooks
 ```
 
-The [npm lockfile](../tools/style/package-lock.json) fixes the JavaScript tools
-and dependencies. Prettier 2.8.8 is deliberate: the tested 3.x versions changed
-Markdown list padding away from the required four-column content indentation.
-The [compatibility experiment](research/google-style-enforcement.md) records
-this constraint; retain the list checks when evaluating an upgrade. The
-[shell installer](../tools/style/install-shell-tools.sh) downloads versioned
-ShellCheck, shfmt, and actionlint releases, verifies their SHA-256 digests, and
-installs them under ignored `build/style/bin`. The checker adds that directory
-to its tool search path. Other platforms can supply the same tool versions on
-`PATH`; the installer itself targets Linux x86_64.
+The [npm lockfile](../tools/code_quality/package-lock.json) fixes the JavaScript
+tools and dependencies. Prettier 2.8.8 is deliberate: the tested 3.x versions
+changed Markdown list padding away from the required four-column content
+indentation. The
+[compatibility experiment](research/google-style-enforcement.md) records this
+constraint; retain the list checks when evaluating an upgrade. The
+[shell installer](../tools/code_quality/install-shell-tools.sh) downloads
+versioned ShellCheck, shfmt, and actionlint releases, verifies their SHA-256
+digests, and installs them under ignored `build/style/bin`. The checker adds
+that directory to its tool search path. Other platforms can supply the same tool
+versions on `PATH`; the installer itself targets Linux x86_64.
 
 For a nonstandard Clang installation, `BLACKFLOWER_CLANG_FORMAT` can name the
-clang-format 21 executable. Pyink runs from `tools/cooker/.venv/bin/pyink`.
+clang-format 21 executable. Pyink runs from
+`tools/content_pipeline/.venv/bin/pyink`.
 
 To apply formatting, then verify the result:
 
 ```shell
-npm --prefix tools/style run format
-npm --prefix tools/style run check
-npm --prefix tools/style test
+npm --prefix tools/code_quality run format
+npm --prefix tools/code_quality run check
+npm --prefix tools/code_quality test
 ```
 
 Formatting may still exit unsuccessfully when a lint finding needs an edit.
@@ -294,10 +297,11 @@ locally; committing does not download them. Hooks require the setup command in
 each clone and can be bypassed locally with Git options, so the protected-branch
 CI checks remain the integration gate. Keep commit signing enabled.
 
-`npm --prefix tools/style test` uses real commits in a disposable repository.
-For each of the six languages, it stages an invalid version while keeping a
-correct working copy, verifies rejection, and checks that both versions remain
-untouched. It also verifies that corrected source commits successfully.
+`npm --prefix tools/code_quality test` uses real commits in a disposable
+repository. For each of the six languages, it stages an invalid version while
+keeping a correct working copy, verifies rejection, and checks that both
+versions remain untouched. It also verifies that corrected source commits
+successfully.
 
 The Linux Debug job runs the same full style check before the C++ build. A
 failure prevents its existing required `Ubuntu 26.04 / debug` check passing;

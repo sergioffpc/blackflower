@@ -29,12 +29,12 @@ Use an ordinary clone for the validation commands below. Git worktrees need
 their shared Git metadata mounted too; a bind mount of the worktree alone cannot
 resolve its external `.git` pointer.
 
-VS Code selects `tools/cooker/.venv/bin/python`, clangd 21, and the Debug
-compilation database. CMake tasks and debugger configurations remain those in
-the [editor guide](editor.md). The container grants `SYS_PTRACE` for debugging
-and disables Docker's seccomp filter so ThreadSanitizer can adjust its process
-address layout on WSL. This development environment is for trusted project code;
-it is not a sandbox for executing untrusted programs.
+VS Code selects `tools/content_pipeline/.venv/bin/python`, clangd 21, and the
+Debug compilation database. CMake tasks and debugger configurations remain those
+in the [editor guide](editor.md). The container grants `SYS_PTRACE` for
+debugging and disables Docker's seccomp filter so ThreadSanitizer can adjust its
+process address layout on WSL. This development environment is for trusted
+project code; it is not a sandbox for executing untrusted programs.
 
 Signing requires the developer's forwarded SSH/GPG agent and Git identity;
 private keys are not included in the image. For SSH signing, host key-file paths
@@ -147,7 +147,7 @@ and the
 
 The [Dockerfile](../.devcontainer/Dockerfile) fixes the Ubuntu image by its
 Linux amd64 manifest digest. The
-[system-package lock](../.devcontainer/system-packages.lock) fixes 181
+[system-package lock](../.devcontainer/system-packages.lock) fixes 182
 additional Debian packages by URL and SHA-256, including LLVM 21, libstdc++,
 libc, CMake, Ninja, sccache, and Python. This closure was resolved against
 authenticated Ubuntu indexes on 2026-09-08. Image construction verifies these
@@ -159,6 +159,12 @@ The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
 that use the `bwrap` executable. These additions have verified package hashes
 and an executable version check; a full image rebuild and offline validation
 remain pending.
+
+The lock includes GitHub CLI (`gh`) 2.46.0-4 from Ubuntu for the repository's
+issue and pull-request workflow. Image construction runs `gh --version` to
+verify the executable. After updating an existing container, select **Dev
+Containers: Rebuild Container** to install it. Authenticate interactively with
+`gh auth login` when needed; credentials are not included in the image.
 
 Downloaded uv 0.10.4 and Node 22.22.1 archives also have fixed SHA-256 digests.
 Source style binaries retain the existing checksum-pinned installer. The image's
@@ -243,8 +249,8 @@ docker run --detach --name blackflower-offline --user root \
   --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
   --mount "type=bind,source=$PWD,target=/workspaces/blackflower" \
   --mount type=volume,target=/workspaces/blackflower/build \
-  --mount type=volume,target=/workspaces/blackflower/tools/cooker/.venv \
-  --mount type=volume,target=/workspaces/blackflower/tools/style/node_modules \
+  --mount type=volume,target=/workspaces/blackflower/tools/content_pipeline/.venv \
+  --mount type=volume,target=/workspaces/blackflower/tools/code_quality/node_modules \
   blackflower-dev:local
 docker exec blackflower-offline bash .devcontainer/prepare.sh debug tsan release
 docker network disconnect bridge blackflower-offline

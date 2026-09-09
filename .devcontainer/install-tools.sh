@@ -36,7 +36,8 @@ main() {
     '9a6bc82f9b491279147219f6a18add1e18424dce90d41d2a5fcd69d4924ba3aa'
   tar -xJf "${download_dir}/node.tar.xz" -C /usr/local --strip-components=1
 
-  bash /opt/blackflower/tools/style/install-shell-tools.sh
+  bash /opt/blackflower/tools/code_quality/install-shell-tools.sh
+  gh --version
   dpkg-query -W >/opt/blackflower/system-packages.tsv
 }
 

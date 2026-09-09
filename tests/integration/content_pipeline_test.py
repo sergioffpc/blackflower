@@ -9,14 +9,11 @@ import tempfile
 import unittest
 from typing import Any
 
-from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
-
 from pxr import Sdf
 from pxr import Usd
 from pxr import UsdGeom
 
-from content import pack
+from cooker import pack
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HARNESS = pathlib.Path(
@@ -42,22 +39,6 @@ def _harness_command(
         runtime_path(pack_path),
         runtime_path(public),
     ]
-
-
-def _write_signing_keys(private: pathlib.Path, public: pathlib.Path) -> None:
-    key = ed25519.Ed25519PrivateKey.generate()
-    private.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-    public.write_bytes(
-        key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
-    )
 
 
 def _write_authored_scene(source: pathlib.Path) -> None:
@@ -154,13 +135,39 @@ class ContentPipelineTest(unittest.TestCase):
             work = pathlib.Path(directory)
             private = work / "private.pem"
             public = work / "public.key"
-            _write_signing_keys(private, public)
+            self._generate_signing_keys(private, public)
             source = work / "scene.usda"
             _write_authored_scene(source)
             output = work / "cooked"
             identities = self._cook(source, output, private)
             for name in ("server", "agent", "client"):
                 self._check_cooked(work, output, public, identities, name)
+
+    def _generate_signing_keys(
+        self, private: pathlib.Path, public: pathlib.Path
+    ) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "cooker",
+                "keygen",
+                "--private-key",
+                str(private),
+                "--public-key",
+                str(public),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(len(public.read_bytes()), 32)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {"privateKey": str(private), "publicKey": str(public)},
+        )
 
     def _cook(
         self, source: pathlib.Path, output: pathlib.Path, private: pathlib.Path
@@ -169,7 +176,7 @@ class ContentPipelineTest(unittest.TestCase):
             [
                 sys.executable,
                 "-m",
-                "content",
+                "cooker",
                 "cook",
                 "--source",
                 str(source),

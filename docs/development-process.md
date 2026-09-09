@@ -215,8 +215,8 @@ A delivery ticket reaches Done when:
 
 For documentation-only work, check accuracy, internal links, consistency, and
 formatting. Follow the [shared style policy](style-guidelines.md) and run
-`npm --prefix tools/style run check` for JavaScript, Markdown, JSON, and shell
-changes; review its semantic rules as well as the automated results. The
+`npm --prefix tools/code_quality run check` for JavaScript, Markdown, JSON, and
+shell changes; review its semantic rules as well as the automated results. The
 [build checks](build.md#verification) currently include static analysis,
 formatting, instrumented GoogleTest and executable startup tests, and a
 benchmark harness check; add behavioral tests as simulation features are

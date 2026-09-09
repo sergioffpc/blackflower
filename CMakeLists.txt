@@ -35,7 +35,7 @@ include(cmake/Sanitizers.cmake)
 find_package(GTest CONFIG REQUIRED)
 find_package(benchmark CONFIG REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
-find_package(Boost REQUIRED COMPONENTS filesystem iostreams)
+find_package(Boost CONFIG REQUIRED COMPONENTS filesystem iostreams)
 
 add_library(blackflower_content STATIC src/modules/content/content.cc)
 add_library(blackflower_content_mapping STATIC src/modules/content/mapped_file.cc)
@@ -88,30 +88,30 @@ if(NOT CMAKE_CROSSCOMPILING)
     COMMAND "${CMAKE_COMMAND}" -E env
       "BLACKFLOWER_CONTENT_HARNESS=$<TARGET_FILE:blackflower_content_harness>"
       "${UV_EXECUTABLE}" run --locked --no-sync
-      --project "${PROJECT_SOURCE_DIR}/tools/cooker"
+      --project "${PROJECT_SOURCE_DIR}/tools/content_pipeline"
       python "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
   add_test(NAME content.typecheck
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
-      --project "${PROJECT_SOURCE_DIR}/tools/cooker" mypy
-      --config-file "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
-      "${PROJECT_SOURCE_DIR}/tools/cooker/src"
+      --project "${PROJECT_SOURCE_DIR}/tools/content_pipeline" mypy
+      --config-file "${PROJECT_SOURCE_DIR}/tools/content_pipeline/pyproject.toml"
+      "${PROJECT_SOURCE_DIR}/tools/content_pipeline/src"
       "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py"
-      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
+      "${PROJECT_SOURCE_DIR}/tools/code_quality/python_function_size.py")
   set_tests_properties(content.pipeline PROPERTIES TIMEOUT 120)
   add_test(NAME content.format
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
-      --project "${PROJECT_SOURCE_DIR}/tools/cooker" pyink --check
-      --config "${PROJECT_SOURCE_DIR}/tools/cooker/pyproject.toml"
-      "${PROJECT_SOURCE_DIR}/tools/cooker/src"
+      --project "${PROJECT_SOURCE_DIR}/tools/content_pipeline" pyink --check
+      --config "${PROJECT_SOURCE_DIR}/tools/content_pipeline/pyproject.toml"
+      "${PROJECT_SOURCE_DIR}/tools/content_pipeline/src"
       "${PROJECT_SOURCE_DIR}/tests/integration"
-      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
+      "${PROJECT_SOURCE_DIR}/tools/code_quality/python_function_size.py")
   add_test(NAME content.lint
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
-      --project "${PROJECT_SOURCE_DIR}/tools/cooker" pylint
+      --project "${PROJECT_SOURCE_DIR}/tools/content_pipeline" pylint
       "--rcfile=${PROJECT_SOURCE_DIR}/.pylintrc"
-      "${PROJECT_SOURCE_DIR}/tools/cooker/src/content"
+      "${PROJECT_SOURCE_DIR}/tools/content_pipeline/src/cooker"
       "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py"
-      "${PROJECT_SOURCE_DIR}/tools/style/python_function_size.py")
+      "${PROJECT_SOURCE_DIR}/tools/code_quality/python_function_size.py")
   set_tests_properties(content.format content.lint PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)
   include(GoogleTest)

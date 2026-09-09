@@ -7,7 +7,8 @@ tests, follows the
 [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
 Explicit project requirements take precedence; document necessary exceptions
 next to the affected code or configuration. The cooker requires Python 3.12 or
-newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
+newer, as declared in its
+[pyproject.toml](../tools/content_pipeline/pyproject.toml).
 
 Follow the shared [design principles](style-guidelines.md#design-principles) and
 [public-interface rules](style-guidelines.md#public-interfaces).
@@ -51,7 +52,7 @@ coherent responsibilities into named functions; do not compress statements or
 remove useful documentation to meet the limit.
 
 The repository style check enforces this rule with
-[the Python body-length checker](../tools/style/python_function_size.py).
+[the Python body-length checker](../tools/code_quality/python_function_size.py).
 Violations must be resolved without suppressing the rule.
 
 ## Automated enforcement
@@ -64,9 +65,9 @@ Violations must be resolved without suppressing the rule.
 | CTest                                              | Build enforcement                                        | The native `check` target runs `content.format`, `content.lint`, `content.typecheck`, and `content.pipeline`, alongside the C++ checks. CI installs the locked Python development environment before configuring CMake. |
 
 Pyink and Pylint are development dependencies managed by uv; exact versions and
-transitive dependencies are recorded in [uv.lock](../tools/cooker/uv.lock).
-Extend check coverage when adding Python source directories and validate
-configuration when upgrading tools.
+transitive dependencies are recorded in
+[uv.lock](../tools/content_pipeline/uv.lock). Extend check coverage when adding
+Python source directories and validate configuration when upgrading tools.
 
 The Pylint adaptation removes obsolete upstream options and checks, recognizes
 `__main__`, discovers the cooker source root, uses one worker, enables
@@ -94,17 +95,17 @@ Run from the repository root, with
 [uv installed](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
-uv sync --locked --project tools/cooker
-uv run --locked --no-sync --project tools/cooker pyink \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
-uv run --locked --no-sync --project tools/cooker pyink --check \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
-uv run --locked --no-sync --project tools/cooker pylint \
-  --rcfile=.pylintrc tools/cooker/src/content \
-  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
-uv run --locked --no-sync --project tools/cooker mypy \
-  --config-file tools/cooker/pyproject.toml tools/cooker/src \
-  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
+uv sync --locked --project tools/content_pipeline
+uv run --locked --no-sync --project tools/content_pipeline pyink \
+  --config tools/content_pipeline/pyproject.toml tools/content_pipeline/src tests/integration tools/code_quality/python_function_size.py
+uv run --locked --no-sync --project tools/content_pipeline pyink --check \
+  --config tools/content_pipeline/pyproject.toml tools/content_pipeline/src tests/integration tools/code_quality/python_function_size.py
+uv run --locked --no-sync --project tools/content_pipeline pylint \
+  --rcfile=.pylintrc tools/content_pipeline/src/cooker \
+  tests/integration/content_pipeline_test.py tools/code_quality/python_function_size.py
+uv run --locked --no-sync --project tools/content_pipeline mypy \
+  --config-file tools/content_pipeline/pyproject.toml tools/content_pipeline/src \
+  tests/integration/content_pipeline_test.py tools/code_quality/python_function_size.py
 ```
 
 Then run `cmake --build --preset debug --target check` after following the

@@ -14,7 +14,7 @@ from cryptography.hazmat.backends import openssl
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from pxr import Usd
 
-from content import scene
+from cooker import scene
 
 HEADER = struct.Struct("<8s2I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")

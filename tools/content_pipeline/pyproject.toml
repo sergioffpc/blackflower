@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = ["cryptography==46.0.5", "usd-core==26.8"]
 
 [project.scripts]
-cooker = "content.__main__:main"
+cooker = "cooker.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

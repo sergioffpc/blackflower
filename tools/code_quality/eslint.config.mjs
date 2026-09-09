@@ -60,12 +60,12 @@ export default [
     },
   },
   {
-    files: ['tools/style/*.{js,mjs,cjs}'],
+    files: ['tools/code_quality/*.{js,mjs,cjs}'],
     languageOptions: {globals: {console: 'readonly', process: 'readonly'}},
   },
   {
     // ESLint's flat configuration interface requires a default export.
-    files: ['tools/style/eslint.config.mjs'],
+    files: ['tools/code_quality/eslint.config.mjs'],
     rules: {'no-restricted-syntax': 'off'},
   },
   {

@@ -5,8 +5,8 @@ FROM ubuntu:26.04@sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc0711
 COPY .devcontainer/system-packages.lock .devcontainer/install-system.sh /opt/blackflower/
 RUN bash /opt/blackflower/install-system.sh
 
-COPY tools/style/install-shell-tools.sh /opt/blackflower/tools/style/
-COPY tools/cooker/.python-version /opt/blackflower/python-version
+COPY tools/code_quality/install-shell-tools.sh /opt/blackflower/tools/code_quality/
+COPY tools/content_pipeline/.python-version /opt/blackflower/python-version
 COPY .devcontainer/install-tools.sh /opt/blackflower/install-tools.sh
 RUN bash /opt/blackflower/install-tools.sh
 
@@ -39,8 +39,8 @@ RUN git config --system --add safe.directory /workspaces/blackflower \
 
 # Seed generated-volume directories; the entrypoint handles later UID changes.
 RUN mkdir -p /workspaces/blackflower/build \
-    /workspaces/blackflower/tools/cooker/.venv \
-    /workspaces/blackflower/tools/style/node_modules \
+    /workspaces/blackflower/tools/content_pipeline/.venv \
+    /workspaces/blackflower/tools/code_quality/node_modules \
     /home/ubuntu/.cache/vcpkg/downloads /home/ubuntu/.cache/vcpkg/archives \
     && chown -R ubuntu:ubuntu /workspaces /home/ubuntu/.cache
 

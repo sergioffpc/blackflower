@@ -13,7 +13,7 @@ from pxr import Tf
 from pxr import Usd
 from pxr import UsdGeom
 
-from content import scene
+from cooker import scene
 
 
 def read(source: bytes) -> "scene.SceneData":
