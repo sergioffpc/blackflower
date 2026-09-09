@@ -48,7 +48,8 @@ The certificate is public trust material, not a private key. Hostname, TLS
 chain, APT index signature and package hash checks remain enabled. Review the
 trust anchor if the service changes its chain; failure must not enable an
 unverified download path. The Dockerfile copies the certificate before
-downloading packages, and the CI image cache key includes it.
+downloading packages. The snapshot repair also included it in the then-current
+CI image cache key.
 
 ## Verification boundary
 
@@ -73,13 +74,15 @@ still verified HTTPS, while an empty root file caused rejection. Only the final
 inside the isolated user namespace. This validates download and verification
 flow, not package installation.
 
-The GitHub workflow includes the complete lock and installer in its toolchain
-image cache key. These changes therefore require building an image with the new
-download sources before cached reuse is possible. The existing Debug, TSan and
-Release jobs then prepare dependencies and run fresh project builds offline.
-Hosted results are recorded on the two pull requests. Docker is unavailable in
-the editing container, so local package downloads do not establish full image
-construction or offline build success.
+At the snapshot repair revision, the GitHub workflow included the complete lock
+and installer in its toolchain image cache key. The changes therefore required
+building an image with the new download sources before cached reuse was
+possible. The Debug, TSan and Release jobs then prepared dependencies and ran
+fresh project builds offline. The subsequent
+[GHCR workflow](ghcr-development-image.md) separates image publication from
+ordinary validation. Hosted results are recorded on the two pull requests.
+Docker is unavailable in the editing container, so local package downloads do
+not establish full image construction or offline build success.
 
 Snapshots have finite retention. The
 [official service documentation](https://snapshot.ubuntu.com/) describes its
