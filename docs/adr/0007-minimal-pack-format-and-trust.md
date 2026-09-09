@@ -1,12 +1,19 @@
 # Define the minimal pack format and independent content trust
 
+The pack-role and format decisions below are superseded by
+[ADR-0010](0010-agnostic-content-packs.md).
+
 Status: accepted implementation decision for
 [#21](https://github.com/sergioffpc/blackflower/issues/21). The owner
 additionally requires OpenUSD scenario sources, uv for Python, and separate
 client/server filename extensions. These requirements supplement ADR-0005
 without changing the selected model-import or runtime SDK roles.
 
-Use the bounded, uncompressed [pack v1](../../schemas/pack/v1.md), with explicit
+The original size caps are superseded by
+[ADR-0009](0009-typed-errors-and-content-size-policy.md); independent trust and
+cryptographic choices remain applicable.
+
+Use the uncompressed [pack v1](../../schemas/pack/v1.md), with explicit
 little-endian fields, integer-millimetre
 [scene values](../../schemas/scene/v1.md), SHA-256 resource digests and detached
 Ed25519 signatures over exact header and manifest bytes. Each artifact has its

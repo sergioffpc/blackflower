@@ -30,6 +30,14 @@ such as the ground, enclosure, and fixed blocks.
 movable objects, whose official evolution and interactions are determined by the
 Simulation World. A client's local movement prediction remains provisional.
 
+**CollisionShape**: A geometric shape that defines a surface or volume for
+collision with participants or objects, independently of its visual
+representation.
+
+**Scene**: A collection of collision shapes, lights and spawn points that
+describes a scenario's spatial contents independently of participant properties
+and gameplay rules.
+
 **Cooked content**: Scenario resources prepared before deployment in the
 representation required by the runtime, rather than source assets awaiting
 conversion.
@@ -37,8 +45,15 @@ conversion.
 **Content pack**: The signed distribution artifact containing a coherent set of
 cooked scenario resources and their compatibility and integrity metadata.
 
-**Client pack**: The content pack for a scenario containing the resources needed
-by the Prediction and Presentation Worlds.
+**ContentBuildId**: The shared identity of a produced set of cooked content,
+covering its source, production settings and resources across consumer scenes.
 
-**Server pack**: The content pack for a scenario containing the resources needed
-by the Simulation World.
+**ServerScene**: The complete scenario content required by the authoritative
+server, including collision data and participant placement information.
+
+**AgentScene**: The complete scenario content required by an autonomous
+participant, including collision data without visual or audio assets.
+
+**ClientScene**: The complete scenario content required by a human participant's
+client, including collision, visual and audio data. Spawn placement is owned by
+the server.

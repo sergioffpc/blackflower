@@ -9,6 +9,9 @@ Explicit project requirements take precedence; document necessary exceptions
 next to the affected code or configuration. The cooker requires Python 3.12 or
 newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
 
+Follow the shared [design principles](style-guidelines.md#design-principles) and
+[public-interface rules](style-guidelines.md#public-interfaces).
+
 ## Development and review
 
 -   Use four spaces for indentation and an 80-character line limit, with the
@@ -32,9 +35,24 @@ newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
 -   Use context managers for files and similar resources. Catch specific
     exceptions and preserve exception causes when translating errors. Validate
     external input explicitly; assertions are not input validation.
--   Test observable behavior and failure paths under the
+-   Follow the [project error contract](style-guidelines.md#error-contracts):
+    raise exception class instances, never return raw string/integer errors.
+    Messages provide context; handlers distinguish types rather than text.
+-   Test observable behavior within the scope defined by the
     [development process](development-process.md). Formatting and analysis do
     not establish behavioral correctness.
+
+## Function size
+
+Function and method bodies must not exceed 40 lines after formatting, including
+blank lines but excluding docstrings and comment-only documentation lines. The
+limit applies to production code, nested functions, tests and tooling. Extract
+coherent responsibilities into named functions; do not compress statements or
+remove useful documentation to meet the limit.
+
+The repository style check enforces this rule with
+[the Python body-length checker](../tools/style/python_function_size.py).
+Violations must be resolved without suppressing the rule.
 
 ## Automated enforcement
 
@@ -64,6 +82,12 @@ order, naming meaning, docstring accuracy and completeness, interface design,
 exception contracts, resource ownership, and logical grouping. A clean tool run
 does not establish full Google conformance.
 
+OpenUSD type information comes from the development-only `types-usd` package.
+The pinned 24.5.2 stubs are unofficial and predate the 26.8 runtime; coverage is
+partial. Validate the APIs used by the cooker with type checks and functional
+tests when updating either dependency. Do not treat stub coverage as proof of
+runtime compatibility.
+
 ## Commands
 
 Run from the repository root, with
@@ -72,15 +96,15 @@ Run from the repository root, with
 ```sh
 uv sync --locked --project tools/cooker
 uv run --locked --no-sync --project tools/cooker pyink \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration
+  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker pyink --check \
-  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration
+  --config tools/cooker/pyproject.toml tools/cooker/src tests/integration tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker pylint \
-  --rcfile=.pylintrc tools/cooker/src/blackflower_cooker \
-  tests/integration/content_pipeline_test.py
+  --rcfile=.pylintrc tools/cooker/src/content \
+  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
 uv run --locked --no-sync --project tools/cooker mypy \
   --config-file tools/cooker/pyproject.toml tools/cooker/src \
-  tests/integration/content_pipeline_test.py
+  tests/integration/content_pipeline_test.py tools/style/python_function_size.py
 ```
 
 Then run `cmake --build --preset debug --target check` after following the

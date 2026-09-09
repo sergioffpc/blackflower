@@ -47,8 +47,7 @@ completed before its required results are incorporated.
 
 | Proposed type                                           | Minimum logical content and rules                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PackId`                                                | Identity of the authenticated cooked-content manifest/header as proposed in [the pack design](cooker-and-packs.md). Supplied by external verification; ECS performs no hashing, signature verification, or file access.                                                                        |
-| `ScenarioBuildId`                                       | Common identity of the scenario cooking build, authenticated in both role-specific packs; proposed admission compatibility key. Distinct from each artifact's `PackId` and from geometry-only `SceneRevision`.                                                                                 |
+| `ContentBuildId`                                        | Common identity of the scenario cooking build, authenticated in the content pack; proposed admission compatibility key. Distinct from geometry-only `SceneRevision`.                                                                                                                           |
 | `SessionId`, `ParticipantId`, `ConnectionId`            | Distinct project identities. A reconnect creates a new participant incarnation; delayed data from the previous connection cannot address its replacement. Session identity separates server runs.                                                                                              |
 | `SimulationTick`, `PredictionTick`, `PresentationFrame` | Distinct monotonic counters in their own domains. Equal numerical values do not establish a shared time or baseline.                                                                                                                                                                           |
 | `SimulationStep`, `PredictionStep`                      | Respective tick, session, and fixed duration `1/240 s`. Prediction also identifies the current correction revision.                                                                                                                                                                            |
@@ -78,7 +77,7 @@ neutral input.
 
 Every row also receives `SimulationStep` and read-only scene/rule configuration
 from verified runtime content when applicable. Admission compares the peer
-scenario build identity supplied as data with the configured `ScenarioBuildId`
+content build identity supplied as data with the configured `ContentBuildId`
 before participant creation. Proposed resident state groups are participant
 membership, accepted movement, command resolution/history, pending interactions,
 and the event/output ledger.

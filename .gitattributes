@@ -1,6 +1,7 @@
 # Blank context lines in this verbatim upstream unified diff contain one space.
 cmake/ports/libsodium/001-mingw-i386.patch whitespace=-blank-at-eol
 
-/tests/fixtures/packs/*.bfclient filter=lfs diff=lfs merge=lfs -text
 /tests/fixtures/packs/*.bfserver filter=lfs diff=lfs merge=lfs -text
+/tests/fixtures/packs/*.bfclient filter=lfs diff=lfs merge=lfs -text
 /tests/fixtures/packs/*.pub filter=lfs diff=lfs merge=lfs -text
+/tests/fixtures/packs/*.bfagent filter=lfs diff=lfs merge=lfs -text

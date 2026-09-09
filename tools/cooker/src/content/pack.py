@@ -3,45 +3,51 @@
 from collections.abc import Callable
 from collections.abc import Sequence
 import dataclasses
+import enum
 import hashlib
 import platform
 import struct
+from typing import cast
 
 import cryptography
 from cryptography.hazmat.backends import openssl
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from pxr import Usd
 
-from blackflower_cooker import scene
+from content import scene
 
-HEADER = struct.Struct("<8s4I3Q32s32s")
+HEADER = struct.Struct("<8s2I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
-SETTINGS = b"primitive-usd-v1;units=mm;client=1;server=2"
-MAX_PACK = 16 * 1024 * 1024
+SETTINGS = b"primitive-usd-v1;units=mm;scenes=server,agent,client"
+
+
+class PackType(enum.Enum):
+    """File magic selecting the concrete scene contract."""
+
+    # Authoritative collision geometry and spawn points.
+    SERVER = b"BFSERV1\0"
+    # Autonomous participant collision geometry.
+    AGENT = b"BFAGNT1\0"
+    # Human client collision and presentation data.
+    CLIENT = b"BFCLNT1\0"
 
 
 @dataclasses.dataclass(frozen=True)
 class VerifiedPack:
-    """An authenticated role pack with a validated primitive scene.
+    """An authenticated pack with a validated primitive scene.
 
     Attributes:
-        data: Complete signed pack bytes.
-        role: Consumer role identifier.
-        profile: Target profile identifier.
+        pack_type: Concrete file type authenticated by its magic.
         provenance: Authenticated source, settings and toolchain provenance.
-        build_id: Shared scenario build digest.
-        pack_id: Digest of this role's signed transcript.
+        content_build_id: Content build digest.
         payload: Validated scene bytes.
     """
 
-    data: bytes
-    role: int
-    profile: int
+    pack_type: PackType
     provenance: bytes
-    build_id: bytes
-    pack_id: bytes
+    content_build_id: bytes
     payload: bytes
 
 
@@ -57,16 +63,21 @@ def provenance(source: bytes) -> bytes:
     Raises:
         ValueError: A version string cannot fit the provenance format.
     """
+    # types-usd omits the integer element type of the version tuple.
+    usd_version = cast(
+        tuple[int, ...],
+        Usd.GetVersion(),  # pyright: ignore[reportUnknownMemberType]
+    )
     result = hashlib.sha256(source).digest() + hashlib.sha256(SETTINGS).digest()
     for value in (
         "primitive-usd-v1",
         platform.python_version(),
         cryptography.__version__,
         openssl.backend.openssl_version_text(),
-        ".".join(map(str, Usd.GetVersion())),
+        ".".join(map(str, usd_version)),
     ):
         raw = value.encode("ascii")
-        if not 1 <= len(raw) <= 96 or any(c < 32 or c > 126 for c in raw):
+        if not raw or any(c < 32 or c > 126 for c in raw):
             raise ValueError("invalid provenance string")
         result += struct.pack("<I", len(raw)) + raw
     return result
@@ -81,7 +92,7 @@ def _validate_provenance(raw: bytes) -> None:
             raise ValueError("truncated provenance length")
         (size,) = struct.unpack_from("<I", raw, cursor)
         cursor += 4
-        if not 1 <= size <= 96 or cursor + size > len(raw):
+        if size == 0 or cursor + size > len(raw):
             raise ValueError("invalid provenance length")
         if any(c < 32 or c > 126 for c in raw[cursor : cursor + size]):
             raise ValueError("invalid provenance text")
@@ -90,44 +101,39 @@ def _validate_provenance(raw: bytes) -> None:
         raise ValueError("trailing provenance bytes")
 
 
-def build_identity(
-    provenance_bytes: bytes, payloads: Sequence[tuple[int, int, bytes]]
-) -> bytes:
-    """Computes the shared scenario identity in the supplied role order.
+def build_identity(provenance_bytes: bytes, payloads: Sequence[bytes]) -> bytes:
+    """Computes the scenario identity from provenance and resource contents.
 
     Args:
-        provenance_bytes: Canonical provenance record shared by both packs.
-        payloads: Ordered role, profile and encoded payload triples.
+        provenance_bytes: Canonical provenance record.
+        payloads: Encoded scene resources in server, agent then client order.
 
     Returns:
-        The SHA-256 digest of the canonical scenario build transcript.
+        The SHA-256 digest of the canonical content build transcript.
     """
     transcript = BUILD_DOMAIN + provenance_bytes
-    for role, profile, payload in payloads:
-        transcript += struct.pack(
-            "<6IQ", role, profile, 1, 1, 1, 1, len(payload)
-        )
+    for payload in payloads:
+        transcript += struct.pack("<4IQ", 1, 1, 1, 1, len(payload))
         transcript += hashlib.sha256(payload).digest()
     return hashlib.sha256(transcript).digest()
 
 
-def encode(
+def encode_and_sign(
     payload: bytes,
-    role: int,
-    profile: int,
     provenance_bytes: bytes,
-    build_id: bytes,
+    content_build_id: bytes,
     public_key: bytes,
     sign: Callable[[bytes], bytes],
+    *,
+    pack_type: PackType,
 ) -> bytes:
-    """Encodes a role pack using a caller-owned Ed25519 signer.
+    """Encodes a pack using a caller-owned Ed25519 signer.
 
     Args:
         payload: Encoded primitive scene.
-        role: Consumer role identifier.
-        profile: Target profile identifier.
+        pack_type: File type whose magic identifies the concrete scene contract.
         provenance_bytes: Canonical provenance record.
-        build_id: Shared scenario build digest.
+        content_build_id: Content build digest.
         public_key: Raw Ed25519 public key identifying the signer.
         sign: Callback accepting transcript bytes and returning a signature.
 
@@ -145,17 +151,8 @@ def encode(
     manifest = (
         struct.pack("<I", len(provenance_bytes)) + provenance_bytes + record
     )
-    header = HEADER.pack(
-        b"BFPACK1\0",
-        1,
-        role,
-        profile,
-        1,
-        HEADER.size + len(manifest) + len(payload) + 64,
-        len(manifest),
-        len(payload),
-        hashlib.sha256(public_key).digest(),
-        build_id,
+    header = _encode_header(
+        payload, manifest, content_build_id, public_key, pack_type
     )
     signature = sign(PACK_DOMAIN + header + manifest)
     if len(signature) != 64:
@@ -163,15 +160,30 @@ def encode(
     return header + manifest + payload + signature
 
 
-def verify(
-    data: bytes, role: int, profile: int, trusted_keys: Sequence[bytes]
-) -> VerifiedPack:
+def _encode_header(
+    payload: bytes,
+    manifest: bytes,
+    content_build_id: bytes,
+    public_key: bytes,
+    pack_type: PackType,
+) -> bytes:
+    return HEADER.pack(
+        pack_type.value,
+        1,
+        1,
+        HEADER.size + len(manifest) + len(payload) + 64,
+        len(manifest),
+        len(payload),
+        hashlib.sha256(public_key).digest(),
+        content_build_id,
+    )
+
+
+def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     """Authenticates a pack and validates its layout and primitive scene.
 
     Args:
         data: Complete pack bytes.
-        role: Expected consumer role identifier.
-        profile: Expected target profile identifier.
         trusted_keys: Independently provisioned raw Ed25519 public keys.
 
     Returns:
@@ -181,32 +193,53 @@ def verify(
         ValueError: Invalid layout, identity, provenance, digest or scene.
         cryptography.exceptions.InvalidSignature: Signature verification fails.
     """
-    if not HEADER.size + 64 <= len(data) <= MAX_PACK:
+    pack_type, manifest_size, payload_size, key_id, content_build_id = (
+        _decode_header(data)
+    )
+    payload_start = HEADER.size + manifest_size
+    _verify_signature(data, payload_start, key_id, trusted_keys)
+    provenance_bytes, payload = _decode_resource(
+        data, manifest_size, payload_size
+    )
+    _validate_scene(payload, pack_type)
+    return VerifiedPack(
+        pack_type,
+        provenance_bytes,
+        content_build_id,
+        payload,
+    )
+
+
+def _decode_header(data: bytes) -> tuple[PackType, int, int, bytes, bytes]:
+    if len(data) < HEADER.size + 64:
         raise ValueError("invalid pack length")
     (
         magic,
         version,
-        actual_role,
-        actual_profile,
         count,
         total,
         manifest_size,
         payload_size,
         key_id,
-        build_id,
+        content_build_id,
     ) = HEADER.unpack_from(data)
-    if magic != b"BFPACK1\0" or version != 1:
+    pack_type = PackType(magic)
+    if version != 1:
         raise ValueError("unsupported pack format")
-    if (actual_role, actual_profile) not in ((1, 1), (2, 2)) or (
-        actual_role,
-        actual_profile,
-    ) != (role, profile):
-        raise ValueError("wrong pack role or incompatible profile")
-    if count != 1 or not 4 + ENTRY.size <= manifest_size <= 65536:
+    if count != 1 or manifest_size < 4 + ENTRY.size:
         raise ValueError("unsupported resource count or manifest size")
     payload_start = HEADER.size + manifest_size
     if total != len(data) or total != payload_start + payload_size + 64:
         raise ValueError("invalid pack layout")
+    return pack_type, manifest_size, payload_size, key_id, content_build_id
+
+
+def _verify_signature(
+    data: bytes,
+    payload_start: int,
+    key_id: bytes,
+    trusted_keys: Sequence[bytes],
+) -> None:
     public = next(
         (
             key
@@ -221,6 +254,12 @@ def verify(
     ed25519.Ed25519PublicKey.from_public_bytes(public).verify(
         data[-64:], transcript
     )
+
+
+def _decode_resource(
+    data: bytes, manifest_size: int, payload_size: int
+) -> tuple[bytes, bytes]:
+    payload_start = HEADER.size + manifest_size
     (provenance_size,) = struct.unpack_from("<I", data, HEADER.size)
     if 4 + provenance_size + ENTRY.size != manifest_size:
         raise ValueError("invalid manifest layout")
@@ -241,13 +280,12 @@ def verify(
     payload = data[payload_start:-64]
     if hashlib.sha256(payload).digest() != digest:
         raise ValueError("resource digest mismatch")
-    scene.decode(payload)
-    return VerifiedPack(
-        data,
-        role,
-        profile,
-        provenance_bytes,
-        build_id,
-        hashlib.sha256(transcript).digest(),
-        payload,
-    )
+    return provenance_bytes, payload
+
+
+def _validate_scene(payload: bytes, pack_type: PackType) -> None:
+    decoded = scene.decode(payload)
+    if (pack_type != PackType.CLIENT and decoded["lights"]) or (
+        pack_type != PackType.SERVER and decoded["spawns"]
+    ):
+        raise ValueError("collections are incompatible with the scene type")

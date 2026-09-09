@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The cooker produces
+`.bfserver`, `.bfagent` and `.bfclient` files. Applications select paths; the
+loader validates resource schemas without a role parameter.
 
 Status: directory and build-target proposal. The owner requires exactly two
 product runtimes, client and server in C++23, and one offline cooker in Python.
@@ -46,7 +47,7 @@ blackflower/
 │   └── cooker/
 │       ├── pyproject.toml
 │       ├── src/
-│       │   └── blackflower_cooker/
+│       │   └── content/
 │       │       ├── __init__.py
 │       │       ├── __main__.py
 │       │       ├── cli.py
@@ -157,11 +158,10 @@ and C++ implementations consume that specification and common vectors under
 
 Conformance checks must have Python produce a signed pack that the C++ loader
 accepts, and have both implementations agree on canonical bytes, payload hashes,
-and altered/invalid-pack rejection. Verify both role packs independently and
-check their common scenario build identity; each staged runtime receives only
-its own pack. Production signing private keys never enter this tree. Disposable
-test material must be clearly identified and cannot become the runtime trust
-set.
+and content build identity. Each staged runtime receives the files it needs and
+its independently provisioned trust set. Production signing private keys never
+enter this tree. Disposable test material must be clearly identified and cannot
+become the runtime trust set.
 
 `assets/` contains authoring inputs. Cooked artifacts go under `build/packs/`,
 with only small test vectors committed as fixtures. Runtime staging contains the
@@ -171,11 +171,11 @@ actually exist.
 
 ## Targets and generated outputs
 
-| Product                      | Source root     | Proposed entry point / artifact                                                                                                                                                                          |
-| ---------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows client, C++23        | `src/client/`   | CMake target `blackflower_client`, installed executable `blackflower-client.exe`.                                                                                                                        |
-| Linux server, C++23          | `src/server/`   | CMake target `blackflower_server`, installed executable `blackflower-server`.                                                                                                                            |
-| Offline Linux cooker, Python | `tools/cooker/` | Installed CLI `blackflower-cooker`, also runnable as an installed module `python -m blackflower_cooker`. A Python package distribution is sufficient; no frozen executable is required by this proposal. |
+| Product                      | Source root     | Proposed entry point / artifact                                                                                                                                                   |
+| ---------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows client, C++23        | `src/client/`   | CMake target `blackflower_client`, installed executable `blackflower-client.exe`.                                                                                                 |
+| Linux server, C++23          | `src/server/`   | CMake target `blackflower_server`, installed executable `blackflower-server`.                                                                                                     |
+| Offline Linux cooker, Python | `tools/cooker/` | Installed CLI `cooker`, also runnable as an installed module `python -m content`. A Python package distribution is sufficient; no frozen executable is required by this proposal. |
 
 Test and benchmark executables remain development artifacts. Shared libraries or
 SDK helper tools do not introduce additional Blackflower product runtimes.
@@ -193,8 +193,9 @@ build/
 │   ├── cache/                       # Intermediate cooked resources
 │   └── dist/                        # Python package artifacts
 ├── packs/
-│   ├── mvp.bfclient
-│   └── mvp.bfserver
+│   ├── mvp.bfserver
+│   ├── mvp.bfagent
+│   └── mvp.bfclient
 └── stage/
     ├── server-linux-x64/
     │   ├── bin/blackflower-server

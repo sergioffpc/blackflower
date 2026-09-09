@@ -9,13 +9,13 @@ from cryptography import exceptions
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
-from blackflower_cooker import pipeline
+from content import pipeline
 
 
 def main() -> int:
     """Runs the cooker command line and returns its process exit status."""
     parser = argparse.ArgumentParser(
-        description="Cook and independently sign the two MVP role packs"
+        description="Cook and sign server, agent and client scenes"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     cook = commands.add_parser("cook")
@@ -34,7 +34,7 @@ def main() -> int:
         public = key.public_key().public_bytes(
             serialization.Encoding.Raw, serialization.PublicFormat.Raw
         )
-        result = pipeline.cook_pair(args.source, args.output, public, key.sign)
+        result = pipeline.cook(args.source, args.output, public, key.sign)
     except (
         OSError,
         ValueError,

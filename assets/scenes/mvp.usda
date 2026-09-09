@@ -8,11 +8,8 @@
 def Xform "Scenario"
 {
     custom int blackflower:schema = 1
-    custom string blackflower:scenario = "mvp"
-    custom double2 blackflower:interior = (20, 20)
-    custom double2 blackflower:wall = (3, 0.2)
 
-    def Scope "Blocks"
+    def Scope "CollisionShapes"
     {
         def Cube "West"
         {
@@ -28,13 +25,58 @@ def Xform "Scenario"
             double3 xformOp:translate = (3, 1, 0)
             uniform token[] xformOpOrder = ["xformOp:translate"]
         }
+        def Cube "Floor"
+        {
+            custom uint blackflower:id = 3
+            double size = 1
+            double3 xformOp:translate = (0, -0.1, 0)
+            double3 xformOp:scale = (20.4, 0.2, 20.4)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "WestWall"
+        {
+            custom uint blackflower:id = 4
+            double size = 1
+            double3 xformOp:translate = (-10.1, 1.5, 0)
+            double3 xformOp:scale = (0.2, 3, 20.4)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "EastWall"
+        {
+            custom uint blackflower:id = 5
+            double size = 1
+            double3 xformOp:translate = (10.1, 1.5, 0)
+            double3 xformOp:scale = (0.2, 3, 20.4)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "SouthWall"
+        {
+            custom uint blackflower:id = 6
+            double size = 1
+            double3 xformOp:translate = (0, 1.5, -10.1)
+            double3 xformOp:scale = (20, 3, 0.2)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "NorthWall"
+        {
+            custom uint blackflower:id = 7
+            double size = 1
+            double3 xformOp:translate = (0, 1.5, 10.1)
+            double3 xformOp:scale = (20, 3, 0.2)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
     }
-    def Capsule "Participant"
+    def Scope "Lights"
     {
-        uniform token axis = "Y"
-        double height = 1.2
-        double radius = 0.3
-        float3[] extent = [(-0.3, -0.9, -0.3), (0.3, 0.9, 0.3)]
+        def Xform "Ceiling"
+        {
+            custom token blackflower:lightType = "point"
+            custom uint blackflower:id = 1
+            custom float3 blackflower:color = (1, 1, 1)
+            custom float blackflower:intensity = 1
+            double3 xformOp:translate = (0, 3, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
     }
     def Scope "Spawns"
     {

@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The cooker produces
+`.bfserver`, `.bfagent` and `.bfclient` files. Applications select paths; the
+loader validates resource schemas without a role parameter.
 
 Status: the owner selected the six runtime technologies below and Python,
 Assimp, meshoptimizer, and Slang-to-SPIR-V compilation for the offline cooker.
@@ -45,11 +46,11 @@ adapters invoke the selected SDKs outside ECS execution, as required by
 [ADR-0004](adr/0004-keep-io-outside-ecs.md).
 
 The MVP also requires an
-[offline cooker and two signed content packs per scenario](cooker-and-packs.md).
-The Python cooker runs on Linux and produces separate client
-(Prediction/Presentation) and server (Simulation) packs. Each runtime verifies
-its own pack, expected role, integrity, and compatibility before creating
-worlds; admission compares the proposed common scenario build identity. Pack v1
+[offline cooker and three signed content packs per scenario](cooker-and-packs.md).
+The Python cooker runs on Linux and produces portable `.bfserver`, `.bfagent`
+and `.bfclient` files. Applications select the appropriate paths. Each runtime
+verifies the pack's integrity and resource-schema compatibility before creating
+worlds; admission compares the proposed common content build identity. Pack v1
 fixes SHA-256 and Ed25519. Python uses cryptography 46.0.5 and usd-core 26.8 in
 a uv-locked environment; the C++ loader uses libsodium 1.0.22#1.
 [ADR-0007](adr/0007-minimal-pack-format-and-trust.md) records the primitive
@@ -58,12 +59,12 @@ be prepared offline and loaded without runtime asset cooking.
 
 ## Selected offline cooker stack
 
-| Responsibility     | Technology    | Placement                                                                                          |
-| ------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
-| Language           | Python        | Linux offline tool `blackflower-cooker`.                                                           |
-| 3D model import    | Assimp        | Cooker import stage; source models become validated intermediate data.                             |
-| Mesh optimization  | meshoptimizer | Cooker optimization stage before final runtime-format encoding.                                    |
-| Shader compilation | Slang         | Linux-host offline compilation to SPIR-V, included with required metadata only in the client pack. |
+| Responsibility     | Technology    | Placement                                                                                                             |
+| ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Language           | Python        | Linux offline tool `cooker`.                                                                                          |
+| 3D model import    | Assimp        | Cooker import stage; source models become validated intermediate data.                                                |
+| Mesh optimization  | meshoptimizer | Cooker optimization stage before final runtime-format encoding.                                                       |
+| Shader compilation | Slang         | Linux-host offline compilation to SPIR-V, included with required metadata as rendering resources in the content pack. |
 
 The
 [cooker design](cooker-and-packs.md#selected-cooker-stack-and-model-processing)

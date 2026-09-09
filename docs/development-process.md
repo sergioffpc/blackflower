@@ -122,6 +122,24 @@ For prototypes, documentation, visual output, and audio perception, choose
 suitable checks instead of manufacturing unit tests that do not demonstrate the
 result.
 
+## Schema versioning
+
+Change schema versions only with a major project release. Until then, evolve
+contracts in place and keep documentation, producers, consumers and fixtures
+aligned under the current version. Regenerate development artifacts when their
+encoding changes; intermediate revisions do not require separate versioned
+schemas or compatibility paths.
+
+## Current application test scope
+
+Maintain the minimum functional tests needed to demonstrate working features
+through public interfaces. Cover normal workflows and avoid overlapping tests.
+Boundary conditions, invalid inputs and injected failures are outside the
+current scope. Broader coverage requires an explicit change of scope.
+
+Test scope does not alter runtime contracts. Formatting, static analysis and
+type checks remain development checks.
+
 ## Fidelity and validation
 
 Before implementing a fidelity-sensitive change, define what will be compared

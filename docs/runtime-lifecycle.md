@@ -3,8 +3,9 @@
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
 [uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
-The rest of the runtime/SDK design below remains proposed. The client and server
-extensions are `.bfclient` and `.bfserver`.
+The rest of the runtime/SDK design below remains proposed. The cooker produces
+`.bfserver`, `.bfagent` and `.bfclient` files. Applications select paths; the
+loader validates resource schemas without a role parameter.
 
 Status: proposal for review, not implemented. The two runtime roles, world
 separation, update rates, cooked signed content, and absence of I/O inside ECS
@@ -28,15 +29,15 @@ same cleanup path as an ordinary stop. An error or stop request in any
 nonterminal state transitions to `Stopping`. Cleanup handles partially
 initialized resources and repeated stop requests.
 
-| State                 | Input                                                                       | Completion output and transition gate                                                                                    |
-| --------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `Configuring`         | Process arguments and supported deployment settings                         | Validated runtime configuration, including pack location and network endpoint; otherwise stop with an error.             |
-| `LoadingContent`      | Configuration, artifact bytes, independent trust set, compatibility profile | Verified immutable content; otherwise stop before world creation.                                                        |
-| `Initializing`        | Verified content and runtime configuration                                  | Required adapters/resources and initialized world state; no gameplay can start while required preparation is incomplete. |
-| `Connecting` (client) | Prepared client and configured server endpoint                              | Accepted admission and a usable authoritative baseline, or failure within the connection deadline.                       |
-| `Running`             | Prepared runtime, external input/status and completed adapter results       | Completed world updates and output requests, until an explicit stop or fatal failure.                                    |
-| `Stopping`            | Stop reason and resources actually acquired                                 | Scheduling and external work quiesced, resources released, final process outcome.                                        |
-| `Stopped`             | Final outcome                                                               | Process exit; no automatic restart or reconnection in the MVP.                                                           |
+| State                 | Input                                                                 | Completion output and transition gate                                                                                    |
+| --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Configuring`         | Process arguments and supported deployment settings                   | Validated runtime configuration, including pack location and network endpoint; otherwise stop with an error.             |
+| `LoadingContent`      | Configuration, artifact bytes, independent trust set                  | Verified immutable content; otherwise stop before world creation.                                                        |
+| `Initializing`        | Verified content and runtime configuration                            | Required adapters/resources and initialized world state; no gameplay can start while required preparation is incomplete. |
+| `Connecting` (client) | Prepared client and configured server endpoint                        | Accepted admission and a usable authoritative baseline, or failure within the connection deadline.                       |
+| `Running`             | Prepared runtime, external input/status and completed adapter results | Completed world updates and output requests, until an explicit stop or fatal failure.                                    |
+| `Stopping`            | Stop reason and resources actually acquired                           | Scheduling and external work quiesced, resources released, final process outcome.                                        |
+| `Stopped`             | Final outcome                                                         | Process exit; no automatic restart or reconnection in the MVP.                                                           |
 
 ## Server lifecycle
 
@@ -54,8 +55,8 @@ stateDiagram-v2
 The diagram shows the successful startup path; the common error/stop transition
 applies to every active state.
 
-1.  Validate configuration, then verify and load the server pack before opening
-    the admission listener.
+1.  Validate configuration, then verify and load the ServerScene file before
+    opening the admission listener.
 2.  Prepare CPU PhysX and the static scene through external adapters. Initialize
     an empty Simulation World from validated scene/rule values. Create a fresh
     `SessionId`; no participant exists yet. The server needs no graphics or
@@ -77,15 +78,15 @@ applies to every active state.
 Transport connection and gameplay admission are distinct. A connected peer is
 not yet a participant.
 
-| Peer state | Gate and effect                                                                                                                                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pending    | The external transport supplies connection status and decoded admission data. Compare the client's verified `ScenarioBuildId` with the server's configured scenario build identity before participant creation. No gameplay commands are accepted yet. |
-| Admitting  | `UpdateParticipants` checks capacity and stages a free predefined spawn. Count pending spawn reservations toward the four-slot limit. Complete any requested physics membership/spawn work externally before committing membership.                    |
-| Active     | Export admission success only after participant creation succeeds, together with the initial authoritative baseline. The participant can interact immediately without waiting for others.                                                              |
-| Removing   | Explicit disconnect or communication expiry becomes a prepared `PeerChange`. Remove participant state, histories, and physics membership; release the slot and spawn reservation once removal completes. Remaining participants continue.              |
-| Closed     | Discard old connection data and late results. A later connection gets a new participant identity and a new free predefined spawn.                                                                                                                      |
+| Peer state | Gate and effect                                                                                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pending    | The external transport supplies connection status and decoded admission data. Compare the client's verified `ContentBuildId` with the server's configured content build identity before participant creation. No gameplay commands are accepted yet. |
+| Admitting  | `UpdateParticipants` checks capacity and stages a free predefined spawn. Count pending spawn reservations toward the four-slot limit. Complete any requested physics membership/spawn work externally before committing membership.                  |
+| Active     | Export admission success only after participant creation succeeds, together with the initial authoritative baseline. The participant can interact immediately without waiting for others.                                                            |
+| Removing   | Explicit disconnect or communication expiry becomes a prepared `PeerChange`. Remove participant state, histories, and physics membership; release the slot and spawn reservation once removal completes. Remaining participants continue.            |
+| Closed     | Discard old connection data and late results. A later connection gets a new participant identity and a new free predefined spawn.                                                                                                                    |
 
-Reject a fifth admission with `server full`; reject a different scenario build
+Reject a fifth admission with `server full`; reject a different content build
 with a content-mismatch reason. The external adapter transmits rejection and
 closes the connection. A failed or abandoned admission releases its reservation
 through the same removal path. Propose a separate five-second server-side
@@ -112,7 +113,7 @@ The common error/stop transition also applies during configuration, loading, and
 initialization.
 
 1.  Validate server IP/port and local configuration, then verify and load the
-    client pack.
+    ClientScene file.
 2.  Prepare window, Vulkan-only rendering, cooked SPIR-V shader resources, GPU
     PhysX static geometry, audio, input source, and transport through external
     adapters. Initialize Prediction and Presentation Worlds from verified
@@ -166,18 +167,15 @@ here.
 The external loader performs this sequence before publishing any content or
 creating worlds:
 
-1.  Read a bounded artifact and validate fixed-header syntax, file size, ranges,
-    overflow, manifest limits, duplicate identities, and supported format. Avoid
-    unchecked allocations and traversal/extraction of asset paths.
+1.  Read the artifact and validate fixed-header syntax, file size, ranges,
+    overflow, manifest structure, duplicate identities, and supported format.
+    Avoid unchecked allocations and traversal/extraction of asset paths.
 2.  Resolve the signing-key identifier against the independently provisioned
     runtime trust set and verify the signature over the exact authenticated
     header/manifest transcript.
 3.  Validate all declared payload digests, layout/padding, resource schemas,
-    references, scene invariants, and target compatibility. Reject the wrong
-    pack role; validate the entire local server pack against server requirements
-    or the entire local client pack against client requirements. Neither runtime
-    reads the other role's pack. Signed data still needs structural and semantic
-    validation.
+    references and scene encoding. Consumers select the resources they need;
+    deployment platform and consumer purpose are not part of the pack contract.
 4.  Publish `VerifiedPack` and immutable `RuntimeContent` only after all checks
     succeed. Retain the exact bytes that were verified; do not reopen a
     potentially changed pathname for consumption.
@@ -188,21 +186,21 @@ creating worlds:
 Reject missing packs, unknown keys, invalid signatures/hashes, truncation,
 unsupported required variants, or inconsistent scene data. No fallback to
 unsigned packs or loose source files is permitted. Matching the signed
-`ScenarioBuildId` across the two different role packs during admission is a
-proposed compatibility check, not remote attestation of a client process.
+`ContentBuildId` between peers during admission is a proposed compatibility
+check, not remote attestation of a client process.
 
-| Logical contract  | Input                                                                      | Output and owner                                                   |
-| ----------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Verify/load       | Artifact bytes, trusted public keys, limits, runtime compatibility profile | `VerifiedPack` or explicit failure; application loader.            |
-| Prepare runtime   | Verified prepared payloads                                                 | Immutable `RuntimeContent` and separately owned adapter resources. |
-| Initialize worlds | Validated scene/rule values and content identity                           | Initial ECS state; no file, signature, decoder, or SDK operation.  |
+| Logical contract  | Input                                            | Output and owner                                                   |
+| ----------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Verify/load       | Artifact bytes, trusted public keys              | `VerifiedPack` or explicit failure; application loader.            |
+| Prepare runtime   | Verified prepared payloads                       | Immutable `RuntimeContent` and separately owned adapter resources. |
+| Initialize worlds | Validated scene/rule values and content identity | Initial ECS state; no file, signature, decoder, or SDK operation.  |
 
 `RuntimeContent` supplies the `SceneDefinition` and resource identities in the
-phase contracts. Worlds receive the local `PackId` and common `ScenarioBuildId`
-as configuration data; `SceneRevision` labels geometry compatibility. Bootstrap
-is application orchestration, not an extra ECS phase. Observers, hooks, and
-destructors invoked inside ECS must also respect the no-I/O boundary throughout
-startup and teardown.
+phase contracts. Worlds receive the common `ContentBuildId` as configuration
+data; `SceneRevision` labels geometry compatibility. Bootstrap is application
+orchestration, not an extra ECS phase. Observers, hooks, and destructors invoked
+inside ECS must also respect the no-I/O boundary throughout startup and
+teardown.
 
 ## Ordered shutdown and failure
 
@@ -245,8 +243,8 @@ exercise real integrations on Linux and Windows:
 -   Inject failure/cancellation at each startup stage and confirm no later stage
     runs and all acquired resources are released once.
 -   Reject invalid packs before world creation and server listening; reject
-    mismatched scenario builds before participant creation. Accept the matching
-    client/server pair despite their different artifact identities.
+    mismatched content builds before participant creation. Accept peers whose
+    authenticated content build identities match.
 -   Delay admission/baseline stages and confirm the client uses one five-second
     connection deadline. Verify no gameplay command or prediction movement
     occurs before a usable baseline.
