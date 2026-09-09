@@ -199,6 +199,12 @@ verifies trusted-key authentication and scene encoding, then reports complete
 scene values. Invalid input returns an error without partial content. See
 [pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
 
+The [invalid-pack matrix](validation/invalid-packs.md) exercises this boundary
+with tampering and independently signed malformed fixtures. It checks rejection
+before the harness emits prepared values and checks pathname replacement while a
+verified pack retains file ownership. This establishes the content boundary;
+world startup and SDK resource publication remain future application behavior.
+
 The pipeline reports cooking stages through an optional observer. The CLI owns
 the terminal progress display on stderr and retains JSON results on stdout;
 redirected stderr stays silent on success. Progress reaches completion only
@@ -501,6 +507,15 @@ at the cooker-to-runtime boundary:
 | ID          | Stimulus and operating conditions                                                                                                                                                           | Expected response and threshold                                                                                                                                                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | CONTENT-Q01 | Cook an OpenUSD scene with dimensions and collection counts different from the reference; load each resulting file alone under an unrelated extension with independently provisioned trust. | All artifacts preserve authored collision geometry; only ServerScene contains spawn points and only ClientScene contains light parameters without scenario-specific validation; the returned scene variant matches the authenticated magic; runtime pack and build identities match the cooker output. |
+
+CONTENT-Q02, required by
+[#22](https://github.com/sergioffpc/blackflower/issues/22): feed tampered,
+truncated, untrusted and validly signed malformed artifacts to the actual C++
+loader. Every invalid case must return a concrete error, emit no prepared
+content and produce no sanitizer diagnostic. Replacing the source pathname must
+preserve the already verified scene; Windows must deny replacement while the
+mapping is held. Scope and evidence are in the
+[invalid-pack validation](validation/invalid-packs.md).
 
 For each agreed quality scenario, record a stable identifier, priority, stimulus
 and source, affected part of the system, operating conditions, expected

@@ -1,14 +1,17 @@
 """Production-to-consumption checks through the CLI and runtime harness."""
 
+import hashlib
 import json
 import os
 import pathlib
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from pxr import Sdf
 from pxr import Usd
 from pxr import UsdGeom
@@ -270,6 +273,271 @@ class ContentPipelineTest(unittest.TestCase):
             if name == "server"
             else [],
         )
+
+
+class InvalidPacksTest(unittest.TestCase):
+    """Rejects malformed artifacts through the actual C++ file loader."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.work = pathlib.Path(self.directory.name)
+        self.key = ed25519.Ed25519PrivateKey.generate()
+        self.public = self.work / "trusted.pub"
+        self.public.write_bytes(self.key.public_key().public_bytes_raw())
+        # Independent encoding from schemas/pack/v1.md, without cooker helpers.
+        self.provenance = bytes(64) + 5 * (b"\x01\x00\x00\x00v")
+        self.record_start = 104 + 4 + len(self.provenance)
+        self.payload_start = self.record_start + 64
+
+    def _artifact(
+        self, payload: bytes = bytes(12), magic: bytes = b"BFAGNT1\0"
+    ) -> bytearray:
+        record = struct.pack(
+            "<4I2Q32s",
+            1,
+            1,
+            1,
+            0,
+            0,
+            len(payload),
+            hashlib.sha256(payload).digest(),
+        )
+        manifest = (
+            struct.pack("<I", len(self.provenance)) + self.provenance + record
+        )
+        header = struct.pack(
+            "<8s2I3Q32s32s",
+            magic,
+            1,
+            1,
+            104 + len(manifest) + len(payload) + 64,
+            len(manifest),
+            len(payload),
+            hashlib.sha256(self.public.read_bytes()).digest(),
+            bytes(32),
+        )
+        return self._sign(bytearray(header + manifest + payload + bytes(64)))
+
+    def _sign(
+        self, data: bytearray, payload_start: int | None = None
+    ) -> bytearray:
+        if payload_start is None:
+            payload_start = self.payload_start
+        transcript = b"Blackflower.Pack.v1\0" + data[:payload_start]
+        data[-64:] = self.key.sign(transcript)
+        # Independently establish valid signatures on malformed fixtures.
+        self.key.public_key().verify(bytes(data[-64:]), transcript)
+        return data
+
+    def _reject(self, data: bytes | bytearray, diagnostic: str) -> None:
+        path = self.work / "invalid.pack"
+        path.write_bytes(data)
+        result = subprocess.run(
+            _harness_command(path, self.public),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout, "", "rejected content was published")
+        self.assertEqual(result.stderr, f"content rejected: {diagnostic}\n")
+
+    def _accept(self, data: bytearray, scene_type: str) -> None:
+        path = self.work / "control.pack"
+        path.write_bytes(data)
+        result = subprocess.run(
+            _harness_command(path, self.public),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["scene_type"], scene_type)
+
+    def test_independent_signed_control_is_accepted(self) -> None:
+        self._accept(self._artifact(), "agent")
+
+    def test_rejects_tampering_without_publishing_content(self) -> None:
+        for offset, diagnostic in (
+            (72, "invalid pack signature"),
+            (108, "invalid pack signature"),
+            (self.record_start + 32, "invalid pack signature"),
+            (self.payload_start, "resource digest mismatch"),
+            (-1, "invalid pack signature"),
+        ):
+            with self.subTest(offset=offset):
+                data = self._artifact()
+                data[offset] ^= 1
+                self._reject(data, diagnostic)
+
+    def test_pack_cannot_supply_its_own_trust(self) -> None:
+        # Even a signed payload carrying the attacker's public key grants no
+        # authority when the independently provisioned trust is different.
+        data = self._artifact(self.key.public_key().public_bytes_raw())
+        self.public.write_bytes(
+            ed25519.Ed25519PrivateKey.generate().public_key().public_bytes_raw()
+        )
+        self._reject(data, "unknown signing key")
+
+    def test_missing_and_truncated_files(self) -> None:
+        missing = self.work / "missing.pack"
+        result = subprocess.run(
+            _harness_command(missing, self.public),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr, "content rejected: pack mapping failed\n"
+        )
+        data = self._artifact()
+        for size in (1, 103, 104, 167, self.payload_start, len(data) - 1):
+            with self.subTest(size=size):
+                self._reject(
+                    data[:size],
+                    "invalid pack length"
+                    if size < 168
+                    else "invalid pack layout",
+                )
+
+    def test_signed_header_rejects_unsupported_and_overflowing_layouts(
+        self,
+    ) -> None:
+        for offset, encoding, value, diagnostic in (
+            (0, "8s", b"UNKNOWN\0", "unsupported pack format"),
+            (8, "I", 2, "unsupported pack format"),
+            (12, "I", 0, "unsupported resource count"),
+            (12, "I", 2, "unsupported resource count"),
+            (12, "I", 2**32 - 1, "unsupported resource count"),
+            (16, "Q", 2**64 - 1, "invalid pack layout"),
+            (24, "Q", 0, "invalid pack layout"),
+            (24, "Q", 2**64 - 1, "invalid pack layout"),
+            (32, "Q", 2**64 - 1, "invalid pack layout"),
+        ):
+            with self.subTest(offset=offset, value=value):
+                data = self._artifact()
+                struct.pack_into("<" + encoding, data, offset, value)
+                self._reject(self._sign(data), diagnostic)
+        self._reject(self._artifact() + b"extra", "invalid pack layout")
+
+    def test_signed_provenance_requires_complete_printable_fields(self) -> None:
+        for offset, value in ((104, 2**32 - 1), (172, 0), (172, 2**32 - 1)):
+            with self.subTest(offset=offset, value=value):
+                data = self._artifact()
+                struct.pack_into("<I", data, offset, value)
+                self._reject(self._sign(data), "invalid provenance layout")
+        for value in (0, 31, 127, 255):
+            with self.subTest(character=value):
+                data = self._artifact()
+                data[176] = value
+                self._reject(self._sign(data), "invalid provenance layout")
+
+    def test_signed_resource_rejects_identity_schema_and_range_errors(
+        self,
+    ) -> None:
+        for offset, encoding, value in (
+            (0, "I", 0),
+            (0, "I", 2),
+            (4, "I", 0),
+            (4, "I", 2**32 - 1),
+            (8, "I", 2),
+            (12, "I", 1),
+            (16, "Q", 1),
+            (16, "Q", 2**64 - 1),
+            (24, "Q", 0),
+            (24, "Q", 11),
+            (24, "Q", 13),
+            (24, "Q", 2**64 - 1),
+        ):
+            with self.subTest(offset=offset, value=value):
+                data = self._artifact()
+                struct.pack_into(
+                    "<" + encoding, data, self.record_start + offset, value
+                )
+                self._reject(
+                    self._sign(data),
+                    "invalid resource identity, schema or range",
+                )
+        data = self._artifact()
+        data[self.record_start + 32] ^= 1
+        self._reject(self._sign(data), "resource digest mismatch")
+
+    def test_duplicate_and_overlapping_entries_are_not_supported(self) -> None:
+        data = self._artifact()
+        record = data[self.record_start : self.payload_start]
+        data[self.payload_start : self.payload_start] = record
+        struct.pack_into("<I", data, 12, 2)
+        struct.pack_into("<Q", data, 16, len(data))
+        struct.pack_into("<Q", data, 24, self.payload_start - 104 + 64)
+        self._reject(
+            self._sign(data, self.payload_start + 64),
+            "unsupported resource count",
+        )
+
+    def test_signed_scene_rejects_missing_records_and_unknown_kinds(
+        self,
+    ) -> None:
+        for payload, diagnostic in (
+            (b"", "invalid scene length"),
+            (bytes(11), "invalid scene length"),
+            (bytes(13), "invalid scene length"),
+            (struct.pack("<3I", 2**32 - 1, 0, 0), "invalid scene length"),
+            (struct.pack("<3I", 0, 2**32 - 1, 0), "invalid scene length"),
+            (struct.pack("<3I", 0, 0, 2**32 - 1), "invalid scene length"),
+            (
+                struct.pack("<4I", 1, 0, 0, 257),
+                "unsupported collision shape kind",
+            ),
+            (struct.pack("<4I", 0, 1, 0, 257), "unsupported light kind"),
+        ):
+            with self.subTest(payload=payload):
+                self._reject(self._artifact(payload), diagnostic)
+
+    def test_signed_records_cannot_be_truncated(self) -> None:
+        for counts, record in (
+            ((1, 0, 0), struct.pack("<8I", 1, 1, 0, 0, 0, 1, 1, 1)),
+            ((1, 0, 0), struct.pack("<6I", 2, 1, 0, 0, 0, 1)),
+            ((0, 1, 0), struct.pack("<9I", 1, 1, 0, 0, 0, 0, 0, 0, 0)),
+            ((0, 1, 0), struct.pack("<9I", 2, 1, 0, 0, 0, 0, 0, 0, 0)),
+            ((0, 0, 1), struct.pack("<4I", 1, 0, 0, 0)),
+        ):
+            magic, scene_type = (
+                (b"BFCLNT1\0", "client")
+                if counts[1]
+                else (b"BFSERV1\0", "server")
+                if counts[2]
+                else (b"BFAGNT1\0", "agent")
+            )
+            header = struct.pack("<3I", *counts)
+            self._accept(self._artifact(header + record, magic), scene_type)
+            for size in range(len(record)):
+                with self.subTest(counts=counts, size=size):
+                    payload = header + record[:size]
+                    self._reject(
+                        self._artifact(payload, magic), "invalid scene length"
+                    )
+
+    def test_signed_scene_rejects_forbidden_collections(self) -> None:
+        light = struct.pack("<3I", 0, 1, 0) + struct.pack(
+            "<9I", 1, 1, 0, 0, 0, 0, 0, 0, 0
+        )
+        spawn = struct.pack("<3I", 0, 0, 1) + struct.pack("<4I", 1, 0, 0, 0)
+        for magic, payload in (
+            (b"BFSERV1\0", light),
+            (b"BFAGNT1\0", light),
+            (b"BFAGNT1\0", spawn),
+            (b"BFCLNT1\0", spawn),
+        ):
+            with self.subTest(magic=magic, payload=payload):
+                self._reject(
+                    self._artifact(payload, magic), "invalid scene length"
+                )
 
 
 if __name__ == "__main__":
