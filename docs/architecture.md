@@ -228,12 +228,18 @@ existing ECS phases and remain proposals.
 The owner selected a [WSL Dev Container](development-container.md) for C++ and
 Python. Its digest-pinned Ubuntu image, complete system-package lock, and tool
 checksums define the userspace used by VS Code and native build-validation CI.
-Generated build, Python, and JavaScript directories use dedicated volumes;
-compiler and package caches persist separately. CI prepares dependencies online
-and checks fresh builds with networking disabled. Local
+The locked system tools include bubblewrap. Generated build, Python, and
+JavaScript directories use dedicated volumes; compiler and package caches
+persist separately. CI prepares dependencies online and checks fresh builds with
+networking disabled. Local
 [container execution checks](validation/development-container.md) pass; kernel,
 hardware, CodeQL extraction, and Windows SDK/runtime validation are separate
 boundaries.
+
+The editor forwards the developer's WSL SSH agent into the container; private
+keys remain on the host. The
+[SSH agent setup](development-container.md#forward-the-wsl-ssh-agent) documents
+shell environment propagation, socket renewal, and fingerprint checks.
 
 Local builds place outputs and dependency installations under build/. The
 [GitHub workflow](../.github/workflows/ci.yml) runs Linux Debug,

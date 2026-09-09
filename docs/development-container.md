@@ -51,17 +51,114 @@ cmake --build --preset tsan --target check
 cmake --build --preset release --target check
 ```
 
+## Forward the WSL SSH agent
+
+For the Windows PowerShell → WSL → `code .` → Dev Container workflow, load the
+SSH key in WSL and expose its agent socket to the editor's startup environment.
+Run the following commands in the **WSL host terminal**, outside the container.
+If `ssh-add -l` already lists the intended key, reuse that agent and skip
+starting another one:
+
+```bash
+eval "$(ssh-agent -s)"
+ssh-add
+ssh-add -l
+```
+
+For a key with a custom filename, use `ssh-add ~/.ssh/name_of_private_key`
+instead of plain `ssh-add`; do not select the `.pub` file. Once the key is
+listed, create a stable link to this agent:
+
+If `SSH_AUTH_SOCK` already equals `$HOME/.ssh/vscode-agent.sock` and lists the
+key, keep the existing link and skip the `ln` command to avoid a self-reference.
+
+```bash
+mkdir -p ~/.ssh ~/.vscode-server
+ln -sfn "$SSH_AUTH_SOCK" ~/.ssh/vscode-agent.sock
+touch ~/.vscode-server/server-env-setup
+```
+
+Add this line once to both `~/.bashrc` and `~/.vscode-server/server-env-setup`
+in WSL, preserving their existing content:
+
+```sh
+export SSH_AUTH_SOCK="$HOME/.ssh/vscode-agent.sock"
+```
+
+The server environment file configures VS Code's WSL server; `.bashrc` also
+exposes the socket to interactive Bash startup used when probing the host
+environment. In the reported failure, setting only the server environment file
+was insufficient; forwarding worked after adding the export to `.bashrc`. Verify
+a fresh interactive login shell without inheriting the current variable:
+
+```bash
+env -u SSH_AUTH_SOCK bash -lic \
+  'printf "SSH_AUTH_SOCK=%s\n" "$SSH_AUTH_SOCK"; ssh-add -l'
+```
+
+This must list the intended key. Close all VS Code windows, reopen the checkout
+with `code .` from WSL, and select **Dev Containers: Reopen in Container**. In a
+new **container terminal**, verify:
+
+```bash
+printf 'SSH_AUTH_SOCK=%s\n' "$SSH_AUTH_SOCK"
+ssh-add -l
+```
+
+Acceptance is a nonempty socket path and the same key fingerprint listed in WSL.
+The owner confirmed this result on 2026-09-09. This verifies agent forwarding;
+it does not by itself verify GitHub access or commit signing.
+
+### Recover after restarting WSL
+
+A WSL shutdown stops its agent. Start a new agent and load the key using the
+commands above, then refresh the link with `ln -sfn` before reopening VS Code.
+Refresh it whenever the agent socket changes. The shell and server environment
+exports remain configured; the link alone does not start an agent or load keys.
+Avoid starting another agent when an existing one already lists the key.
+
+### Diagnose missing forwarding
+
+If the container reports
+`Could not open a connection to your authentication agent.`, inspect **Dev
+Containers: Show Container Log** for `ssh-agent:` lines.
+`SSH_AUTH_SOCK not set on wsl host` means the helper did not receive the WSL
+variable, even if `ssh-add -l` works in the original WSL terminal. Repeat the
+fresh-shell check above and restart the editor after changing startup files.
+
+If a socket reports `Connection refused`, check the WSL link and agent:
+
+```bash
+ls -l ~/.ssh/vscode-agent.sock
+SSH_AUTH_SOCK="$HOME/.ssh/vscode-agent.sock" ssh-add -l
+```
+
+Refresh the link after starting a replacement agent. Starting `ssh-agent` inside
+the container creates a separate agent; `The agent has no identities` then means
+that agent is reachable but empty. It does not restore forwarding from WSL. Keep
+the private key on the host.
+
+See the VS Code documentation for
+[sharing SSH credentials](https://code.visualstudio.com/remote/advancedcontainers/sharing-git-credentials)
+and the
+[WSL server environment script](https://code.visualstudio.com/docs/remote/wsl#_advanced-environment-setup-script).
+
 ## Fixed inputs and isolation
 
 The [Dockerfile](../.devcontainer/Dockerfile) fixes the Ubuntu image by its
 Linux amd64 manifest digest. The
-[system-package lock](../.devcontainer/system-packages.lock) fixes 179
+[system-package lock](../.devcontainer/system-packages.lock) fixes 181
 additional Debian packages by URL and SHA-256, including LLVM 21, libstdc++,
 libc, CMake, Ninja, sccache, and Python. This closure was resolved against
 authenticated Ubuntu indexes on 2026-09-08. Image construction verifies these
 exact files and installs them locally after removing live APT sources. It never
 resolves package versions from a current package index. Missing files and hash
 mismatches fail construction.
+
+The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
+that use the `bwrap` executable. These additions have verified package hashes
+and an executable version check; a full image rebuild and offline validation
+remain pending.
 
 Downloaded uv 0.10.4 and Node 22.22.1 archives also have fixed SHA-256 digests.
 Source style binaries retain the existing checksum-pinned installer. The image's
