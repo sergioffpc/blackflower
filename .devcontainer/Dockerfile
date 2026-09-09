@@ -2,6 +2,7 @@ FROM ubuntu:26.04@sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc0711
 
 # The image and package lock jointly fix the compiler, libc, libstdc++, Python,
 # and transitive system packages. Image builds never resolve package versions.
+COPY .devcontainer/snapshot-ca.pem /opt/blackflower/snapshot-ca.pem
 COPY .devcontainer/system-packages.lock .devcontainer/install-system.sh /opt/blackflower/
 RUN bash /opt/blackflower/install-system.sh
 

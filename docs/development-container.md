@@ -152,11 +152,13 @@ additional Debian packages by URL and SHA-256, including LLVM 21, libstdc++,
 libc, CMake, Ninja, sccache, and Python. This closure was resolved against
 authenticated Ubuntu indexes on 2026-09-08. Image construction verifies these
 exact files and installs them locally after removing live APT sources. It never
-resolves package versions from a current package index. If a locked download
-fails, the installer retries the same package path through Ubuntu's US archive
-with the same SHA-256 check. This handles archive replicas that temporarily
-disagree about package availability. Construction fails if neither location
-supplies the hash-verified file.
+resolves package versions from a current package index. Package URLs use the
+[Ubuntu Snapshot Service](https://snapshot.ubuntu.com/) at `20260908T000000Z`,
+preserving the locked versions when current mirrors remove superseded files. The
+committed ISRG Root X1 certificate bootstraps HTTPS verification before the base
+image installs its CA bundle. The authenticated lock's SHA-256 digests remain
+mandatory. A missing file, TLS error or hash mismatch fails construction. See
+the [snapshot validation](validation/development-container-snapshots.md).
 
 The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
 that use the `bwrap` executable. These additions have verified package hashes,
@@ -200,15 +202,18 @@ have finite retention; preserve validated images and dependency assets for
 long-term offline recovery.
 
 To deliberately update system packages, run the maintenance resolver against the
-exact base image from the Dockerfile and review the output before replacing the
-lock. Image builds never invoke the resolver:
+exact base image from the Dockerfile, pass an explicit snapshot timestamp, and
+review the output before replacing the lock. The resolver checks signed Ubuntu
+indexes and emits snapshot URLs and SHA-256 digests. Image builds never invoke
+the resolver:
 
 ```sh
 mkdir -p build
 docker run --rm \
   --mount "type=bind,source=$PWD/.devcontainer,target=/config,readonly" \
   ubuntu:26.04@sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc07110599c7a6f \
-  bash /config/resolve-system.sh > build/system-packages.lock.new
+  bash /config/resolve-system.sh 20260908T000000Z \
+  > build/system-packages.lock.new
 ```
 
 Regenerate the closure when the base image changes. Rebuild and repeat offline

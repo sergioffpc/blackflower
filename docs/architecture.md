@@ -250,8 +250,9 @@ phases and remain proposals.
 The owner selected a [WSL Dev Container](development-container.md) for C++ and
 Python. Its digest-pinned Ubuntu image, complete system-package lock, and tool
 checksums define the userspace used by VS Code and native build-validation CI.
-Failed system-package downloads retry the identical package path through
-Ubuntu's US archive with the original locked hash; see the
+System-package URLs pin an Ubuntu archive snapshot and retain mandatory hash
+verification, so image construction does not depend on current mirror retention;
+see the
 [fixed-input contract](development-container.md#fixed-inputs-and-isolation). The
 locked system tools include bubblewrap and GitHub CLI (`gh`) for repository
 issue and pull-request operations. Generated build, Python, and JavaScript
