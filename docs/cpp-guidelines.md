@@ -47,6 +47,29 @@ change; use an ADR for a lasting architectural trade-off.
 | Headers                      | Follow Google's self-contained headers and direct-include rules. Apply recommendations about reducing compilation dependencies within those constraints.                                                                                                   |
 | Historical examples          | Use current standard-library facilities where suitable. A reference to TR1, Boost, or a support library in a guideline does not introduce that dependency into this project.                                                                               |
 
+## Code documentation
+
+Document the observable contract needed to use an interface without reading its
+implementation. State purpose, caller obligations, effects and guarantees only
+where names and types leave them unclear. Keep contracts at declarations and
+implementation rationale beside the relevant code.
+
+Error contracts must document each enum value's failure conditions and its
+distinction from related values. Document the meaning, validity and availability
+of every error field, including units and ownership or lifetime where relevant.
+Names alone do not replace these contracts.
+
+Use concise English comments to explain intent, non-obvious decisions or
+necessary ordering. Do not narrate statements or repeat signatures. Improve
+names and structure when they can express the information directly. Link to
+authoritative schemas and architecture documents instead of copying their
+contents. Simple, self-explanatory operations need no explanatory comments.
+
+Update documentation with the behavior it describes. Review accuracy, ownership
+and lifetime guarantees, terminology and duplication as well as formatting. The
+[documentation guidance](research/software-documentation.md) provides the
+supporting sources.
+
 ## Typed errors
 
 Project-owned error contracts must use enums or classes. Use scoped enums for

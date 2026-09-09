@@ -100,8 +100,12 @@ if(NOT CMAKE_CROSSCOMPILING)
   set_tests_properties(content.format content.lint PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)
   include(GoogleTest)
-  gtest_discover_tests(blackflower_tests PROPERTIES
-    ENVIRONMENT "BLACKFLOWER_CONTENT_FIXTURES=${PROJECT_SOURCE_DIR}/tests/fixtures/packs")
+  foreach(fixture IN ITEMS reference.bfclient reference.pub)
+    configure_file("tests/fixtures/packs/${fixture}"
+      "test-fixtures/${fixture}" COPYONLY)
+  endforeach()
+  gtest_discover_tests(blackflower_tests
+    WORKING_DIRECTORY "${PROJECT_BINARY_DIR}/test-fixtures")
   add_test(NAME blackflower.smoke COMMAND blackflower)
   add_test(NAME blackflower.benchmark_smoke
     COMMAND blackflower_benchmarks --benchmark_filter=FrameworkSmoke

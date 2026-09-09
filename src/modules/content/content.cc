@@ -27,6 +27,8 @@ constexpr std::array<unsigned char, 8> kMagic{'B', 'F', 'P', 'A',
                                               'C', 'K', '1', 0};
 constexpr char kPackDomain[] = "Blackflower.Pack.v1";
 
+// Borrows little-endian encoded storage. A short read permanently makes done()
+// false; callers must check completion before accepting decoded values.
 class Reader {
  public:
   explicit Reader(std::span<const unsigned char> bytes) : bytes_(bytes) {}
@@ -65,15 +67,18 @@ class Reader {
   bool valid_ = true;
 };
 
+// Computes SHA-256 over the exact bytes, without canonicalizing the input.
 Digest Hash(std::span<const unsigned char> bytes) {
   Digest digest{};
   crypto_hash_sha256(digest.data(), bytes.data(), bytes.size());
   return digest;
 }
 
+// Checks the provenance encoding from pack v1, not the claims made by its text.
 bool ValidProvenance(std::span<const unsigned char> bytes) {
   Reader reader(bytes);
-  reader.Take(64);  // Source/settings digests are opaque authenticated values.
+  // Source and settings hashes are authenticated opaque values.
+  reader.Take(64);
   for (int i = 0; i < 5; ++i) {
     const auto size = reader.U32();
     if (size == 0) {
@@ -89,6 +94,7 @@ bool ValidProvenance(std::span<const unsigned char> bytes) {
   return reader.done();
 }
 
+// Enforces the geometric and identity contract in schemas/scene/v1.md.
 bool ValidScene(const Scene& scene) {
   if (scene.interior_mm != std::array<std::uint32_t, 2>{20000, 20000} ||
       scene.capsule_mm != std::array<std::uint32_t, 2>{1800, 600} ||
@@ -146,6 +152,8 @@ bool ValidScene(const Scene& scene) {
         return false;
       }
     }
+    // Spawn clearance uses the capsule's horizontal footprint. Tangency is
+    // excluded by the scene contract.
     for (const auto& box : scene.boxes) {
       std::int64_t squared_distance = 0;
       for (const auto axis : {0U, 2U}) {
@@ -175,6 +183,7 @@ bool ValidScene(const Scene& scene) {
   return true;
 }
 
+// Decodes scene v1 and rejects geometry that cannot satisfy its contract.
 std::expected<Scene, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   if (bytes.size() != 152) {
@@ -284,8 +293,8 @@ std::expected<VerifiedPack, PackError> VerifiedPack::Load(
   const auto total = header.U64();
   const auto manifest_size = header.U64();
   const auto payload_size = header.U64();
-  // Subtract only from verified available storage; untrusted u64 lengths
-  // must not overflow before they are checked against the actual file.
+  // Bound lengths by actual storage before subtracting or slicing. Summing
+  // untrusted lengths could wrap and make an invalid layout appear consistent.
   const auto body_size = bytes.size() - kHeaderSize - 64;
   if (total != bytes.size() || manifest_size < 68 ||
       manifest_size > body_size || payload_size != body_size - manifest_size) {
@@ -302,6 +311,8 @@ std::expected<VerifiedPack, PackError> VerifiedPack::Load(
   }
   const auto payload_start =
       kHeaderSize + static_cast<std::size_t>(manifest_size);
+  // Authenticate the original encoding; reserialization could change the signed
+  // message. The domain's terminating zero is part of the pack v1 transcript.
   std::vector<unsigned char> transcript(std::begin(kPackDomain),
                                         std::end(kPackDomain));
   transcript.insert(transcript.end(), bytes.begin(),
@@ -360,7 +371,6 @@ std::expected<VerifiedPack, PackError> LoadFile(
   }
   bytes.resize(static_cast<std::size_t>(size));
   file.seekg(0);
-  // Binary byte transfer: char is the stream's byte representation.
   file.read(reinterpret_cast<char*>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
   if (!file || file.peek() != std::ifstream::traits_type::eof()) {

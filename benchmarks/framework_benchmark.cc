@@ -3,7 +3,7 @@
 namespace blackflower {
 namespace {
 
-// Exercise the benchmark harness until product workloads are implemented.
+// Checks benchmark integration; timings do not represent a product workload.
 void FrameworkSmoke(benchmark::State& state) {
   for (auto iteration : state) {
     (void)iteration;
