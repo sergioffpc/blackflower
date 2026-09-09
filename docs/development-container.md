@@ -161,9 +161,10 @@ mandatory. A missing file, TLS error or hash mismatch fails construction. See
 the [snapshot validation](validation/development-container-snapshots.md).
 
 The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
-that use the `bwrap` executable. These additions have verified package hashes
-and an executable version check; a full image rebuild and offline validation
-remain pending.
+that use the `bwrap` executable. These additions have verified package hashes,
+an executable version check, and a successful
+[image rebuild](validation/development-container.md#archive-download-fallback).
+Offline native validation for these additions remains pending.
 
 The lock includes GitHub CLI (`gh`) 2.46.0-4 from Ubuntu for the repository's
 issue and pull-request workflow. Image construction runs `gh --version` to

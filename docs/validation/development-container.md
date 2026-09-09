@@ -105,3 +105,43 @@ Ubuntu 26.04 reported `gh version 2.46.0 (2025-12-13 Ubuntu 2.46.0-4)`.
 The image installation now runs `gh --version`. Docker is unavailable in the
 editing environment, so a full image rebuild and offline checks for this
 addition remain pending; the earlier image results above do not cover it.
+
+## Archive download fallback
+
+On 2026-09-09, a build based on `f356016c95000f854b0f6aeeab2e4c17867d7a18`
+reproduced exit code 100 when `archive.ubuntu.com` returned HTTP 404 for
+`perl_5.40.1-7ubuntu0.1_amd64.deb`. Requests pinned to `185.125.190.81` returned
+404, while `91.189.92.24` and `us.archive.ubuntu.com` served the same package.
+This established disagreement between archive replicas.
+
+A reduced container check ran the actual installer with just the locked Perl
+entry and `--add-host archive.ubuntu.com:185.125.190.81`. Installation was
+replaced with a successful stub to isolate downloading. Before the change, this
+check exited 100. With the fallback, it logged the original 404, fetched the
+package from Ubuntu's US archive, verified the existing SHA-256, and exited
+zero. Package versions, paths, hashes, and the base image digest were unchanged.
+
+The complete image then built successfully with:
+
+```shell
+docker build --progress=plain -f .devcontainer/Dockerfile \
+  -t blackflower-devcontainer-download-check .
+```
+
+All 182 locked packages downloaded, passed hash verification, and installed. The
+build recovered additional Python and Perl 404 responses through the fallback
+and completed tool installation, including the GitHub CLI version check. Its
+image configuration digest was:
+
+```text
+sha256:1b753f4df30556c1f1dbcdc744d765463ce55b0413dc1fcf6d9054dd24c7a207
+```
+
+This validates image construction for the current lock, including the later
+bubblewrap and GitHub CLI additions. The complete
+`npm --prefix tools/code_quality run check` passed inside that image against a
+read-only source mount and a temporary Python environment populated with
+`uv sync --locked --no-install-project --project tools/content_pipeline`. Manual
+review checked URL construction, unchanged hash enforcement, error propagation,
+and cleanup. Offline native builds and VS Code container startup were not
+repeated for this download-only change.
