@@ -3,13 +3,13 @@ requires = ["setuptools==82.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "blackflower-cooker"
+name = "cooker"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["cryptography==46.0.5", "usd-core==26.8"]
 
 [project.scripts]
-blackflower-cooker = "content.__main__:main"
+cooker = "content.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

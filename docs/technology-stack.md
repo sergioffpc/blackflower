@@ -61,7 +61,7 @@ be prepared offline and loaded without runtime asset cooking.
 
 | Responsibility     | Technology    | Placement                                                                                                             |
 | ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Language           | Python        | Linux offline tool `blackflower-cooker`.                                                                              |
+| Language           | Python        | Linux offline tool `cooker`.                                                                                          |
 | 3D model import    | Assimp        | Cooker import stage; source models become validated intermediate data.                                                |
 | Mesh optimization  | meshoptimizer | Cooker optimization stage before final runtime-format encoding.                                                       |
 | Shader compilation | Slang         | Linux-host offline compilation to SPIR-V, included with required metadata as rendering resources in the content pack. |

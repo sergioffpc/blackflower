@@ -112,7 +112,7 @@ wheels = [
 ]
 
 [[package]]
-name = "blackflower-cooker"
+name = "cooker"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

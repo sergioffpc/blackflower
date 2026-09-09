@@ -33,15 +33,15 @@ flowchart LR
     signer --> client
 ```
 
-The owner selected Python for the offline Linux CLI tool, `blackflower-cooker`;
-the client and server remain C++23. The cooker validates source assets and
-references, produces portable runtime data, assembles a deterministic manifest,
-signs the package, and verifies the finished artifact. Python and C++ loaders
-conform to the same language-neutral format and shared test vectors; parser
-source code is not assumed to be shared. The
-[repository layout proposal](repository-layout.md) separates their source,
-packages, and build outputs. Signing is an explicit packaging stage; runtime
-applications only need verification capabilities and public keys.
+The owner selected Python for the offline Linux CLI tool, `cooker`; the client
+and server remain C++23. The cooker validates source assets and references,
+produces portable runtime data, assembles a deterministic manifest, signs the
+package, and verifies the finished artifact. Python and C++ loaders conform to
+the same language-neutral format and shared test vectors; parser source code is
+not assumed to be shared. The [repository layout proposal](repository-layout.md)
+separates their source, packages, and build outputs. Signing is an explicit
+packaging stage; runtime applications only need verification capabilities and
+public keys.
 
 The cooker derives complete ServerScene, AgentScene and ClientScene artifacts
 from one source scene, using `.bfserver`, `.bfagent` and `.bfclient` extensions.

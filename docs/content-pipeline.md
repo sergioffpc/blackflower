@@ -23,7 +23,7 @@ After changing package source, reinstall its non-editable build before testing:
 
 ```sh
 uv sync --project tools/cooker --locked --no-editable \
-  --reinstall-package blackflower-cooker
+  --reinstall-package cooker
 ```
 
 The locked dependencies are cryptography 46.0.5 and usd-core 26.8. OpenUSD is a
@@ -43,7 +43,7 @@ signing authority does not belong to the scene or runtime loader. Future
 hardware/key-service integrations can implement that existing external seam.
 
 ```sh
-uv run --project tools/cooker --locked --no-sync blackflower-cooker cook \
+uv run --project tools/cooker --locked --no-sync cooker cook \
   --source assets/scenes/mvp.usda \
   --output build/packs/mvp \
   --private-key /path/outside/checkout/content-signing.pem
