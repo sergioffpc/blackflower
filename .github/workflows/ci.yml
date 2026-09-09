@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -39,26 +40,28 @@ jobs:
           lfs: true
           persist-credentials: false
 
-      - name: Restore the fixed toolchain image
-        id: image-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: build/container-image.tar
-          key: devcontainer-amd64-${{ hashFiles('.devcontainer/Dockerfile', '.devcontainer/install-tools.sh', '.devcontainer/install-system.sh', '.devcontainer/snapshot-ca.pem', '.devcontainer/system-packages.lock', '.devcontainer/entrypoint.sh', 'tools/code_quality/install-shell-tools.sh', 'tools/content_pipeline/.python-version', 'vcpkg.json') }}
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      - name: Load the cached image
-        if: steps.image-cache.outputs.cache-hit == 'true'
-        run: docker image load --input build/container-image.tar
-
-      - name: Build the pinned development image
-        if: steps.image-cache.outputs.cache-hit != 'true'
-        run: docker build -f .devcontainer/Dockerfile -t blackflower-dev:ci .
-
-      - name: Save the fixed image for subsequent runs
-        if: steps.image-cache.outputs.cache-hit != 'true'
+      - name: Pull and verify the pinned development image
         run: |
-          mkdir -p build
-          docker image save --output build/container-image.tar blackflower-dev:ci
+          image=$(jq -er '.image | strings' .devcontainer/devcontainer.json)
+          [[ "$image" =~ ^ghcr.io/sergioffpc/blackflower-devcontainer@sha256:[0-9a-f]{64}$ ]]
+          docker pull "$image"
+          expected=$(bash .devcontainer/image-inputs.sh)
+          actual=$(docker image inspect "$image" \
+            --format '{{index .Config.Labels "io.blackflower.devcontainer.inputs"}}')
+          if [[ "$actual" != "$expected" ]]; then
+            printf 'Image inputs changed; publish and pin a matching candidate.\n' >&2
+            exit 1
+          fi
+          docker tag "$image" blackflower-dev:ci
+
+      - name: Sign out of GHCR
+        if: always()
+        run: docker logout ghcr.io
 
       - name: Restore dependency download and compiler caches
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

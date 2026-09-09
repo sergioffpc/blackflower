@@ -248,8 +248,13 @@ phases and remain proposals.
 ## 7. Deployment view
 
 The owner selected a [WSL Dev Container](development-container.md) for C++ and
-Python. Its digest-pinned Ubuntu image, complete system-package lock, and tool
-checksums define the userspace used by VS Code and native build-validation CI.
+Python. VS Code and native CI consume the same complete development image from
+GHCR, pinned by digest in the editor configuration. A separate workflow
+publishes candidates; reviewed PRs promote the digest after native validation.
+CI verifies the image input fingerprint and never rebuilds on a cache miss. The
+image's digest-pinned Ubuntu base, system-package lock and tool checksums define
+its userspace. See the
+[publication contract](development-container.md#published-image-and-updates).
 System-package URLs pin an Ubuntu archive snapshot and retain mandatory hash
 verification, so image construction does not depend on current mirror retention;
 see the
@@ -452,6 +457,12 @@ created. Capture the status, context, driving requirements, alternatives
 considered, chosen approach, and consequences. When replacing a decision, retain
 its rationale and link to the replacement.
 
+The owner selected a published GHCR development image with reviewed digest
+promotion in [#42](https://github.com/sergioffpc/blackflower/issues/42). This
+separates ordinary validation from upstream package availability; the
+[publication contract](development-container.md#published-image-and-updates)
+records access, updates, retention and rollback.
+
 ## 10. Quality requirements
 
 Physical, acoustic, and visual realism are confirmed product priorities. Their
@@ -529,6 +540,14 @@ scenario. Local execution passed for #33; the
 [validation record](validation/development-container.md) identifies the tested
 image, source, commands, and remaining boundaries.
 
+DEV-Q02: with no cached Docker image, native CI must pull the committed GHCR
+digest and pass all three existing native presets without building an image or
+downloading Ubuntu packages. A changed image input with an unchanged pin must
+fail before dependency preparation. The editor configuration is the single
+authority for the consumer reference. Validate publication and a fresh hosted
+pull before accepting a new digest. See the
+[GHCR validation boundary](validation/ghcr-development-image.md).
+
 ## 11. Risks and technical debt
 
 | ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
@@ -570,6 +589,13 @@ kernels, and host/container compilation timings remain separate validation
 concerns in [#33](https://github.com/sergioffpc/blackflower/issues/33). Repeat
 the offline checks when changing the image or its locked inputs; the local
 results do not establish hosted CI execution.
+
+GHCR availability, package permissions and digest retention now govern fresh
+development-image pulls. Preserve referenced images and rollback revisions;
+private packages require developer authentication and prevent unauthenticated
+fork use. Rebuilding candidates still requires retained Ubuntu snapshots and
+upstream tool archives. Independent image backups and a package mirror remain
+unimplemented.
 
 ## 12. Glossary
 

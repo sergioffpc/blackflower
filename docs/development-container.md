@@ -13,17 +13,18 @@ documents the environment, results, and remaining boundaries.
 Provide a Docker Engine reachable from the WSL distribution, or Docker Desktop
 with its WSL 2 backend and integration enabled for that distribution. Install
 the VS Code Dev Containers extension on Windows. Verify `docker version`
-succeeds in WSL. When installing Docker Engine locally, add the development user
-to the `docker` group and start a fresh WSL session so the editor receives the
-new group membership.
+succeeds in WSL. The terminal validation commands below also require `jq` on the
+WSL host. When installing Docker Engine locally, add the development user to the
+`docker` group and start a fresh WSL session so the editor receives the new
+group membership.
 
 Keep the checkout on the Linux filesystem, such as `~/src/blackflower`. Complete
 the [Git LFS setup](git-workflow.md#starting-work) in WSL so the reference
 fixtures contain their binary contents before opening the container. Open the
 checkout with `code .`. Run **Dev Containers: Reopen in Container**. The first
-image build installs tools; the creation hook installs locked Python and
-JavaScript packages and configures C++ Debug, including vcpkg dependencies. It
-also verifies the OpenUSD import.
+image pull retrieves the committed GHCR digest; the creation hook installs
+locked Python and JavaScript packages and configures C++ Debug, including vcpkg
+dependencies. It also verifies the OpenUSD import.
 
 Use an ordinary clone for the validation commands below. Git worktrees need
 their shared Git metadata mounted too; a bind mount of the worktree alone cannot
@@ -143,6 +144,69 @@ See the VS Code documentation for
 and the
 [WSL server environment script](https://code.visualstudio.com/docs/remote/wsl#_advanced-environment-setup-script).
 
+## Published image and updates
+
+The `image` property in [devcontainer.json](../.devcontainer/devcontainer.json)
+is the authoritative GHCR reference for both VS Code and native CI. It pins the
+complete development image by SHA-256 digest. Ordinary validation pulls that
+image and never falls back to Docker construction or Ubuntu package downloads.
+Cache eviction therefore causes another registry pull, not dependency
+resolution. Python, JavaScript and vcpkg preparation still need their upstream
+assets before the offline checks.
+
+The separate
+[publication workflow](../.github/workflows/publish-devcontainer.yml) builds
+candidates when image inputs change on `develop` or repository feature branches,
+or through manual dispatch once the workflow is on the default branch. It never
+runs on a pull-request event. Only its publication job has `packages: write`;
+consumer CI has `packages: read`. The workflow links the package to this
+repository and records its source revision and the fingerprint from
+[image-inputs.sh](../.devcontainer/image-inputs.sh). CI rejects a digest whose
+image inputs differ from the checkout. Keep this input list and the publication
+path filters current when adding Dockerfile inputs.
+
+GHCR initially creates packages as private. Repository workflows authenticate
+with `GITHUB_TOKEN`. For a private package, developers need package read access
+and a classic personal access token with `read:packages`; run
+`docker login ghcr.io --username YOUR_GITHUB_LOGIN` in WSL and supply the token
+at the password prompt before opening the container. Keep credentials in the
+host's credential store. Public GHCR packages allow anonymous pulls. Package
+visibility is a separate GitHub setting; fork workflows and contributors without
+package access require a public package. See
+[GHCR authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+and
+[package access](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+
+To update the environment:
+
+-   Change the Dockerfile or locked inputs on a feature branch and push it. The
+    snapshot bootstrap still verifies the existing package hashes.
+
+-   Wait for **Publish development container** to succeed. Read its summary or
+    download `devcontainer-image.txt` from the `devcontainer-image` artifact.
+    The source-commit tag identifies a candidate; consumers never use that
+    mutable tag.
+
+-   Replace the `image` value with the published digest in the same PR as the
+    input changes. Run the full source style check and push the signed commit.
+
+-   Require the existing Debug, TSan, Release and CodeQL checks before merge.
+    These validate the exact candidate against the proposed source. Publication
+    alone does not establish native build acceptance.
+
+-   Reopen or rebuild the VS Code container to use the new pin. This pulls the
+    published image; fresh CMake directories avoid mixing toolchains.
+
+Retain every digest referenced by supported branches and rollback revisions.
+There is no automatic GHCR image cleanup in this project. The reference artifact
+expires after 90 days, but the committed digest is the lasting reference. Roll
+back the image pin and its corresponding recipe/lock changes together through a
+PR; the input check intentionally rejects mismatched pairs. A registry outage or
+deletion can still prevent a fresh pull. Preserve a `docker image save` export
+of validated images in independently managed storage when offline recovery is
+required. Rebuilding a new image still depends on snapshot and tool archive
+availability; this change does not create an archive of every `.deb`.
+
 ## Fixed inputs and isolation
 
 The [Dockerfile](../.devcontainer/Dockerfile) fixes the Ubuntu image by its
@@ -161,9 +225,8 @@ mandatory. A missing file, TLS error or hash mismatch fails construction. See
 the [snapshot validation](validation/development-container-snapshots.md).
 
 The lock also includes bubblewrap 0.11.1 and its libcap2 dependency for tools
-that use the `bwrap` executable. These additions have verified package hashes
-and an executable version check; a full image rebuild and offline validation
-remain pending.
+that use the `bwrap` executable. Image construction verifies their hashes and
+the executable version.
 
 The lock includes GitHub CLI (`gh`) 2.46.0-4 from Ubuntu for the repository's
 issue and pull-request workflow. Image construction runs `gh --version` to
@@ -193,12 +256,12 @@ root. Normal restarts skip recursive ownership scans when the volume owner
 already matches. The writable vcpkg checkout lives under the user's home so UID
 remapping covers it too.
 
-Rebuild the image when its inputs change. Review the image digest and complete
-system-package lock together. Changing toolchains requires fresh CMake build
-directories, while compiler/package caches can remain available. Run preparation
-after changing project lockfiles. Package repositories and upstream archives
-have finite retention; preserve validated images and dependency assets for
-long-term offline recovery.
+Publish a new candidate image when its inputs change. Review the image digest
+and complete system-package lock together. Changing toolchains requires fresh
+CMake build directories, while compiler/package caches can remain available. Run
+preparation after changing project lockfiles. Package repositories and upstream
+archives have finite retention; preserve validated images and dependency assets
+for long-term offline recovery.
 
 To deliberately update system packages, run the maintenance resolver against the
 exact base image from the Dockerfile, pass an explicit snapshot timestamp, and
@@ -252,14 +315,15 @@ this clone separate from the interactive editor checkout. The container name
 must be unused:
 
 ```sh
-docker build -f .devcontainer/Dockerfile -t blackflower-dev:local .
+image=$(jq -er .image .devcontainer/devcontainer.json)
+docker pull "$image"
 docker run --detach --name blackflower-offline --user root \
   --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
   --mount "type=bind,source=$PWD,target=/workspaces/blackflower" \
   --mount type=volume,target=/workspaces/blackflower/build \
   --mount type=volume,target=/workspaces/blackflower/tools/content_pipeline/.venv \
   --mount type=volume,target=/workspaces/blackflower/tools/code_quality/node_modules \
-  blackflower-dev:local
+  "$image"
 docker exec blackflower-offline bash .devcontainer/prepare.sh debug tsan release
 docker network disconnect bridge blackflower-offline
 docker exec blackflower-offline bash .devcontainer/check.sh debug
@@ -278,9 +342,10 @@ container and its anonymous generated volumes. Normal VS Code volumes are
 independent.
 
 The native [CI workflow](../.github/workflows/ci.yml) uses the same sequence for
-three presets. It caches the image by its recipe inputs and preserves dependency
-and compiler caches; offline checks still disable compiled-cache reuse. A host
-build or Dockerfile syntax check cannot establish container correctness.
+three presets. It pulls the digest from the editor configuration and checks the
+image's input fingerprint against the checkout. It preserves dependency and
+compiler caches; offline checks still disable compiled-cache reuse. A host build
+or Dockerfile syntax check cannot establish container correctness.
 
 ## Windows cross-compilation
 

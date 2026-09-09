@@ -1,9 +1,6 @@
 {
   "name": "Blackflower C++23 and Python",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
+  "image": "ghcr.io/sergioffpc/blackflower-devcontainer@sha256:969cd756ccaca295b3633c75f899b6d8fec0f88e6afc3aedd767ba2d9c367ba6",
   "workspaceFolder": "/workspaces/blackflower",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/blackflower,type=bind",
   "remoteUser": "ubuntu",
@@ -29,7 +26,9 @@
         "llvm-vs-code-extensions.vscode-clangd",
         "vadimcn.vscode-lldb",
         "ms-python.python",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
+        "GitHub.vscode-pull-request-github",
+        "GitHub.vscode-github-actions"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/workspaces/blackflower/tools/content_pipeline/.venv/bin/python",
