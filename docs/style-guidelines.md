@@ -28,6 +28,25 @@ sources and distinguishes each tool's coverage from review obligations.
 [google-shell]: https://google.github.io/styleguide/shellguide.html
 [research]: research/google-style-enforcement.md
 
+## Design principles
+
+Apply KISS, DRY and the single-responsibility principle throughout the project:
+
+-   **KISS**: Solve the current problem directly with the simplest correct
+    design. Omit unused code, speculative capabilities and patterns whose
+    complexity exceeds the problem they solve.
+-   **DRY**: Give shared rules and knowledge a single authoritative expression.
+    Extract duplication when it represents the same responsibility; superficial
+    similarity alone does not justify coupling unrelated code.
+-   **Single responsibility**: Give each module, class and function one coherent
+    purpose. Separate distinct responsibilities without introducing arbitrary
+    forwarding layers or fragmenting a clear operation.
+
+Advanced language features are appropriate when they clarify the solution or
+express its guarantees. Simplicity must preserve required correctness, ownership
+and performance; it is not a reason to use a naive implementation. Justify each
+abstraction by a concrete need in the current system.
+
 ## Public interfaces
 
 Keep public interfaces minimal. Expose operations only when a current consumer

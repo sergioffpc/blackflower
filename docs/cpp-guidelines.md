@@ -17,6 +17,9 @@ harnesses, compiler caching, sanitizers, and analysis checks.
 Windows cross-builds are verified locally. Visual Studio Code is the
 [reference editor](editor.md).
 
+Follow the shared [design principles](style-guidelines.md#design-principles) and
+[public-interface rules](style-guidelines.md#public-interfaces).
+
 ## References and precedence
 
 Apply these sources when designing, implementing, and reviewing C++ changes:

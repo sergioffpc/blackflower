@@ -9,6 +9,9 @@ Explicit project requirements take precedence; document necessary exceptions
 next to the affected code or configuration. The cooker requires Python 3.12 or
 newer, as declared in its [pyproject.toml](../tools/cooker/pyproject.toml).
 
+Follow the shared [design principles](style-guidelines.md#design-principles) and
+[public-interface rules](style-guidelines.md#public-interfaces).
+
 ## Development and review
 
 -   Use four spaces for indentation and an 80-character line limit, with the
