@@ -125,6 +125,7 @@ dev = [
     { name = "mypy" },
     { name = "pyink" },
     { name = "pylint" },
+    { name = "types-usd" },
 ]
 
 [package.metadata]
@@ -138,6 +139,7 @@ dev = [
     { name = "mypy", specifier = ">=2.3.1" },
     { name = "pyink", specifier = ">=26.5.1" },
     { name = "pylint", specifier = ">=4.0.8" },
+    { name = "types-usd", specifier = "==24.5.2" },
 ]
 
 [[package]]
@@ -625,6 +627,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/96/e07752635b98536177fa1f37671c8f3cdde2e724c6bcf6034b2cfb571565/tomlkit-0.15.1.tar.gz", hash = "sha256:e25bbf38843005246210a12982776f27f99cb9be67160e14434d0c0d21ee1e97", size = 180129, upload-time = "2026-07-17T01:48:04.562Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/13/bc/8c13eb66537dce1d2bd3a57132902f38d0e7f5bb46fa9f4daed9fe9d76ee/tomlkit-0.15.1-py3-none-any.whl", hash = "sha256:177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304", size = 49449, upload-time = "2026-07-17T01:48:05.728Z" },
+]
+
+[[package]]
+name = "types-usd"
+version = "24.5.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/2e/b27175e276886dece2660c527556981dbf9465b977826e8b602500113fed/types_usd-24.5.2.tar.gz", hash = "sha256:5da654fdc17dfb8ddf2b264c626e5236e6572b5359498c5ec634b5577abe86fa", size = 487745, upload-time = "2024-08-21T03:40:44.95Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/38/77e716ff072350c3ae98da836e26080ffaf72e5da41c301dad55d23d8897/types_usd-24.5.2-py2.py3-none-any.whl", hash = "sha256:e696c40f7aec7fa3f65f14d26345b9b747d9004616bcd9fb01c85d4bb52b3d68", size = 541467, upload-time = "2024-08-21T03:40:43.139Z" },
 ]
 
 [[package]]

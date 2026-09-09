@@ -1,8 +1,11 @@
 """Read the self-contained OpenUSD primitive scenario authoring subset."""
 
+from collections.abc import Callable
 import math
 import pathlib
 import tempfile
+from typing import Any
+from typing import cast
 
 from pxr import Gf
 from pxr import Sdf
@@ -10,7 +13,7 @@ from pxr import Tf
 from pxr import Usd
 from pxr import UsdGeom
 
-from blackflower_cooker import scene
+from content import scene
 
 
 def read(source: bytes) -> "scene.SceneData":
@@ -38,7 +41,15 @@ def read(source: bytes) -> "scene.SceneData":
             raise ValueError(f"invalid OpenUSD scene: {error}") from error
 
 
-def _read_stage(stage) -> "scene.SceneData":
+def _children(prim: Usd.Prim) -> list[Usd.Prim]:
+    # types-usd omits the element type of the USD child-prim collection.
+    return cast(
+        list[Usd.Prim],
+        prim.GetChildren(),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
+def _read_stage(stage: Usd.Stage) -> "scene.SceneData":
     layer = stage.GetRootLayer()
     if layer.subLayerPaths or len(stage.GetUsedLayers()) != 2:
         raise ValueError("primitive-v1 requires a self-contained USD layer")
@@ -51,7 +62,7 @@ def _read_stage(stage) -> "scene.SceneData":
     if not math.isfinite(units) or units <= 0:
         raise ValueError("invalid USD metres per unit")
 
-    def mm(value):
+    def mm(value: float) -> int:
         distance = float(value) * units * 1000
         if (
             not math.isfinite(distance)
@@ -87,9 +98,9 @@ def _read_stage(stage) -> "scene.SceneData":
         blocks.GetPath(),
         spawns.GetPath(),
     }
-    allowed.update(p.GetPath() for p in lights.GetChildren())
-    allowed.update(p.GetPath() for p in blocks.GetChildren())
-    allowed.update(p.GetPath() for p in spawns.GetChildren())
+    allowed.update(p.GetPath() for p in _children(lights))
+    allowed.update(p.GetPath() for p in _children(blocks))
+    allowed.update(p.GetPath() for p in _children(spawns))
     for prim in stage.TraverseAll():
         if (
             prim.GetPath() not in allowed
@@ -120,7 +131,7 @@ def _read_stage(stage) -> "scene.SceneData":
     ) != Gf.Matrix4d(1):
         raise ValueError("Scenario transform must be identity")
 
-    def attr(prim, name):
+    def attr(prim: Usd.Prim, name: str) -> Any:
         value = prim.GetAttribute(name).Get()
         if value is None:
             raise ValueError(
@@ -135,25 +146,25 @@ def _read_stage(stage) -> "scene.SceneData":
         "lights": [],
         "spawns": [],
     }
-    for prim in blocks.GetChildren():
+    for prim in _children(blocks):
         if prim.GetTypeName() not in ("Cube", "Sphere"):
             raise ValueError("unsupported collision shape kind")
         matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
             Usd.TimeCode.Default()
         )
         if any(
-            not math.isfinite(matrix[i][j]) for i in range(4) for j in range(4)
+            not math.isfinite(matrix[i, j]) for i in range(4) for j in range(4)
         ):
             raise ValueError("nonfinite USD transform")
         if (
             any(
-                abs(matrix[i][j]) > 1e-12
+                abs(matrix[i, j]) > 1e-12
                 for i in range(3)
                 for j in range(4)
                 if i != j
             )
-            or any(matrix[i][i] <= 0 for i in range(3))
-            or matrix[3][3] != 1
+            or any(matrix[i, i] <= 0 for i in range(3))
+            or matrix[3, 3] != 1
         ):
             raise ValueError(
                 "blocks require positive axis-aligned USD transforms"
@@ -161,22 +172,22 @@ def _read_stage(stage) -> "scene.SceneData":
         if prim.GetTypeName() == "Cube":
             kind = scene.CollisionShapeKind.BOX
             dimensions = [
-                mm(attr(prim, "size") * matrix[i][i]) for i in range(3)
+                mm(attr(prim, "size") * matrix[i, i]) for i in range(3)
             ]
         else:
-            if matrix[0][0] != matrix[1][1] or matrix[1][1] != matrix[2][2]:
+            if matrix[0, 0] != matrix[1, 1] or matrix[1, 1] != matrix[2, 2]:
                 raise ValueError("spheres require uniform scale")
             kind = scene.CollisionShapeKind.SPHERE
-            dimensions = [mm(attr(prim, "radius") * matrix[0][0])]
+            dimensions = [mm(attr(prim, "radius") * matrix[0, 0])]
         result["collision_shapes"].append(
             {
                 "id": attr(prim, "blackflower:id"),
                 "kind": kind,
-                "center_mm": [mm(matrix[3][i]) for i in range(3)],
+                "center_mm": [mm(matrix[3, i]) for i in range(3)],
                 "dimensions_mm": dimensions,
             }
         )
-    for prim in lights.GetChildren():
+    for prim in _children(lights):
         light_kind = attr(prim, "blackflower:lightType")
         position = _position(prim, mm)
         if light_kind == "point":
@@ -201,7 +212,7 @@ def _read_stage(stage) -> "scene.SceneData":
             )
         else:
             raise ValueError("unsupported light kind")
-    for prim in spawns.GetChildren():
+    for prim in _children(spawns):
         result["spawns"].append(
             {
                 "id": attr(prim, "blackflower:id"),
@@ -213,7 +224,7 @@ def _read_stage(stage) -> "scene.SceneData":
     return result
 
 
-def _position(prim, mm):
+def _position(prim: Usd.Prim, mm: Callable[[float], int]) -> list[int]:
     if prim.GetTypeName() != "Xform":
         raise ValueError("placements must be USD Xforms")
     matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
@@ -222,4 +233,4 @@ def _position(prim, mm):
     translation = matrix.ExtractTranslation()
     if matrix != Gf.Matrix4d(1).SetTranslate(translation):
         raise ValueError("placements require translation-only transforms")
-    return [mm(v) for v in translation]
+    return [mm(matrix[3, axis]) for axis in range(3)]

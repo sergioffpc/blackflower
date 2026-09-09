@@ -4,9 +4,9 @@ from collections.abc import Callable
 import pathlib
 import tempfile
 
-from blackflower_cooker import pack
-from blackflower_cooker import scene
-from blackflower_cooker import usd_source
+from content import pack
+from content import scene
+from content import usd_source
 
 
 def _encode_scenes(source: bytes) -> dict[str, bytes]:

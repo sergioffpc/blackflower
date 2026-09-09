@@ -67,6 +67,12 @@ order, naming meaning, docstring accuracy and completeness, interface design,
 exception contracts, resource ownership, and logical grouping. A clean tool run
 does not establish full Google conformance.
 
+OpenUSD type information comes from the development-only `types-usd` package.
+The pinned 24.5.2 stubs are unofficial and predate the 26.8 runtime; coverage is
+partial. Validate the APIs used by the cooker with type checks and functional
+tests when updating either dependency. Do not treat stub coverage as proof of
+runtime compatibility.
+
 ## Commands
 
 Run from the repository root, with
@@ -79,7 +85,7 @@ uv run --locked --no-sync --project tools/cooker pyink \
 uv run --locked --no-sync --project tools/cooker pyink --check \
   --config tools/cooker/pyproject.toml tools/cooker/src tests/integration
 uv run --locked --no-sync --project tools/cooker pylint \
-  --rcfile=.pylintrc tools/cooker/src/blackflower_cooker \
+  --rcfile=.pylintrc tools/cooker/src/content \
   tests/integration/content_pipeline_test.py
 uv run --locked --no-sync --project tools/cooker mypy \
   --config-file tools/cooker/pyproject.toml tools/cooker/src \

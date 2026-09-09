@@ -7,13 +7,14 @@ import enum
 import hashlib
 import platform
 import struct
+from typing import cast
 
 import cryptography
 from cryptography.hazmat.backends import openssl
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from pxr import Usd
 
-from blackflower_cooker import scene
+from content import scene
 
 HEADER = struct.Struct("<8s2I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")
@@ -66,13 +67,18 @@ def provenance(source: bytes) -> bytes:
     Raises:
         ValueError: A version string cannot fit the provenance format.
     """
+    # types-usd omits the integer element type of the version tuple.
+    usd_version = cast(
+        tuple[int, ...],
+        Usd.GetVersion(),  # pyright: ignore[reportUnknownMemberType]
+    )
     result = hashlib.sha256(source).digest() + hashlib.sha256(SETTINGS).digest()
     for value in (
         "primitive-usd-v1",
         platform.python_version(),
         cryptography.__version__,
         openssl.backend.openssl_version_text(),
-        ".".join(map(str, Usd.GetVersion())),
+        ".".join(map(str, usd_version)),
     ):
         raw = value.encode("ascii")
         if not raw or any(c < 32 or c > 126 for c in raw):

@@ -107,7 +107,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     COMMAND "${UV_EXECUTABLE}" run --locked --no-sync
       --project "${PROJECT_SOURCE_DIR}/tools/cooker" pylint
       "--rcfile=${PROJECT_SOURCE_DIR}/.pylintrc"
-      "${PROJECT_SOURCE_DIR}/tools/cooker/src/blackflower_cooker"
+      "${PROJECT_SOURCE_DIR}/tools/cooker/src/content"
       "${PROJECT_SOURCE_DIR}/tests/integration/content_pipeline_test.py")
   set_tests_properties(content.format content.lint PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 120)

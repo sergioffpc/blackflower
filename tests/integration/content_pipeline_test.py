@@ -15,7 +15,7 @@ from pxr import Sdf
 from pxr import Usd
 from pxr import UsdGeom
 
-from blackflower_cooker import pack
+from content import pack
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HARNESS = pathlib.Path(
@@ -26,8 +26,10 @@ HARNESS = pathlib.Path(
 )
 
 
-def _harness_command(pack_path, public):
-    def runtime_path(path):
+def _harness_command(
+    pack_path: pathlib.Path, public: pathlib.Path
+) -> list[str]:
+    def runtime_path(path: pathlib.Path) -> str:
         if HARNESS.suffix == ".exe" and sys.platform == "linux":
             return subprocess.check_output(
                 ["wslpath", "-w", str(path)], text=True
@@ -143,13 +145,16 @@ class ContentPipelineTest(unittest.TestCase):
             stage.GetPrimAtPath("/Scenario/Spawns/SouthWest").GetAttribute(
                 "xformOp:translate"
             ).Set((-3, 5, 0))
-            layer.Export(str(source))
+            # types-usd leaves the optional export-argument dictionary untyped.
+            layer.Export(  # pyright: ignore[reportUnknownMemberType]
+                str(source)
+            )
             output = work / "cooked"
             result = subprocess.run(
                 [
                     sys.executable,
                     "-m",
-                    "blackflower_cooker",
+                    "content",
                     "cook",
                     "--source",
                     str(source),

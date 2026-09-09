@@ -9,7 +9,7 @@ from cryptography import exceptions
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
-from blackflower_cooker import pipeline
+from content import pipeline
 
 
 def main() -> int:

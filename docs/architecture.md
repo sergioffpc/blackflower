@@ -132,15 +132,15 @@ decision in section 9. Treat unvalidated choices as proposals.
 
 ## 5. Building block view
 
-| Building block                                                       | Responsibility                                                                                                                       |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [Console bootstrap](../src/main.cc)                                  | Print the project name and return a startup status.                                                                                  |
-| [GoogleTest harness](../tests/build_test.cc)                         | Exercise test integration and the C++23 build contract.                                                                              |
-| [Google Benchmark harness](../benchmarks/framework_benchmark.cc)     | Exercise benchmark registration and execution.                                                                                       |
-| [Offline cooker](../tools/cooker/src/blackflower_cooker/pipeline.py) | Validate self-contained OpenUSD, encode primitive content, sign and verify all three packs, then publish their directory atomically. |
-| [Content module](../src/modules/content/content.h)                   | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                  |
-| [Content harness](../tests/content_harness.cc)                       | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                  |
-| [Build configuration](../CMakeLists.txt)                             | Build four executables and the content library; run analysis, Python checks and integration tests.                                   |
+| Building block                                                   | Responsibility                                                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [Console bootstrap](../src/main.cc)                              | Print the project name and return a startup status.                                                                                  |
+| [GoogleTest harness](../tests/build_test.cc)                     | Exercise test integration and the C++23 build contract.                                                                              |
+| [Google Benchmark harness](../benchmarks/framework_benchmark.cc) | Exercise benchmark registration and execution.                                                                                       |
+| [Offline cooker](../tools/cooker/src/content/pipeline.py)        | Validate self-contained OpenUSD, encode primitive content, sign and verify all three packs, then publish their directory atomically. |
+| [Content module](../src/modules/content/content.h)               | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                  |
+| [Content harness](../tests/content_harness.cc)                   | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                  |
+| [Build configuration](../CMakeLists.txt)                         | Build four executables and the content library; run analysis, Python checks and integration tests.                                   |
 
 The content loader accepts packs independently of consumer purpose or host
 platform. The authenticated file magic selects the ServerScene, AgentScene or
