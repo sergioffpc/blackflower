@@ -209,8 +209,10 @@ bool CheckReload(runtime::SceneWorld& world,
   }
   const auto state = world.Read(*entity);
   return Check(
-      state && state->collider.resource.slot == old_collider.slot &&
-          state->collider.resource.generation != old_collider.generation &&
+      state && state->collider.resource != old_collider &&
+          resources.Resolve(state->collider.resource).has_value() &&
+          Error(resources.Resolve(old_collider),
+                runtime::SceneError::kStaleResource) &&
           Error(world.Read(old_entity), runtime::SceneError::kStaleEntity) &&
           world.Unload(*instance),
       "entity and resource generations reject stale handles");

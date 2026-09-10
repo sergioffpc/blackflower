@@ -227,8 +227,9 @@ After authentication, ResourceManager retains the immutable recipe and backing
 storage. SceneWorld prepares complete transformed entities before synchronous
 publication. Transfers preserve current placement and resource leases; unload
 destroys only still-owned members. Explicit collection evicts manager-only
-resources and advances generations. See the
-[runtime lifetime contract](runtime-scenes.md) and
+resources and advances generations. Resource handles are opaque identities:
+callers compare or resolve them, while the manager owns issuance and storage
+validation. See the [runtime lifetime contract](runtime-scenes.md) and
 [local evidence](validation/runtime-scenes.md).
 
 The [invalid-pack matrix](validation/invalid-packs.md) exercises this boundary

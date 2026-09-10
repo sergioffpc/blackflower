@@ -44,16 +44,28 @@ struct SceneAsset {
 
 class ResourceManager;
 
-// Typed borrowed identity, valid only in its originating manager's lifetime.
-// Zero generation is invalid. Eviction increments generation before slot reuse;
-// an exhausted slot is retired permanently. Handles do not keep resources
-// alive.
+// Opaque borrowed identity, valid only in its originating manager's lifetime.
+// Default construction produces an invalid handle. Copying and comparison do
+// not keep resources alive; only ResourceManager can issue valid handles.
 template <typename Asset>
-struct ResourceHandle {
-  const ResourceManager* owner = nullptr;
-  std::size_t slot = 0;
-  std::uint64_t generation = 0;
+class ResourceHandle {
+ public:
+  ResourceHandle() = default;
   bool operator==(const ResourceHandle&) const = default;
+
+ private:
+  friend class ResourceManager;
+
+  struct Identity {
+    const ResourceManager* owner = nullptr;
+    std::size_t slot = 0;
+    std::uint64_t generation = 0;
+    bool operator==(const Identity&) const = default;
+  };
+
+  explicit ResourceHandle(Identity identity) : identity_(identity) {}
+
+  Identity identity_;
 };
 
 using SceneHandle = ResourceHandle<SceneAsset>;

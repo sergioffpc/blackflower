@@ -68,9 +68,12 @@ manager alive until all its worlds have been destroyed; its handles are scoped
 to that manager lifetime and must never be reused with a reconstructed manager
 at the same address.
 
-Resource handles contain an originating manager, slot and u64 generation. Zero
-generation is invalid. Eviction advances generation; exhausting u64 retires that
-slot instead of wrapping. Project Entity handles pair Flecs' entity ID with a
+Resource handles are opaque, copyable identities issued only by the manager;
+default construction produces an invalid handle. Callers can compare handles and
+resolve them without depending on their storage representation. Internally, each
+handle contains an originating manager, slot and u64 generation. Zero generation
+is invalid. Eviction advances generation; exhausting u64 retires that slot
+instead of wrapping. Project Entity handles pair Flecs' entity ID with a
 process-unique u64 generation stored in ECS; instance generations share that
 monotonic allocator. Zero is invalid. The allocator refuses exhaustion with
 kIdentityExhausted, so even Flecs ID recycling cannot alias a previous project

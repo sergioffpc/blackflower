@@ -20,38 +20,6 @@ struct Slot {
 };
 
 template <typename Asset>
-std::expected<std::shared_ptr<const Asset>, SceneError> ResolveSlot(
-    const std::vector<Slot<Asset>>& slots, ResourceHandle<Asset> handle,
-    const ResourceManager* owner) {
-  if (handle.owner != owner || handle.generation == 0 ||
-      handle.slot >= slots.size()) {
-    return std::unexpected(SceneError::kStaleResource);
-  }
-  const auto& slot = slots[handle.slot];
-  if (slot.generation != handle.generation || !slot.asset) {
-    return std::unexpected(SceneError::kStaleResource);
-  }
-  return slot.asset;
-}
-
-template <typename Asset>
-ResourceHandle<Asset> Publish(std::vector<Slot<Asset>>& slots,
-                              std::shared_ptr<const Asset> asset,
-                              const ResourceManager* owner) {
-  auto slot = std::ranges::find_if(slots, [](const auto& candidate) {
-    return !candidate.asset && candidate.generation != 0;
-  });
-  if (slot == slots.end()) {
-    slots.emplace_back();
-    slot = slots.end() - 1;
-  }
-  slot->asset = std::move(asset);
-  return {.owner = owner,
-          .slot = static_cast<std::size_t>(slot - slots.begin()),
-          .generation = slot->generation};
-}
-
-template <typename Asset>
 void EvictUnused(std::vector<Slot<Asset>>& slots) {
   for (auto& slot : slots) {
     if (slot.asset && slot.asset.use_count() == 1) {
@@ -84,6 +52,39 @@ bool SameRecipes(const content::VerifiedPack& a,
 
 class ResourceManager::Impl {
  public:
+  template <typename Asset>
+  static std::expected<std::shared_ptr<const Asset>, SceneError> ResolveSlot(
+      const std::vector<Slot<Asset>>& slots, ResourceHandle<Asset> handle,
+      const ResourceManager* owner) {
+    if (handle.identity_.owner != owner || handle.identity_.generation == 0 ||
+        handle.identity_.slot >= slots.size()) {
+      return std::unexpected(SceneError::kStaleResource);
+    }
+    const auto& slot = slots[handle.identity_.slot];
+    if (slot.generation != handle.identity_.generation || !slot.asset) {
+      return std::unexpected(SceneError::kStaleResource);
+    }
+    return slot.asset;
+  }
+
+  template <typename Asset>
+  static ResourceHandle<Asset> Publish(std::vector<Slot<Asset>>& slots,
+                                       std::shared_ptr<const Asset> asset,
+                                       const ResourceManager* owner) {
+    auto slot = std::ranges::find_if(slots, [](const auto& candidate) {
+      return !candidate.asset && candidate.generation != 0;
+    });
+    if (slot == slots.end()) {
+      slots.emplace_back();
+      slot = slots.end() - 1;
+    }
+    slot->asset = std::move(asset);
+    return ResourceHandle<Asset>(
+        {.owner = owner,
+         .slot = static_cast<std::size_t>(slot - slots.begin()),
+         .generation = slot->generation});
+  }
+
   std::vector<Slot<SceneAsset>> scenes;
   std::vector<Slot<ColliderAsset>> colliders;
 };
@@ -100,11 +101,11 @@ std::expected<SceneHandle, SceneError> ResourceManager::Load(
       if (!SameRecipes(slot.asset->pack, pack)) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
-      return SceneHandle{
-          .owner = this, .slot = i, .generation = slot.generation};
+      return SceneHandle(
+          {.owner = this, .slot = i, .generation = slot.generation});
     }
   }
-  return Publish(
+  return Impl::Publish(
       impl_->scenes,
       std::make_shared<const SceneAsset>(SceneAsset{.pack = std::move(pack)}),
       this);
@@ -118,11 +119,11 @@ std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
       if (slot.asset->boxes != recipe.colliders) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
-      return ColliderHandle{
-          .owner = this, .slot = i, .generation = slot.generation};
+      return ColliderHandle(
+          {.owner = this, .slot = i, .generation = slot.generation});
     }
   }
-  return Publish(
+  return Impl::Publish(
       impl_->colliders,
       std::make_shared<const ColliderAsset>(ColliderAsset{
           .id = recipe.collider_asset_id, .boxes = recipe.colliders}),
@@ -131,12 +132,12 @@ std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
 
 std::expected<std::shared_ptr<const SceneAsset>, SceneError>
 ResourceManager::Resolve(SceneHandle handle) const {
-  return ResolveSlot(impl_->scenes, handle, this);
+  return Impl::ResolveSlot(impl_->scenes, handle, this);
 }
 
 std::expected<std::shared_ptr<const ColliderAsset>, SceneError>
 ResourceManager::Resolve(ColliderHandle handle) const {
-  return ResolveSlot(impl_->colliders, handle, this);
+  return Impl::ResolveSlot(impl_->colliders, handle, this);
 }
 
 void ResourceManager::CollectUnused() {
