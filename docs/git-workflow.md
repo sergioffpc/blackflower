@@ -15,23 +15,6 @@ Keep feature branches small and short-lived, within the Kanban work limits.
 Review and validate changes before integration. Record the review against the
 originating request or issue in the pull request.
 
-## Operational state branch
-
-The permanent `gitops` branch holds only deployed desired state, with
-independent history from source branches. It is never merged into source history
-or treated as a deployable environment. Keep templates, bootstrap tools and
-workflows in the normal feature/develop/main flow. Do not add Actions workflows
-to gitops.
-
-Operational updates use signed Conventional Commits verified before a
-fast-forward push, without a PR per deployment. Protect gitops against deletion
-and force pushes and require GitHub-recognized signatures. The operator
-provisions scoped credentials outside Git; Flux reads this public branch without
-credentials. Preserve concurrent environments when updating state. See
-[Dell operations](dell-operations.md) and
-[ADR-0013](adr/0013-deploy-private-lan-services-with-flux.md). The automatic
-state writer remains separate work under issue #44.
-
 ## Protected branches
 
 GitHub protects main and develop, including administrators. Both require pull
@@ -153,22 +136,20 @@ does not itself create a release.
 
 ## Deployment state branch
 
-The [accepted CD design](continuous-deployment.md) adds a permanent `gitops`
-branch in this repository for desired environment state. This is an operational
-branch, not a source integration or release branch. The branch is provisioned
-under the [operational state rules](#operational-state-branch); the automatic
-state writer remains unimplemented.
+The permanent `gitops` branch holds only deployed desired state, with
+independent history from source branches. It is never merged into source history
+or treated as a deployable environment. Keep templates, bootstrap tools and
+workflows in the normal feature/develop/main flow. Do not add Actions workflows
+to gitops.
 
-Deployment workflows and templates follow ordinary feature, develop and main
-review. State-writing automation may update `gitops` directly without a PR per
-deployment, using signed Conventional Commits and verifying signatures before
-push. This exception applies only to operational state updates; it does not
-change main or develop protection or permit direct source integration.
-
-Flux watches `gitops`. Its updates must not trigger the server build/CD source
-flow, and the branch must not create its own environment. Keep it out of normal
-release merges and temporary-branch cleanup. Manual recovery restores desired
-state on this branch to prevent Flux from reversing the recovery.
+Operational updates use signed Conventional Commits verified before a
+fast-forward push, without a PR per deployment. Protect gitops against deletion
+and force pushes and require GitHub-recognized signatures. The operator
+provisions scoped credentials outside Git; Flux reads this public branch without
+credentials. Preserve concurrent environments when updating state. See
+[Dell operations](dell-operations.md) and
+[ADR-0013](adr/0013-deploy-private-lan-services-with-flux.md). The automatic
+state writer remains separate work under issue #44.
 
 When application CD is enabled, deployed feature branches must use
 `feature/<issue>-<description>`, with one active feature branch per Issue ID.

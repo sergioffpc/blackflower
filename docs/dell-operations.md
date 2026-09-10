@@ -212,8 +212,8 @@ reconciliation and DNS/UDP after upgrades.
 On 2026-09-10 the Dell node reported Ready on K3s v1.36.4+k3s1. BIND,
 ExternalDNS, MetalLB and both Flux controllers were running. The signed state
 changes below were consumed by Flux and observed from the Dell through its BIND
-resolver. The ordinary Google Mesh resolver path and a second LAN client remain
-pending; these results do not complete issue #45's LAN acceptance.
+resolver. The later Lenovo validation below completes the Git-to-observable-LAN
+acceptance boundary for issue #45.
 
 | Stage  | Operational revision                                          | Observed result                                                                                  |
 | ------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -223,8 +223,41 @@ pending; these results do not complete issue #45's LAN acceptance.
 
 All 18 recorded unrelated Namespace, Service, Deployment and DaemonSet UIDs were
 unchanged after removal. The retained final state has no diagnostic workload or
-retired diagnostic manifests. Recreate it from the source template when the
-Google Mesh integration and another LAN client are available.
+retired diagnostic manifests. Recreate it from the source template to repeat the
+functional demonstration.
+
+### Lenovo LAN acceptance
+
+On 2026-09-10 the operator supplied the completed client validation from the
+Lenovo P620 at 192.168.86.45, using its normal Google Mesh resolver at
+192.168.86.1. PowerShell and UdpClient sent the payload hostname without a
+newline to UDP 27015, with a five-second timeout.
+
+| Stage  | Operational revision                     | Flux  | Lenovo observation                                           |
+| ------ | ---------------------------------------- | ----- | ------------------------------------------------------------ |
+| Create | c213da2b8b2b97c3e9efc7756c42561eb19bdb9c | Ready | 192.168.86.200 returned diagnostic-v1.                       |
+| Update | 1f45552b216c1d4aa865a227a47499da558b9d5a | Ready | 192.168.86.200 returned diagnostic-v2.                       |
+| Remove | 3b0b0c369872154ea291ecf2eb7775533daa576e | Ready | Explicit NXDOMAIN, Windows DNS error 9003, after TTL expiry. |
+
+The Service retained UID 76331348-6177-42b0-9492-750a70976804, its LAN address
+and ClusterIP 10.43.77.138 across the update. Removal deleted the Service,
+exclusive namespace and DNS records, including the ExternalDNS TXT record.
+MetalLB returned to zero assigned IPv4 addresses and 40 available. All 281 UIDs
+inventoried before publication were preserved. The validation pod had already
+been removed before diagnostic publication and was not part of that inventory.
+
+The operator reported verified signatures before each push and GitHub
+verification of all three commits. The operational checkout ended clean with its
+initial content restored. The Dell agent independently fetched those exact
+revisions and confirmed the final pool allocation. The Lenovo report and raw
+commands remain in that machine's local build/evidence/issue-45-lan-20260910
+folder as summary.txt and commands.log; they are not tracked in this repository.
+
+These observations establish private LAN infrastructure behavior through the
+normal client resolver. They do not validate simulation-server behavior, content
+readiness or the application CD targets.
+
+### Source validation and cleanup
 
 GitHub recognized the signed operational commits as verified. The gitops branch
 requires signed commits, disallows force pushes and deletion, enforces rules for

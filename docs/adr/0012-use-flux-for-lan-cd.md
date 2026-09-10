@@ -1,6 +1,8 @@
 # Use Flux and a same-repository branch for LAN deployment
 
-Status: accepted by the owner; implementation pending.
+Status: accepted by the owner. Diagnostic infrastructure is provisioned under
+[ADR-0013](0013-deploy-private-lan-services-with-flux.md); application
+deployment automation remains pending.
 
 The simulation server needs automatic permanent and temporary environments on
 the owner's LAN, while source validation runs in GitHub. Use Flux on single-node
