@@ -14,6 +14,10 @@ document.
 
 ## Source layout
 
+The tree combines existing content-pipeline paths with the proposed runtime
+structure. Processor files are proposals; the current cooker package and
+integration test names match the implemented tree.
+
 ```text
 blackflower/
 ├── CMakeLists.txt
@@ -44,33 +48,39 @@ blackflower/
 │       ├── networking/               # Protocol encoding and GNS adapter
 │       └── physics/                  # Separate CPU/GPU PhysX adapter targets
 ├── tools/
-│   └── cooker/
+│   └── content_pipeline/
+│       ├── README.md
+│       ├── .python-version
 │       ├── pyproject.toml
-│       ├── src/
-│       │   └── content/
-│       │       ├── __init__.py
-│       │       ├── __main__.py
-│       │       ├── cli.py
-│       │       ├── pipeline.py
-│       │       ├── processors/
-│       │       │   ├── model_import.py       # Assimp integration
-│       │       │   ├── mesh_optimization.py  # meshoptimizer integration
-│       │       │   ├── model_encoding.py    # Final runtime mesh format
-│       │       │   └── shader_compilation.py # Linux Slang to SPIR-V
-│       │       ├── pack.py           # Canonical pack/manifest writer
-│       │       └── signing.py        # Established crypto/tool integration
-│       └── tests/                   # Python cooker tests
+│       ├── uv.lock
+│       └── src/
+│           └── cooker/
+│               ├── __init__.py
+│               ├── __main__.py      # CLI and signing-key generation
+│               ├── pipeline.py     # Cooking, signing and publication
+│               ├── usd_source.py   # OpenUSD primitive scene reader
+│               ├── scene.py        # Scene values and binary encoding
+│               ├── pack.py         # Pack encoding and verification
+│               ├── progress.py     # Terminal progress display
+│               ├── py.typed
+│               └── processors/     # Proposed; not implemented
+│                   ├── model_import.py       # Assimp integration
+│                   ├── mesh_optimization.py  # meshoptimizer integration
+│                   ├── model_encoding.py    # Final runtime mesh format
+│                   └── shader_compilation.py # Linux Slang to SPIR-V
 ├── schemas/
 │   ├── pack/                        # Binary layout, canonical encoding, versions
 │   ├── scene/                       # Source and cooked scene formats
 │   └── protocol/                    # Network representation once selected
-├── assets/                          # Local authoring inputs, ignored by Git
-│   └── .gitkeep                     # Only versioned file in assets/
 ├── tests/
 │   ├── client/
 │   ├── server/
 │   ├── modules/
+│   ├── build_test.cc
+│   ├── content_test.cc
+│   ├── content_harness.cc
 │   ├── integration/
+│   │   ├── content_pipeline_test.py # Installed cooker and C++ consumer tests
 │   │   └── fixtures/
 │   │       └── mvp.usda             # Reference scene for pipeline tests
 │   └── fixtures/
@@ -129,12 +139,14 @@ The Python cooker is a separately installable command-line package with
 the installed package instead of accidentally importing files from the working
 directory; see the
 [Python Packaging User Guide](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/).
-The implemented cooker pins Python 3.14, uses uv with uv.lock and setuptools,
-and delegates signing through cryptography or a caller-supplied signer. See
-[setup and checks](content-pipeline.md). Installing Python is a
-cooker/development concern, not an application-level requirement added to the
-server or client by this tool; any existing SDK-owned runtime dependencies are
-evaluated separately.
+The implemented package is `tools/content_pipeline/src/cooker/`; its CLI lives
+in `__main__.py`. Integration tests live in
+`tests/integration/content_pipeline_test.py`. The cooker pins Python 3.14, uses
+uv with uv.lock and setuptools, and delegates signing through cryptography or a
+caller-supplied signer. See [setup and checks](content-pipeline.md). Installing
+Python is a cooker/development concern, not an application-level requirement
+added to the server or client by this tool; any existing SDK-owned runtime
+dependencies are evaluated separately.
 
 Assimp/meshoptimizer bindings and native libraries are cooker dependencies built
 or installed for the Linux host, not the Windows cross-compilation target. Pin
@@ -160,12 +172,12 @@ its independently provisioned trust set. Production signing private keys never
 enter this tree. Disposable test material must be clearly identified and cannot
 become the runtime trust set.
 
-`assets/` contains local authoring inputs. Git ignores all of its contents
-except the versioned `.gitkeep` placeholder. The reference scene is versioned
-under `tests/integration/fixtures/`. Cooked artifacts go under `build/packs/`,
-with only small test vectors committed as fixtures. Runtime staging contains the
-signed pack and required runtime files, not the authoring tree or cooker
-environment.
+The repository has no dedicated local asset directory. Select local authoring
+inputs through the cooker's `--source` argument; they may live outside the
+checkout. The reference scene is versioned under `tests/integration/fixtures/`.
+Cooked artifacts go under `build/packs/`, with only small test vectors committed
+as fixtures. Runtime staging contains the signed pack and required runtime
+files, not the authoring tree or cooker environment.
 
 ## Targets and generated outputs
 
@@ -186,14 +198,14 @@ locations for the new runtime targets and separate staging directories:
 build/
 ├── release/bin/blackflower-server
 ├── windows-release/bin/blackflower-client.exe
-├── cooker/
-│   ├── venv/                        # Isolated Python environment
+├── content_pipeline/               # Proposed processor/package outputs
 │   ├── cache/                       # Intermediate cooked resources
 │   └── dist/                        # Python package artifacts
 ├── packs/
-│   ├── mvp.bfserver
-│   ├── mvp.bfagent
-│   └── mvp.bfclient
+│   └── mvp/                        # Example cooker --output directory
+│       ├── mvp.bfserver
+│       ├── mvp.bfagent
+│       └── mvp.bfclient
 └── stage/
     ├── server-linux-x64/
     │   ├── bin/blackflower-server
@@ -205,12 +217,14 @@ build/
         └── licenses/
 ```
 
-These are intended output paths, not paths produced by today's build. Required
-shared runtime libraries belong in each staged package at platform-appropriate
-loader locations. CMake configures the Linux server and cross-compiled Windows
-client separately; Python tooling is independently provisioned. A future
-packaging command can orchestrate all three build/cook steps without making
-either game runtime execute Python.
+The pack paths match the [pipeline example](content-pipeline.md); the runtime,
+processor and staging paths remain proposed. The current uv environment lives at
+`tools/content_pipeline/.venv/`, outside this output tree. Required shared
+runtime libraries belong in each staged package at platform-appropriate loader
+locations. CMake configures the Linux server and cross-compiled Windows client
+separately; Python tooling is independently provisioned. A future packaging
+command can orchestrate all three build/cook steps without making either game
+runtime execute Python.
 
 ## Migration from the current bootstrap
 
@@ -219,8 +233,8 @@ bootstrap. During the first implementation slice, replace that target with
 explicit client/server entry points, move target configuration into their
 directories, and preserve the existing analysis, signing-hook, sanitizer, test,
 and benchmark workflows. Update source collection for clang-tidy/format checks
-so files in new modules are covered. Add the Python cooker and cross-language
-pack conformance checks alongside the first content delivery.
+so files in new modules are covered. Preserve the implemented Python cooker and
+cross-language pack conformance checks during this migration.
 
 The content module, primitive cooker, schemas and fixtures are implemented; the
 broader directory proposal does not request speculative scaffolding. The

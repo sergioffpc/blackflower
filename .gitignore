@@ -1,6 +1,4 @@
 /build/
-/assets/*
-!/assets/.gitkeep
 /.cache/
 /.codex/
 /CMakeUserPresets.json
