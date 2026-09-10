@@ -1,0 +1,13 @@
+node-name: dell
+node-ip: 192.168.86.46
+advertise-address: 192.168.86.46
+tls-san:
+  - 192.168.86.46
+flannel-iface: eno1
+flannel-backend: host-gw
+disable:
+  - traefik
+  - servicelb
+  - metrics-server
+secrets-encryption: true
+write-kubeconfig-mode: '0600'

@@ -1,0 +1,20 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: blackflower-lan
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.86.200-192.168.86.239
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: blackflower-lan
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - blackflower-lan
+  interfaces:
+    - eno1

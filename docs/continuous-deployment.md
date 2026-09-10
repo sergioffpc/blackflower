@@ -1,7 +1,9 @@
 # Simulation server continuous deployment
 
-Status: accepted initial design. No application deployment pipeline or
-Kubernetes resources are implemented. The
+Status: accepted initial design. The Dell infrastructure is provisioned; the
+application deployment pipeline remains unimplemented.
+[Dell operations](dell-operations.md) records the diagnostic evidence and
+remaining LAN acceptance checks. The
 [CD specification](https://github.com/sergioffpc/blackflower/issues/44) in
 GitHub Issues is the authoritative delivery specification; this document records
 the supporting deployment design. [ADR-0012](adr/0012-use-flux-for-lan-cd.md)
@@ -30,12 +32,13 @@ the [Git workflow](git-workflow.md#deployment-state-branch). Use the DNS suffix
 `blackflower.home.arpa`, with `develop` and `production` labels for the
 permanent environments.
 
-There is no existing deployment infrastructure. The target Kubernetes host is
-the owner's Dell R630, with single-node K3s installed directly on Debian and
-MetalLB allocating environment addresses. Each environment receives a separate
-LAN IP and uses the same UDP port; its DNS name resolves to that IP. Reserve the
-environment address pool outside DHCP. The DNS service, IP range and UDP port
-remain provisioning inputs.
+The provisioned Kubernetes host is the owner's Dell R630, with single-node K3s
+installed directly on Debian and MetalLB allocating environment addresses. Each
+environment receives a separate LAN IP and uses the same UDP port; its DNS name
+resolves to that IP. Reserve the environment address pool outside DHCP.
+[Dell operations](dell-operations.md) records BIND DNS, the reserved IP range
+and UDP port; Google Mesh DNS integration and reachability from a second LAN
+client remain unverified.
 
 Run one simulation server instance per environment without autoscaling. Measure
 the server before assigning resource limits. If capacity is insufficient, leave
@@ -156,16 +159,18 @@ the operator's chosen working revision.
 
 ## Implementation and provisioning inputs
 
--   Finalize LAN DNS service and provision its address pool and UDP port.
+-   Complete Google Mesh DNS integration and second-client LAN acceptance using
+    the provisioned DNS service, address pool and UDP port.
 -   Select the storage mount mechanism, reference pack and independent
     publication and trust provisioning procedure, preserving the existing
     signature and compatibility contracts.
--   Implement signed automated state updates, scoped write credentials, branch
-    protection, stale-run handling and manual recovery that remains stable under
-    Flux reconciliation. Resolve branch deletion/recreation races and concurrent
+-   Implement signed automated state updates and scoped writer credentials,
+    retaining the provisioned branch protection and manual recovery rules. Add
+    stale-run handling and recovery that remains stable under Flux
+    reconciliation. Resolve branch deletion/recreation races and concurrent
     updates before deployment.
--   Select and pin component versions, manifest layout, Flux reconciliation and
-    resource cleanup configuration to meet the acceptance targets.
+-   Extend the pinned infrastructure and Flux reconciliation with application
+    manifests and resource cleanup to meet the acceptance targets.
 -   Define resource isolation, measure resource requirements and select
     operational status reporting mechanisms.
 

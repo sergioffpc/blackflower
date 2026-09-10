@@ -1,0 +1,7 @@
+$ORIGIN blackflower.home.arpa.
+$TTL 30
+@ IN SOA ns.blackflower.home.arpa. hostmaster.blackflower.home.arpa. (
+  1 60 60 604800 30
+)
+@ IN NS ns.blackflower.home.arpa.
+ns IN A 192.168.86.46

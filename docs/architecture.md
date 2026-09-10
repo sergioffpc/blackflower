@@ -290,17 +290,20 @@ simulation server: permanent develop and production environments, and temporary
 feature, hotfix and release environments removed when their branches disappear.
 All environments restart on deployment and may disconnect players. The
 [CD design](continuous-deployment.md) records accepted behavior and remaining
-implementation inputs. The target Kubernetes host is the Dell R630; no cluster
-has been provisioned. Single-node K3s will run directly on Debian, with MetalLB,
-a LAN IP and DNS name per environment under `blackflower.home.arpa`, and a
-common UDP port. Flux reconciles deployment state from a permanent `gitops`
-branch in this repository, using public digest-pinned GHCR server images based
-on `ubuntu:26.04`. Server and content-pack publication have independent
-lifecycles, so multiple server versions may reuse the same pack. Server pods
-share a pack filesystem and select a pack by command-line argument. The pack
-filesystem resides on the Dell and is read-only for server pods; publication
-preserves packs in use. Windows client delivery is outside this CD scope.
-Deployment is unimplemented.
+implementation inputs. The Dell R630 runs single-node K3s directly on Debian,
+with Flux, MetalLB, BIND and ExternalDNS provisioned as recorded in
+[Dell operations](dell-operations.md). The deployment design assigns a LAN IP
+and DNS name per environment under `blackflower.home.arpa`, and a common UDP
+port. Flux reconciles deployment state from a permanent `gitops` branch in this
+repository, using public digest-pinned GHCR server images based on
+`ubuntu:26.04`. Server and content-pack publication have independent lifecycles,
+so multiple server versions may reuse the same pack. Server pods share a pack
+filesystem and select a pack by command-line argument. The pack filesystem
+resides on the Dell and is read-only for server pods; publication preserves
+packs in use. Windows client delivery is outside this CD scope. Application
+deployment remains unimplemented. The diagnostic lifecycle passed from the Dell
+using its BIND resolver; Google Mesh DNS integration and UDP reachability from a
+second LAN client remain unverified.
 
 CD server artifacts must be compiled specifically for the actual Dell R630 CPU
 and validated on that hardware. The
@@ -350,6 +353,12 @@ requires GPU PhysX; its four prediction instances share the P620 GPU with
 rendering. Linux-hosted Windows compilation must separate Linux tools from
 Windows libraries and runtime artifacts; see the
 [stack feasibility checks](technology-stack.md#evidence-required-before-the-first-delivery-can-rely-on-the-stack).
+
+The [Dell infrastructure](dell-operations.md) introduces single-node K3s, Flux,
+MetalLB and private LAN DNS. Source templates live under deploy/dell; Flux reads
+operational state from the permanent gitops branch. A diagnostic UDP workload
+exercises infrastructure independently of simulation-server readiness. Refer to
+the operational evidence before claiming LAN acceptance.
 
 ## 8. Crosscutting concepts
 
@@ -485,7 +494,10 @@ defines their ownership and immutable-backing-file contract.
 
 [ADR-0012](adr/0012-use-flux-for-lan-cd.md) selects Flux, single-node K3s and
 MetalLB for LAN server delivery, with public GHCR images and a same-repository
-`gitops` state branch. This accepted design remains unimplemented.
+`gitops` state branch. Application delivery remains unimplemented.
+
+[ADR-0013](adr/0013-deploy-private-lan-services-with-flux.md) records the
+private LAN infrastructure and DNS integration supporting that design.
 
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
@@ -593,6 +605,12 @@ authority for the consumer reference. Validate publication and a fresh hosted
 pull before accepting a new digest. See the
 [GHCR validation boundary](validation/ghcr-development-image.md).
 
+The infrastructure acceptance boundary is a signed Git change through DNS and
+UDP on the LAN, including update and removal while preserving unrelated
+resources. This diagnostic boundary does not validate simulation or content
+readiness. [Dell operations](dell-operations.md) defines the reproducible steps
+and recovery responsibilities.
+
 The [CD acceptance targets](continuous-deployment.md#acceptance-targets), CD-Q01
 through CD-Q04, cover deployment timing, removal, periodic cleanup and server
 readiness. They remain unvalidated.
@@ -601,11 +619,12 @@ readiness. They remain unvalidated.
 
 The planned CD environments share one Dell host and local pack storage. Host
 failure affects every environment, and server replacement failures require
-manual recovery. Flux configuration, DNS integration, shared volume access and
-runtime readiness still need implementation work; track them in the
+manual recovery. Google Mesh DNS integration and a second LAN client's UDP
+reachability remain unverified. Shared volume access, automated state updates
+and runtime readiness still need implementation work; track them in the
 [CD implementation inputs](continuous-deployment.md#implementation-and-provisioning-inputs)
-before provisioning. Capacity and deployment timing require measurements on the
-Dell.
+and [Dell operations](dell-operations.md). Capacity and deployment timing
+require measurements on the Dell.
 
 | ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -653,6 +672,11 @@ private packages require developer authentication and prevent unauthenticated
 fork use. Rebuilding candidates still requires retained Ubuntu snapshots and
 upstream tool archives. Independent image backups and a package mirror remain
 unimplemented.
+
+The Dell is a single point of failure for cluster workloads and, once configured
+as the Google Mesh resolver, LAN DNS. Keep private backups and the documented
+DNS fallback procedure. A host-only UDP result does not establish reachability
+from a second LAN machine.
 
 ## 12. Glossary
 

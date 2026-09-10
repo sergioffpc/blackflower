@@ -1,0 +1,12 @@
+[Unit]
+Description=Blackflower private LAN ingress rules
+Before=k3s.service named.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/blackflower/firewall.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
