@@ -152,7 +152,16 @@ public loading contract. Scene collision shapes describe collision shapes
 independently of visual assets. Decoding checks each field as it consumes the
 encoded collections and propagates typed errors without returning partial
 scenes. Geometry and gameplay suitability belong to consumers; the loader
-imposes no reference-scenario dimensions, quantities or placement rules.
+imposes no reference-scenario dimensions, quantities or placement rules. The
+cooker accepts absent `CollisionShapes`, `Lights` and `Spawns` scopes as empty
+collections, including scenes with all three omitted.
+
+The [USD entity authoring design](usd-authoring.md) defines the agreed scope of
+the next content iteration: a floor and a textured box with visual and collision
+representations associated with individual entities under a Scene root.
+Scenarios will define exercises and objectives separately. Remaining contract
+details are still being defined; entity composition and GLB import are not
+implemented.
 
 Local authoring inputs are selected through the cooker's `--source` argument;
 the repository has no dedicated local asset directory. The reference scene lives
@@ -509,6 +518,13 @@ Record significant future decisions in docs/adr/ following the
 created. Capture the status, context, driving requirements, alternatives
 considered, chosen approach, and consequences. When replacing a decision, retain
 its rationale and link to the replacement.
+
+The [USD entity authoring structure](usd-authoring.md) is agreed for the next
+content iteration: Scenes describe spatial content separately from Scenario
+objectives; referenced entities have string placement identities, GLB visuals
+and independently authored colliders. Detailed contract choices and
+implementation remain pending under
+[#57](https://github.com/sergioffpc/blackflower/issues/57).
 
 The owner selected a published GHCR development image with reviewed digest
 promotion in [#42](https://github.com/sergioffpc/blackflower/issues/42). This

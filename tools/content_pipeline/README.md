@@ -75,7 +75,8 @@ directory. For example, use `--source /path/to/scenes/mvp/mvp.usda`. Start from
 the reference fixture and follow the
 [OpenUSD authoring contract](../../schemas/scene/v1.md#openusd-authoring): Y-up
 coordinates, explicit units, a `/Scenario` default prim with schema 1, and
-`CollisionShapes`, `Lights`, and `Spawns` scopes.
+optional `CollisionShapes`, `Lights`, and `Spawns` scopes. Omitted scopes
+produce empty collections, including when all three are absent.
 
 The current cooker supports boxes, spheres, point and directional lights, and
 spawn points. GLB/glTF import, visual meshes, materials, textures, audio, and

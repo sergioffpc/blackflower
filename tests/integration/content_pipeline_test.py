@@ -94,6 +94,58 @@ def _author_lights(stage: Usd.Stage) -> None:
 
 class ContentPipelineTest(unittest.TestCase):
 
+    def test_cooked_pack_accepts_missing_collections(self):
+        scopes = ("CollisionShapes", "Lights", "Spawns")
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            for missing in ((scope,) for scope in scopes):
+                with self.subTest(missing=missing):
+                    self._check_missing_collections(
+                        work, private, public, missing
+                    )
+            with self.subTest(missing=scopes):
+                self._check_missing_collections(work, private, public, scopes)
+
+    def _check_missing_collections(
+        self,
+        work: pathlib.Path,
+        private: pathlib.Path,
+        public: pathlib.Path,
+        missing: tuple[str, ...],
+    ) -> None:
+        stage = Usd.Stage.Open(
+            str(ROOT / "tests/integration/fixtures/mvp.usda")
+        )
+        for scope in missing:
+            stage.RemovePrim(f"/Scenario/{scope}")
+        source = work / "scene.usda"
+        stage.GetRootLayer().Export(str(source))
+        output = work / "-".join(missing)
+        self._cook(source, output, private)
+        for name in ("server", "agent", "client"):
+            loaded = subprocess.run(
+                _harness_command(output / f"scene.bf{name}", public),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(loaded.returncode, 0, loaded.stderr)
+            content = json.loads(loaded.stdout)
+            self.assertEqual(
+                len(content["collision_shapes"]),
+                0 if "CollisionShapes" in missing else 7,
+            )
+            self.assertEqual(
+                len(content["lights"]),
+                1 if name == "client" and "Lights" not in missing else 0,
+            )
+            self.assertEqual(
+                len(content["spawns"]),
+                4 if name == "server" and "Spawns" not in missing else 0,
+            )
+
     def test_independently_encoded_reference_pack(self):
         reference = json.loads(
             (ROOT / "tests/fixtures/packs/reference.json").read_text()
