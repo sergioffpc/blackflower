@@ -3,7 +3,7 @@
 Status: accepted initial design. Diagnostic infrastructure is provisioned; the
 application deployment pipeline and simulation-server Kubernetes resources
 remain unimplemented. [Dell operations](dell-operations.md) records
-infrastructure configuration and the remaining LAN acceptance evidence. The
+infrastructure configuration and the completed LAN acceptance evidence. The
 [CD specification](https://github.com/sergioffpc/blackflower/issues/44) in
 GitHub Issues is the authoritative delivery specification; this document records
 the supporting deployment design. [ADR-0012](adr/0012-use-flux-for-lan-cd.md)
@@ -37,8 +37,8 @@ directly on Debian and MetalLB allocating environment addresses. Each
 environment receives a separate LAN IP and uses the same UDP port; its DNS name
 resolves to that IP. Reserve the environment address pool outside DHCP. The
 selected BIND DNS service, reserved IP pool and UDP 27015 are recorded in
-[Dell operations](dell-operations.md). Google Mesh integration and a second LAN
-client probe remain pending.
+[Dell operations](dell-operations.md). The diagnostic lifecycle passed from the
+Lenovo through its normal Google Mesh resolver.
 
 Run one simulation server instance per environment without autoscaling. Measure
 the server before assigning resource limits. If capacity is insufficient, leave
@@ -159,8 +159,6 @@ the operator's chosen working revision.
 
 ## Implementation and provisioning inputs
 
--   Complete Google Mesh DNS integration and the second LAN client acceptance
-    probe using the provisioned DNS service, address pool and UDP port.
 -   Select the storage mount mechanism, reference pack and independent
     publication and trust provisioning procedure, preserving the existing
     signature and compatibility contracts.

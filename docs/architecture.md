@@ -619,9 +619,10 @@ readiness. They remain unvalidated.
 
 The planned CD environments share one Dell host and local pack storage. Host
 failure affects every environment, and server replacement failures require
-manual recovery. Google Mesh DNS integration and a second LAN client probe
-remain pending. Shared volume access, application automation and runtime
-readiness still need implementation work; track them in the
+manual recovery. The diagnostic lifecycle passed from the Lenovo through Google
+Mesh DNS; see [LAN acceptance](dell-operations.md#lenovo-lan-acceptance). Shared
+volume access, application automation and runtime readiness still need
+implementation work; track them in the
 [CD implementation inputs](continuous-deployment.md#implementation-and-provisioning-inputs)
 before provisioning. Capacity and deployment timing require measurements on the
 Dell.
@@ -673,10 +674,10 @@ fork use. Rebuilding candidates still requires retained Ubuntu snapshots and
 upstream tool archives. Independent image backups and a package mirror remain
 unimplemented.
 
-The Dell is a single point of failure for cluster workloads and, once configured
-as the Google Mesh resolver, LAN DNS. Keep private backups and the documented
-DNS fallback procedure. A host-only UDP result does not establish reachability
-from a second LAN machine.
+The Dell is a single point of failure for cluster workloads and LAN DNS through
+the Google Mesh resolver. Keep private backups and the documented DNS fallback
+procedure. A host-only UDP result does not establish reachability from a second
+LAN machine.
 
 ## 12. Glossary
 
