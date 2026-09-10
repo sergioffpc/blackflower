@@ -154,6 +154,11 @@ encoded collections and propagates typed errors without returning partial
 scenes. Geometry and gameplay suitability belong to consumers; the loader
 imposes no reference-scenario dimensions, quantities or placement rules.
 
+Local authoring inputs under `assets/` are ignored by Git; only `.gitkeep` is
+versioned there. The pipeline reference scene lives in
+`tests/integration/fixtures/mvp.usda`, following the
+[source asset layout](repository-layout.md#shared-formats-and-source-assets).
+
 The frameworks are linked only into their respective harnesses.
 [Sanitizer configuration](../cmake/Sanitizers.cmake) instruments non-Release
 project targets for memory checks, with a separate Linux configuration for race

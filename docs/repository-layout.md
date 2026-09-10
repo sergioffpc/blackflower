@@ -64,18 +64,15 @@ blackflower/
 │   ├── pack/                        # Binary layout, canonical encoding, versions
 │   ├── scene/                       # Source and cooked scene formats
 │   └── protocol/                    # Network representation once selected
-├── assets/
-│   ├── scenes/
-│   ├── meshes/
-│   ├── materials/
-│   ├── textures/
-│   ├── shaders/
-│   └── audio/
+├── assets/                          # Local authoring inputs, ignored by Git
+│   └── .gitkeep                     # Only versioned file in assets/
 ├── tests/
 │   ├── client/
 │   ├── server/
 │   ├── modules/
 │   ├── integration/
+│   │   └── fixtures/
+│   │       └── mvp.usda             # Reference scene for pipeline tests
 │   └── fixtures/
 │       └── packs/                   # Small shared format/signature test vectors
 ├── benchmarks/
@@ -163,11 +160,12 @@ its independently provisioned trust set. Production signing private keys never
 enter this tree. Disposable test material must be clearly identified and cannot
 become the runtime trust set.
 
-`assets/` contains authoring inputs. Cooked artifacts go under `build/packs/`,
+`assets/` contains local authoring inputs. Git ignores all of its contents
+except the versioned `.gitkeep` placeholder. The reference scene is versioned
+under `tests/integration/fixtures/`. Cooked artifacts go under `build/packs/`,
 with only small test vectors committed as fixtures. Runtime staging contains the
 signed pack and required runtime files, not the authoring tree or cooker
-environment. Large source assets may need a separate storage policy when they
-actually exist.
+environment.
 
 ## Targets and generated outputs
 

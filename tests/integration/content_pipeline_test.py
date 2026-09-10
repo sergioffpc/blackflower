@@ -45,7 +45,7 @@ def _harness_command(
 
 
 def _write_authored_scene(source: pathlib.Path) -> None:
-    stage = Usd.Stage.Open(str(ROOT / "assets/scenes/mvp.usda"))
+    stage = Usd.Stage.Open(str(ROOT / "tests/integration/fixtures/mvp.usda"))
     _author_collision_shape(stage)
     _author_lights(stage)
     layer = stage.GetRootLayer()

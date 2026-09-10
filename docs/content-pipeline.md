@@ -30,8 +30,8 @@ The locked dependencies are cryptography 46.0.5 and usd-core 26.8. OpenUSD is a
 Linux cooker dependency only. The package imports the official `pxr` bindings,
 reads USDA or USDC, and rejects unsupported authoring content explicitly. The
 [authoring contract](../schemas/scene/v1.md) and
-[reference scene](../assets/scenes/mvp.usda) define units, transforms, IDs,
-geometry, light and spawn-point encoding.
+[reference scene](../tests/integration/fixtures/mvp.usda) define units,
+transforms, IDs, geometry, light and spawn-point encoding.
 
 ## Cooking and verification
 
@@ -58,7 +58,7 @@ seam.
 
 ```sh
 uv run --project tools/content_pipeline --locked --no-sync cooker cook \
-  --source assets/scenes/mvp.usda \
+  --source tests/integration/fixtures/mvp.usda \
   --output build/packs/mvp \
   --private-key /path/outside/checkout/content-signing.pem
 ```
