@@ -285,6 +285,32 @@ ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic
 artifacts. Windows cross-builds are local build targets; they are outside CI. No
 application deployment or release publication pipeline exists yet.
 
+The owner has requested LAN-only Kubernetes continuous deployment for the
+simulation server: permanent develop and production environments, and temporary
+feature, hotfix and release environments removed when their branches disappear.
+All environments restart on deployment and may disconnect players. The
+[CD design](continuous-deployment.md) records accepted behavior and remaining
+implementation inputs. The target Kubernetes host is the Dell R630; no cluster
+has been provisioned. Single-node K3s will run directly on Debian, with MetalLB,
+a LAN IP and DNS name per environment under `blackflower.home.arpa`, and a
+common UDP port. Flux reconciles deployment state from a permanent `gitops`
+branch in this repository, using public digest-pinned GHCR server images based
+on `ubuntu:26.04`. Server and content-pack publication have independent
+lifecycles, so multiple server versions may reuse the same pack. Server pods
+share a pack filesystem and select a pack by command-line argument. The pack
+filesystem resides on the Dell and is read-only for server pods; publication
+preserves packs in use. Windows client delivery is outside this CD scope.
+Deployment is unimplemented.
+
+CD server artifacts must be compiled specifically for the actual Dell R630 CPU
+and validated on that hardware. The
+[Dell-specific build requirement](continuous-deployment.md#dell-specific-server-build)
+records the specified dual Xeon E5-2690 v4 target and requires measured
+performance. GitHub runners build Clang Release with `-O3`, `-march=broadwell`,
+`-mtune=broadwell` and ThinLTO; numerical semantics remain intact. PGO is
+deferred until representative profiles can be collected on the Dell and its
+benefit measured.
+
 Binary reference packs and their public key in tests/fixtures/packs are stored
 with Git LFS. The build workflow downloads their contents during checkout; local
 clones use the [Git LFS setup](git-workflow.md#starting-work). The versioned
@@ -457,6 +483,10 @@ contract and the pack v1 format.
 [ADR-0011](adr/0011-map-content-files.md) selects read-only file mappings and
 defines their ownership and immutable-backing-file contract.
 
+[ADR-0012](adr/0012-use-flux-for-lan-cd.md) selects Flux, single-node K3s and
+MetalLB for LAN server delivery, with public GHCR images and a same-repository
+`gitops` state branch. This accepted design remains unimplemented.
+
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
 created. Capture the status, context, driving requirements, alternatives
@@ -563,7 +593,19 @@ authority for the consumer reference. Validate publication and a fresh hosted
 pull before accepting a new digest. See the
 [GHCR validation boundary](validation/ghcr-development-image.md).
 
+The [CD acceptance targets](continuous-deployment.md#acceptance-targets), CD-Q01
+through CD-Q04, cover deployment timing, removal, periodic cleanup and server
+readiness. They remain unvalidated.
+
 ## 11. Risks and technical debt
+
+The planned CD environments share one Dell host and local pack storage. Host
+failure affects every environment, and server replacement failures require
+manual recovery. Flux configuration, DNS integration, shared volume access and
+runtime readiness still need implementation work; track them in the
+[CD implementation inputs](continuous-deployment.md#implementation-and-provisioning-inputs)
+before provisioning. Capacity and deployment timing require measurements on the
+Dell.
 
 | ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
