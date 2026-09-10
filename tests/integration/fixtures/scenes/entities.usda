@@ -10,13 +10,13 @@ def Xform "Scene"
     def Scope "Entities"
     {
         def Xform "Floor" (
-            prepend references = @entities/floor.usda@
+            prepend references = @../entities/floor.usda@
         )
         {
             custom string blackflower:id = "floor-main"
         }
         def Xform "Box" (
-            prepend references = @entities/box.usda@
+            prepend references = @../entities/box.usda@
         )
         {
             custom string blackflower:id = "box-01"

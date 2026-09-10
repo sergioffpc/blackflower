@@ -20,7 +20,7 @@ HEADER = struct.Struct("<8s2I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
-SETTINGS = b"primitive-usd-v1;units=mm;scenes=server,agent,client"
+SETTINGS = b"entity-usd-v1;units=m-f64;scenes=server,agent,client"
 
 
 class PackType(enum.Enum):
@@ -51,11 +51,11 @@ class VerifiedPack:
     payload: bytes
 
 
-def provenance(source: bytes) -> bytes:
+def provenance(source_transcript: bytes) -> bytes:
     """Encodes source/settings digests and the active toolchain versions.
 
     Args:
-        source: Exact source bytes consumed by the cooker.
+        source_transcript: Canonical dependency transcript defined in pack v1.
 
     Returns:
         The canonical provenance record.
@@ -68,9 +68,12 @@ def provenance(source: bytes) -> bytes:
         tuple[int, ...],
         Usd.GetVersion(),  # pyright: ignore[reportUnknownMemberType]
     )
-    result = hashlib.sha256(source).digest() + hashlib.sha256(SETTINGS).digest()
+    result = (
+        hashlib.sha256(source_transcript).digest()
+        + hashlib.sha256(SETTINGS).digest()
+    )
     for value in (
-        "primitive-usd-v1",
+        "entity-usd-v1",
         platform.python_version(),
         cryptography.__version__,
         openssl.backend.openssl_version_text(),
@@ -201,7 +204,7 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     provenance_bytes, payload = _decode_resource(
         data, manifest_size, payload_size
     )
-    _validate_scene(payload, pack_type)
+    scene.decode(payload)
     return VerifiedPack(
         pack_type,
         provenance_bytes,
@@ -281,11 +284,3 @@ def _decode_resource(
     if hashlib.sha256(payload).digest() != digest:
         raise ValueError("resource digest mismatch")
     return provenance_bytes, payload
-
-
-def _validate_scene(payload: bytes, pack_type: PackType) -> None:
-    decoded = scene.decode(payload)
-    if (pack_type != PackType.CLIENT and decoded["lights"]) or (
-        pack_type != PackType.SERVER and decoded["spawns"]
-    ):
-        raise ValueError("collections are incompatible with the scene type")

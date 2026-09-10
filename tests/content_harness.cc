@@ -3,11 +3,12 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <ios>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <variant>
 #include <vector>
 
@@ -33,59 +34,6 @@ void PrintArray(const std::array<T, N>& values) {
   std::cout << ']';
 }
 
-void PrintCollisionShape(
-    const blackflower::content::CollisionShape& collision_shape) {
-  std::visit(
-      [](const auto& value) {
-        std::cout << "{\"id\":" << value.id << ",\"center_mm\":";
-        PrintArray(value.center_mm);
-        if constexpr (requires { value.size_mm; }) {
-          std::cout << ",\"kind\":"
-                    << std::to_underlying(
-                           blackflower::content::CollisionShapeKind::kBox)
-                    << ",\"dimensions_mm\":";
-          PrintArray(value.size_mm);
-        } else {
-          std::cout << ",\"kind\":"
-                    << std::to_underlying(
-                           blackflower::content::CollisionShapeKind::kSphere)
-                    << ",\"dimensions_mm\":[" << value.radius_mm << ']';
-        }
-        std::cout << '}';
-      },
-      collision_shape);
-}
-
-void PrintLight(const blackflower::content::Light& light) {
-  std::visit(
-      [](const auto& value) {
-        std::cout << "{\"id\":" << value.id;
-        if constexpr (requires { value.position_mm; }) {
-          std::cout << ",\"kind\":"
-                    << std::to_underlying(
-                           blackflower::content::LightKind::kPoint)
-                    << ",\"position_mm\":";
-          PrintArray(value.position_mm);
-        } else {
-          std::cout << ",\"kind\":"
-                    << std::to_underlying(
-                           blackflower::content::LightKind::kDirectional)
-                    << ",\"direction\":";
-          PrintArray(value.direction);
-        }
-        std::cout << ",\"color\":";
-        PrintArray(value.color);
-        std::cout << ",\"intensity\":" << value.intensity << '}';
-      },
-      light);
-}
-
-void PrintSpawn(const blackflower::content::Spawn& spawn) {
-  std::cout << "{\"id\":" << spawn.id << ",\"position_mm\":";
-  PrintArray(spawn.position_mm);
-  std::cout << '}';
-}
-
 template <typename T, typename Printer>
 void PrintCollection(const std::vector<T>& values, Printer print) {
   std::cout << '[';
@@ -98,26 +46,35 @@ void PrintCollection(const std::vector<T>& values, Printer print) {
   std::cout << ']';
 }
 
+void PrintBound(const blackflower::content::Bound& value) {
+  std::cout << "{\"center_m\":";
+  PrintArray(value.center_m);
+  std::cout << ",\"dimensions_m\":";
+  PrintArray(value.dimensions_m);
+  std::cout << ",\"rotation_xyzw\":";
+  PrintArray(value.rotation_xyzw);
+  std::cout << '}';
+}
+
+void PrintEntity(const blackflower::content::Entity& value) {
+  // Validated IDs contain no characters requiring JSON escaping.
+  std::cout << "{\"id\":\"" << value.id << "\",\"position_m\":";
+  PrintArray(value.position_m);
+  std::cout << ",\"rotation_xyzw\":";
+  PrintArray(value.rotation_xyzw);
+  std::cout << ",\"scale\":" << value.scale << ",\"bounds\":";
+  PrintCollection(value.bounds, PrintBound);
+  std::cout << '}';
+}
+
 template <typename T>
 void PrintScene(const T& value) {
   constexpr std::string_view kName =
       std::same_as<T, blackflower::content::ServerScene>  ? "server"
       : std::same_as<T, blackflower::content::AgentScene> ? "agent"
                                                           : "client";
-  std::cout << ",\"scene_type\":\"" << kName << "\",\"collision_shapes\":";
-  PrintCollection(value.collision_shapes, PrintCollisionShape);
-  std::cout << ",\"lights\":";
-  if constexpr (requires { value.lights; }) {
-    PrintCollection(value.lights, PrintLight);
-  } else {
-    std::cout << "[]";
-  }
-  std::cout << ",\"spawns\":";
-  if constexpr (requires { value.spawns; }) {
-    PrintCollection(value.spawns, PrintSpawn);
-  } else {
-    std::cout << "[]";
-  }
+  std::cout << ",\"scene_type\":\"" << kName << "\",\"entities\":";
+  PrintCollection(value.entities, PrintEntity);
 }
 
 // Emits prepared values consumed by the integration driver.
@@ -130,6 +87,7 @@ void PrintContent(const blackflower::content::VerifiedPack& pack) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  std::cout << std::setprecision(std::numeric_limits<double>::max_digits10);
   if (argc != 3) {
     std::cerr << "usage: content_harness PACK PUBLIC_KEY\n";
     return 2;

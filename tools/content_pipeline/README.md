@@ -1,8 +1,9 @@
 # Content pipeline
 
-The Linux offline cooker converts a self-contained OpenUSD scene (`.usda` or
-`.usdc`) into three signed packs: `.bfserver`, `.bfagent`, and `.bfclient`. It
-verifies every generated pack before publishing the output directory.
+The Linux offline cooker converts an OpenUSD scene with local entity references
+(`.usda` or `.usdc`) into three signed packs: `.bfserver`, `.bfagent`, and
+`.bfclient`. It verifies every generated pack before publishing the output
+directory.
 
 Run the commands below from the **repository root**, using Bash in Linux or the
 [development container](../../docs/development-container.md). On Windows, run
@@ -41,8 +42,8 @@ public key through an independently trusted channel.
 ## Cook the reference scene
 
 The committed [reference scene](../../tests/integration/fixtures/mvp.usda)
-provides a working input with collision shapes, lights, and spawn points. In the
-same shell as the key setup, run:
+provides floor and box entities with independently authored bounds. In the same
+shell as the key setup, run:
 
 ```shell
 uv run --project tools/content_pipeline --locked --no-sync cooker cook \
@@ -61,11 +62,10 @@ build/packs/mvp/
 └── mvp.bfclient
 ```
 
-All three packs contain collision geometry and share a content build identity.
-Only the server pack contains spawn points; only the client pack contains
-lights. Success prints JSON on stdout. An interactive terminal also shows
-progress on stderr; redirected stderr stays silent on success. Failures return a
-nonzero exit status with a diagnostic.
+All three packs contain only entities with optional bounds and share a content
+build identity. Success prints JSON on stdout. An interactive terminal also
+shows progress on stderr; redirected stderr stays silent on success. Failures
+return a nonzero exit status with a diagnostic.
 
 ## Prepare local source content
 
@@ -74,15 +74,17 @@ the scene path to `--source`. The repository has no dedicated local asset
 directory. For example, use `--source /path/to/scenes/mvp/mvp.usda`. Start from
 the reference fixture and follow the
 [OpenUSD authoring contract](../../schemas/scene/v1.md#openusd-authoring): Y-up
-coordinates, explicit units, a `/Scenario` default prim with schema 1, and
-optional `CollisionShapes`, `Lights`, and `Spawns` scopes. Omitted scopes
-produce empty collections, including when all three are absent.
+coordinates, metre units, a `/Scene` default prim with schema 1, and an optional
+`Entities` scope. Each placement references an `/Entity` definition and supplies
+a unique string `blackflower:id`. Definitions may contain optional `Bounds` with
+explicit Cube collision geometry; absent entities or bounds are allowed.
 
-The current cooker supports boxes, spheres, point and directional lights, and
-spawn points. GLB/glTF import, visual meshes, materials, textures, audio, and
-shader compilation are not implemented. External USD references and asset
-dependencies are also unsupported. A USDA containing only a `sourceAsset`
-attribute pointing to a GLB is not a cookable scene.
+The cooker supports translated, rotated and uniformly scaled entity placements
+with oriented box bounds. GLB/glTF import, visual meshes, materials, textures,
+audio, lights, spawns and shader compilation are not implemented in this slice.
+A USDA containing only a `sourceAsset` attribute pointing to a GLB is not a
+cookable scene. See [USD authoring](../../docs/usd-authoring.md) for the
+complete bounded reference contract and examples.
 
 ## Verify with the C++ consumer
 

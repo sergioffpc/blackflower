@@ -132,15 +132,15 @@ decision in section 9. Treat unvalidated choices as proposals.
 
 ## 5. Building block view
 
-| Building block                                                     | Responsibility                                                                                                                       |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [Console bootstrap](../src/main.cc)                                | Print the project name and return a startup status.                                                                                  |
-| [GoogleTest harness](../tests/build_test.cc)                       | Exercise test integration and the C++23 build contract.                                                                              |
-| [Google Benchmark harness](../benchmarks/framework_benchmark.cc)   | Exercise benchmark registration and execution.                                                                                       |
-| [Offline cooker](../tools/content_pipeline/src/cooker/pipeline.py) | Validate self-contained OpenUSD, encode primitive content, sign and verify all three packs, then publish their directory atomically. |
-| [Content module](../src/modules/content/content.h)                 | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                  |
-| [Content harness](../tests/content_harness.cc)                     | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                  |
-| [Build configuration](../CMakeLists.txt)                           | Build four executables and the content library; run analysis, Python checks and integration tests.                                   |
+| Building block                                                     | Responsibility                                                                                                                                   |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Console bootstrap](../src/main.cc)                                | Print the project name and return a startup status.                                                                                              |
+| [GoogleTest harness](../tests/build_test.cc)                       | Exercise test integration and the C++23 build contract.                                                                                          |
+| [Google Benchmark harness](../benchmarks/framework_benchmark.cc)   | Exercise benchmark registration and execution.                                                                                                   |
+| [Offline cooker](../tools/content_pipeline/src/cooker/pipeline.py) | Snapshot bounded OpenUSD references, encode entities and owned bounds, sign and verify all three packs, then publish their directory atomically. |
+| [Content module](../src/modules/content/content.h)                 | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                              |
+| [Content harness](../tests/content_harness.cc)                     | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                              |
+| [Build configuration](../CMakeLists.txt)                           | Build four executables and the content library; run analysis, Python checks and integration tests.                                               |
 
 The content loader accepts packs independently of consumer purpose or host
 platform. The shared content build identity relates the three artifacts; there
@@ -148,20 +148,17 @@ is no separate artifact identifier. The authenticated file magic selects the
 ServerScene, AgentScene or ClientScene alternative of the returned variant.
 Resource schemas define representation compatibility. It separates layout
 decoding, authentication and resource validation internally while retaining one
-public loading contract. Scene collision shapes describe collision shapes
-independently of visual assets. Decoding checks each field as it consumes the
-encoded collections and propagates typed errors without returning partial
-scenes. Geometry and gameplay suitability belong to consumers; the loader
-imposes no reference-scenario dimensions, quantities or placement rules. The
-cooker accepts absent `CollisionShapes`, `Lights` and `Spawns` scopes as empty
-collections, including scenes with all three omitted.
+public loading contract. A scene contains only entities with string identity,
+placement and optional owned bounds, independent of visual assets. Decoding
+checks identity order, finite transforms, positive dimensions, unit rotations
+and complete byte records before exposing content. Geometry and gameplay
+suitability belong to consumers. An absent `Entities` or entity `Bounds` scope
+produces the corresponding empty collection.
 
-The [USD entity authoring design](usd-authoring.md) defines the agreed scope of
-the next content iteration: a floor and a textured box with visual and collision
-representations associated with individual entities under a Scene root.
-Scenarios will define exercises and objectives separately. Remaining contract
-details are still being defined; entity composition and GLB import are not
-implemented.
+The [USD authoring contract](usd-authoring.md) implements referenced entities
+under a Scene root, with explicit Cube bounds and preserved oriented boxes.
+Scenarios define exercises and objectives separately. GLB visuals and textured
+content remain pending under #23 and #59.
 
 Local authoring inputs are selected through the cooker's `--source` argument;
 the repository has no dedicated local asset directory. The reference scene lives
@@ -205,12 +202,13 @@ raw public key for pack signing and independent runtime verification. Key files
 use exclusive creation and owner-only permissions; see the
 [key provisioning commands](content-pipeline.md#cooking-and-verification).
 
-The cooker reads the source once, checks representability and encodes primitive
-geometry, derives the common build identity, and writes server, agent and client
-packs in private staging. It reopens and verifies all completed files before
-publishing their directory. The C++ content harness maps one file read-only,
-verifies trusted-key authentication and scene encoding, then reports complete
-scene values. Invalid input returns an error without partial content. See
+The cooker snapshots the source and directly referenced entity layers, composes
+the private snapshot, validates the bounded contract and encodes entities,
+derives the common build identity, and writes server, agent and client packs in
+private staging. It reopens and verifies all completed files before publishing
+their directory. The C++ content harness maps one file read-only, verifies
+trusted-key authentication and scene encoding, then reports complete scene
+values. Invalid input returns an error without partial content. See
 [pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
 
 The [invalid-pack matrix](validation/invalid-packs.md) exercises this boundary
@@ -348,16 +346,16 @@ independent computers.
 
 ServerScene, AgentScene and ClientScene are complete for their respective
 consumers. The server selects `.bfserver`, autonomous participants select
-`.bfagent`, and human clients select `.bfclient`. Server and agent content
-currently share collision geometry; only server content contains spawn points
-and only client content contains lights. The autonomous participant runtime and
-model-driven control remain outside the content preparation scope. The loader
-receives a path and trusted keys without a role selector. Each runtime receives
-an independently provisioned trusted public key for verification. Private
-content-signing keys stay in the packaging environment. No MVP deployment has
-been validated. Record actual OS builds, drivers, build configuration,
-display/audio settings, and network conditions with the first delivery evidence,
-and link operational instructions when introduced.
+`.bfagent`, and human clients select `.bfclient`. All three role scenes
+currently contain only entities, including identical bounds. The autonomous
+participant runtime and model-driven control remain outside the content
+preparation scope. The loader receives a path and trusted keys without a role
+selector. Each runtime receives an independently provisioned trusted public key
+for verification. Private content-signing keys stay in the packaging
+environment. No MVP deployment has been validated. Record actual OS builds,
+drivers, build configuration, display/audio settings, and network conditions
+with the first delivery evidence, and link operational instructions when
+introduced.
 
 The [C4 deployment view](c4.md#deployment-reference-acceptance-environment)
 shows one server instance and four client instances. The proposed server uses
@@ -519,12 +517,16 @@ created. Capture the status, context, driving requirements, alternatives
 considered, chosen approach, and consequences. When replacing a decision, retain
 its rationale and link to the replacement.
 
-The [USD entity authoring structure](usd-authoring.md) is agreed for the next
-content iteration: Scenes describe spatial content separately from Scenario
-objectives; referenced entities have string placement identities, GLB visuals
-and independently authored colliders. Detailed contract choices and
-implementation remain pending under
-[#57](https://github.com/sergioffpc/blackflower/issues/57).
+The [USD entity authoring contract](usd-authoring.md) implements the first slice
+of [#57](https://github.com/sergioffpc/blackflower/issues/57) through #58:
+Scenes contain only entities with string placement identities and owned
+`Bounds`. One relative definition reference per placement enables reuse.
+Binary64 placement and world-space oriented boxes preserve rotations without
+inferring collision from visuals. Exact dependency snapshots determine
+relocatable provenance. The
+[ADR-0010 amendment](adr/0010-agnostic-content-packs.md#entity-contract-amendment)
+supersedes the earlier collection and coordinate decisions. GLB visuals remain a
+subsequent slice.
 
 The owner selected a published GHCR development image with reviewed digest
 promotion in [#42](https://github.com/sergioffpc/blackflower/issues/42). This
@@ -578,9 +580,17 @@ Content validation follows the
 [functional test scope](development-process.md#current-application-test-scope)
 at the cooker-to-runtime boundary:
 
-| ID          | Stimulus and operating conditions                                                                                                                                                           | Expected response and threshold                                                                                                                                                                                                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| CONTENT-Q01 | Cook an OpenUSD scene with dimensions and collection counts different from the reference; load each resulting file alone under an unrelated extension with independently provisioned trust. | All artifacts preserve authored collision geometry; only ServerScene contains spawn points and only ClientScene contains light parameters without scenario-specific validation; the returned scene variant matches the authenticated magic; runtime pack and build identities match the cooker output. |
+| ID          | Stimulus and operating conditions                                                                                                                                                           | Expected response and threshold                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CONTENT-Q01 | Cook an OpenUSD scene with dimensions and collection counts different from the reference; load each resulting file alone under an unrelated extension with independently provisioned trust. | All artifacts preserve entity identity, placement and owned bounds without scenario-specific quantities; the returned scene variant matches the authenticated magic and the build identity matches the cooker output. |
+
+CONTENT-Q03: cook reused floor/box entity definitions, including a translated,
+90-degree rotated and uniformly scaled box, then remove source files and load
+all three signed packs. Preserve IDs after prim renaming and bounds ownership;
+compare analytical centres/dimensions within 1e-9 metres and quaternion
+components within 1e-12. Relocating the source tree preserves every pack byte;
+changing definition bytes changes build identity. Optional entities and bounds
+produce empty collections. See [local evidence](validation/scene-entities.md).
 
 CONTENT-Q02, required by
 [#22](https://github.com/sergioffpc/blackflower/issues/22): feed tampered,
@@ -648,19 +658,19 @@ implementation work; track them in the
 before provisioning. Capacity and deployment timing require measurements on the
 Dell.
 
-| ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| R-001 | Training users, learning objectives, and operational use cases beyond the technical MVP are undefined.                                                                                                                                | Completing the MVP will not establish training usefulness.                                                                                      | Establish these requirements with the owner before expanding the product.                                                                                                                                                                                                      |
-| R-002 | Broader realism thresholds and reference data remain undefined; MVP quality targets are agreed but unmeasured.                                                                                                                        | Simple MVP acceptance cannot substantiate the broader realism goals.                                                                            | Measure the scoped MVP targets, then define reference evidence for any later fidelity claims.                                                                                                                                                                                  |
-| R-003 | The desired scope may exceed a one- or two-person team's capacity.                                                                                                                                                                    | Work may expand faster than it can be integrated and validated.                                                                                 | Evaluate the small reference scene and observed delivery capacity before expanding the initial scope.                                                                                                                                                                          |
-| R-004 | The Linux server and cross-compiled Windows clients have not been validated on the owner-supplied reference systems.                                                                                                                  | Build success alone may hide runtime or dependency compatibility failures.                                                                      | Execute both targets on the reference machines and capture exact environment details with acceptance evidence.                                                                                                                                                                 |
-| R-005 | Four clients share one workstation, and end-to-end frame/sound timing evidence has not been collected.                                                                                                                                | Resource contention or an incomplete timing method could hide failures of the agreed quality targets.                                           | Measure each rendering client and relevant output separately; preserve the focus policy and record timing methods and raw samples.                                                                                                                                             |
-| R-006 | Falcor's inspected Windows build assumes Windows host tools, and its error interface conflicts with unrestricted inclusion in exception-free project code.                                                                            | The selected rendering stack may require build adaptations and a deliberate error-handling policy before the first slice can work.              | Resolve [ADR-0001](adr/0001-isolate-falcor-exceptions.md), separate host/target dependencies, and prove the exact cross-build and Windows runtime path.                                                                                                                        |
-| R-007 | Steam Audio does not select the application's device-output backend; miniaudio/WASAPI is proposed.                                                                                                                                    | The chosen SDK list does not yet fully specify audible playback and capture.                                                                    | Agree the output integration and verify per-process signal output on Windows before claiming audio acceptance.                                                                                                                                                                 |
-| R-008 | GPU client prediction has not been built or measured; standard PhysX character-controller queries do not establish GPU movement.                                                                                                      | The selected movement technique may require adaptation; four physics instances compete with rendering and may disagree with CPU server results. | Prove static-only GPU movement, Windows GPU runtime compatibility, reconciliation, and sustained 240 Hz simulation/prediction alongside 60 Hz presentation; define correction tolerances and bounded replay before implementation.                                             |
-| R-009 | Published tickets predate two client worlds and interchangeable input; agent observations and policy remain undefined.                                                                                                                | Implementation could follow the older presentation-only design or expand into unspecified agent capabilities.                                   | Update affected ticket descriptions/validation against ADR-0002 before implementation; keep agent intelligence separate from the common input interface.                                                                                                                       |
-| R-010 | Primitive OpenUSD cooking and signed loading are implemented; remaining integration includes Falcor Vulkan loading of offline Slang-compiled SPIR-V, resource-schema compatibility, and runtime preparation of GPU physics resources. | A runtime importer/compiler or incomplete signature coverage could violate the required deployment model.                                       | Extend the implemented bounded path with Assimp/meshoptimizer and native SDK artifacts, provision production content trust, and test gameplay admission against the common content build identity. Retain runtime validation and the current minimal functional test coverage. |
-| R-011 | Runtime lifecycle orchestration and adapter cancellation are unimplemented; liveness mapping, input-age bounds, and finite shutdown deadlines remain open.                                                                            | Startup races, stale movement, or outstanding SDK work could prevent safe admission or timely exit.                                             | Refine the [lifecycle proposal](runtime-lifecycle.md), update affected tickets, and validate partial startup and in-flight shutdown on both targets.                                                                                                                           |
+| ID    | Open issue                                                                                                                                                                                                                                   | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R-001 | Training users, learning objectives, and operational use cases beyond the technical MVP are undefined.                                                                                                                                       | Completing the MVP will not establish training usefulness.                                                                                      | Establish these requirements with the owner before expanding the product.                                                                                                                                                                                                      |
+| R-002 | Broader realism thresholds and reference data remain undefined; MVP quality targets are agreed but unmeasured.                                                                                                                               | Simple MVP acceptance cannot substantiate the broader realism goals.                                                                            | Measure the scoped MVP targets, then define reference evidence for any later fidelity claims.                                                                                                                                                                                  |
+| R-003 | The desired scope may exceed a one- or two-person team's capacity.                                                                                                                                                                           | Work may expand faster than it can be integrated and validated.                                                                                 | Evaluate the small reference scene and observed delivery capacity before expanding the initial scope.                                                                                                                                                                          |
+| R-004 | The Linux server and cross-compiled Windows clients have not been validated on the owner-supplied reference systems.                                                                                                                         | Build success alone may hide runtime or dependency compatibility failures.                                                                      | Execute both targets on the reference machines and capture exact environment details with acceptance evidence.                                                                                                                                                                 |
+| R-005 | Four clients share one workstation, and end-to-end frame/sound timing evidence has not been collected.                                                                                                                                       | Resource contention or an incomplete timing method could hide failures of the agreed quality targets.                                           | Measure each rendering client and relevant output separately; preserve the focus policy and record timing methods and raw samples.                                                                                                                                             |
+| R-006 | Falcor's inspected Windows build assumes Windows host tools, and its error interface conflicts with unrestricted inclusion in exception-free project code.                                                                                   | The selected rendering stack may require build adaptations and a deliberate error-handling policy before the first slice can work.              | Resolve [ADR-0001](adr/0001-isolate-falcor-exceptions.md), separate host/target dependencies, and prove the exact cross-build and Windows runtime path.                                                                                                                        |
+| R-007 | Steam Audio does not select the application's device-output backend; miniaudio/WASAPI is proposed.                                                                                                                                           | The chosen SDK list does not yet fully specify audible playback and capture.                                                                    | Agree the output integration and verify per-process signal output on Windows before claiming audio acceptance.                                                                                                                                                                 |
+| R-008 | GPU client prediction has not been built or measured; standard PhysX character-controller queries do not establish GPU movement.                                                                                                             | The selected movement technique may require adaptation; four physics instances compete with rendering and may disagree with CPU server results. | Prove static-only GPU movement, Windows GPU runtime compatibility, reconciliation, and sustained 240 Hz simulation/prediction alongside 60 Hz presentation; define correction tolerances and bounded replay before implementation.                                             |
+| R-009 | Published tickets predate two client worlds and interchangeable input; agent observations and policy remain undefined.                                                                                                                       | Implementation could follow the older presentation-only design or expand into unspecified agent capabilities.                                   | Update affected ticket descriptions/validation against ADR-0002 before implementation; keep agent intelligence separate from the common input interface.                                                                                                                       |
+| R-010 | Referenced entity/bounds cooking and signed loading are implemented; remaining integration includes Falcor Vulkan loading of offline Slang-compiled SPIR-V, resource-schema compatibility, and runtime preparation of GPU physics resources. | A runtime importer/compiler or incomplete signature coverage could violate the required deployment model.                                       | Extend the implemented bounded path with Assimp/meshoptimizer and native SDK artifacts, provision production content trust, and test gameplay admission against the common content build identity. Retain runtime validation and the current minimal functional test coverage. |
+| R-011 | Runtime lifecycle orchestration and adapter cancellation are unimplemented; liveness mapping, input-age bounds, and finite shutdown deadlines remain open.                                                                                   | Startup races, stale movement, or outstanding SDK work could prevent safe admission or timely exit.                                             | Refine the [lifecycle proposal](runtime-lifecycle.md), update affected tickets, and validate partial startup and in-flight shutdown on both targets.                                                                                                                           |
 
 R-012: Mapped ingestion avoids a full raw-byte heap copy but still touches the
 whole payload for hashing and allocates decoded scene collections. Allocation
@@ -676,10 +686,10 @@ unoptimized code and ASan. Microsoft debug heap and debug iterator checks are
 not enabled; keep the runtime ABI consistent when adding dependencies. See the
 [validation evidence](validation/content-pipeline.md).
 
-The current checks validate build infrastructure and the bounded primitive
-content pipeline. They provide no evidence about simulation fidelity,
-performance budgets, or training outcomes. Update this section as implementation
-risks are discovered, mitigated, or resolved.
+The current checks validate build infrastructure and the bounded entity content
+pipeline. They provide no evidence about simulation fidelity, performance
+budgets, or training outcomes. Update this section as implementation risks are
+discovered, mitigated, or resolved.
 
 The development container passed DEV-Q01 locally on the recorded WSL kernel.
 Package retention, Windows SDK provisioning, sanitizer behavior on other host

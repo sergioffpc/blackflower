@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -20,32 +21,16 @@ namespace blackflower::content {
 // SHA-256 identity and raw Ed25519 verification key, respectively.
 using Digest = std::array<unsigned char, 32>;
 using PublicKey = std::array<unsigned char, 32>;
-// Preserve the full encoded discriminator so unknown values cannot truncate.
-// NOLINTNEXTLINE(performance-enum-size)
-enum class CollisionShapeKind : std::uint32_t {
-  // Axis-aligned box with a centre and full extents.
-  kBox = 1,
-  // Sphere with a centre and radius.
-  kSphere = 2
-};
-
-// Preserve the full encoded discriminator so unknown values cannot truncate.
-// NOLINTNEXTLINE(performance-enum-size)
-enum class LightKind : std::uint32_t {
-  // Omnidirectional emitter at a position.
-  kPoint = 1,
-  // Parallel emitter with a scene-space direction of travel.
-  kDirectional = 2
-};
-
 // Failure conditions exposed by pack ingestion, authentication and validation.
 enum class PackError : std::uint8_t {
   // Scene length or collection counts violate the concrete scene's layout.
   kInvalidSceneLength,
+  // Entity IDs violate their ASCII grammar or strictly increasing order.
+  kInvalidEntity,
+  // Nonfinite geometry, nonpositive dimensions/scale or a non-unit quaternion.
+  kInvalidTransform,
   // A collision shape record uses a kind unsupported by this schema.
-  kUnsupportedCollisionShape,
-  // A light record uses a kind unsupported by this schema.
-  kUnsupportedLight,
+  kUnsupportedBound,
   // Input bytes are too short to contain the pack header and signature.
   kInvalidLength,
   // The cryptographic backend could not initialize for verification.
@@ -82,64 +67,36 @@ enum class PackError : std::uint8_t {
 // message wording is not part of the error contract.
 std::string_view PackErrorMessage(PackError error);
 
-// Axis-aligned solid with XYZ coordinates and full extents in millimetres.
-struct Box {
-  std::uint32_t id = 0;
-  std::array<std::int32_t, 3> center_mm{};
-  std::array<std::uint32_t, 3> size_mm{};
+// Independently authored world-space box. Dimensions are full extents in
+// metres; rotation is a unit XYZW quaternion.
+struct Bound {
+  std::array<double, 3> center_m{};
+  std::array<double, 3> dimensions_m{};
+  std::array<double, 4> rotation_xyzw{};
 };
 
-// Sphere centre and radius in millimetres.
-struct Sphere {
-  std::uint32_t id = 0;
-  std::array<std::int32_t, 3> center_mm{};
-  std::uint32_t radius_mm = 0;
+// Persistent ASCII identity, placement and optional owned bounds. Position is
+// metres, rotation is a unit XYZW quaternion, scale is positive and uniform.
+struct Entity {
+  std::string id;
+  std::array<double, 3> position_m{};
+  std::array<double, 4> rotation_xyzw{};
+  double scale = 1;
+  std::vector<Bound> bounds;
 };
 
-// Collision shape independent of visual representation.
-using CollisionShape = std::variant<Box, Sphere>;
-
-// Omnidirectional point emitter. Color is linear RGB; intensity is a
-// dimensionless multiplier of that color, independent of a rendering backend.
-struct PointLight {
-  std::uint32_t id = 0;
-  std::array<std::int32_t, 3> position_mm{};
-  std::array<float, 3> color{};
-  float intensity = 0;
-};
-
-// Parallel emitter. Direction is a scene-space vector along light travel;
-// consumers normalize it. Color and intensity use PointLight's convention.
-struct DirectionalLight {
-  std::uint32_t id = 0;
-  std::array<float, 3> direction{};
-  std::array<float, 3> color{};
-  float intensity = 0;
-};
-
-using Light = std::variant<PointLight, DirectionalLight>;
-
-// Placement origin in XYZ millimetres; consumers define what is spawned.
-struct Spawn {
-  std::uint32_t id = 0;
-  std::array<std::int32_t, 3> position_mm{};
-};
-
-// Authoritative collision geometry and spawn points, in scene v1 coordinates.
+// Each role currently receives the same entity content. Future role-specific
+// resources can evolve independently under these concrete scene types.
 struct ServerScene {
-  std::vector<CollisionShape> collision_shapes;
-  std::vector<Spawn> spawns;
+  std::vector<Entity> entities;
 };
 
-// Autonomous participant collision shapes, without presentation or spawns.
 struct AgentScene {
-  std::vector<CollisionShape> collision_shapes;
+  std::vector<Entity> entities;
 };
 
-// Human client collision and presentation content, without spawn points.
 struct ClientScene {
-  std::vector<CollisionShape> collision_shapes;
-  std::vector<Light> lights;
+  std::vector<Entity> entities;
 };
 
 // The authenticated file magic selects the alternative; collections may be

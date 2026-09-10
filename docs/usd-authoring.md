@@ -1,77 +1,72 @@
 # USD entity authoring
 
-Status: the initial scope and authoring structure below are agreed. Remaining
-contract decisions are open; this design is not implemented by the current
-cooker. The implemented subset remains documented in
-[Scene v1](../schemas/scene/v1.md).
+Status: entity placement and bounds are implemented by
+[#58](https://github.com/sergioffpc/blackflower/issues/58). Visual import and
+textured content remain in #23 and #59 under the
+[entity specification](https://github.com/sergioffpc/blackflower/issues/57).
 
-The [entity specification](https://github.com/sergioffpc/blackflower/issues/57)
-tracks delivery through entity collision (#58), GLB meshes/materials (#23) and
-the textured scene (#59).
+## Implemented contract
 
-## Agreed initial scope
+A Scene describes spatial content and contains only an optional `Entities`
+scope. A Scenario defines an exercise and its objectives separately. Scene files
+use an identity-transform `/Scene` default Xform with
+`custom int blackflower:schema = 1`, `metersPerUnit = 1` and `upAxis = "Y"`.
 
-Author a scene containing a floor and a textured box, each with its own
-collision geometry. Entities remain stationary in this iteration. Future
-interaction, ballistics, movement and destruction motivate preserving entity
-identity, but their behavior and parameters are outside this iteration.
+Each placement under `/Scene/Entities` is an Xform with exactly one relative
+local external USD reference to a reusable definition. Definitions live under
+`entities/`, use an identity-transform `/Entity` default Xform and the same
+explicit units and up axis. References may select `/Entity` explicitly or use
+the layer default prim. Definitions cannot reference further layers.
 
-Start with existing GLB models and hand-authored USDA. Reusable entity
-definitions reference visual models; scene instances have their own identities
-and placement transforms. Visual representation serves Presentation; collision
-geometry serves Prediction and Simulation. Collision is explicitly authored and
-optional in the general contract; both initial example entities include it.
+Each placement authors a unique, nonempty, case-sensitive ASCII string
+`blackflower:id` matching `[A-Za-z0-9][A-Za-z0-9_.:-]*`. Definitions cannot
+supply IDs. Renaming a placement preserves its ID; copying one requires another
+ID. The cooker sorts entities by ID.
 
-Visual meshes never determine collision geometry. Collision geometry must be
-authored independently; neither automatic extraction nor fitting from visual
-meshes is part of the contract.
+Definitions may contain an optional `Bounds` scope with independently authored
+Cube prims using `PhysicsCollisionAPI`. The collision-enabled value must be
+true. Cubes have finite positive size and dimensions. An entity may have no
+bounds or several; the floor uses a thin box. Bounds belong directly to their
+entity in the internal content scene.
 
-Initial colliders are boxes with explicit local dimensions and placement. An
-entity definition can contain multiple colliders belonging to the same entity.
-The floor uses a thin box. Instances support translation, rotation and positive
-uniform scale, with metres and Y up. The instance transform applies to visual
-and collision representations together, preserving their local alignment.
+Visual meshes never determine collision. An optional empty `Visuals` scope is
+accepted now; nonempty visuals and asset attributes are rejected until visual
+import is implemented. There are no Lights or Spawns scopes.
 
-GLB materials and textures define appearance in this iteration, without USDA
-material overrides. The supported material subset remains to be selected;
-unsupported properties must produce a clear diagnostic.
+Entity placements support translation, rotateXYZ in degrees and positive uniform
+scale, in that order; any of these operations may be omitted. Bound children
+support the same order with positive nonuniform scale. Reset stacks, pivots,
+inverse operations, matrices and other transform operations are unsupported. The
+cooker preserves oriented boxes, composing entity and local bound transforms. It
+stores placement and world-space bounds as binary64 metre coordinates and unit
+XYZW quaternions; see [Scene v1](../schemas/scene/v1.md).
 
-Validate the USD-to-cooker-to-signed-packs-to-consumer path, preserving entity
-identities, referenced visual content and placement transforms, and checking the
-corresponding collision geometry. Rendering in a client is outside this
-iteration's acceptance boundary. Detailed assertions and tolerances remain to be
-specified.
+The bounded subset rejects sublayers, payloads, variants, inherits, specializes,
+instancing, relationships, animation, attribute connections, unsupported physics
+APIs and unsupported prim types. Nested definition references and absolute
+reference paths are unsupported. The cooker snapshots each input's exact bytes
+before composition; provenance covers sorted logical dependency names and
+content, independently of the absolute checkout location. Authors must not edit
+sources during cooking: capture is per file, not an atomic filesystem snapshot.
 
-## Agreed authoring structure
+Entities are stationary in this slice. Persistent identity allows later
+movement, ballistics and destruction without making their current placement a
+lifetime restriction. No interaction parameters or runtime physics are
+implemented here.
 
-A Scene describes spatial content. A Scenario defines a training exercise,
-including objectives, and has a separate contract outside this iteration. Each
-scene file uses `/Scene` as its identity-transform default prim; `scenes/`
-contains scene files. This replaces `/Scenario` in the proposed authoring path,
-while the current cooker still requires its implemented `/Scenario` root.
+## Verification
 
-Reusable definitions live under `entities/`, with `/Entity` as their default
-prim. A scene places definitions through USD references beneath
-`/Scene/Entities`. Each placement authors a nonempty string `blackflower:id`,
-unique in the scene and independent of its prim name or path. Renaming or moving
-a placement retains its ID; duplicating it requires another ID. Definitions do
-not supply placement IDs. Runtime identity encoding remains open.
-
-Definitions contain optional `Visuals` and `Colliders` scopes. A visual Xform
-uses the custom asset attribute `blackflower:sourceAsset` to request GLB import
-by the cooker; USD itself does not import that asset as scene composition.
-Colliders are explicit Cube prims with `PhysicsCollisionAPI`, without an
-associated rigid body in this iteration. Local collider scale defines box
-dimensions independently of the uniform scale of the containing entity instance.
-
-Placement transforms use translation, `rotateXYZ` in degrees, and positive
-uniform scale, in that authored transform order. Visual and collider children
-may have their own local transforms. No `instanceable` metadata is required.
+The installed CLI cooks the floor and rotated box fixtures into three signed
+packs, which the actual C++ loader consumes after all source files are removed.
+Checks cover reused definitions, stable IDs after a prim rename, optional bounds
+and entities, and byte-identical outputs after relocation. Editing a dependency
+changes the build identity. Analytical box comparisons allow 1e-9 metres for
+position/dimensions and 1e-12 for quaternion components; these are fixture
+tolerances, not global fidelity guarantees.
 
 ## Scene example
 
-Paths assume sibling `entities/`, `models/` and `scenes/` directories. The model
-paths are illustrative inputs, not assets supplied by this document.
+Paths assume sibling `entities/` and `scenes/` directories.
 
 The file `scenes/mvp.usda` places a floor and a box:
 
@@ -97,7 +92,7 @@ def Xform "Scene"
         }
 
         def Xform "Box" (
-            prepend references = @../entities/textured-box.usda@
+            prepend references = @../entities/box.usda@
         )
         {
             custom string blackflower:id = "box-01"
@@ -114,8 +109,7 @@ def Xform "Scene"
 }
 ```
 
-The file `entities/textured-box.usda` defines a unit box collider independently
-of its visual model:
+The file `entities/box.usda` defines a unit box bound:
 
 ```usda
 #usda 1.0
@@ -127,15 +121,7 @@ of its visual model:
 
 def Xform "Entity"
 {
-    def Scope "Visuals"
-    {
-        def Xform "Model"
-        {
-            custom asset blackflower:sourceAsset = @../models/box-textured/BoxTextured.glb@
-        }
-    }
-
-    def Scope "Colliders"
+    def Scope "Bounds"
     {
         def Cube "Body" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
@@ -148,17 +134,16 @@ def Xform "Entity"
 }
 ```
 
-The floor definition follows the same structure, referencing
-`../models/floor/Floor.glb`. Its unit Cube collider uses local translation
-`(0, -0.1, 0)` followed by scale `(20, 0.2, 20)`, placing the top surface at Y
-= 0. The visual model must be aligned independently with that local frame.
+The floor definition follows the same structure. Its unit Cube uses local
+translation `(0, -0.1, 0)` followed by scale `(20, 0.2, 20)`, placing the top
+surface at Y = 0. Runnable fixtures are in
+[scenes/entities.usda](../tests/integration/fixtures/scenes/entities.usda).
 
-## Open contract decisions
+## Pending visual contract
 
--   Supported visual model contents, materials and texture dependencies.
--   ID character rules and cooked/runtime identity encoding.
--   Allowed USD composition subset, dependency resolution and validation rules.
--   Cooked representations and their distribution across consumer packs.
-
-Resolve these decisions before implementing the contract. General domain terms
-live in [CONTEXT.md](../CONTEXT.md).
+Visual representation will serve Presentation; bounds serve Prediction and
+Simulation. Reusable definitions will declare GLB sources under `Visuals` using
+`blackflower:sourceAsset`; this declaration requests cooker import, not native
+USD composition. Supported meshes, materials and texture dependencies remain to
+be selected in #23 and #59. The visual model must align independently with the
+entity's local frame. General domain terms live in [CONTEXT.md](../CONTEXT.md).

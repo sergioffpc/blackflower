@@ -1,8 +1,8 @@
-"""Read the self-contained OpenUSD primitive scenario authoring subset."""
+"""Read referenced scene entities with independently authored collision."""
 
-from collections.abc import Callable
 import math
 import pathlib
+import re
 import tempfile
 from typing import Any
 from typing import cast
@@ -12,31 +12,30 @@ from pxr import Sdf
 from pxr import Tf
 from pxr import Usd
 from pxr import UsdGeom
+from pxr import UsdPhysics
 
 from cooker import scene
+from cooker import usd_dependencies
 
 
-def read(source: bytes) -> "scene.SceneData":
-    """Reads the self-contained primitive subset from exact source bytes.
+def read(source: pathlib.Path) -> tuple[scene.SceneData, bytes]:
+    """Reads a private snapshot of the scene and its entity definitions.
 
     Args:
-        source: Text or binary OpenUSD layer bytes.
+        source: Scene layer with local relative entity references.
 
     Returns:
-        Scenario data in millimetres, with collections sorted by identity.
+        Prepared scene values and the exact dependency provenance transcript.
 
     Raises:
-        ValueError: The layer cannot be parsed or violates the source contract.
-        OSError: Temporary source storage fails.
+        ValueError: USD or authored content violates the bounded contract.
+        OSError: Reading or snapshotting a dependency fails.
     """
-    # Parse precisely the bytes whose hash is recorded, with no ambient asset
-    # resolver or layer cache able to substitute a different source revision.
     with tempfile.TemporaryDirectory(prefix="blackflower-usd-") as directory:
-        path = pathlib.Path(directory) / "scene.usd"
-        path.write_bytes(source)
         try:
-            stage = Usd.Stage.Open(str(path), load=Usd.Stage.LoadNone)
-            return _read_stage(stage)
+            snapshot = usd_dependencies.capture(source, pathlib.Path(directory))
+            stage = Usd.Stage.Open(str(snapshot.root), load=Usd.Stage.LoadNone)
+            return _read_stage(stage), snapshot.transcript
         except Tf.ErrorException as error:
             raise ValueError(f"invalid OpenUSD scene: {error}") from error
 
@@ -44,129 +43,167 @@ def read(source: bytes) -> "scene.SceneData":
 def _children(prim: Usd.Prim) -> list[Usd.Prim]:
     if not prim:
         return []
-    # types-usd omits the element type of the USD child-prim collection.
-    return cast(
-        list[Usd.Prim],
-        prim.GetChildren(),  # pyright: ignore[reportUnknownMemberType]
-    )
+    return cast(list[Usd.Prim], prim.GetChildren())
 
 
-def _read_stage(stage: Usd.Stage) -> "scene.SceneData":
-    mm = _millimetres(_stage_units(stage))
-    root, blocks, lights, spawns = _containers(stage)
-    _validate_composition(stage, (root, blocks, lights, spawns))
-    if UsdGeom.Xformable(root).ComputeLocalToWorldTransform(
-        Usd.TimeCode.Default()
-    ) != Gf.Matrix4d(1):
-        raise ValueError("Scenario transform must be identity")
+def _read_stage(stage: Usd.Stage) -> scene.SceneData:
+    _validate_units(stage)
+    root = stage.GetDefaultPrim()
+    if root.GetPath() != Sdf.Path("/Scene") or root.GetTypeName() != "Xform":
+        raise ValueError("USD requires a Scene default Xform")
+    if _transform(root) != Gf.Matrix4d(1):
+        raise ValueError("Scene transform must be identity")
     if _attribute(root, "blackflower:schema") != 1:
         raise ValueError("unsupported scene schema")
-    result: scene.SceneData = {
-        "collision_shapes": [
-            _collision_shape(prim, mm) for prim in _children(blocks)
-        ],
-        "lights": [_light(prim, mm) for prim in _children(lights)],
-        "spawns": [
-            {
-                "id": _attribute(prim, "blackflower:id"),
-                "position_mm": _position(prim, mm),
-            }
-            for prim in _children(spawns)
-        ],
-    }
-    for key in ("collision_shapes", "lights", "spawns"):
-        result[key].sort(key=lambda value: value["id"])
-    return result
-
-
-def _stage_units(stage: Usd.Stage) -> float:
-    layer = stage.GetRootLayer()
-    if layer.subLayerPaths or len(stage.GetUsedLayers()) != 2:
-        raise ValueError("primitive-v1 requires a self-contained USD layer")
-    if (
-        not stage.HasAuthoredMetadata("metersPerUnit")
-        or UsdGeom.GetStageUpAxis(stage) != UsdGeom.Tokens.y
-    ):
-        raise ValueError("USD stage requires explicit metersPerUnit and Y up")
-    units = UsdGeom.GetStageMetersPerUnit(stage)
-    if not math.isfinite(units) or units <= 0:
-        raise ValueError("invalid USD metres per unit")
-
-    return units
-
-
-def _millimetres(units: float) -> Callable[[float], int]:
-    def mm(value: float) -> int:
-        distance = float(value) * units * 1000
-        if (
-            not math.isfinite(distance)
-            or abs(distance - round(distance)) > 0.001
-        ):
-            raise ValueError(
-                "USD dimensions must resolve to millimetres within 0.001 mm"
-            )
-        return round(distance)
-
-    return mm
-
-
-def _containers(
-    stage: Usd.Stage,
-) -> tuple[Usd.Prim, Usd.Prim, Usd.Prim, Usd.Prim]:
-    root = stage.GetPrimAtPath("/Scenario")
-    blocks = stage.GetPrimAtPath("/Scenario/CollisionShapes")
-    lights = stage.GetPrimAtPath("/Scenario/Lights")
-    spawns = stage.GetPrimAtPath("/Scenario/Spawns")
-    if not root or stage.GetDefaultPrim() != root:
-        raise ValueError("missing required USD Scenario default prim")
-    if root.GetTypeName() != "Xform" or any(
-        prim and prim.GetTypeName() != "Scope"
-        for prim in (blocks, lights, spawns)
-    ):
-        raise ValueError("invalid USD scenario container types")
-    return root, blocks, lights, spawns
-
-
-def _validate_composition(
-    stage: Usd.Stage, containers: tuple[Usd.Prim, ...]
-) -> None:
-    _, blocks, lights, spawns = containers
-    allowed = {prim.GetPath() for prim in containers if prim}
-    allowed.update(p.GetPath() for p in _children(lights))
-    allowed.update(p.GetPath() for p in _children(blocks))
-    allowed.update(p.GetPath() for p in _children(spawns))
+    entities = _scope(root, "Entities")
+    data: scene.SceneData = {"entities": []}
+    allowed = {root.GetPath()}
+    if entities:
+        allowed.add(entities.GetPath())
+    for entity in sorted(_children(entities), key=_identity):
+        _read_entity(entity, data, allowed)
     for prim in stage.TraverseAll():
         if prim.GetPath() not in allowed:
-            raise ValueError(
-                f"unsupported USD prim or composition: {prim.GetPath()}"
-            )
+            raise ValueError(f"unsupported USD prim: {prim.GetPath()}")
         _validate_prim(prim)
+    return data
+
+
+def _validate_units(stage: Usd.Stage) -> None:
+    if (
+        not stage.HasAuthoredMetadata("metersPerUnit")
+        or UsdGeom.GetStageMetersPerUnit(stage) != 1
+        or UsdGeom.GetStageUpAxis(stage) != UsdGeom.Tokens.y
+    ):
+        raise ValueError("USD requires explicit metre units and Y up")
+
+
+def _scope(parent: Usd.Prim, name: str) -> Usd.Prim:
+    prim = parent.GetChild(name)
+    if prim and prim.GetTypeName() != "Scope":
+        raise ValueError(f"expected Scope at {prim.GetPath()}")
+    return prim
+
+
+def _identity(prim: Usd.Prim) -> str:
+    identity = _attribute(prim, "blackflower:id")
+    if not isinstance(identity, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]*", identity
+    ):
+        raise ValueError("entity ID must match [A-Za-z0-9][A-Za-z0-9_.:-]*")
+    return identity
+
+
+def _read_entity(
+    prim: Usd.Prim, data: scene.SceneData, allowed: set[Sdf.Path]
+) -> None:
+    identity = _identity(prim)
+    if data["entities"] and data["entities"][-1]["id"] == identity:
+        raise ValueError(f"duplicate entity ID: {identity}")
+    if not prim.HasAuthoredReferences():
+        raise ValueError("scene entities require a definition reference")
+    matrix = _transform(prim, uniform=True)
+    transform = Gf.Transform(matrix)
+    data["entities"].append(
+        {
+            "id": identity,
+            "position_m": _vector(matrix.ExtractTranslation()),
+            "rotation_xyzw": _quaternion(transform.GetRotation().GetQuat()),
+            "scale": _vector(transform.GetScale())[0],
+            "bounds": [],
+        }
+    )
+    allowed.add(prim.GetPath())
+    colliders, visuals = _scope(prim, "Bounds"), _scope(prim, "Visuals")
+    allowed.update(p.GetPath() for p in (colliders, visuals) if p)
+    if _children(visuals):
+        raise ValueError("visual source import is not supported yet")
+    for collider in sorted(
+        _children(colliders), key=lambda p: str(p.GetName())
+    ):
+        allowed.add(collider.GetPath())
+        data["entities"][-1]["bounds"].append(_box(collider))
+
+
+def _box(prim: Usd.Prim) -> scene.BoundData:
+    if prim.GetTypeName() != "Cube" or not prim.HasAPI("PhysicsCollisionAPI"):
+        raise ValueError("colliders require Cube with PhysicsCollisionAPI")
+    if not UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get():
+        raise ValueError("disabled colliders are unsupported")
+    _transform(prim)
+    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+        Usd.TimeCode.Default()
+    )
+    transform = Gf.Transform(matrix)
+    scales = _vector(transform.GetScale())
+    size = float(_attribute(prim, "size"))
+    if not math.isfinite(size) or size <= 0:
+        raise ValueError("collider size must be finite and positive")
+    return {
+        "center_m": _vector(matrix.ExtractTranslation()),
+        "dimensions_m": [float(size * scale) for scale in scales],
+        "rotation_xyzw": _quaternion(transform.GetRotation().GetQuat()),
+    }
+
+
+def _quaternion(value: Gf.Quatd) -> list[float]:
+    value = value.GetNormalized()
+    result = [*_vector(value.GetImaginary()), value.GetReal()]
+    return [-v for v in result] if result[3] < 0 else result
+
+
+def _vector(value: Gf.Vec3d) -> list[float]:
+    # The pinned USD stubs incorrectly type scalar Vec3d indexing as a list.
+    return [cast(float, value[i]) for i in range(3)]
+
+
+def _transform(prim: Usd.Prim, *, uniform: bool = False) -> Gf.Matrix4d:
+    if prim.GetTypeName() not in ("Xform", "Cube"):
+        raise ValueError("unsupported transform prim type")
+    xform = UsdGeom.Xformable(prim)
+    names = [str(op.GetOpName()) for op in xform.GetOrderedXformOps()]
+    allowed = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+    authored = list(xform.GetXformOpOrderAttr().Get() or [])
+    if (
+        xform.GetResetXformStack()
+        or names != authored
+        or names != [n for n in allowed if n in names]
+    ):
+        raise ValueError("transforms require translate, rotateXYZ, scale order")
+    for name in names:
+        values = _attribute(prim, name)
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError("nonfinite transform")
+        if name == "xformOp:scale" and (
+            any(v <= 0 for v in values)
+            or (uniform and (values[0] != values[1] or values[1] != values[2]))
+        ):
+            raise ValueError("entity scale must be positive and uniform")
+    return xform.GetLocalTransformation()
 
 
 def _validate_prim(prim: Usd.Prim) -> None:
     if (
         not prim.IsActive()
         or prim.IsInstance()
-        or prim.HasAuthoredReferences()
         or prim.HasAuthoredPayloads()
         or prim.HasAuthoredInherits()
         or prim.HasAuthoredSpecializes()
         or prim.GetVariantSets().GetNames()
         or prim.GetAuthoredRelationships()
+        or any(api != "PhysicsCollisionAPI" for api in prim.GetAppliedSchemas())
     ):
         raise ValueError(
-            f"unsupported USD prim or composition: {prim.GetPath()}"
+            f"unsupported USD composition or physics: {prim.GetPath()}"
         )
     for attribute in prim.GetAuthoredAttributes():
-        if attribute.HasAuthoredConnections():
-            raise ValueError("unsupported USD attribute connection")
-        if attribute.GetNumTimeSamples() or attribute.GetTypeName() in (
+        if attribute.HasAuthoredConnections() or attribute.GetNumTimeSamples():
+            raise ValueError("connections and animation are unsupported")
+        if attribute.GetTypeName() in (
             Sdf.ValueTypeNames.Asset,
             Sdf.ValueTypeNames.AssetArray,
         ):
-            raise ValueError(
-                "animation and asset dependencies are outside primitive-v1"
-            )
+            raise ValueError("visual source import is not supported yet")
 
 
 def _attribute(prim: Usd.Prim, name: str) -> Any:
@@ -174,82 +211,3 @@ def _attribute(prim: Usd.Prim, name: str) -> Any:
     if value is None:
         raise ValueError(f"missing USD attribute {name} at {prim.GetPath()}")
     return value
-
-
-def _collision_shape(
-    prim: Usd.Prim, mm: Callable[[float], int]
-) -> scene.CollisionShapeData:
-    if prim.GetTypeName() not in ("Cube", "Sphere"):
-        raise ValueError("unsupported collision shape kind")
-    matrix = _collision_transform(prim)
-    if prim.GetTypeName() == "Cube":
-        kind = scene.CollisionShapeKind.BOX
-        dimensions = [
-            mm(_attribute(prim, "size") * matrix[i, i]) for i in range(3)
-        ]
-    else:
-        if matrix[0, 0] != matrix[1, 1] or matrix[1, 1] != matrix[2, 2]:
-            raise ValueError("spheres require uniform scale")
-        kind = scene.CollisionShapeKind.SPHERE
-        dimensions = [mm(_attribute(prim, "radius") * matrix[0, 0])]
-    return {
-        "id": _attribute(prim, "blackflower:id"),
-        "kind": kind,
-        "center_mm": [mm(matrix[3, i]) for i in range(3)],
-        "dimensions_mm": dimensions,
-    }
-
-
-def _collision_transform(prim: Usd.Prim) -> Gf.Matrix4d:
-    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
-        Usd.TimeCode.Default()
-    )
-    if any(not math.isfinite(matrix[i, j]) for i in range(4) for j in range(4)):
-        raise ValueError("nonfinite USD transform")
-    if (
-        any(
-            abs(matrix[i, j]) > 1e-12
-            for i in range(3)
-            for j in range(4)
-            if i != j
-        )
-        or any(matrix[i, i] <= 0 for i in range(3))
-        or matrix[3, 3] != 1
-    ):
-        raise ValueError("blocks require positive axis-aligned USD transforms")
-    return matrix
-
-
-def _light(prim: Usd.Prim, mm: Callable[[float], int]) -> scene.LightData:
-    light_kind = _attribute(prim, "blackflower:lightType")
-    position = _position(prim, mm)
-    if light_kind == "point":
-        return {
-            "kind": scene.LightKind.POINT,
-            "id": _attribute(prim, "blackflower:id"),
-            "position_mm": position,
-            "color": list(_attribute(prim, "blackflower:color")),
-            "intensity": _attribute(prim, "blackflower:intensity"),
-        }
-    elif light_kind == "directional":
-        return {
-            "kind": scene.LightKind.DIRECTIONAL,
-            "id": _attribute(prim, "blackflower:id"),
-            "direction": list(_attribute(prim, "blackflower:direction")),
-            "color": list(_attribute(prim, "blackflower:color")),
-            "intensity": _attribute(prim, "blackflower:intensity"),
-        }
-    else:
-        raise ValueError("unsupported light kind")
-
-
-def _position(prim: Usd.Prim, mm: Callable[[float], int]) -> list[int]:
-    if prim.GetTypeName() != "Xform":
-        raise ValueError("placements must be USD Xforms")
-    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
-        Usd.TimeCode.Default()
-    )
-    translation = matrix.ExtractTranslation()
-    if matrix != Gf.Matrix4d(1).SetTranslate(translation):
-        raise ValueError("placements require translation-only transforms")
-    return [mm(matrix[3, axis]) for axis in range(3)]

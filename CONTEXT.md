@@ -30,42 +30,40 @@ such as the ground, enclosure, and fixed blocks.
 movable objects, whose official evolution and interactions are determined by the
 Simulation World. A client's local movement prediction remains provisional.
 
-**CollisionShape**: A geometric shape that defines a surface or volume for
-collision with participants or objects, independently of its visual
-representation.
+**Bounds**: An entity's independently authored collision geometry. Bounds define
+surfaces or volumes for interaction with the world and never derive from the
+entity's visual representation.
 
 **Scene entity**: An individually identifiable entity placed in a scene, with an
-associated visual representation and optional collision shapes. Its placement
-does not imply that it can never move or be destroyed.
+optional visual representation and bounds. Its placement does not imply that it
+can never move or be destroyed.
 
 **Entity definition**: A reusable description of a scene entity's visual
-representation and collision shapes, shared by its independently placed
-instances.
+representation and bounds, shared by its independently placed instances.
 
 **Scene**: The spatial description of an environment, including placed entities,
-their visual and collision representations, lights and spawn points. It is
-independent of exercise objectives and gameplay rules.
+with their optional visual representation and bounds. It is independent of
+exercise objectives and gameplay rules.
 
 **Scenario**: A training exercise definition that includes objectives. It is
 distinct from the spatial description provided by a Scene; its detailed contract
 remains to be defined.
 
-**Cooked content**: Scenario resources prepared before deployment in the
+**Cooked content**: Scene resources prepared before deployment in the
 representation required by the runtime, rather than source assets awaiting
 conversion.
 
 **Content pack**: The signed distribution artifact containing a coherent set of
-cooked scenario resources and their compatibility and integrity metadata.
+cooked scene resources and their compatibility and integrity metadata.
 
 **ContentBuildId**: The shared identity of a produced set of cooked content,
 covering its source, production settings and resources across consumer scenes.
 
-**ServerScene**: The complete scenario content required by the authoritative
-server, including collision data and participant placement information.
+**ServerScene**: The complete scene content required by the authoritative
+server, including entities and their bounds.
 
-**AgentScene**: The complete scenario content required by an autonomous
-participant, including collision data without visual or audio assets.
+**AgentScene**: The complete scene content required by an autonomous
+participant, including entities and their bounds without visual or audio assets.
 
-**ClientScene**: The complete scenario content required by a human participant's
-client, including collision, visual and audio data. Spawn placement is owned by
-the server.
+**ClientScene**: The complete scene content required by a human participant's
+client, including entities, their bounds and associated presentation content.
