@@ -23,7 +23,7 @@ spec:
       labels:
         app: diagnostic
     spec:
-      hostname: diagnostic-v1
+      hostname: diagnostic-v2
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
