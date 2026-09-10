@@ -212,8 +212,9 @@ reconciliation and DNS/UDP after upgrades.
 On 2026-09-10 the Dell node reported Ready on K3s v1.36.4+k3s1. BIND,
 ExternalDNS, MetalLB and both Flux controllers were running. The signed state
 changes below were consumed by Flux and observed from the Dell through its BIND
-resolver. The ordinary Google Mesh resolver path and a second LAN client remain
-pending; these results do not complete issue #45's LAN acceptance.
+resolver. Diagnostic probe evidence through the ordinary Google Mesh resolver
+path and from a second LAN client remains pending; these results do not complete
+issue #45's LAN acceptance.
 
 | Stage  | Operational revision                                          | Observed result                                                                                  |
 | ------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -223,8 +224,16 @@ pending; these results do not complete issue #45's LAN acceptance.
 
 All 18 recorded unrelated Namespace, Service, Deployment and DaemonSet UIDs were
 unchanged after removal. The retained final state has no diagnostic workload or
-retired diagnostic manifests. Recreate it from the source template when the
-Google Mesh integration and another LAN client are available.
+retired diagnostic manifests. Recreate it from the source template to collect
+the remaining client probe evidence.
+
+A follow-up on 2026-09-10 confirmed that Google Mesh at 192.168.86.1 resolves
+ns.blackflower.home.arpa to 192.168.86.46. Flux was Ready at
+29a3cd04efe10fe817f41679b175edf2e618cbb2, with no diagnostic Service, and the
+Dell resolver returned NXDOMAIN for the diagnostic name. Later signed commits
+record Lenovo and Mesh diagnostic lifecycles, but their client probe outputs are
+not yet included here. Record those observations before claiming complete LAN
+acceptance; commit messages alone do not establish a successful probe.
 
 GitHub recognized the signed operational commits as verified. The gitops branch
 requires signed commits, disallows force pushes and deletion, enforces rules for

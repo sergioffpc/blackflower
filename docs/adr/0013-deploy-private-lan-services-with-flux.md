@@ -5,11 +5,12 @@ Status: accepted by the owner in
 implementation and evidence are tracked separately in
 [issue #45](https://github.com/sergioffpc/blackflower/issues/45).
 
-Use single-node K3s directly on the Debian Dell R630, with Flux pulling desired
-state from a permanent gitops branch in the existing public repository. MetalLB
-supplies a distinct private LAN IP per environment; LAN DNS uses
-blackflower.home.arpa and every service uses a common UDP port. This avoids
-exposing the Kubernetes API to hosted CI and avoids a second repository.
+Building on [ADR-0012](0012-use-flux-for-lan-cd.md), use single-node K3s
+directly on the Debian Dell R630, with Flux pulling desired state from a
+permanent gitops branch in the existing public repository. MetalLB supplies a
+distinct private LAN IP per environment; LAN DNS uses blackflower.home.arpa and
+every service uses a common UDP port. This avoids exposing the Kubernetes API to
+hosted CI and avoids a second repository.
 
 Keep source workflows and templates in the ordinary Git-flow branches.
 Operational state updates use verified signed Conventional Commits without a PR
