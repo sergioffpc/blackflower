@@ -134,6 +134,31 @@ Use meaningful Conventional Commit messages for release and hotfix merges.
 Verify commit and tag signatures before publishing. Creating a build scaffold
 does not itself create a release.
 
+## Deployment state branch
+
+The [accepted CD design](continuous-deployment.md) adds a permanent `gitops`
+branch in this repository for desired environment state. This is an operational
+branch, not a source integration or release branch. The branch and automation
+have not been provisioned.
+
+Deployment workflows and templates follow ordinary feature, develop and main
+review. State-writing automation may update `gitops` directly without a PR per
+deployment, using signed Conventional Commits and verifying signatures before
+push. This exception applies only to operational state updates; it does not
+change main or develop protection or permit direct source integration.
+
+Flux watches `gitops`. Its updates must not trigger the server build/CD source
+flow, and the branch must not create its own environment. Keep it out of normal
+release merges and temporary-branch cleanup. Manual recovery restores desired
+state on this branch to prevent Flux from reversing the recovery.
+
+When application CD is enabled, deployed feature branches must use
+`feature/<issue>-<description>`, with one active feature branch per Issue ID.
+Hotfix and release branches retain `hotfix/<version>` and `release/<version>`.
+The automation must check source validation, branch existence and revision
+ordering before changing an environment. See
+[ADR-0012](adr/0012-use-flux-for-lan-cd.md) for the trade-off and consequences.
+
 ## Tooling
 
 Git-flow is a branch workflow and can be followed with standard Git commands.
