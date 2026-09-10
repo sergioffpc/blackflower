@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns
+  namespace: external-dns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: blackflower-external-dns
+rules:
+  - apiGroups: ['']
+    resources: [services, pods, nodes]
+    verbs: [get, watch, list]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, watch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: blackflower-external-dns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: blackflower-external-dns
+subjects:
+  - kind: ServiceAccount
+    name: external-dns
+    namespace: external-dns
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: external-dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: external-dns
+  template:
+    metadata:
+      labels:
+        app: external-dns
+    spec:
+      serviceAccountName: external-dns
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: external-dns
+          image: registry.k8s.io/external-dns/external-dns@sha256:5fdcaf7deb5c158f93a1fc6fe169cdff4cfb9ae0172bee1a90ab0ef74fb9c9cf
+          args:
+            - --source=service
+            - --annotation-filter=blackflower.io/dns=true
+            - --provider=rfc2136
+            - --rfc2136-host=192.168.86.46
+            - --rfc2136-port=53
+            - --rfc2136-zone=blackflower.home.arpa
+            - --rfc2136-tsig-keyname=blackflower-external-dns
+            - --rfc2136-tsig-secret-alg=hmac-sha256
+            - --rfc2136-axfr
+            - --domain-filter=blackflower.home.arpa
+            - --registry=txt
+            - --txt-owner-id=blackflower-dell
+            - --txt-prefix=external-dns-
+            - --policy=sync
+            - --interval=15s
+          env:
+            - name: EXTERNAL_DNS_RFC2136_TSIG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rfc2136
+                  key: secret
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 7979
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi

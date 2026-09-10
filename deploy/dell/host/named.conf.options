@@ -1,0 +1,17 @@
+acl blackflower_clients {
+    127.0.0.1;
+    192.168.86.0/24;
+    10.42.0.0/16;
+};
+options {
+    directory "/var/cache/bind";
+    listen-on { 127.0.0.1; 192.168.86.46; };
+    listen-on-v6 { none; };
+    recursion yes;
+    allow-query { blackflower_clients; };
+    allow-recursion { blackflower_clients; };
+    allow-transfer { none; };
+    forward only;
+    forwarders { 1.1.1.1; 9.9.9.9; };
+    dnssec-validation auto;
+};

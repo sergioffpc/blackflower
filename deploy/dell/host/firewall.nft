@@ -1,0 +1,11 @@
+# This independent table leaves existing host and Kubernetes rules intact.
+table inet blackflower {
+  chain ingress {
+    type filter hook prerouting priority -110; policy accept;
+    iifname "eno1" ip saddr != 192.168.86.0/24 ip daddr 192.168.86.200-192.168.86.239 drop
+    iifname "eno1" ip saddr != 192.168.86.0/24 tcp dport { 53, 6443, 10250, 30000-32767 } drop
+    iifname "eno1" ip saddr != 192.168.86.0/24 udp dport { 53, 8472 } drop
+    iifname "eno1" meta nfproto ipv6 tcp dport { 53, 6443, 10250, 30000-32767 } drop
+    iifname "eno1" meta nfproto ipv6 udp dport { 53, 8472 } drop
+  }
+}

@@ -1,0 +1,70 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: blackflower
+  namespace: flux-system
+spec:
+  interval: 30s
+  url: https://github.com/sergioffpc/blackflower
+  ref:
+    branch: gitops
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./flux-system
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: blackflower
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: controllers
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./controllers
+  prune: false
+  wait: true
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: blackflower
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: network
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./network
+  prune: false
+  dependsOn:
+    - name: controllers
+  sourceRef:
+    kind: GitRepository
+    name: blackflower
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: environments
+  namespace: flux-system
+spec:
+  interval: 30s
+  path: ./environments
+  prune: true
+  wait: true
+  timeout: 3m
+  dependsOn:
+    - name: network
+  sourceRef:
+    kind: GitRepository
+    name: blackflower

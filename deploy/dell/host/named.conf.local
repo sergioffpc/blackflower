@@ -1,0 +1,9 @@
+include "/etc/bind/blackflower-tsig.key";
+zone "blackflower.home.arpa" {
+    type primary;
+    file "/var/lib/bind/blackflower.home.arpa.zone";
+    allow-transfer { key "blackflower-external-dns"; };
+    update-policy {
+        grant blackflower-external-dns zonesub A AAAA TXT;
+    };
+};

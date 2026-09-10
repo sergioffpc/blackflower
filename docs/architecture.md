@@ -325,6 +325,12 @@ rendering. Linux-hosted Windows compilation must separate Linux tools from
 Windows libraries and runtime artifacts; see the
 [stack feasibility checks](technology-stack.md#evidence-required-before-the-first-delivery-can-rely-on-the-stack).
 
+The [Dell infrastructure](dell-operations.md) introduces single-node K3s, Flux,
+MetalLB and private LAN DNS. Source templates live under deploy/dell; Flux reads
+operational state from the permanent gitops branch. A diagnostic UDP workload
+exercises infrastructure independently of simulation-server readiness. Refer to
+the operational evidence before claiming LAN acceptance.
+
 ## 8. Crosscutting concepts
 
 ### ECS execution and external effects
@@ -457,6 +463,9 @@ contract and the pack v1 format.
 [ADR-0011](adr/0011-map-content-files.md) selects read-only file mappings and
 defines their ownership and immutable-backing-file contract.
 
+[ADR-0012](adr/0012-deploy-private-lan-services-with-flux.md) records the agreed
+private LAN deployment architecture and independent operational Git branch.
+
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
 created. Capture the status, context, driving requirements, alternatives
@@ -563,6 +572,12 @@ authority for the consumer reference. Validate publication and a fresh hosted
 pull before accepting a new digest. See the
 [GHCR validation boundary](validation/ghcr-development-image.md).
 
+The infrastructure acceptance boundary is a signed Git change through DNS and
+UDP on the LAN, including update and removal while preserving unrelated
+resources. This diagnostic boundary does not validate simulation or content
+readiness. [Dell operations](dell-operations.md) defines the reproducible steps
+and recovery responsibilities.
+
 ## 11. Risks and technical debt
 
 | ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
@@ -611,6 +626,11 @@ private packages require developer authentication and prevent unauthenticated
 fork use. Rebuilding candidates still requires retained Ubuntu snapshots and
 upstream tool archives. Independent image backups and a package mirror remain
 unimplemented.
+
+The Dell is a single point of failure for cluster workloads and, once configured
+as the Google Mesh resolver, LAN DNS. Keep private backups and the documented
+DNS fallback procedure. A host-only UDP result does not establish reachability
+from a second LAN machine.
 
 ## 12. Glossary
 
