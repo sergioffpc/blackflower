@@ -29,7 +29,7 @@ and force pushes and require GitHub-recognized signatures. The operator
 provisions scoped credentials outside Git; Flux reads this public branch without
 credentials. Preserve concurrent environments when updating state. See
 [Dell operations](dell-operations.md) and
-[ADR-0012](adr/0012-deploy-private-lan-services-with-flux.md). The automatic
+[ADR-0013](adr/0013-deploy-private-lan-services-with-flux.md). The automatic
 state writer remains separate work under issue #44.
 
 ## Protected branches
@@ -150,6 +150,32 @@ considering the hotfix finished.
 Use meaningful Conventional Commit messages for release and hotfix merges.
 Verify commit and tag signatures before publishing. Creating a build scaffold
 does not itself create a release.
+
+## Deployment state branch
+
+The [accepted CD design](continuous-deployment.md) adds a permanent `gitops`
+branch in this repository for desired environment state. This is an operational
+branch, not a source integration or release branch. The branch is provisioned
+under the [operational state rules](#operational-state-branch); the automatic
+state writer remains unimplemented.
+
+Deployment workflows and templates follow ordinary feature, develop and main
+review. State-writing automation may update `gitops` directly without a PR per
+deployment, using signed Conventional Commits and verifying signatures before
+push. This exception applies only to operational state updates; it does not
+change main or develop protection or permit direct source integration.
+
+Flux watches `gitops`. Its updates must not trigger the server build/CD source
+flow, and the branch must not create its own environment. Keep it out of normal
+release merges and temporary-branch cleanup. Manual recovery restores desired
+state on this branch to prevent Flux from reversing the recovery.
+
+When application CD is enabled, deployed feature branches must use
+`feature/<issue>-<description>`, with one active feature branch per Issue ID.
+Hotfix and release branches retain `hotfix/<version>` and `release/<version>`.
+The automation must check source validation, branch existence and revision
+ordering before changing an environment. See
+[ADR-0012](adr/0012-use-flux-for-lan-cd.md) for the trade-off and consequences.
 
 ## Tooling
 

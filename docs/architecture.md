@@ -285,6 +285,35 @@ ThreadSanitizer, and Release validation on Ubuntu 26.04 and retains diagnostic
 artifacts. Windows cross-builds are local build targets; they are outside CI. No
 application deployment or release publication pipeline exists yet.
 
+The owner has requested LAN-only Kubernetes continuous deployment for the
+simulation server: permanent develop and production environments, and temporary
+feature, hotfix and release environments removed when their branches disappear.
+All environments restart on deployment and may disconnect players. The
+[CD design](continuous-deployment.md) records accepted behavior and remaining
+implementation inputs. The Dell R630 runs single-node K3s directly on Debian,
+with Flux, MetalLB, BIND and ExternalDNS provisioned as recorded in
+[Dell operations](dell-operations.md). The deployment design assigns a LAN IP
+and DNS name per environment under `blackflower.home.arpa`, and a common UDP
+port. Flux reconciles deployment state from a permanent `gitops` branch in this
+repository, using public digest-pinned GHCR server images based on
+`ubuntu:26.04`. Server and content-pack publication have independent lifecycles,
+so multiple server versions may reuse the same pack. Server pods share a pack
+filesystem and select a pack by command-line argument. The pack filesystem
+resides on the Dell and is read-only for server pods; publication preserves
+packs in use. Windows client delivery is outside this CD scope. Application
+deployment remains unimplemented. The diagnostic lifecycle passed from the Dell
+using its BIND resolver; Google Mesh DNS integration and UDP reachability from a
+second LAN client remain unverified.
+
+CD server artifacts must be compiled specifically for the actual Dell R630 CPU
+and validated on that hardware. The
+[Dell-specific build requirement](continuous-deployment.md#dell-specific-server-build)
+records the specified dual Xeon E5-2690 v4 target and requires measured
+performance. GitHub runners build Clang Release with `-O3`, `-march=broadwell`,
+`-mtune=broadwell` and ThinLTO; numerical semantics remain intact. PGO is
+deferred until representative profiles can be collected on the Dell and its
+benefit measured.
+
 Binary reference packs and their public key in tests/fixtures/packs are stored
 with Git LFS. The build workflow downloads their contents during checkout; local
 clones use the [Git LFS setup](git-workflow.md#starting-work). The versioned
@@ -463,8 +492,12 @@ contract and the pack v1 format.
 [ADR-0011](adr/0011-map-content-files.md) selects read-only file mappings and
 defines their ownership and immutable-backing-file contract.
 
-[ADR-0012](adr/0012-deploy-private-lan-services-with-flux.md) records the agreed
-private LAN deployment architecture and independent operational Git branch.
+[ADR-0012](adr/0012-use-flux-for-lan-cd.md) selects Flux, single-node K3s and
+MetalLB for LAN server delivery, with public GHCR images and a same-repository
+`gitops` state branch. Application delivery remains unimplemented.
+
+[ADR-0013](adr/0013-deploy-private-lan-services-with-flux.md) records the
+private LAN infrastructure and DNS integration supporting that design.
 
 Record significant future decisions in docs/adr/ following the
 [domain documentation rules](agents/domain.md), and index them here once
@@ -578,7 +611,20 @@ resources. This diagnostic boundary does not validate simulation or content
 readiness. [Dell operations](dell-operations.md) defines the reproducible steps
 and recovery responsibilities.
 
+The [CD acceptance targets](continuous-deployment.md#acceptance-targets), CD-Q01
+through CD-Q04, cover deployment timing, removal, periodic cleanup and server
+readiness. They remain unvalidated.
+
 ## 11. Risks and technical debt
+
+The planned CD environments share one Dell host and local pack storage. Host
+failure affects every environment, and server replacement failures require
+manual recovery. Google Mesh DNS integration and a second LAN client's UDP
+reachability remain unverified. Shared volume access, automated state updates
+and runtime readiness still need implementation work; track them in the
+[CD implementation inputs](continuous-deployment.md#implementation-and-provisioning-inputs)
+and [Dell operations](dell-operations.md). Capacity and deployment timing
+require measurements on the Dell.
 
 | ID    | Open issue                                                                                                                                                                                                                            | Impact                                                                                                                                          | Next step                                                                                                                                                                                                                                                                      |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
