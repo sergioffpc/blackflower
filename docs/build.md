@@ -174,7 +174,10 @@ during Debug CRT startup with this SDK; the upstream Windows port documents
 [Debug CRT incompatibility](https://github.com/google/sanitizers/wiki/AddressSanitizerWindowsPort#debug-crt-incompatibility).
 Debug retains `-O0`, symbols, assertions, and ASan, but does not use the
 Microsoft debug heap or debug iterator ABI. Keep the CRT choice consistent
-across project and dependency builds; do not mix their C++ library ABIs.
+across project and dependency builds; do not mix their C++ library ABIs. The
+Windows vcpkg triplet sets CMAKE_POLICY_DEFAULT_CMP0091=NEW so dependencies with
+older CMake minimums, including Flecs, honor the toolchain runtime selection
+during compiler probes and builds.
 
 For Windows Debug ASan, extract the x86_64 ASan files from the official
 [LLVM 21.1.8 Windows distribution](https://github.com/llvm/llvm-project/releases/tag/llvmorg-21.1.8).

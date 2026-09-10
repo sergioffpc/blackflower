@@ -98,16 +98,17 @@ dispatched manually once the workflow exists on the default branch.
 
 C/C++ analysis uses a manual Release build with the project's Clang 21, C++23,
 CMake presets, and pinned vcpkg baseline. Dependencies are configured before
-CodeQL initialization; the traced build explicitly selects `blackflower` and
-`blackflower_content`, covering production code and its compiled dependencies.
-Tests, the content harness and benchmarks are excluded from CodeQL extraction at
-the owner's request. Keep this target list current when production targets are
-added; a production dependency must not pull test code into the build. The job
-sets `BLACKFLOWER_USE_SCCACHE=OFF` to invoke the compiler directly for project
-targets: a cache hit or compilation delegated to an existing sccache daemon
-would escape extraction. Dependency builds retain their toolchain defaults and
-happen before tracing. GitHub Actions analysis uses no build. The separate Linux
-CI remains responsible for clang-tidy, formatting, tests, and sanitizers.
+CodeQL initialization; the traced build explicitly selects `blackflower`,
+`blackflower_content` and `blackflower_scene`, covering production code and its
+compiled dependencies. Tests, the content harness and benchmarks are excluded
+from CodeQL extraction at the owner's request. Keep this target list current
+when production targets are added; a production dependency must not pull test
+code into the build. The job sets `BLACKFLOWER_USE_SCCACHE=OFF` to invoke the
+compiler directly for project targets: a cache hit or compilation delegated to
+an existing sccache daemon would escape extraction. Dependency builds retain
+their toolchain defaults and happen before tracing. GitHub Actions analysis uses
+no build. The separate Linux CI remains responsible for clang-tidy, formatting,
+tests, and sanitizers.
 
 Inspect **Security → Code scanning** for findings and select the relevant
 branch. Successful analysis means the scan completed, not that all findings have

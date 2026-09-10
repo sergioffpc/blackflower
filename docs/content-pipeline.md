@@ -1,9 +1,10 @@
-# Minimal signed scenario pipeline
+# Signed scene pipeline
 
 [#21](https://github.com/sergioffpc/blackflower/issues/21) implements the first
-OpenUSD-to-signed-pack-to-C++ content path. This is primitive content and a
-runtime consumption harness; graphics, physics execution, audio, admission, and
-world startup remain in their dependent tickets.
+OpenUSD-to-signed-pack-to-C++ content path. #58 adds referenced entities and
+owned bounds. This is prepared content and a runtime consumption harness;
+graphics, physics execution, audio, admission, and world startup remain in their
+dependent tickets.
 
 ## Python setup and checks
 
@@ -31,7 +32,7 @@ Linux cooker dependency only. The package imports the official `pxr` bindings,
 reads USDA or USDC, and rejects unsupported authoring content explicitly. The
 [authoring contract](../schemas/scene/v1.md) and
 [reference scene](../tests/integration/fixtures/mvp.usda) define units,
-transforms, IDs, geometry, light and spawn-point encoding.
+transforms, identities and entity-owned bounds.
 
 ## Cooking and verification
 
@@ -90,9 +91,9 @@ build/debug/blackflower_content_harness \
 ```
 
 ServerScene, AgentScene and ClientScene are complete for their respective
-consumers. All files contain collision geometry. Only ServerScene contains spawn
-points, and only ClientScene contains the source lights. Visual mesh and audio
-resources are not yet implemented. Applications supply their own pack path and
+consumers. All three currently contain only entities with their placement
+transforms and optional bounds. Visual, audio, light and spawn resources are not
+implemented in this entity slice. Applications supply their own pack path and
 independent trust set; the loader has no role parameter. The public
 `VerifiedPack` retains the read-only file mapping and exposes a
 `std::variant<ServerScene, AgentScene, ClientScene>`. The authenticated magic
@@ -139,8 +140,9 @@ packages or private keys.
 
 Repeated identical inputs/settings/tool versions yield identical prepared
 payloads, provenance, build identities and packs when using the same key.
-Changing source bytes (even authoring whitespace) changes the conservative build
-identity. Provenance records source/settings hashes, cooker revision, Python,
+Changing source or referenced definition bytes (even authoring whitespace)
+changes the conservative build identity. Provenance records
+dependency-transcript/settings hashes, cooker revision, Python,
 cryptography/OpenSSL and OpenUSD versions. Record the vcpkg baseline, libsodium
 revision, compiler and OS with runtime evidence. The initial implementation has
 no Assimp, meshoptimizer, Slang or PhysX processing to report yet.
@@ -149,3 +151,12 @@ Recorded results and environment limitations are in the
 [validation evidence](validation/content-pipeline.md). On case-sensitive WSL
 storage, locally provided Windows CRT DLL filenames must match the PE import
 names exactly.
+
+The entity contract and runnable examples are in
+[USD authoring](usd-authoring.md). The current slice's evidence is in
+[scene entity validation](validation/scene-entities.md).
+
+The headless [runtime scene API](runtime-scenes.md) consumes the same trusted
+packs. The harness's optional `instances` argument runs the #61 fixture's public
+lifecycle checks and emits transformed geometry for the Python integration test.
+Current schema 1 stores local colliders; regenerate earlier world-space packs.

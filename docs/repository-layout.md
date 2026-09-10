@@ -2,7 +2,7 @@
 
 Implemented subset: [#21](https://github.com/sergioffpc/blackflower/issues/21)
 supplies the
-[uv-managed OpenUSD cooker, signed primitive packs and C++ content loader](content-pipeline.md).
+[uv-managed OpenUSD cooker, signed entity packs and C++ content loader](content-pipeline.md).
 The rest of the runtime/SDK design below remains proposed. The cooker produces
 `.bfserver`, `.bfagent` and `.bfclient` files. Applications select paths; the
 loader validates resource schemas without a role parameter.
@@ -58,7 +58,8 @@ blackflower/
 │               ├── __init__.py
 │               ├── __main__.py      # CLI and signing-key generation
 │               ├── pipeline.py     # Cooking, signing and publication
-│               ├── usd_source.py   # OpenUSD primitive scene reader
+│               ├── usd_dependencies.py # Private USD dependency snapshots
+│               ├── usd_source.py   # OpenUSD entity and bounds reader
 │               ├── scene.py        # Scene values and binary encoding
 │               ├── pack.py         # Pack encoding and verification
 │               ├── progress.py     # Terminal progress display
@@ -236,7 +237,7 @@ and benchmark workflows. Update source collection for clang-tidy/format checks
 so files in new modules are covered. Preserve the implemented Python cooker and
 cross-language pack conformance checks during this migration.
 
-The content module, primitive cooker, schemas and fixtures are implemented; the
+The content module, entity cooker, schemas and fixtures are implemented; the
 broader directory proposal does not request speculative scaffolding. The
 [architecture](architecture.md) and [cooker design](cooker-and-packs.md)
 distinguish the selected languages from this directory proposal.

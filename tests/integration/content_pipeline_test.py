@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import struct
 import subprocess
 import sys
@@ -14,7 +15,6 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from pxr import Sdf
 from pxr import Usd
-from pxr import UsdGeom
 
 from cooker import pack
 
@@ -44,107 +44,196 @@ def _harness_command(
     ]
 
 
-def _write_authored_scene(source: pathlib.Path) -> None:
-    stage = Usd.Stage.Open(str(ROOT / "tests/integration/fixtures/mvp.usda"))
-    _author_collision_shape(stage)
-    _author_lights(stage)
-    layer = stage.GetRootLayer()
-    for name in ("NorthWest", "SouthEast", "NorthEast"):
-        stage.RemovePrim(f"/Scenario/Spawns/{name}")
-    stage.GetPrimAtPath("/Scenario/Spawns/SouthWest").GetAttribute(
-        "xformOp:translate"
-    ).Set((-3, 5, 0))
-    # types-usd leaves the optional export-argument dictionary untyped.
-    layer.Export(str(source))  # pyright: ignore[reportUnknownMemberType]
-
-
-def _author_collision_shape(stage: Usd.Stage) -> None:
-    sphere = UsdGeom.Sphere.Define(stage, "/Scenario/CollisionShapes/Ball")
-    sphere.GetRadiusAttr().Set(0.5)
-    sphere.GetPrim().CreateAttribute(
-        "blackflower:id",
-        stage.GetPrimAtPath("/Scenario/CollisionShapes/West")
-        .GetAttribute("blackflower:id")
-        .GetTypeName(),
-    ).Set(8)
-    UsdGeom.Xformable(sphere).AddTranslateOp().Set((1, 5, 2))
-
-
-def _author_lights(stage: Usd.Stage) -> None:
-    light = stage.GetPrimAtPath("/Scenario/Lights/Ceiling")
-    light.GetAttribute("blackflower:color").Set((0.5, 0.25, 0.125))
-    light.GetAttribute("blackflower:intensity").Set(2)
-    directional = UsdGeom.Xform.Define(stage, "/Scenario/Lights/Sun").GetPrim()
-    directional.CreateAttribute("blackflower:id", Sdf.ValueTypeNames.UInt).Set(
-        2
-    )
-    directional.CreateAttribute(
-        "blackflower:lightType", Sdf.ValueTypeNames.Token
-    ).Set("directional")
-    directional.CreateAttribute(
-        "blackflower:direction", Sdf.ValueTypeNames.Float3
-    ).Set((0, -1, 0))
-    directional.CreateAttribute(
-        "blackflower:color", Sdf.ValueTypeNames.Float3
-    ).Set((1, 1, 1))
-    directional.CreateAttribute(
-        "blackflower:intensity", Sdf.ValueTypeNames.Float
-    ).Set(3)
-
-
 class ContentPipelineTest(unittest.TestCase):
 
-    def test_cooked_pack_accepts_missing_collections(self):
-        scopes = ("CollisionShapes", "Lights", "Spawns")
+    def test_entity_dependencies_are_relocatable_and_reproducible(self):
         with tempfile.TemporaryDirectory() as directory:
             work = pathlib.Path(directory)
+            authored = work / "authored"
+            shutil.copytree(ROOT / "tests/integration/fixtures", authored)
             private, public = work / "private.pem", work / "public.key"
             self._generate_signing_keys(private, public)
-            for missing in ((scope,) for scope in scopes):
-                with self.subTest(missing=missing):
-                    self._check_missing_collections(
-                        work, private, public, missing
-                    )
-            with self.subTest(missing=scopes):
-                self._check_missing_collections(work, private, public, scopes)
+            original = self._cook(
+                authored / "scenes/entities.usda", work / "first", private
+            )
+            relocated = work / "relocated"
+            shutil.copytree(authored, relocated)
+            repeated = self._cook(
+                relocated / "scenes/entities.usda", work / "repeated", private
+            )
+            self.assertEqual(original, repeated)
+            for name in ("server", "agent", "client"):
+                filename = f"entities.bf{name}"
+                self.assertEqual(
+                    (work / "first" / filename).read_bytes(),
+                    (work / "repeated" / filename).read_bytes(),
+                )
+            definition = relocated / "entities/box.usda"
+            definition.write_text(
+                definition.read_text().replace(
+                    "double size = 1", "double size = 2"
+                )
+            )
+            changed = self._cook(
+                relocated / "scenes/entities.usda", work / "changed", private
+            )
+            self.assertNotEqual(original, changed)
 
-    def _check_missing_collections(
-        self,
-        work: pathlib.Path,
-        private: pathlib.Path,
-        public: pathlib.Path,
-        missing: tuple[str, ...],
-    ) -> None:
-        stage = Usd.Stage.Open(
-            str(ROOT / "tests/integration/fixtures/mvp.usda")
-        )
-        for scope in missing:
-            stage.RemovePrim(f"/Scenario/{scope}")
-        source = work / "scene.usda"
-        stage.GetRootLayer().Export(str(source))
-        output = work / "-".join(missing)
-        self._cook(source, output, private)
-        for name in ("server", "agent", "client"):
+    def test_entity_identity_survives_rename_and_definition_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            shutil.copytree(
+                ROOT / "tests/integration/fixtures", work / "inputs"
+            )
+            source = work / "inputs/scenes/entities.usda"
+            stage = Usd.Stage.Open(str(source))
+            layer = stage.GetRootLayer()
+            edits = Sdf.BatchNamespaceEdit()
+            edits.Add("/Scene/Entities/Box", "/Scene/Entities/Renamed")
+            self.assertTrue(layer.Apply(edits))
+            copy = stage.DefinePrim("/Scene/Entities/Copy", "Xform")
+            copy.GetReferences().AddReference("../entities/box.usda")
+            copy.CreateAttribute(
+                "blackflower:id", Sdf.ValueTypeNames.String
+            ).Set("box-02")
+            layer.Save()
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            self._cook(source, work / "cooked", private)
             loaded = subprocess.run(
-                _harness_command(output / f"scene.bf{name}", public),
+                _harness_command(work / "cooked/entities.bfagent", public),
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(loaded.returncode, 0, loaded.stderr)
-            content = json.loads(loaded.stdout)
+            data = json.loads(loaded.stdout)
             self.assertEqual(
-                len(content["collision_shapes"]),
-                0 if "CollisionShapes" in missing else 7,
+                [e["id"] for e in data["entities"]],
+                ["box-01", "box-02", "floor-main"],
             )
             self.assertEqual(
-                len(content["lights"]),
-                1 if name == "client" and "Lights" not in missing else 0,
+                data["entities"][0]["collider_asset_id"],
+                data["entities"][1]["collider_asset_id"],
             )
             self.assertEqual(
-                len(content["spawns"]),
-                4 if name == "server" and "Spawns" not in missing else 0,
+                [len(e["colliders"]) for e in data["entities"]], [2, 2, 1]
             )
+
+    def test_referenced_entities_preserve_owned_oriented_collision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            authored = work / "authored"
+            shutil.copytree(ROOT / "tests/integration/fixtures", authored)
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            source = authored / "scenes/entities.usda"
+            output = work / "cooked"
+            identities = self._cook(source, output, private)
+            shutil.rmtree(authored)
+            for name in ("server", "agent", "client"):
+                isolated = work / f"{name}-cenário.pack"
+                shutil.copyfile(output / f"entities.bf{name}", isolated)
+                loaded = subprocess.run(
+                    _harness_command(isolated, public),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+                content = json.loads(loaded.stdout)
+                self.assertEqual(
+                    content["content_build_id"], identities["content_build_id"]
+                )
+                self.assertEqual(
+                    [e["id"] for e in content["entities"]],
+                    ["box-01", "floor-main"],
+                )
+                self._check_entity_boxes(content)
+
+    def _check_entity_boxes(self, content: dict[str, Any]) -> None:
+        box_entity, floor_entity = content["entities"]
+        self.assertEqual(box_entity["position_m"], [2, 1, 3])
+        self.assertEqual(box_entity["scale"], 2)
+        body, cap = box_entity["colliders"]
+        (floor,) = floor_entity["colliders"]
+        for actual, expected in zip(cap["center_m"], (1.0, 0.0, 0.0)):
+            self.assertAlmostEqual(actual, expected, places=9)
+        self.assertEqual(body["dimensions_m"], [1, 1, 1])
+        self.assertEqual(cap["dimensions_m"], [0.5, 0.5, 0.5])
+        self.assertEqual(floor["dimensions_m"], [20, 0.2, 20])
+        self.assertEqual(floor["center_m"], [0, -0.1, 0])
+        for actual, expected in zip(
+            body["rotation_xyzw"],
+            (0, 0, 0, 1),
+        ):
+            self.assertAlmostEqual(actual, expected, places=12)
+
+    def test_entities_and_bounds_are_optional(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            shutil.copytree(
+                ROOT / "tests/integration/fixtures", work / "inputs"
+            )
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            definition = work / "inputs/entities/box.usda"
+            stage = Usd.Stage.Open(str(definition))
+            stage.RemovePrim("/Entity/Bounds")
+            stage.GetRootLayer().Save()
+            source = work / "inputs/scenes/entities.usda"
+            for empty in (False, True):
+                if empty:
+                    stage = Usd.Stage.Open(str(source))
+                    stage.RemovePrim("/Scene/Entities")
+                    stage.GetRootLayer().Save()
+                self._cook(source, work / str(empty), private)
+                for role in ("server", "agent", "client"):
+                    content = self._consume(
+                        work / str(empty) / f"entities.bf{role}", public
+                    )
+                    self.assertEqual(
+                        set(content),
+                        {
+                            "scene_type",
+                            "content_build_id",
+                            "scene_asset_id",
+                            "entities",
+                        },
+                    )
+                    if empty:
+                        self.assertEqual(content["entities"], [])
+                    else:
+                        self.assertEqual(
+                            content["entities"][0]["colliders"], []
+                        )
+
+    def test_scene_instances_share_collision_and_unload_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            self._cook(
+                ROOT / "tests/integration/fixtures/scenes/entities.usda",
+                work / "cooked",
+                private,
+            )
+            for role in ("server", "agent", "client"):
+                loaded = subprocess.run(
+                    _harness_command(
+                        work / "cooked" / f"entities.bf{role}", public
+                    )
+                    + ["instances"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+                result = json.loads(loaded.stdout)
+                self.assertTrue(result["lifecycle_verified"])
+                for actual, expected in zip(result["cap_center"], (6, 5, -6)):
+                    self.assertAlmostEqual(actual, expected, places=9)
+                self.assertEqual(result["body_dimensions"], [4, 4, 4])
 
     def test_independently_encoded_reference_pack(self):
         reference = json.loads(
@@ -181,22 +270,32 @@ class ContentPipelineTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         content = json.loads(result.stdout)
         self.assertEqual(content["scene_type"], name)
+        self.assertEqual(content["scene_asset_id"], reference["scene_asset_id"])
+        self.assertEqual(
+            content["entities"][0]["collider_asset_id"],
+            reference["collider_asset_id"],
+        )
+        self.assertEqual(
+            content["scene_asset_id"],
+            hashlib.sha256(
+                b"Blackflower.Scene.v1" + verified.payload
+            ).hexdigest(),
+        )
         self.assertEqual(
             content["content_build_id"], reference["content_build_id"]
         )
 
-    def test_cooked_pack_preserves_authored_scene(self):
-        with tempfile.TemporaryDirectory() as directory:
-            work = pathlib.Path(directory)
-            private = work / "private.pem"
-            public = work / "public.key"
-            self._generate_signing_keys(private, public)
-            source = work / "scene.usda"
-            _write_authored_scene(source)
-            output = work / "cooked"
-            identities = self._cook(source, output, private)
-            for name in ("server", "agent", "client"):
-                self._check_cooked(work, output, public, identities, name)
+    def _consume(
+        self, path: pathlib.Path, public: pathlib.Path
+    ) -> dict[str, Any]:
+        result = subprocess.run(
+            _harness_command(path, public),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
 
     def _generate_signing_keys(
         self, private: pathlib.Path, public: pathlib.Path
@@ -247,85 +346,6 @@ class ContentPipelineTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    def _check_cooked(
-        self,
-        work: pathlib.Path,
-        output: pathlib.Path,
-        public: pathlib.Path,
-        identities: dict[str, str],
-        name: str,
-    ) -> None:
-        isolated = work / name
-        isolated.mkdir()
-        pack_path = isolated / "cenário.pack"
-        pack_path.write_bytes((output / f"scene.bf{name}").read_bytes())
-        loaded = subprocess.run(
-            _harness_command(pack_path, public),
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=isolated,
-        )
-        self.assertEqual(loaded.returncode, 0, loaded.stderr)
-        content = json.loads(loaded.stdout)
-        self.assertEqual(content["scene_type"], name)
-        self._check_collision_shapes(content)
-        self._check_placements(content, name)
-        self.assertEqual(
-            content["content_build_id"],
-            identities["content_build_id"],
-        )
-
-    def _check_collision_shapes(self, content: dict[str, Any]) -> None:
-        self.assertEqual(len(content["collision_shapes"]), 8)
-        self.assertEqual(
-            content["collision_shapes"][0],
-            {
-                "id": 1,
-                "kind": 1,
-                "center_mm": [-3000, 1000, 0],
-                "dimensions_mm": [2000, 2000, 2000],
-            },
-        )
-        self.assertEqual(
-            content["collision_shapes"][-1],
-            {
-                "id": 8,
-                "kind": 2,
-                "center_mm": [1000, 5000, 2000],
-                "dimensions_mm": [500],
-            },
-        )
-
-    def _check_placements(self, content: dict[str, Any], name: str) -> None:
-        self.assertEqual(
-            content["lights"],
-            [
-                {
-                    "kind": 1,
-                    "id": 1,
-                    "position_mm": [0, 3000, 0],
-                    "color": [0.5, 0.25, 0.125],
-                    "intensity": 2,
-                },
-                {
-                    "kind": 2,
-                    "id": 2,
-                    "direction": [0, -1, 0],
-                    "color": [1, 1, 1],
-                    "intensity": 3,
-                },
-            ]
-            if name == "client"
-            else [],
-        )
-        self.assertEqual(
-            content["spawns"],
-            [{"id": 1, "position_mm": [-3000, 5000, 0]}]
-            if name == "server"
-            else [],
-        )
-
 
 class InvalidPacksTest(unittest.TestCase):
     """Rejects malformed artifacts through the actual C++ file loader."""
@@ -343,7 +363,7 @@ class InvalidPacksTest(unittest.TestCase):
         self.payload_start = self.record_start + 64
 
     def _artifact(
-        self, payload: bytes = bytes(12), magic: bytes = b"BFAGNT1\0"
+        self, payload: bytes = bytes(4), magic: bytes = b"BFAGNT1\0"
     ) -> bytearray:
         record = struct.pack(
             "<4I2Q32s",
@@ -535,60 +555,39 @@ class InvalidPacksTest(unittest.TestCase):
     def test_signed_scene_rejects_missing_records_and_unknown_kinds(
         self,
     ) -> None:
+        entity = (
+            struct.pack("<I", 1)
+            + b"a"
+            + struct.pack("<8dI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
+        )
         for payload, diagnostic in (
             (b"", "invalid scene length"),
-            (bytes(11), "invalid scene length"),
-            (bytes(13), "invalid scene length"),
-            (struct.pack("<3I", 2**32 - 1, 0, 0), "invalid scene length"),
-            (struct.pack("<3I", 0, 2**32 - 1, 0), "invalid scene length"),
-            (struct.pack("<3I", 0, 0, 2**32 - 1), "invalid scene length"),
+            (bytes(3), "invalid scene length"),
+            (bytes(5), "invalid scene length"),
+            (struct.pack("<I", 2**32 - 1), "invalid scene length"),
             (
-                struct.pack("<4I", 1, 0, 0, 257),
-                "unsupported collision shape kind",
+                struct.pack("<I", 1) + entity + struct.pack("<I", 257),
+                "unsupported collider kind",
             ),
-            (struct.pack("<4I", 0, 1, 0, 257), "unsupported light kind"),
         ):
             with self.subTest(payload=payload):
                 self._reject(self._artifact(payload), diagnostic)
 
     def test_signed_records_cannot_be_truncated(self) -> None:
-        for counts, record in (
-            ((1, 0, 0), struct.pack("<8I", 1, 1, 0, 0, 0, 1, 1, 1)),
-            ((1, 0, 0), struct.pack("<6I", 2, 1, 0, 0, 0, 1)),
-            ((0, 1, 0), struct.pack("<9I", 1, 1, 0, 0, 0, 0, 0, 0, 0)),
-            ((0, 1, 0), struct.pack("<9I", 2, 1, 0, 0, 0, 0, 0, 0, 0)),
-            ((0, 0, 1), struct.pack("<4I", 1, 0, 0, 0)),
-        ):
-            magic, scene_type = (
-                (b"BFCLNT1\0", "client")
-                if counts[1]
-                else (b"BFSERV1\0", "server")
-                if counts[2]
-                else (b"BFAGNT1\0", "agent")
-            )
-            header = struct.pack("<3I", *counts)
-            self._accept(self._artifact(header + record, magic), scene_type)
-            for size in range(len(record)):
-                with self.subTest(counts=counts, size=size):
-                    payload = header + record[:size]
-                    self._reject(
-                        self._artifact(payload, magic), "invalid scene length"
-                    )
-
-    def test_signed_scene_rejects_forbidden_collections(self) -> None:
-        light = struct.pack("<3I", 0, 1, 0) + struct.pack(
-            "<9I", 1, 1, 0, 0, 0, 0, 0, 0, 0
+        entity = (
+            struct.pack("<I", 1)
+            + b"a"
+            + struct.pack("<8dI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
         )
-        spawn = struct.pack("<3I", 0, 0, 1) + struct.pack("<4I", 1, 0, 0, 0)
-        for magic, payload in (
-            (b"BFSERV1\0", light),
-            (b"BFAGNT1\0", light),
-            (b"BFAGNT1\0", spawn),
-            (b"BFCLNT1\0", spawn),
-        ):
-            with self.subTest(magic=magic, payload=payload):
+        bound = struct.pack("<I10d", 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)
+        record = entity + bound
+        header = struct.pack("<I", 1)
+        self._accept(self._artifact(header + record), "agent")
+        for size in range(len(record)):
+            with self.subTest(size=size):
                 self._reject(
-                    self._artifact(payload, magic), "invalid scene length"
+                    self._artifact(header + record[:size]),
+                    "invalid scene length",
                 )
 
 

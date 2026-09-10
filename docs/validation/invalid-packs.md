@@ -5,6 +5,10 @@ the `f356016` develop baseline with the changes in this delivery. The existing
 loader already implements rejection; this change adds observable acceptance
 coverage without changing the byte format or production loading interface.
 
+The entity slice #58 adapts the retained integrity tests to the replacement
+entity/bounds payload. Historical execution results below describe the earlier
+delivery; current evidence is in [scene entities](scene-entities.md).
+
 ## Acceptance matrix
 
 The Python integration driver invokes the actual C++ `LoadFile` boundary through
@@ -13,22 +17,21 @@ generates disposable Ed25519 keys in memory and verifies every constructed
 signature with Python cryptography before using a signed malformed fixture. A
 valid independently encoded control must load successfully.
 
-| Input                                                                                | Expected result                                          |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Altered build identity, provenance, authenticated digest or signature                | Signature rejection                                      |
-| Altered payload with unchanged authenticated digest                                  | Digest rejection                                         |
-| Signed artifact carrying its signing key, with different independent trust           | Unknown signing key                                      |
-| Missing file or truncated header, payload or signature; trailing data                | Mapping, length or layout error, as applicable           |
-| Unknown magic/version, zero, multiple or maximal resource count                      | Unsupported format or resource count                     |
-| Maximal u64 sizes, inconsistent sizes or undersized manifest                         | Layout rejection without overflowing arithmetic          |
-| Empty, oversized or non-printable provenance string                                  | Provenance rejection                                     |
-| Invalid resource identity/type/schema/reserved field, offset or size                 | Resource rejection                                       |
-| Duplicate records with overlapping ranges and a valid signature                      | Unsupported resource count: v1 permits exactly one entry |
-| Signed payload with incorrect authenticated digest                                   | Digest rejection                                         |
-| Missing scene header, trailing scene data or maximal collection counts               | Scene length rejection                                   |
-| Every truncated prefix of each box, sphere, point/directional light and spawn record | Scene length rejection                                   |
-| Unknown full-width shape/light discriminator                                         | Unsupported kind                                         |
-| Validly signed lights in ServerScene/AgentScene or spawns in AgentScene/ClientScene  | Scene contract rejection                                 |
+| Input                                                                      | Expected result                                          |
+| -------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Altered build identity, provenance, authenticated digest or signature      | Signature rejection                                      |
+| Altered payload with unchanged authenticated digest                        | Digest rejection                                         |
+| Signed artifact carrying its signing key, with different independent trust | Unknown signing key                                      |
+| Missing file or truncated header, payload or signature; trailing data      | Mapping, length or layout error, as applicable           |
+| Unknown magic/version, zero, multiple or maximal resource count            | Unsupported format or resource count                     |
+| Maximal u64 sizes, inconsistent sizes or undersized manifest               | Layout rejection without overflowing arithmetic          |
+| Empty, oversized or non-printable provenance string                        | Provenance rejection                                     |
+| Invalid resource identity/type/schema/reserved field, offset or size       | Resource rejection                                       |
+| Duplicate records with overlapping ranges and a valid signature            | Unsupported resource count: v1 permits exactly one entry |
+| Signed payload with incorrect authenticated digest                         | Digest rejection                                         |
+| Missing scene header, trailing scene data or maximal collection counts     | Scene length rejection                                   |
+| Every truncated prefix of an entity and its owned box bound                | Scene length rejection                                   |
+| Unknown full-width bound discriminator                                     | Unsupported kind                                         |
 
 Each rejection must exit one, emit no prepared-content stdout, and report the
 expected operator diagnostic. A ten-second subprocess deadline also makes a
@@ -47,11 +50,11 @@ permit in-place writes or truncation of mapped files.
 ## Current schema boundaries
 
 [ADR-0010](../adr/0010-agnostic-content-packs.md) supersedes the ticket's older
-caller-role and platform selectors. Tests enforce the authenticated scene type's
-allowed collections instead. A filename mismatch is valid. Primitive scene
-identities need not be unique and geometry suitability belongs to consumers, as
-specified in [scene v1](../../schemas/scene/v1.md); duplicate _resource_ records
-are invalid.
+caller-role and platform selectors. The authenticated magic still selects the
+concrete scene type; all roles now contain only entities. A filename mismatch is
+valid. Entity identities are unique and sorted; numeric transforms must be
+finite and represent supported boxes. Gameplay suitability belongs to consumers,
+as specified in [scene v1](../../schemas/scene/v1.md).
 
 The current payload has no cross-resource references or SDK/target resource
 profiles. Invalid references and incompatible SDK artifacts must be tested in

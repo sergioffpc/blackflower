@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -15,8 +16,8 @@
 #include <iterator>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -52,7 +53,7 @@ constexpr std::uint32_t kReservedResourceValue = 0;
 constexpr std::uint64_t kSingleResourceOffset = 0;
 
 enum class ResourceType : std::uint8_t {
-  // CollisionShape, light and spawn collections encoded by the scene schema.
+  // Entities with independently authored bounds.
   kScene = 1
 };
 
@@ -90,13 +91,17 @@ class Reader {
   // Decodes one scene scalar; a failed read permanently invalidates the reader.
   template <typename T>
     requires(std::same_as<T, std::uint32_t> || std::same_as<T, std::int32_t> ||
-             std::same_as<T, float>)
+             std::same_as<T, float> || std::same_as<T, double>)
   std::expected<T, PackError> Read() {
-    if (!valid_ || bytes_.size() < sizeof(std::uint32_t)) {
+    if (!valid_ || bytes_.size() < sizeof(T)) {
       valid_ = false;
       return std::unexpected(PackError::kInvalidSceneLength);
     }
-    return std::bit_cast<T>(U32());
+    if constexpr (std::same_as<T, double>) {
+      return std::bit_cast<T>(U64());
+    } else {
+      return std::bit_cast<T>(U32());
+    }
   }
 
   template <typename T, std::size_t N>
@@ -112,19 +117,15 @@ class Reader {
     return values;
   }
 
+  [[nodiscard]] std::span<const unsigned char> remaining() const {
+    return bytes_;
+  }
+
   [[nodiscard]] bool done() const { return valid_ && bytes_.empty(); }
 
  private:
   std::span<const unsigned char> bytes_;
   bool valid_ = true;
-};
-
-// Temporary decoded collections; the file kind determines the public scene
-// type.
-struct DecodedScene {
-  std::vector<CollisionShape> collision_shapes;
-  std::vector<Light> lights;
-  std::vector<Spawn> spawns;
 };
 
 // Views borrow the input artifact; ranges have been checked against its size.
@@ -205,6 +206,20 @@ Digest Hash(std::span<const unsigned char> bytes) {
   return digest;
 }
 
+// Domain-separated identities use authenticated canonical recipe bytes.
+AssetId AssetIdentity(std::string_view domain,
+                      std::span<const unsigned char> bytes) {
+  crypto_hash_sha256_state state{};
+  crypto_hash_sha256_init(&state);
+  crypto_hash_sha256_update(
+      &state, reinterpret_cast<const unsigned char*>(domain.data()),
+      domain.size());
+  crypto_hash_sha256_update(&state, bytes.data(), bytes.size());
+  AssetId result;
+  crypto_hash_sha256_final(&state, result.bytes.data());
+  return result;
+}
+
 // Verifies the header and manifest signature against a trusted public key.
 std::expected<void, PackError> VerifySignature(
     const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
@@ -228,108 +243,52 @@ std::expected<void, PackError> VerifySignature(
   return {};
 }
 
-std::expected<Box, PackError> DecodeBox(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  const auto center = reader.ReadArray<std::int32_t, 3>();
-  if (!center) {
-    return std::unexpected(center.error());
-  }
-  const auto size = reader.ReadArray<std::uint32_t, 3>();
-  if (!size) {
-    return std::unexpected(size.error());
-  }
-  return Box{.id = *id, .center_mm = *center, .size_mm = *size};
+bool ValidIdentity(std::span<const unsigned char> bytes) {
+  const auto alnum = [](unsigned char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9');
+  };
+  return !bytes.empty() && alnum(bytes.front()) &&
+         std::ranges::all_of(bytes, [&](unsigned char c) {
+           return alnum(c) || c == '_' || c == '.' || c == ':' || c == '-';
+         });
 }
 
-std::expected<Sphere, PackError> DecodeSphere(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
+bool ValidTransform(std::span<const double> position,
+                    std::span<const double> rotation,
+                    std::span<const double> dimensions) {
+  const auto finite = [](double v) { return std::isfinite(v); };
+  double norm = 0;
+  for (const auto value : rotation) {
+    norm += value * value;
   }
-  const auto center = reader.ReadArray<std::int32_t, 3>();
-  if (!center) {
-    return std::unexpected(center.error());
-  }
-  const auto radius = reader.Read<std::uint32_t>();
-  if (!radius) {
-    return std::unexpected(radius.error());
-  }
-  return Sphere{.id = *id, .center_mm = *center, .radius_mm = *radius};
+  return std::ranges::all_of(position, finite) &&
+         std::ranges::all_of(rotation, finite) &&
+         std::ranges::all_of(
+             dimensions, [](double v) { return std::isfinite(v) && v > 0; }) &&
+         std::abs(norm - 1) <= 1e-12;
 }
 
-std::expected<CollisionShape, PackError> DecodeCollisionShape(Reader& reader) {
+std::expected<ColliderBox, PackError> DecodeCollider(Reader& reader) {
   const auto kind = reader.Read<std::uint32_t>();
   if (!kind) {
     return std::unexpected(kind.error());
   }
-  switch (static_cast<CollisionShapeKind>(*kind)) {
-    case CollisionShapeKind::kBox:
-      return DecodeBox(reader);
-    case CollisionShapeKind::kSphere:
-      return DecodeSphere(reader);
+  if (*kind != 1) {
+    return std::unexpected(PackError::kUnsupportedCollider);
   }
-  return std::unexpected(PackError::kUnsupportedCollisionShape);
-}
-
-template <typename T>
-std::expected<T, PackError> DecodeLightBody(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
+  const auto values = reader.ReadArray<double, 10>();
+  if (!values) {
+    return std::unexpected(values.error());
   }
-  using Coordinate =
-      std::conditional_t<std::same_as<T, PointLight>, std::int32_t, float>;
-  const auto coordinates = reader.ReadArray<Coordinate, 3>();
-  if (!coordinates) {
-    return std::unexpected(coordinates.error());
+  const auto& v = *values;
+  ColliderBox box{.center_m = {v[0], v[1], v[2]},
+                  .dimensions_m = {v[3], v[4], v[5]},
+                  .rotation_xyzw = {v[6], v[7], v[8], v[9]}};
+  if (!ValidTransform(box.center_m, box.rotation_xyzw, box.dimensions_m)) {
+    return std::unexpected(PackError::kInvalidTransform);
   }
-  const auto color = reader.ReadArray<float, 3>();
-  if (!color) {
-    return std::unexpected(color.error());
-  }
-  const auto intensity = reader.Read<float>();
-  if (!intensity) {
-    return std::unexpected(intensity.error());
-  }
-  T light;
-  light.id = *id;
-  if constexpr (std::same_as<T, PointLight>) {
-    light.position_mm = *coordinates;
-  } else {
-    light.direction = *coordinates;
-  }
-  light.color = *color;
-  light.intensity = *intensity;
-  return light;
-}
-
-std::expected<Light, PackError> DecodeLight(Reader& reader) {
-  const auto kind = reader.Read<std::uint32_t>();
-  if (!kind) {
-    return std::unexpected(kind.error());
-  }
-  switch (static_cast<LightKind>(*kind)) {
-    case LightKind::kPoint:
-      return DecodeLightBody<PointLight>(reader);
-    case LightKind::kDirectional:
-      return DecodeLightBody<DirectionalLight>(reader);
-  }
-  return std::unexpected(PackError::kUnsupportedLight);
-}
-
-std::expected<Spawn, PackError> DecodeSpawn(Reader& reader) {
-  const auto id = reader.Read<std::uint32_t>();
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  const auto position = reader.ReadArray<std::int32_t, 3>();
-  if (!position) {
-    return std::unexpected(position.error());
-  }
-  return Spawn{.id = *id, .position_mm = *position};
+  return box;
 }
 
 // Allocate only after successfully decoding records, not from an unchecked
@@ -349,35 +308,78 @@ std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
   return values;
 }
 
-// Reading each field validates structure; geometry and gameplay rules belong
-// to consumers. No partial scene escapes on failure.
-std::expected<DecodedScene, PackError> DecodeScene(
+std::expected<PrototypeId, PackError> DecodePrototypeId(Reader& reader) {
+  const auto size = reader.Read<std::uint32_t>();
+  if (!size) {
+    return std::unexpected(size.error());
+  }
+  const auto text = reader.Take(*size);
+  if (text.size() != *size) {
+    return std::unexpected(PackError::kInvalidSceneLength);
+  }
+  if (!ValidIdentity(text)) {
+    return std::unexpected(PackError::kInvalidEntity);
+  }
+  return PrototypeId{.value = std::string(text.begin(), text.end())};
+}
+
+std::expected<Prototype, PackError> DecodeEntity(Reader& reader) {
+  auto identity = DecodePrototypeId(reader);
+  if (!identity) {
+    return std::unexpected(identity.error());
+  }
+  const auto values = reader.ReadArray<double, 8>();
+  if (!values) {
+    return std::unexpected(values.error());
+  }
+  const auto& v = *values;
+  Prototype entity{.id = std::move(*identity),
+                   .position_m = {v[0], v[1], v[2]},
+                   .rotation_xyzw = {v[3], v[4], v[5], v[6]},
+                   .scale = v[7],
+                   .colliders = {},
+                   .collider_asset_id = {}};
+  if (!ValidTransform(entity.position_m, entity.rotation_xyzw,
+                      std::span(&entity.scale, 1))) {
+    return std::unexpected(PackError::kInvalidTransform);
+  }
+  const auto collider_bytes = reader.remaining();
+  const auto count = reader.Read<std::uint32_t>();
+  if (!count) {
+    return std::unexpected(count.error());
+  }
+  auto bounds = DecodeCollection<ColliderBox>(reader, *count, DecodeCollider);
+  if (!bounds) {
+    return std::unexpected(bounds.error());
+  }
+  entity.colliders = std::move(*bounds);
+  entity.collider_asset_id = AssetIdentity(
+      "Blackflower.Collider.v1",
+      collider_bytes.first(collider_bytes.size() - reader.remaining().size()));
+  return entity;
+}
+
+// Decode complete entities before exposing scene values.
+std::expected<std::vector<Prototype>, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   Reader reader(bytes);
-  const auto counts = reader.ReadArray<std::uint32_t, 3>();
-  if (!counts) {
-    return std::unexpected(counts.error());
+  const auto count = reader.Read<std::uint32_t>();
+  if (!count) {
+    return std::unexpected(count.error());
   }
-  const auto [collision_shape_count, light_count, spawn_count] = *counts;
-  auto collision_shapes = DecodeCollection<CollisionShape>(
-      reader, collision_shape_count, DecodeCollisionShape);
-  if (!collision_shapes) {
-    return std::unexpected(collision_shapes.error());
-  }
-  auto lights = DecodeCollection<Light>(reader, light_count, DecodeLight);
-  if (!lights) {
-    return std::unexpected(lights.error());
-  }
-  auto spawns = DecodeCollection<Spawn>(reader, spawn_count, DecodeSpawn);
-  if (!spawns) {
-    return std::unexpected(spawns.error());
+  auto entities = DecodeCollection<Prototype>(reader, *count, DecodeEntity);
+  if (!entities) {
+    return std::unexpected(entities.error());
   }
   if (!reader.done()) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }
-  return DecodedScene{.collision_shapes = std::move(*collision_shapes),
-                      .lights = std::move(*lights),
-                      .spawns = std::move(*spawns)};
+  if (std::ranges::adjacent_find(*entities, [](const auto& a, const auto& b) {
+        return a.id >= b.id;
+      }) != entities->end()) {
+    return std::unexpected(PackError::kInvalidEntity);
+  }
+  return entities;
 }
 
 // Checks the provenance encoding from pack v1, not the claims made by its text.
@@ -426,27 +428,16 @@ std::expected<void, PackError> ValidateResourceRecord(
   return {};
 }
 
-// Rejects collections outside the selected schema before exposing a typed
-// scene.
-std::expected<Scene, PackError> MakeScene(DecodedScene data, SceneKind kind) {
+// File magic selects the concrete role scene.
+std::expected<Scene, PackError> MakeScene(std::vector<Prototype> entities,
+                                          SceneKind kind) {
   switch (kind) {
     case SceneKind::kServer:
-      if (!data.lights.empty()) {
-        return std::unexpected(PackError::kInvalidSceneLength);
-      }
-      return ServerScene{.collision_shapes = std::move(data.collision_shapes),
-                         .spawns = std::move(data.spawns)};
+      return ServerScene{.entities = std::move(entities)};
     case SceneKind::kAgent:
-      if (!data.lights.empty() || !data.spawns.empty()) {
-        return std::unexpected(PackError::kInvalidSceneLength);
-      }
-      return AgentScene{.collision_shapes = std::move(data.collision_shapes)};
+      return AgentScene{.entities = std::move(entities)};
     case SceneKind::kClient:
-      if (!data.spawns.empty()) {
-        return std::unexpected(PackError::kInvalidSceneLength);
-      }
-      return ClientScene{.collision_shapes = std::move(data.collision_shapes),
-                         .lights = std::move(data.lights)};
+      return ClientScene{.entities = std::move(entities)};
   }
   return std::unexpected(PackError::kUnsupportedFormat);
 }
@@ -504,6 +495,7 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   }
   VerifiedPack result;
   result.scene_ = std::move(*scene);
+  result.asset_id_ = AssetIdentity("Blackflower.Scene.v1", layout->payload);
   std::ranges::copy(layout->content_build_id, result.content_build_id_.begin());
   result.data_ = std::move(data);
   return result;
@@ -533,12 +525,14 @@ std::expected<VerifiedPack, PackError> LoadFile(
 
 std::string_view PackErrorMessage(PackError error) {
   switch (error) {
+    case PackError::kInvalidEntity:
+      return "invalid entity identity";
+    case PackError::kInvalidTransform:
+      return "invalid scene transform";
     case PackError::kInvalidSceneLength:
       return "invalid scene length";
-    case PackError::kUnsupportedCollisionShape:
-      return "unsupported collision shape kind";
-    case PackError::kUnsupportedLight:
-      return "unsupported light kind";
+    case PackError::kUnsupportedCollider:
+      return "unsupported collider kind";
     case PackError::kInvalidLength:
       return "invalid pack length";
     case PackError::kCryptoInitializationFailed:

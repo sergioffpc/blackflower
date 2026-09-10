@@ -1,6 +1,6 @@
 {
   "name": "Blackflower C++23 and Python",
-  "image": "ghcr.io/sergioffpc/blackflower-devcontainer@sha256:969cd756ccaca295b3633c75f899b6d8fec0f88e6afc3aedd767ba2d9c367ba6",
+  "image": "ghcr.io/sergioffpc/blackflower-devcontainer@sha256:fae8f98a91ece2f23163368a3170352fb4fc0ae7946828f6e343e442932d4d75",
   "workspaceFolder": "/workspaces/blackflower",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/blackflower,type=bind",
   "remoteUser": "ubuntu",

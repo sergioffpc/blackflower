@@ -21,28 +21,9 @@ class CookStage(enum.IntEnum):
     COMPLETE = 5
 
 
-def _encode_scenes(source: bytes) -> dict[str, bytes]:
-    data = usd_source.read(source)
-    server_scene: scene.SceneData = {
-        "collision_shapes": data["collision_shapes"],
-        "lights": [],
-        "spawns": data["spawns"],
-    }
-    agent_scene: scene.SceneData = {
-        "collision_shapes": data["collision_shapes"],
-        "lights": [],
-        "spawns": [],
-    }
-    client_scene: scene.SceneData = {
-        "collision_shapes": data["collision_shapes"],
-        "lights": data["lights"],
-        "spawns": [],
-    }
-    return {
-        "server": scene.encode(server_scene),
-        "agent": scene.encode(agent_scene),
-        "client": scene.encode(client_scene),
-    }
+def _encode_scenes(data: scene.SceneData) -> dict[str, bytes]:
+    payload = scene.encode(data)
+    return {name: payload for name in ("server", "agent", "client")}
 
 
 def cook(
@@ -58,7 +39,7 @@ def cook(
     pack set. Private signing-key ownership stays with the caller.
 
     Args:
-        source: Self-contained OpenUSD scenario file.
+        source: OpenUSD scene with relative entity definition references.
         output: New directory in which to publish the completed pack set.
         public_key: Independently supplied raw Ed25519 public key.
         sign: Callback accepting transcript bytes and returning a signature.
@@ -78,10 +59,9 @@ def cook(
     if output.exists():
         raise ValueError("output directory already exists")
     progress(CookStage.READING)
-    with source.open("rb") as stream:
-        raw = stream.read()
+    data, raw = usd_source.read(source)
     progress(CookStage.ENCODING)
-    payloads = _encode_scenes(raw)
+    payloads = _encode_scenes(data)
     provenance = pack.provenance(raw)
     content_build_id = pack.build_identity(provenance, list(payloads.values()))
     progress(CookStage.SIGNING)

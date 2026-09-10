@@ -1,7 +1,10 @@
 # Define the minimal pack format and independent content trust
 
 The pack-role and format decisions below are superseded by
-[ADR-0010](0010-agnostic-content-packs.md).
+[ADR-0010](0010-agnostic-content-packs.md). Its
+[entity amendment](0010-agnostic-content-packs.md#entity-contract-amendment)
+also supersedes the single-file source restriction and integer-millimetre
+encoding below.
 
 Status: accepted implementation decision for
 [#21](https://github.com/sergioffpc/blackflower/issues/21). The owner
