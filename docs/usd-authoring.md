@@ -1,8 +1,9 @@
 # USD entity authoring
 
-Status: entity placement and bounds are implemented by
-[#58](https://github.com/sergioffpc/blackflower/issues/58). Visual import and
-textured content remain in #23 and #59 under the
+Status: entity authoring from #58 and local collider recipes with headless ECS
+lifetime from [#61](https://github.com/sergioffpc/blackflower/issues/61) are
+implemented locally. Visual import and textured content remain in #23 and #59
+under the
 [entity specification](https://github.com/sergioffpc/blackflower/issues/57).
 
 ## Implemented contract
@@ -27,7 +28,8 @@ Definitions may contain an optional `Bounds` scope with independently authored
 Cube prims using `PhysicsCollisionAPI`. The collision-enabled value must be
 true. Cubes have finite positive size and dimensions. An entity may have no
 bounds or several; the floor uses a thin box. Bounds belong directly to their
-entity in the internal content scene.
+entity in the internal content scene. The authored name `Bounds` maps to
+Collider, never to visual culling LocalBounds or WorldBounds.
 
 Visual meshes never determine collision. An optional empty `Visuals` scope is
 accepted now; nonempty visuals and asset attributes are rejected until visual
@@ -37,9 +39,10 @@ Entity placements support translation, rotateXYZ in degrees and positive uniform
 scale, in that order; any of these operations may be omitted. Bound children
 support the same order with positive nonuniform scale. Reset stacks, pivots,
 inverse operations, matrices and other transform operations are unsupported. The
-cooker preserves oriented boxes, composing entity and local bound transforms. It
-stores placement and world-space bounds as binary64 metre coordinates and unit
-XYZW quaternions; see [Scene v1](../schemas/scene/v1.md).
+cooker preserves oriented boxes by storing entity placement separately from
+entity-local collider transforms. Both use binary64 metre coordinates and unit
+XYZW quaternions. Runtime instantiation composes the optional instance root,
+placement and local box exactly once; see [Scene v1](../schemas/scene/v1.md).
 
 The bounded subset rejects sublayers, payloads, variants, inherits, specializes,
 instancing, relationships, animation, attribute connections, unsupported physics
@@ -49,10 +52,10 @@ before composition; provenance covers sorted logical dependency names and
 content, independently of the absolute checkout location. Authors must not edit
 sources during cooking: capture is per file, not an atomic filesystem snapshot.
 
-Entities are stationary in this slice. Persistent identity allows later
-movement, ballistics and destruction without making their current placement a
-lifetime restriction. No interaction parameters or runtime physics are
-implemented here.
+Headless runtime instances support independent placement changes, member
+transfer, destruction and full unload through the
+[runtime scene API](runtime-scenes.md). No interaction parameters, ballistics or
+runtime physics SDK execution are implemented here.
 
 ## Verification
 
@@ -109,7 +112,7 @@ def Xform "Scene"
 }
 ```
 
-The file `entities/box.usda` defines a unit box bound:
+The file `entities/box.usda` defines a unit box collider:
 
 ```usda
 #usda 1.0
@@ -141,7 +144,7 @@ surface at Y = 0. Runnable fixtures are in
 
 ## Pending visual contract
 
-Visual representation will serve Presentation; bounds serve Prediction and
+Visual representation will serve Presentation; colliders serve Prediction and
 Simulation. Reusable definitions will declare GLB sources under `Visuals` using
 `blackflower:sourceAsset`; this declaration requests cooker import, not native
 USD composition. Supported meshes, materials and texture dependencies remain to

@@ -113,7 +113,11 @@ class ContentPipelineTest(unittest.TestCase):
                 ["box-01", "box-02", "floor-main"],
             )
             self.assertEqual(
-                [len(e["bounds"]) for e in data["entities"]], [2, 2, 1]
+                data["entities"][0]["collider_asset_id"],
+                data["entities"][1]["collider_asset_id"],
+            )
+            self.assertEqual(
+                [len(e["colliders"]) for e in data["entities"]], [2, 2, 1]
             )
 
     def test_referenced_entities_preserve_owned_oriented_collision(self):
@@ -151,17 +155,17 @@ class ContentPipelineTest(unittest.TestCase):
         box_entity, floor_entity = content["entities"]
         self.assertEqual(box_entity["position_m"], [2, 1, 3])
         self.assertEqual(box_entity["scale"], 2)
-        body, cap = box_entity["bounds"]
-        (floor,) = floor_entity["bounds"]
-        for actual, expected in zip(cap["center_m"], (2.0, 1.0, 1.0)):
+        body, cap = box_entity["colliders"]
+        (floor,) = floor_entity["colliders"]
+        for actual, expected in zip(cap["center_m"], (1.0, 0.0, 0.0)):
             self.assertAlmostEqual(actual, expected, places=9)
-        self.assertEqual(body["dimensions_m"], [2, 2, 2])
-        self.assertEqual(cap["dimensions_m"], [1, 1, 1])
+        self.assertEqual(body["dimensions_m"], [1, 1, 1])
+        self.assertEqual(cap["dimensions_m"], [0.5, 0.5, 0.5])
         self.assertEqual(floor["dimensions_m"], [20, 0.2, 20])
         self.assertEqual(floor["center_m"], [0, -0.1, 0])
         for actual, expected in zip(
             body["rotation_xyzw"],
-            (0, 0.7071067811865476, 0, 0.7071067811865476),
+            (0, 0, 0, 1),
         ):
             self.assertAlmostEqual(actual, expected, places=12)
 
@@ -185,24 +189,51 @@ class ContentPipelineTest(unittest.TestCase):
                     stage.GetRootLayer().Save()
                 self._cook(source, work / str(empty), private)
                 for role in ("server", "agent", "client"):
-                    loaded = subprocess.run(
-                        _harness_command(
-                            work / str(empty) / f"entities.bf{role}", public
-                        ),
-                        capture_output=True,
-                        text=True,
-                        check=False,
+                    content = self._consume(
+                        work / str(empty) / f"entities.bf{role}", public
                     )
-                    self.assertEqual(loaded.returncode, 0, loaded.stderr)
-                    content = json.loads(loaded.stdout)
                     self.assertEqual(
                         set(content),
-                        {"scene_type", "content_build_id", "entities"},
+                        {
+                            "scene_type",
+                            "content_build_id",
+                            "scene_asset_id",
+                            "entities",
+                        },
                     )
                     if empty:
                         self.assertEqual(content["entities"], [])
                     else:
-                        self.assertEqual(content["entities"][0]["bounds"], [])
+                        self.assertEqual(
+                            content["entities"][0]["colliders"], []
+                        )
+
+    def test_scene_instances_share_collision_and_unload_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            private, public = work / "private.pem", work / "public.key"
+            self._generate_signing_keys(private, public)
+            self._cook(
+                ROOT / "tests/integration/fixtures/scenes/entities.usda",
+                work / "cooked",
+                private,
+            )
+            for role in ("server", "agent", "client"):
+                loaded = subprocess.run(
+                    _harness_command(
+                        work / "cooked" / f"entities.bf{role}", public
+                    )
+                    + ["instances"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+                result = json.loads(loaded.stdout)
+                self.assertTrue(result["lifecycle_verified"])
+                for actual, expected in zip(result["cap_center"], (6, 5, -6)):
+                    self.assertAlmostEqual(actual, expected, places=9)
+                self.assertEqual(result["body_dimensions"], [4, 4, 4])
 
     def test_independently_encoded_reference_pack(self):
         reference = json.loads(
@@ -239,9 +270,32 @@ class ContentPipelineTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         content = json.loads(result.stdout)
         self.assertEqual(content["scene_type"], name)
+        self.assertEqual(content["scene_asset_id"], reference["scene_asset_id"])
+        self.assertEqual(
+            content["entities"][0]["collider_asset_id"],
+            reference["collider_asset_id"],
+        )
+        self.assertEqual(
+            content["scene_asset_id"],
+            hashlib.sha256(
+                b"Blackflower.Scene.v1" + verified.payload
+            ).hexdigest(),
+        )
         self.assertEqual(
             content["content_build_id"], reference["content_build_id"]
         )
+
+    def _consume(
+        self, path: pathlib.Path, public: pathlib.Path
+    ) -> dict[str, Any]:
+        result = subprocess.run(
+            _harness_command(path, public),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
 
     def _generate_signing_keys(
         self, private: pathlib.Path, public: pathlib.Path
@@ -513,7 +567,7 @@ class InvalidPacksTest(unittest.TestCase):
             (struct.pack("<I", 2**32 - 1), "invalid scene length"),
             (
                 struct.pack("<I", 1) + entity + struct.pack("<I", 257),
-                "unsupported bound kind",
+                "unsupported collider kind",
             ),
         ):
             with self.subTest(payload=payload):

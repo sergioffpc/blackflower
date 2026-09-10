@@ -1,4 +1,4 @@
-"""Encoding of scene entities and their independently authored bounds."""
+"""Encoding of scene entities and their independently authored colliders."""
 
 import math
 import re
@@ -6,8 +6,8 @@ import struct
 from typing import TypedDict
 
 
-class BoundData(TypedDict):
-    """World-space oriented box, with metre dimensions and XYZW rotation."""
+class ColliderBoxData(TypedDict):
+    """Entity-local oriented box, with metre dimensions and XYZW rotation."""
 
     center_m: list[float]
     dimensions_m: list[float]
@@ -15,13 +15,13 @@ class BoundData(TypedDict):
 
 
 class EntityData(TypedDict):
-    """Persistent identity, scene placement, and owned collision bounds."""
+    """Persistent identity, scene placement, and owned collision colliders."""
 
     id: str
     position_m: list[float]
     rotation_xyzw: list[float]
     scale: float
-    bounds: list[BoundData]
+    colliders: list[ColliderBoxData]
 
 
 class SceneData(TypedDict):
@@ -31,13 +31,13 @@ class SceneData(TypedDict):
 
 
 def encode(data: SceneData) -> bytes:
-    """Encodes entities and bounds in scene v1 record order.
+    """Encodes entities and colliders in scene v1 record order.
 
     Args:
         data: Entities sorted by their unique ASCII identities.
 
     Returns:
-        Entity count followed by entity records and their bounds.
+        Entity count followed by entity records and their colliders.
 
     Raises:
         ValueError: A field cannot be represented by this schema.
@@ -54,17 +54,17 @@ def encode(data: SceneData) -> bytes:
                     *entity["position_m"],
                     *entity["rotation_xyzw"],
                     entity["scale"],
-                    len(entity["bounds"]),
+                    len(entity["colliders"]),
                 )
             )
-            for bound in entity["bounds"]:
+            for collider in entity["colliders"]:
                 result.extend(
                     struct.pack(
                         "<I10d",
                         1,
-                        *bound["center_m"],
-                        *bound["dimensions_m"],
-                        *bound["rotation_xyzw"],
+                        *collider["center_m"],
+                        *collider["dimensions_m"],
+                        *collider["rotation_xyzw"],
                     )
                 )
     except (struct.error, OverflowError) as error:
@@ -79,7 +79,7 @@ def decode(payload: bytes) -> SceneData:
         payload: Scene v1 encoded bytes.
 
     Returns:
-        Entities with their owned bounds, in encoded order.
+        Entities with their owned colliders, in encoded order.
 
     Raises:
         ValueError: Identity, geometry, record type or byte layout is invalid.
@@ -117,22 +117,24 @@ def _decode_entity(payload: bytes, offset: int) -> tuple[EntityData, int]:
         "position_m": position,
         "rotation_xyzw": rotation,
         "scale": values[7],
-        "bounds": [],
+        "colliders": [],
     }
     offset = end + 68
     for _ in range(values[8]):
-        bound, offset = _decode_bound(payload, offset)
-        entity["bounds"].append(bound)
+        collider, offset = _decode_collider(payload, offset)
+        entity["colliders"].append(collider)
     return entity, offset
 
 
-def _decode_bound(payload: bytes, offset: int) -> tuple[BoundData, int]:
+def _decode_collider(
+    payload: bytes, offset: int
+) -> tuple[ColliderBoxData, int]:
     if offset + 4 > len(payload):
-        raise ValueError("invalid bound length")
+        raise ValueError("invalid collider length")
     if struct.unpack_from("<I", payload, offset)[0] != 1:
-        raise ValueError("unsupported bound kind")
+        raise ValueError("unsupported collider kind")
     if offset + 84 > len(payload):
-        raise ValueError("invalid bound length")
+        raise ValueError("invalid collider length")
     values = list(struct.unpack_from("<10d", payload, offset + 4))
     _validate_transform(values[:3], values[6:], values[3:6])
     return {

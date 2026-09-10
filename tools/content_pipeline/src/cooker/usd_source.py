@@ -110,7 +110,7 @@ def _read_entity(
             "position_m": _vector(matrix.ExtractTranslation()),
             "rotation_xyzw": _quaternion(transform.GetRotation().GetQuat()),
             "scale": _vector(transform.GetScale())[0],
-            "bounds": [],
+            "colliders": [],
         }
     )
     allowed.add(prim.GetPath())
@@ -122,18 +122,15 @@ def _read_entity(
         _children(colliders), key=lambda p: str(p.GetName())
     ):
         allowed.add(collider.GetPath())
-        data["entities"][-1]["bounds"].append(_box(collider))
+        data["entities"][-1]["colliders"].append(_box(collider))
 
 
-def _box(prim: Usd.Prim) -> scene.BoundData:
+def _box(prim: Usd.Prim) -> scene.ColliderBoxData:
     if prim.GetTypeName() != "Cube" or not prim.HasAPI("PhysicsCollisionAPI"):
         raise ValueError("colliders require Cube with PhysicsCollisionAPI")
     if not UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get():
         raise ValueError("disabled colliders are unsupported")
-    _transform(prim)
-    matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
-        Usd.TimeCode.Default()
-    )
+    matrix = _transform(prim)
     transform = Gf.Transform(matrix)
     scales = _vector(transform.GetScale())
     size = float(_attribute(prim, "size"))

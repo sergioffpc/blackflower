@@ -20,13 +20,15 @@ HEADER = struct.Struct("<8s2I3Q32s32s")
 ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
-SETTINGS = b"entity-usd-v1;units=m-f64;scenes=server,agent,client"
+SETTINGS = (
+    b"scene-recipe-v1;units=m-f64;colliders=local;scenes=server,agent,client"
+)
 
 
 class PackType(enum.Enum):
     """File magic selecting the concrete scene contract."""
 
-    # Authoritative collision geometry and spawn points.
+    # Authoritative collision scene recipes.
     SERVER = b"BFSERV1\0"
     # Autonomous participant collision geometry.
     AGENT = b"BFAGNT1\0"
@@ -73,7 +75,7 @@ def provenance(source_transcript: bytes) -> bytes:
         + hashlib.sha256(SETTINGS).digest()
     )
     for value in (
-        "entity-usd-v1",
+        "scene-recipe-v1",
         platform.python_version(),
         cryptography.__version__,
         openssl.backend.openssl_version_text(),

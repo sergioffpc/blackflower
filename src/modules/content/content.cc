@@ -117,6 +117,10 @@ class Reader {
     return values;
   }
 
+  [[nodiscard]] std::span<const unsigned char> remaining() const {
+    return bytes_;
+  }
+
   [[nodiscard]] bool done() const { return valid_ && bytes_.empty(); }
 
  private:
@@ -202,6 +206,20 @@ Digest Hash(std::span<const unsigned char> bytes) {
   return digest;
 }
 
+// Domain-separated identities use authenticated canonical recipe bytes.
+AssetId AssetIdentity(std::string_view domain,
+                      std::span<const unsigned char> bytes) {
+  crypto_hash_sha256_state state{};
+  crypto_hash_sha256_init(&state);
+  crypto_hash_sha256_update(
+      &state, reinterpret_cast<const unsigned char*>(domain.data()),
+      domain.size());
+  crypto_hash_sha256_update(&state, bytes.data(), bytes.size());
+  AssetId result;
+  crypto_hash_sha256_final(&state, result.bytes.data());
+  return result;
+}
+
 // Verifies the header and manifest signature against a trusted public key.
 std::expected<void, PackError> VerifySignature(
     const PackLayout& layout, std::span<const PublicKey> trusted_keys) {
@@ -251,22 +269,22 @@ bool ValidTransform(std::span<const double> position,
          std::abs(norm - 1) <= 1e-12;
 }
 
-std::expected<Bound, PackError> DecodeBound(Reader& reader) {
+std::expected<ColliderBox, PackError> DecodeCollider(Reader& reader) {
   const auto kind = reader.Read<std::uint32_t>();
   if (!kind) {
     return std::unexpected(kind.error());
   }
   if (*kind != 1) {
-    return std::unexpected(PackError::kUnsupportedBound);
+    return std::unexpected(PackError::kUnsupportedCollider);
   }
   const auto values = reader.ReadArray<double, 10>();
   if (!values) {
     return std::unexpected(values.error());
   }
   const auto& v = *values;
-  Bound box{.center_m = {v[0], v[1], v[2]},
-            .dimensions_m = {v[3], v[4], v[5]},
-            .rotation_xyzw = {v[6], v[7], v[8], v[9]}};
+  ColliderBox box{.center_m = {v[0], v[1], v[2]},
+                  .dimensions_m = {v[3], v[4], v[5]},
+                  .rotation_xyzw = {v[6], v[7], v[8], v[9]}};
   if (!ValidTransform(box.center_m, box.rotation_xyzw, box.dimensions_m)) {
     return std::unexpected(PackError::kInvalidTransform);
   }
@@ -290,7 +308,7 @@ std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
   return values;
 }
 
-std::expected<Entity, PackError> DecodeEntity(Reader& reader) {
+std::expected<PrototypeId, PackError> DecodePrototypeId(Reader& reader) {
   const auto size = reader.Read<std::uint32_t>();
   if (!size) {
     return std::unexpected(size.error());
@@ -302,41 +320,54 @@ std::expected<Entity, PackError> DecodeEntity(Reader& reader) {
   if (!ValidIdentity(text)) {
     return std::unexpected(PackError::kInvalidEntity);
   }
+  return PrototypeId{.value = std::string(text.begin(), text.end())};
+}
+
+std::expected<Prototype, PackError> DecodeEntity(Reader& reader) {
+  auto identity = DecodePrototypeId(reader);
+  if (!identity) {
+    return std::unexpected(identity.error());
+  }
   const auto values = reader.ReadArray<double, 8>();
   if (!values) {
     return std::unexpected(values.error());
   }
   const auto& v = *values;
-  Entity entity{.id = std::string(text.begin(), text.end()),
-                .position_m = {v[0], v[1], v[2]},
-                .rotation_xyzw = {v[3], v[4], v[5], v[6]},
-                .scale = v[7],
-                .bounds = {}};
+  Prototype entity{.id = std::move(*identity),
+                   .position_m = {v[0], v[1], v[2]},
+                   .rotation_xyzw = {v[3], v[4], v[5], v[6]},
+                   .scale = v[7],
+                   .colliders = {},
+                   .collider_asset_id = {}};
   if (!ValidTransform(entity.position_m, entity.rotation_xyzw,
                       std::span(&entity.scale, 1))) {
     return std::unexpected(PackError::kInvalidTransform);
   }
+  const auto collider_bytes = reader.remaining();
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
     return std::unexpected(count.error());
   }
-  auto bounds = DecodeCollection<Bound>(reader, *count, DecodeBound);
+  auto bounds = DecodeCollection<ColliderBox>(reader, *count, DecodeCollider);
   if (!bounds) {
     return std::unexpected(bounds.error());
   }
-  entity.bounds = std::move(*bounds);
+  entity.colliders = std::move(*bounds);
+  entity.collider_asset_id = AssetIdentity(
+      "Blackflower.Collider.v1",
+      collider_bytes.first(collider_bytes.size() - reader.remaining().size()));
   return entity;
 }
 
 // Decode complete entities before exposing scene values.
-std::expected<std::vector<Entity>, PackError> DecodeScene(
+std::expected<std::vector<Prototype>, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   Reader reader(bytes);
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
     return std::unexpected(count.error());
   }
-  auto entities = DecodeCollection<Entity>(reader, *count, DecodeEntity);
+  auto entities = DecodeCollection<Prototype>(reader, *count, DecodeEntity);
   if (!entities) {
     return std::unexpected(entities.error());
   }
@@ -398,7 +429,7 @@ std::expected<void, PackError> ValidateResourceRecord(
 }
 
 // File magic selects the concrete role scene.
-std::expected<Scene, PackError> MakeScene(std::vector<Entity> entities,
+std::expected<Scene, PackError> MakeScene(std::vector<Prototype> entities,
                                           SceneKind kind) {
   switch (kind) {
     case SceneKind::kServer:
@@ -464,6 +495,7 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   }
   VerifiedPack result;
   result.scene_ = std::move(*scene);
+  result.asset_id_ = AssetIdentity("Blackflower.Scene.v1", layout->payload);
   std::ranges::copy(layout->content_build_id, result.content_build_id_.begin());
   result.data_ = std::move(data);
   return result;
@@ -499,8 +531,8 @@ std::string_view PackErrorMessage(PackError error) {
       return "invalid scene transform";
     case PackError::kInvalidSceneLength:
       return "invalid scene length";
-    case PackError::kUnsupportedBound:
-      return "unsupported bound kind";
+    case PackError::kUnsupportedCollider:
+      return "unsupported collider kind";
     case PackError::kInvalidLength:
       return "invalid pack length";
     case PackError::kCryptoInitializationFailed:

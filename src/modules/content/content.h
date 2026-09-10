@@ -2,6 +2,7 @@
 #define BLACKFLOWER_CONTENT_CONTENT_H_
 
 #include <array>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -30,7 +31,7 @@ enum class PackError : std::uint8_t {
   // Nonfinite geometry, nonpositive dimensions/scale or a non-unit quaternion.
   kInvalidTransform,
   // A collision shape record uses a kind unsupported by this schema.
-  kUnsupportedBound,
+  kUnsupportedCollider,
   // Input bytes are too short to contain the pack header and signature.
   kInvalidLength,
   // The cryptographic backend could not initialize for verification.
@@ -67,36 +68,50 @@ enum class PackError : std::uint8_t {
 // message wording is not part of the error contract.
 std::string_view PackErrorMessage(PackError error);
 
-// Independently authored world-space box. Dimensions are full extents in
+// Independently authored entity-local box. Dimensions are full extents in
 // metres; rotation is a unit XYZW quaternion.
-struct Bound {
+struct ColliderBox {
   std::array<double, 3> center_m{};
   std::array<double, 3> dimensions_m{};
   std::array<double, 4> rotation_xyzw{};
+  bool operator==(const ColliderBox&) const = default;
 };
 
-// Persistent ASCII identity, placement and optional owned bounds. Position is
-// metres, rotation is a unit XYZW quaternion, scale is positive and uniform.
-struct Entity {
-  std::string id;
+// Content-addressed compiled asset identity; all-zero is reserved as invalid.
+struct AssetId {
+  Digest bytes{};
+  auto operator<=>(const AssetId&) const = default;
+};
+
+// Scene-local authored identity, independent of USD prim paths and runtime IDs.
+struct PrototypeId {
+  std::string value;
+  auto operator<=>(const PrototypeId&) const = default;
+};
+
+// Persistent ASCII identity, placement and optional local colliders. Position
+// is metres, rotation is a unit XYZW quaternion, scale is positive and uniform.
+struct Prototype {
+  PrototypeId id;
   std::array<double, 3> position_m{};
   std::array<double, 4> rotation_xyzw{};
   double scale = 1;
-  std::vector<Bound> bounds;
+  std::vector<ColliderBox> colliders;
+  AssetId collider_asset_id;
 };
 
 // Each role currently receives the same entity content. Future role-specific
 // resources can evolve independently under these concrete scene types.
 struct ServerScene {
-  std::vector<Entity> entities;
+  std::vector<Prototype> entities;
 };
 
 struct AgentScene {
-  std::vector<Entity> entities;
+  std::vector<Prototype> entities;
 };
 
 struct ClientScene {
-  std::vector<Entity> entities;
+  std::vector<Prototype> entities;
 };
 
 // The authenticated file magic selects the alternative; collections may be
@@ -120,6 +135,8 @@ class VerifiedPack {
 
   [[nodiscard]] const Scene& scene() const { return scene_; }
 
+  [[nodiscard]] AssetId asset_id() const { return asset_id_; }
+
   // Authenticated identity of the source, settings and cooked resources.
   [[nodiscard]] const Digest& content_build_id() const {
     return content_build_id_;
@@ -137,6 +154,7 @@ class VerifiedPack {
   std::shared_ptr<const unsigned char> data_;
   Scene scene_;
   Digest content_build_id_{};
+  AssetId asset_id_;
 };
 
 // Maps a file read-only and verifies it without copying the complete artifact.

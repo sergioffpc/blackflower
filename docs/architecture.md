@@ -14,7 +14,8 @@ Team and a defending Blue Team, with up to eight participants per team.
 
 The repository contains a console bootstrap, build/test infrastructure, and an
 [OpenUSD-to-signed-pack pipeline](content-pipeline.md) with a C++ consumer
-harness. Simulation behavior has not been implemented.
+harness and headless Flecs scene instantiation. Simulation behavior has not been
+implemented.
 
 The
 [first MVP specification](https://github.com/sergioffpc/blackflower/issues/11)
@@ -140,7 +141,16 @@ decision in section 9. Treat unvalidated choices as proposals.
 | [Offline cooker](../tools/content_pipeline/src/cooker/pipeline.py) | Snapshot bounded OpenUSD references, encode entities and owned bounds, sign and verify all three packs, then publish their directory atomically. |
 | [Content module](../src/modules/content/content.h)                 | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                              |
 | [Content harness](../tests/content_harness.cc)                     | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                              |
-| [Build configuration](../CMakeLists.txt)                           | Build four executables and the content library; run analysis, Python checks and integration tests.                                               |
+| [Build configuration](../CMakeLists.txt)                           | Build four executables and content/scene libraries; run analysis, Python checks and integration tests.                                           |
+
+The [runtime scene module](runtime-scenes.md) publishes authenticated immutable
+SceneAssets and shared collider resources, then instantiates recipes directly in
+a minimal Flecs world. SceneInstance retains source ownership and membership;
+LocalTransform and collider references live only in ECS. Public synchronous
+operations compose root placement, update, transfer, destroy and unload, with
+generation-checked entity/resource identities. Collider definitions serve
+Simulation and Prediction; shared spatial definitions never imply shared mutable
+world state. This headless foundation does not implement world progression.
 
 The content loader accepts packs independently of consumer purpose or host
 platform. The shared content build identity relates the three artifacts; there
@@ -148,12 +158,12 @@ is no separate artifact identifier. The authenticated file magic selects the
 ServerScene, AgentScene or ClientScene alternative of the returned variant.
 Resource schemas define representation compatibility. It separates layout
 decoding, authentication and resource validation internally while retaining one
-public loading contract. A scene contains only entities with string identity,
-placement and optional owned bounds, independent of visual assets. Decoding
-checks identity order, finite transforms, positive dimensions, unit rotations
-and complete byte records before exposing content. Geometry and gameplay
-suitability belong to consumers. An absent `Entities` or entity `Bounds` scope
-produces the corresponding empty collection.
+public loading contract. A scene contains immutable prototypes with authored
+string identity, placement and optional local colliders, independent of visual
+assets. Decoding checks identity order, finite transforms, positive dimensions,
+unit rotations and complete byte records before exposing content. Geometry and
+gameplay suitability belong to consumers. An absent `Entities` or entity
+`Bounds` scope produces the corresponding empty collection.
 
 The [USD authoring contract](usd-authoring.md) implements referenced entities
 under a Scene root, with explicit Cube bounds and preserved oriented boxes.
@@ -165,7 +175,9 @@ the repository has no dedicated local asset directory. The reference scene lives
 in `tests/integration/fixtures/mvp.usda`, following the
 [source asset layout](repository-layout.md#shared-formats-and-source-assets).
 
-The frameworks are linked only into their respective harnesses.
+GoogleTest and Google Benchmark are linked only into their respective harnesses.
+Flecs 4.1.6 supplies headless ECS storage, and owner-selected GLM 1.0.3 supplies
+quaternion composition; the pinned vcpkg baseline fixes both dependencies.
 [Sanitizer configuration](../cmake/Sanitizers.cmake) instruments non-Release
 project targets for memory checks, with a separate Linux configuration for race
 detection. There are no simulation modules yet.
@@ -203,19 +215,28 @@ use exclusive creation and owner-only permissions; see the
 [key provisioning commands](content-pipeline.md#cooking-and-verification).
 
 The cooker snapshots the source and directly referenced entity layers, composes
-the private snapshot, validates the bounded contract and encodes entities,
-derives the common build identity, and writes server, agent and client packs in
-private staging. It reopens and verifies all completed files before publishing
-their directory. The C++ content harness maps one file read-only, verifies
-trusted-key authentication and scene encoding, then reports complete scene
-values. Invalid input returns an error without partial content. See
+the private snapshot, validates the bounded contract and encodes local collider
+recipes, derives the common build identity, and writes server, agent and client
+packs in private staging. It reopens and verifies all completed files before
+publishing their directory. The C++ content harness maps one file read-only,
+verifies trusted-key authentication and scene encoding, then reports complete
+scene values. Invalid input returns an error without partial content. See
 [pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
+
+After authentication, ResourceManager retains the immutable recipe and backing
+storage. SceneWorld prepares complete transformed entities before synchronous
+publication. Transfers preserve current placement and resource leases; unload
+destroys only still-owned members. Explicit collection evicts manager-only
+resources and advances generations. See the
+[runtime lifetime contract](runtime-scenes.md) and
+[local evidence](validation/runtime-scenes.md).
 
 The [invalid-pack matrix](validation/invalid-packs.md) exercises this boundary
 with tampering and independently signed malformed fixtures. It checks rejection
 before the harness emits prepared values and checks pathname replacement while a
 verified pack retains file ownership. This establishes the content boundary;
-world startup and SDK resource publication remain future application behavior.
+headless scene publication and unload are covered by #61, while application
+world startup and SDK resource publication remain future behavior.
 
 The pipeline reports cooking stages through an optional observer. The CLI owns
 the terminal progress display on stderr and retains JSON results on stdout;
@@ -521,9 +542,12 @@ The [USD entity authoring contract](usd-authoring.md) implements the first slice
 of [#57](https://github.com/sergioffpc/blackflower/issues/57) through #58:
 Scenes contain only entities with string placement identities and owned
 `Bounds`. One relative definition reference per placement enables reuse.
-Binary64 placement and world-space oriented boxes preserve rotations without
-inferring collision from visuals. Exact dependency snapshots determine
-relocatable provenance. The
+Binary64 placement and oriented boxes preserve rotations without inferring
+collision from visuals. #61 migrates those boxes from world-space Bounds to
+local Collider recipes;
+[ADR-0014](adr/0014-instantiate-local-scene-recipes-in-ecs.md) records shared
+resources, ECS authority and lifetime trade-offs. Exact dependency snapshots
+determine relocatable provenance. The
 [ADR-0010 amendment](adr/0010-agnostic-content-packs.md#entity-contract-amendment)
 supersedes the earlier collection and coordinate decisions. GLB visuals remain a
 subsequent slice.
@@ -646,6 +670,17 @@ The [CD acceptance targets](continuous-deployment.md#acceptance-targets), CD-Q01
 through CD-Q04, cover deployment timing, removal, periodic cleanup and server
 readiness. They remain unvalidated.
 
+### Headless scene lifetime
+
+Given the signed collision fixture and two instances of its recipe, root
+placement reproduces analytical box geometry within 1e-9 metres and 1e-12
+quaternion component tolerance. Updating one instance preserves the other;
+transferred members survive their former instance's unload; final unload leaves
+zero managed entities. Old entity and resource handles fail after reuse. Invalid
+placement publishes no partial instance. These are local functional requirements
+and evidence under [#61](validation/runtime-scenes.md), not physics, performance
+or multi-world deployment results.
+
 ## 11. Risks and technical debt
 
 The planned CD environments share one Dell host and local pack storage. Host
@@ -709,6 +744,14 @@ The Dell is a single point of failure for cluster workloads and LAN DNS through
 the Google Mesh resolver. Keep private backups and the documented DNS fallback
 procedure. A host-only UDP result does not establish reachability from a second
 LAN machine.
+
+The runtime scene foundation is synchronous and headless. Parent, visuals,
+concurrent publication, streaming, world progression and cross-world identities
+remain later #57 slices. Resource scans and simple recipe lists have no measured
+large-scene budget. #61 builds on the local unpublished #58 commit; publishing
+and integrating that dependency is still required before delivered-runtime or CI
+claims. See [runtime scene evidence](validation/runtime-scenes.md) for the next
+validation boundaries.
 
 ## 12. Glossary
 

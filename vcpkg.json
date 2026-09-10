@@ -9,6 +9,8 @@
       "name": "boost-iostreams",
       "default-features": false
     },
+    "flecs",
+    "glm",
     "gtest",
     "libsodium"
   ]
