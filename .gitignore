@@ -1,5 +1,6 @@
 /build/
 /.cache/
+/.codex/
 /CMakeUserPresets.json
 /compile_commands.json
 **/.venv

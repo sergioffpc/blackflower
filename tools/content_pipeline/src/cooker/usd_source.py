@@ -42,6 +42,8 @@ def read(source: bytes) -> "scene.SceneData":
 
 
 def _children(prim: Usd.Prim) -> list[Usd.Prim]:
+    if not prim:
+        return []
     # types-usd omits the element type of the USD child-prim collection.
     return cast(
         list[Usd.Prim],
@@ -115,19 +117,11 @@ def _containers(
     blocks = stage.GetPrimAtPath("/Scenario/CollisionShapes")
     lights = stage.GetPrimAtPath("/Scenario/Lights")
     spawns = stage.GetPrimAtPath("/Scenario/Spawns")
-    if (
-        not root
-        or not lights
-        or not blocks
-        or not spawns
-        or stage.GetDefaultPrim() != root
-    ):
-        raise ValueError("missing required USD scenario prims")
-    if (
-        root.GetTypeName() != "Xform"
-        or blocks.GetTypeName() != "Scope"
-        or spawns.GetTypeName() != "Scope"
-        or lights.GetTypeName() != "Scope"
+    if not root or stage.GetDefaultPrim() != root:
+        raise ValueError("missing required USD Scenario default prim")
+    if root.GetTypeName() != "Xform" or any(
+        prim and prim.GetTypeName() != "Scope"
+        for prim in (blocks, lights, spawns)
     ):
         raise ValueError("invalid USD scenario container types")
     return root, blocks, lights, spawns
@@ -136,13 +130,8 @@ def _containers(
 def _validate_composition(
     stage: Usd.Stage, containers: tuple[Usd.Prim, ...]
 ) -> None:
-    root, blocks, lights, spawns = containers
-    allowed = {
-        root.GetPath(),
-        lights.GetPath(),
-        blocks.GetPath(),
-        spawns.GetPath(),
-    }
+    _, blocks, lights, spawns = containers
+    allowed = {prim.GetPath() for prim in containers if prim}
     allowed.update(p.GetPath() for p in _children(lights))
     allowed.update(p.GetPath() for p in _children(blocks))
     allowed.update(p.GetPath() for p in _children(spawns))
