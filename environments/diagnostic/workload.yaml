@@ -59,8 +59,8 @@ metadata:
   namespace: blackflower-diagnostic
   annotations:
     metallb.io/address-pool: blackflower-lan
-    external-dns.alpha.kubernetes.io/hostname: diagnostic.blackflower.home.arpa
-    external-dns.alpha.kubernetes.io/ttl: '30'
+    external-dns.kubernetes.io/hostname: diagnostic.blackflower.home.arpa
+    external-dns.kubernetes.io/ttl: '30'
     blackflower.io/dns: 'true'
 spec:
   type: LoadBalancer
