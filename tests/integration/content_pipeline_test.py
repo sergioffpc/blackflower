@@ -382,16 +382,18 @@ class ContentPipelineTest(unittest.TestCase):
         body, cap = box_entity["colliders"]
         (floor,) = floor_entity["colliders"]
         for actual, expected in zip(cap["center_m"], (1.0, 0.0, 0.0)):
-            self.assertAlmostEqual(actual, expected, places=9)
+            self.assertAlmostEqual(actual, expected, places=5)
         self.assertEqual(body["dimensions_m"], [1, 1, 1])
         self.assertEqual(cap["dimensions_m"], [0.5, 0.5, 0.5])
-        self.assertEqual(floor["dimensions_m"], [20, 0.2, 20])
-        self.assertEqual(floor["center_m"], [0, -0.1, 0])
+        for actual, expected in zip(floor["dimensions_m"], (20.0, 0.2, 20.0)):
+            self.assertAlmostEqual(actual, expected, places=5)
+        for actual, expected in zip(floor["center_m"], (0.0, -0.1, 0.0)):
+            self.assertAlmostEqual(actual, expected, places=5)
         for actual, expected in zip(
             body["rotation_xyzw"],
             (0, 0, 0, 1),
         ):
-            self.assertAlmostEqual(actual, expected, places=12)
+            self.assertAlmostEqual(actual, expected, places=5)
 
     def test_entities_and_bounds_are_optional(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -458,7 +460,7 @@ class ContentPipelineTest(unittest.TestCase):
                 result = json.loads(loaded.stdout)
                 self.assertTrue(result["lifecycle_verified"])
                 for actual, expected in zip(result["cap_center"], (6, 5, -6)):
-                    self.assertAlmostEqual(actual, expected, places=9)
+                    self.assertAlmostEqual(actual, expected, places=5)
                 self.assertEqual(result["body_dimensions"], [4, 4, 4])
 
     def test_independently_encoded_reference_pack(self):
@@ -784,7 +786,7 @@ class InvalidPacksTest(unittest.TestCase):
         entity = (
             struct.pack("<I", 1)
             + b"a"
-            + struct.pack("<8dI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
+            + struct.pack("<8fI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
             + struct.pack("<2I", 1, 1)
         )
         for payload, diagnostic in (
@@ -804,10 +806,10 @@ class InvalidPacksTest(unittest.TestCase):
         entity = (
             struct.pack("<I", 1)
             + b"a"
-            + struct.pack("<8dI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
+            + struct.pack("<8fI", 0, 0, 0, 0, 0, 0, 1, 1, 1)
             + struct.pack("<2I", 1, 1)
         )
-        bound = struct.pack("<I10d", 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)
+        bound = struct.pack("<I10f", 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)
         record = entity + bound
         header = struct.pack("<I", 1)
         self._accept(self._artifact(header + record), "agent")

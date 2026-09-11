@@ -133,7 +133,7 @@ void PrintContent(const blackflower::content::VerifiedPack& pack) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::cout << std::setprecision(std::numeric_limits<double>::max_digits10);
+  std::cout << std::setprecision(std::numeric_limits<float>::max_digits10);
   if (argc != 3 && argc != 4) {
     std::cerr << "usage: content_harness PACK PUBLIC_KEY [ROLE|instances]\n";
     return 2;

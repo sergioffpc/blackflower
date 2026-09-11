@@ -78,9 +78,9 @@ std::string_view PackErrorMessage(PackError error);
 // Independently authored entity-local box. Dimensions are full extents in
 // metres; rotation is a unit XYZW quaternion.
 struct ColliderBox {
-  std::array<double, 3> center_m{};
-  std::array<double, 3> dimensions_m{};
-  std::array<double, 4> rotation_xyzw{};
+  std::array<float, 3> center_m{};
+  std::array<float, 3> dimensions_m{};
+  std::array<float, 4> rotation_xyzw{};
   bool operator==(const ColliderBox&) const = default;
 };
 
@@ -129,9 +129,9 @@ struct CollisionDescription {
 // uniform.
 struct SceneEntityDescription {
   SceneEntityId id;
-  std::array<double, 3> position_m{};
-  std::array<double, 4> rotation_xyzw{};
-  double scale = 1;
+  std::array<float, 3> position_m{};
+  std::array<float, 4> rotation_xyzw{};
+  float scale = 1;
   std::optional<CollisionDescription> collision;
   std::optional<VisualReference> visual_reference;
   std::optional<AudioReference> audio_reference;

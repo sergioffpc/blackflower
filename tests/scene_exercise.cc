@@ -34,8 +34,8 @@ struct Instances {
 };
 
 template <std::size_t N>
-bool Near(const std::array<double, N>& actual,
-          const std::array<double, N>& expected, double tolerance) {
+bool Near(const std::array<float, N>& actual,
+          const std::array<float, N>& expected, float tolerance) {
   for (std::size_t i = 0; i < N; ++i) {
     if (std::abs(actual[i] - expected[i]) > tolerance) {
       return false;
@@ -51,13 +51,12 @@ bool CheckWorldGeometry(runtime::SceneWorld& world,
   if (!first || !second || first->size() != 2 || second->size() != 2) {
     return false;
   }
-  return Check(
-      Near((*first)[1].center_m, {2, 1, 1}, 1e-9) &&
-          Near((*first)[0].dimensions_m, {2, 2, 2}, 1e-9) &&
-          Near((*first)[0].rotation_xyzw,
-               {0, 0.7071067811865476, 0, 0.7071067811865476}, 1e-12) &&
-          Near((*second)[0].rotation_xyzw, {0, 1, 0, 0}, 1e-12),
-      "analytical world geometry and composed orientation");
+  return Check(Near((*first)[1].center_m, {2, 1, 1}, 1e-5F) &&
+                   Near((*first)[0].dimensions_m, {2, 2, 2}, 1e-5F) &&
+                   Near((*first)[0].rotation_xyzw,
+                        {0, 0.70710677F, 0, 0.70710677F}, 1e-5F) &&
+                   Near((*second)[0].rotation_xyzw, {0, 1, 0, 0}, 1e-5F),
+               "analytical world geometry and composed orientation");
 }
 
 bool CheckFailedPreparationCache(runtime::SceneWorld& world,
@@ -75,7 +74,8 @@ bool CheckFailedPreparationCache(runtime::SceneWorld& world,
   if (!state || !world.Unload(*initial)) {
     return false;
   }
-  const auto rejected = world.Instantiate(source, {.scale = 1e307});
+  const auto rejected =
+      world.Instantiate(source, {.scale = std::numeric_limits<float>::max()});
   return Check(Error(rejected, runtime::SceneError::kInvalidTransform) &&
                    resources.Resolve(state->collider.resource).has_value() &&
                    resources.Resolve(source).has_value() &&
@@ -99,7 +99,7 @@ bool CheckGeometry(runtime::SceneWorld& world, const Instances& instances) {
   return Check(first->collider.resource == second->collider.resource &&
                    first->scene_entity_id == second->scene_entity_id &&
                    first->instance != second->instance &&
-                   first->local.position_m == std::array<double, 3>{2, 1, 3},
+                   first->local.position_m == std::array<float, 3>{2, 1, 3},
                "shared collider and independent identity namespaces");
 }
 
@@ -108,12 +108,12 @@ bool CheckIndependence(runtime::SceneWorld& world, const Instances& instances) {
       world.SetTransform(instances.first_box, {.position_m = {30, 4, 5}});
   const auto second = world.Read(instances.second_box);
   if (!Check(changed && second &&
-                 std::abs(second->world.value.position_m[0] - 10) < 1e-9,
+                 std::abs(second->world.value.position_m[0] - 10) < 1e-5F,
              "changing one entity preserves the other")) {
     return false;
   }
   const auto invalid = world.SetTransform(
-      instances.second_box, {.scale = std::numeric_limits<double>::infinity()});
+      instances.second_box, {.scale = std::numeric_limits<float>::infinity()});
   const auto preserved = world.Read(instances.second_box);
   return Check(Error(invalid, runtime::SceneError::kInvalidTransform) &&
                    preserved && preserved->local.scale == 4,
@@ -123,7 +123,8 @@ bool CheckIndependence(runtime::SceneWorld& world, const Instances& instances) {
 bool CheckRejectedActivation(runtime::SceneWorld& world,
                              runtime::SceneHandle source,
                              const Instances& instances) {
-  const auto invalid = world.Instantiate(source, {.scale = 1e307});
+  const auto invalid =
+      world.Instantiate(source, {.scale = std::numeric_limits<float>::max()});
   const auto zero = world.Instantiate(source, {.scale = 0});
   const auto stale = world.Instantiate({});
   const auto first = world.Read(instances.first_box);
@@ -247,7 +248,7 @@ bool ExerciseScene(const blackflower::content::VerifiedPack& pack) {
   const auto first = world.Instantiate(*source);
   const auto second = world.Instantiate(
       *source, {.position_m = {4, 3, -2},
-                .rotation_xyzw = {0, std::sqrt(0.5), 0, std::sqrt(0.5)},
+                .rotation_xyzw = {0, std::sqrt(0.5F), 0, std::sqrt(0.5F)},
                 .scale = 2});
   if (!first || !second) {
     return false;

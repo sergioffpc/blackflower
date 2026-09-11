@@ -104,7 +104,7 @@ standard library has no quaternion composition/rotation facility. The owner
 explicitly selected [GLM](https://github.com/g-truc/glm) instead of Boost.QVM
 for this work, overriding the default Boost preference. The runtime uses GLM's
 header-only target with no transitive runtime dependencies; vcpkg's CMake
-helpers are build-only dependencies. Binary64 vectors/quaternions preserve the
+helpers are build-only dependencies. Binary32 vectors/quaternions match the
 schema's precision, with explicit XYZW-to-WXYZ constructor conversion. Used
 arithmetic is allocation-free and has no shared mutable state or throwing path.
 Clang/C++23 and no-exception compatibility are checked by the linked validation

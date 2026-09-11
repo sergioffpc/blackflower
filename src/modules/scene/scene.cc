@@ -10,8 +10,8 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
-#include <glm/ext/quaternion_double.hpp>
-#include <glm/ext/vector_double3.hpp>
+#include <glm/ext/quaternion_float.hpp>
+#include <glm/ext/vector_float3.hpp>
 #include <limits>
 #include <map>
 #include <memory>
@@ -52,27 +52,27 @@ std::expected<std::uint64_t, SceneError> NewGeneration() {
 }
 
 bool Valid(const LocalTransform& value) {
-  double norm = 0;
+  float norm = 0;
   for (const auto v : value.rotation_xyzw) {
     norm += v * v;
   }
-  const auto finite = [](double v) { return std::isfinite(v); };
+  const auto finite = [](float v) { return std::isfinite(v); };
   return std::ranges::all_of(value.position_m, finite) &&
          std::ranges::all_of(value.rotation_xyzw, finite) &&
-         std::abs(norm - 1) <= 1e-12 && std::isfinite(value.scale) &&
+         std::abs(norm - 1) <= 1e-5F && std::isfinite(value.scale) &&
          value.scale > 0;
 }
 
-glm::dquat Quaternion(const std::array<double, 4>& value) {
+glm::quat Quaternion(const std::array<float, 4>& value) {
   // GLM constructor takes WXYZ; the portable schema uses XYZW.
-  return glm::dquat(value[3], value[0], value[1], value[2]);
+  return glm::quat(value[3], value[0], value[1], value[2]);
 }
 
 LocalTransform Compose(const LocalTransform& parent,
                        const LocalTransform& local) {
-  const glm::dvec3 position(local.position_m[0] * parent.scale,
-                            local.position_m[1] * parent.scale,
-                            local.position_m[2] * parent.scale);
+  const glm::vec3 position(local.position_m[0] * parent.scale,
+                           local.position_m[1] * parent.scale,
+                           local.position_m[2] * parent.scale);
   const auto rotated = Quaternion(parent.rotation_xyzw) * position;
   const auto rotation =
       Quaternion(parent.rotation_xyzw) * Quaternion(local.rotation_xyzw);
@@ -96,7 +96,7 @@ std::expected<std::vector<content::ColliderBox>, SceneError> TransformBoxes(
     for (auto& value : dimensions) {
       value *= transform.scale;
     }
-    if (!Valid(pose) || !std::ranges::all_of(dimensions, [](double v) {
+    if (!Valid(pose) || !std::ranges::all_of(dimensions, [](float v) {
           return std::isfinite(v) && v > 0;
         })) {
       return std::unexpected(SceneError::kInvalidTransform);

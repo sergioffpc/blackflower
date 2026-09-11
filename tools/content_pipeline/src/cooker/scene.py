@@ -26,6 +26,8 @@ COLLISION_COMPONENT = 1
 VISUAL_COMPONENT = 2
 AUDIO_COMPONENT = 4
 ALL_COMPONENTS = COLLISION_COMPONENT | VISUAL_COMPONENT | AUDIO_COMPONENT
+ENTITY_FIELDS = struct.Struct("<8fI")
+COLLIDER_FIELDS = struct.Struct("<I10f")
 # Shared ASCII grammar for authored identities and logical references.
 IDENTITY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*")
 
@@ -129,8 +131,7 @@ def _encode_entity(entity: SceneEntityDescription, role: SceneRole) -> bytes:
     _validate_components(entity, role, mask)
     result = bytearray(struct.pack("<I", len(identity)) + identity)
     result.extend(
-        struct.pack(
-            "<8dI",
+        ENTITY_FIELDS.pack(
             *entity["position_m"],
             *entity["rotation_xyzw"],
             entity["scale"],
@@ -155,8 +156,7 @@ def _encode_entity(entity: SceneEntityDescription, role: SceneRole) -> bytes:
 
 
 def _encode_collider(collider: ColliderBoxData) -> bytes:
-    return struct.pack(
-        "<I10d",
+    return COLLIDER_FIELDS.pack(
         1,
         *collider["center_m"],
         *collider["dimensions_m"],
@@ -199,12 +199,12 @@ def _decode_scene_entity_description(
         raise ValueError("invalid entity length")
     size = struct.unpack_from("<I", payload, offset)[0]
     start, end = offset + 4, offset + 4 + size
-    if end + 68 > len(payload):
+    if end + ENTITY_FIELDS.size > len(payload):
         raise ValueError("invalid entity length")
     identity = payload[start:end].decode("ascii")
     if not IDENTITY_PATTERN.fullmatch(identity):
         raise ValueError("invalid entity identity")
-    values = struct.unpack_from("<8dI", payload, end)
+    values = ENTITY_FIELDS.unpack_from(payload, end)
     position, rotation = list(values[:3]), list(values[3:7])
     _validate_transform(position, rotation, [values[7]])
     mask = values[8]
@@ -217,7 +217,7 @@ def _decode_scene_entity_description(
         "visual_ref": None,
         "audio_ref": None,
     }
-    offset = end + 68
+    offset = end + ENTITY_FIELDS.size
     if mask & COLLISION_COMPONENT:
         entity, offset = _decode_collision(payload, offset, entity)
     if mask & VISUAL_COMPONENT:
@@ -270,15 +270,15 @@ def _decode_collider(
         raise ValueError("invalid collider length")
     if struct.unpack_from("<I", payload, offset)[0] != 1:
         raise ValueError("unsupported collider kind")
-    if offset + 84 > len(payload):
+    if offset + COLLIDER_FIELDS.size > len(payload):
         raise ValueError("invalid collider length")
-    values = list(struct.unpack_from("<10d", payload, offset + 4))
+    values = list(COLLIDER_FIELDS.unpack_from(payload, offset)[1:])
     _validate_transform(values[:3], values[6:], values[3:6])
     return {
         "center_m": values[:3],
         "dimensions_m": values[3:6],
         "rotation_xyzw": values[6:],
-    }, offset + 84
+    }, offset + COLLIDER_FIELDS.size
 
 
 def _validate_transform(
@@ -287,7 +287,7 @@ def _validate_transform(
     if (
         not all(math.isfinite(v) for v in position + rotation + dimensions)
         or any(v <= 0 for v in dimensions)
-        or abs(sum(v * v for v in rotation) - 1) > 1e-12
+        or abs(sum(v * v for v in rotation) - 1) > 1e-5
     ):
         raise ValueError("invalid scene transform")
 

@@ -535,7 +535,8 @@ contracts and the content size policy.
 [ADR-0010](adr/0010-agnostic-content-packs.md) defines the agnostic content-pack
 contract and the pack v1 format. Its sparse role-scene amendment records the
 implemented Server, Agent and Client projections, stable cross-role entity
-identity and optional expected-role guard.
+identity and optional expected-role guard. Its precision amendment selects
+binary32 for cooked spatial values and runtime transforms.
 
 [ADR-0011](adr/0011-map-content-files.md) selects read-only file mappings and
 defines their ownership and immutable-backing-file contract.
@@ -558,7 +559,7 @@ The [USD entity authoring contract](usd-authoring.md) implements the first slice
 of [#57](https://github.com/sergioffpc/blackflower/issues/57) through #58:
 Scenes contain only entities with string placement identities and owned
 `Bounds`. One relative definition reference per placement enables reuse.
-Binary64 placement and oriented boxes preserve rotations without inferring
+Binary32 placement and oriented boxes preserve rotations without inferring
 collision from visuals. #61 migrates those boxes from world-space Bounds to
 local Collider descriptions;
 [ADR-0014](adr/0014-instantiate-local-scene-entity-descriptions-in-ecs.md)
@@ -638,10 +639,10 @@ generation byte-for-byte unchanged. See
 CONTENT-Q03: cook reused floor/box entity definitions, including a translated,
 90-degree rotated and uniformly scaled box, then remove source files and load
 all three signed packs. Preserve IDs after prim renaming and bounds ownership;
-compare analytical centres/dimensions within 1e-9 metres and quaternion
-components within 1e-12. Relocating the source tree preserves every pack byte;
-changing definition bytes changes build identity. Optional entities and bounds
-produce empty collections. See [local evidence](validation/scene-entities.md).
+compare analytical centres, dimensions and quaternion components within 1e-5.
+Relocating the source tree preserves every pack byte; changing definition bytes
+changes build identity. Optional entities and bounds produce empty collections.
+See [local evidence](validation/scene-entities.md).
 
 CONTENT-Q02, required by
 [#22](https://github.com/sergioffpc/blackflower/issues/22): feed tampered,
@@ -700,13 +701,13 @@ readiness. They remain unvalidated.
 ### Headless scene lifetime
 
 Given the signed collision fixture and two instances of its SceneAsset, root
-placement reproduces analytical box geometry within 1e-9 metres and 1e-12
-quaternion component tolerance. Updating one instance preserves the other;
-transferred members survive their former instance's unload; final unload leaves
-zero managed entities. Old entity and resource handles fail after reuse. Invalid
-placement publishes no partial instance. These are local functional requirements
-and evidence under [#61](validation/runtime-scenes.md), not physics, performance
-or multi-world deployment results.
+placement reproduces analytical box geometry within `1e-5` for metre values and
+quaternion components. Updating one instance preserves the other; transferred
+members survive their former instance's unload; final unload leaves zero managed
+entities. Old entity and resource handles fail after reuse. Invalid placement
+publishes no partial instance. These are local functional requirements and
+evidence under [#61](validation/runtime-scenes.md), not physics, performance or
+multi-world deployment results.
 
 ## 11. Risks and technical debt
 

@@ -20,9 +20,9 @@ using SceneEntityId = content::SceneEntityId;
 // Shared spatial definition, used independently by each ECS world. Metres,
 // right-handed Y-up, unit XYZW rotation, positive uniform scale.
 struct LocalTransform {
-  std::array<double, 3> position_m{};
-  std::array<double, 4> rotation_xyzw{0, 0, 0, 1};
-  double scale = 1;
+  std::array<float, 3> position_m{};
+  std::array<float, 4> rotation_xyzw{0, 0, 0, 1};
+  float scale = 1;
 };
 
 // Derived spatial definition; never a second mutable transform authority.

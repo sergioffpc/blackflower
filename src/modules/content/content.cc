@@ -320,19 +320,19 @@ bool ValidIdentity(std::span<const unsigned char> bytes) {
          });
 }
 
-bool ValidTransform(std::span<const double> position,
-                    std::span<const double> rotation,
-                    std::span<const double> dimensions) {
-  const auto finite = [](double v) { return std::isfinite(v); };
-  double norm = 0;
+bool ValidTransform(std::span<const float> position,
+                    std::span<const float> rotation,
+                    std::span<const float> dimensions) {
+  const auto finite = [](float v) { return std::isfinite(v); };
+  float norm = 0;
   for (const auto value : rotation) {
     norm += value * value;
   }
   return std::ranges::all_of(position, finite) &&
          std::ranges::all_of(rotation, finite) &&
          std::ranges::all_of(
-             dimensions, [](double v) { return std::isfinite(v) && v > 0; }) &&
-         std::abs(norm - 1) <= 1e-12;
+             dimensions, [](float v) { return std::isfinite(v) && v > 0; }) &&
+         std::abs(norm - 1) <= 1e-5F;
 }
 
 std::expected<ColliderBox, PackError> DecodeCollider(Reader& reader) {
@@ -343,7 +343,7 @@ std::expected<ColliderBox, PackError> DecodeCollider(Reader& reader) {
   if (*kind != 1) {
     return std::unexpected(PackError::kUnsupportedCollider);
   }
-  const auto values = reader.ReadArray<double, 10>();
+  const auto values = reader.ReadArray<float, 10>();
   if (!values) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }
@@ -493,7 +493,7 @@ std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
   if (!identity) {
     return std::unexpected(identity.error());
   }
-  const auto values = reader.ReadArray<double, 8>();
+  const auto values = reader.ReadArray<float, 8>();
   if (!values) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }

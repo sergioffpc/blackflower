@@ -59,7 +59,7 @@ scale, in that order; any of these operations may be omitted. Bound children
 support the same order with positive nonuniform scale. Reset stacks, pivots,
 inverse operations, matrices and other transform operations are unsupported. The
 cooker preserves oriented boxes by storing entity placement separately from
-entity-local collider transforms. Both use binary64 metre coordinates and unit
+entity-local collider transforms. Both use binary32 metre coordinates and unit
 XYZW quaternions. Runtime instantiation composes the optional instance root,
 placement and local box exactly once; see [Scene v1](../schemas/scene/v1.md).
 
@@ -85,9 +85,8 @@ mixed, and authoritative-dynamic descriptions. Checks cover sparse role domains,
 dynamic collision filtering, shared identity, reused definitions, stable IDs
 after a prim rename, optional bounds and entities, and byte-identical outputs
 after relocation. Editing a dependency changes the build identity. Analytical
-box comparisons allow 1e-9 metres for position/dimensions and 1e-12 for
-quaternion components; these are fixture tolerances, not global fidelity
-guarantees.
+box comparisons allow `1e-5` for metre values and quaternion components; these
+are fixture tolerances, not global fidelity guarantees.
 
 ## Scene example
 

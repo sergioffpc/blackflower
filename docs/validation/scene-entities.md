@@ -17,8 +17,9 @@ a unit body and a half-size cap translated locally by (1, 0, 0). Its placement
 is (2, 1, 3), rotated 90 degrees around Y and scaled by two. Expected body
 dimensions are (2, 2, 2); cap dimensions are (1, 1, 1) and its world centre is
 (2, 1, 1). The floor dimensions are (20, 0.2, 20) with centre (0, -0.1, 0).
-These analytical expectations do not use visual mesh bounds. Comparison
-tolerances are 1e-9 metres and 1e-12 per quaternion component.
+These analytical expectations do not use visual mesh bounds. The current
+binary32 comparison tolerance is `1e-5` for metre values and quaternion
+components.
 
 Normal workflow coverage checks:
 
@@ -65,6 +66,13 @@ with the prepared SDK via `XWIN_ROOT`. Windows execution remains unavailable
 because this container exposes neither Windows executable interoperability nor
 `wslpath`; cross-build success is not Windows runtime evidence. The final
 isolated-filename integration adjustment passed the four native content checks.
+
+On 2026-09-11, the binary32 precision migration regenerated the independent
+signed fixtures and passed all ten CTest entries in Linux Debug, TSan and
+Release. The content suite contains 21 methods. Windows Release
+cross-compilation and analysis also passed; target execution remains outside
+this environment. This supersedes the original binary64 fixture precision while
+retaining schema version 1 under the development migration policy.
 
 ## Review
 

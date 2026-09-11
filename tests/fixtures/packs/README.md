@@ -19,6 +19,7 @@ cryptographic implementations.
 The #78 fixtures use sparse component records with one `SessionStatic` collision
 domain and a scene entity translated by seven metres on X. The fixed local
 centres remain -3 and 1 metres on X; their world centres would be 4 and 8
-metres. The payload bytes, SceneAsset/ColliderAsset IDs, new disposable public
-key and signatures were regenerated together, retaining schema version 1. Asset
-IDs follow the exact domain-separated schema transcript.
+metres. Spatial values use Scene v1 binary32. The payload bytes,
+SceneAsset/ColliderAsset IDs, disposable public key and signatures were
+regenerated together, retaining schema version 1. Asset IDs follow the exact
+domain-separated schema transcript.

@@ -36,10 +36,11 @@ placement and optional independently authored `Bounds`. This supersedes the
 global collision/light/spawn collections described above. Visual resources
 remain a subsequent entity-owned representation.
 
-The [Scene v1 contract](../../schemas/scene/v1.md) now stores binary64 metre
-coordinates and unit XYZW quaternions. This replaces integer millimetres to
+The #58 [Scene v1 contract](../../schemas/scene/v1.md) stored binary64 metre
+coordinates and unit XYZW quaternions. This replaced integer millimetres to
 preserve rotated boxes and composed transforms without the previous quantization
-step. In #58, bounds were stored in world space inside their owning entity.
+step. The precision amendment below supersedes binary64. In #58, bounds were
+stored in world space inside their owning entity.
 [ADR-0014](0014-instantiate-local-scene-entity-descriptions-in-ecs.md)
 supersedes that coordinate choice with local Collider descriptions and
 exactly-once placement in #61. Consumers no longer receive global spawn or light
@@ -56,6 +57,20 @@ throughout capture.
 Portable role selection, independent trust and atomic pack-set publication
 remain unchanged. Development schemas evolve in place, requiring regeneration of
 older packs rather than a compatibility path.
+
+## Precision amendment
+
+On 2026-09-11, the owner selected IEEE 754 binary32 for all Scene v1 spatial
+values: position, rotation, scale, collider centre and collider dimensions. The
+runtime content and transform structures use `float` consistently. Binary64
+would retain more authored precision but doubles pack geometry size and does not
+match the selected runtime representation. A mixed encoding was rejected because
+it would complicate the schema without a demonstrated consumer need.
+
+Quaternion norm validation and analytical geometry comparisons use a `1e-5`
+tolerance appropriate to binary32. Exact encoded bytes still determine asset
+identity. Schema 1 evolves in place under the development policy, so all earlier
+binary64 packs and independently signed fixtures must be regenerated.
 
 ## Sparse role-scene amendment
 

@@ -38,11 +38,11 @@ its legacy revision token; fixture schema versions remain 1.
 | Renamed prim and relocated dependencies          | Authored identity preserved; relocated identical inputs produce equal bytes. |
 | Independent reference fixtures                   | Fixed payload, AssetIds, ContentBuildId and signatures round-trip.           |
 
-Positions/dimensions use 1e-9 metre and quaternion comparisons use 1e-12
-component tolerance for these analytical fixtures. These are not physical
-simulation accuracy guarantees. The scoped lifecycle/handle/invalid-transform
-checks are the #57 exception to the usual minimal functional test policy;
-concurrency, cancellation and SDK activation are absent and therefore untested.
+Metre values and quaternion components use a `1e-5` comparison tolerance for
+these binary32 analytical fixtures. These are not physical simulation accuracy
+guarantees. The scoped lifecycle/handle/invalid-transform checks are the #57
+exception to the usual minimal functional test policy; concurrency, cancellation
+and SDK activation are absent and therefore untested.
 
 ## Commands and environment
 
@@ -81,6 +81,12 @@ cross-compilation from target execution. This container has no Windows
 executable interoperability or wslpath. No Windows execution, reference-hardware
 performance, PhysX behavior, GPU work or multi-world gameplay is claimed.
 
+On 2026-09-11, the binary32 precision migration reran the native lifecycle
+exercise in Linux Debug, TSan and Release with regenerated packs. It preserves
+the ownership and placement behavior above under the current `1e-5` tolerance.
+Windows Release cross-compilation and analysis passed; Windows execution remains
+unverified.
+
 ## Review
 
 Independent Standards and Spec sub-agents reviewed the staged diff from
@@ -93,8 +99,8 @@ one, so it also checks that no prefix of a failed instance is published.
 
 Spec found missing world-quaternion comparisons. The fixture now directly checks
 the original world rotation against `(0, sqrt(0.5), 0, sqrt(0.5))` and the
-rooted rotation against `(0, 1, 0, 0)` within 1e-12. The independent follow-up
-reviews reported zero remaining findings on both axes. Manual review covered
-lease ownership, instance namespaces, source identity, typed errors, GLM
-ordering, Python imports, document links and the distinction between local and
-delivered behavior.
+rooted rotation against `(0, 1, 0, 0)` within the current `1e-5` binary32
+tolerance. The independent follow-up reviews reported zero remaining findings on
+both axes. Manual review covered lease ownership, instance namespaces, source
+identity, typed errors, GLM ordering, Python imports, document links and the
+distinction between local and delivered behavior.

@@ -31,5 +31,6 @@ some memory and preparation work, with no scale claim until measured.
 
 The owner explicitly selected GLM 1.0.3 for quaternion/vector arithmetic in this
 slice, replacing Boost.QVM and overriding the general Boost-first fallback.
-Portable content keeps its binary64 XYZW convention; the implementation converts
-to GLM's constructor order at the arithmetic boundary.
+Portable content uses the binary32 XYZW convention selected by the later
+[precision amendment](0010-agnostic-content-packs.md#precision-amendment); the
+implementation converts to GLM's constructor order at the arithmetic boundary.
