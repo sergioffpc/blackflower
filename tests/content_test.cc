@@ -37,8 +37,10 @@ TEST(Content, KeepsSceneAfterCallerStorageChanges) {
   EXPECT_EQ(scene->entities[0].id, (SceneEntityId{.value = "reference"}));
   const SceneEntityDescription& entity = scene->entities[0];
   EXPECT_EQ(entity.position_m[0], 7.0);
-  EXPECT_EQ(entity.colliders[0].dimensions_m[0], 2.0);
-  EXPECT_EQ(entity.colliders[0].center_m[0], -3.0);
+  const auto* collision = entity.collision ? &*entity.collision : nullptr;
+  ASSERT_NE(collision, nullptr);
+  EXPECT_EQ(collision->boxes[0].dimensions_m[0], 2.0);
+  EXPECT_EQ(collision->boxes[0].center_m[0], -3.0);
 }
 
 TEST(Content, KeepsSceneAcrossMappedPackCopiesAndMoves) {
@@ -56,7 +58,10 @@ TEST(Content, KeepsSceneAcrossMappedPackCopiesAndMoves) {
   survivor.reset();
   const auto* scene = std::get_if<ServerScene>(&moved.scene());
   ASSERT_NE(scene, nullptr);
-  EXPECT_EQ(scene->entities[0].colliders[0].center_m[0], -3.0);
+  const auto& entity = scene->entities[0];
+  const auto* collision = entity.collision ? &*entity.collision : nullptr;
+  ASSERT_NE(collision, nullptr);
+  EXPECT_EQ(collision->boxes[0].center_m[0], -3.0);
 }
 
 class ContentFileReplacement : public testing::Test {
@@ -121,7 +126,10 @@ TEST_F(ContentFileReplacement, RetainsVerifiedContentAcrossPathReplacement) {
 #endif
   const auto* scene = std::get_if<ServerScene>(&survivor->scene());
   ASSERT_NE(scene, nullptr);
-  EXPECT_EQ(scene->entities[0].colliders[0].center_m[0], -3.0);
+  const auto& entity = scene->entities[0];
+  const auto* collision = entity.collision ? &*entity.collision : nullptr;
+  ASSERT_NE(collision, nullptr);
+  EXPECT_EQ(collision->boxes[0].center_m[0], -3.0);
   survivor.reset();
 #ifdef _WIN32
   std::filesystem::rename(replacement_, path_, error);

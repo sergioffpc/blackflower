@@ -25,6 +25,11 @@ entity. Only complete instances become externally observable on return. There
 are no user systems/observers registered in this headless API, and every
 operation requires exclusive access outside world progression. SceneWorld does
 not expose a mutable Flecs world that could bypass its ownership invariants.
+This #61 foundation accepts collision-bearing descriptions only and returns
+`kMissingCollider` for a presentation-only description. The role-specific
+runtime work under #76 must project ClientScene before constructing its separate
+worlds; passing the unprojected Client union to this collision world is not a
+supported shortcut.
 
 SceneInstance records contain source ownership and the live
 SceneEntityId-to-Entity map. They contain no mutable pose or geometry tree.

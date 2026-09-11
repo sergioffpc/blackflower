@@ -7,6 +7,7 @@
 #include <ios>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -16,6 +17,21 @@
 #include "scene_exercise.h"
 
 namespace {
+using blackflower::content::PackRole;
+
+std::optional<PackRole> ParseRole(std::string_view text) {
+  if (text == "server") {
+    return PackRole::kServer;
+  }
+  if (text == "agent") {
+    return PackRole::kAgent;
+  }
+  if (text == "client") {
+    return PackRole::kClient;
+  }
+  return std::nullopt;
+}
+
 std::string Hex(const blackflower::content::Digest& digest) {
   constexpr std::string_view kHex = "0123456789abcdef";
   std::string text;
@@ -64,10 +80,36 @@ void PrintSceneEntityDescription(
   PrintArray(value.position_m);
   std::cout << ",\"rotation_xyzw\":";
   PrintArray(value.rotation_xyzw);
-  std::cout << ",\"scale\":" << value.scale << ",\"colliders\":";
-  PrintCollection(value.colliders, PrintCollider);
-  std::cout << ",\"collider_asset_id\":\"" << Hex(value.collider_asset_id.bytes)
-            << "\"}";
+  std::cout << ",\"scale\":" << value.scale << ",\"collision_domain\":";
+  if (!value.collision) {
+    std::cout << "null";
+  } else if (value.collision->domain ==
+             blackflower::content::CollisionDomain::kSessionStatic) {
+    std::cout << "\"session_static\"";
+  } else {
+    std::cout << "\"authoritative_dynamic\"";
+  }
+  std::cout << ",\"colliders\":";
+  if (value.collision) {
+    PrintCollection(value.collision->boxes, PrintCollider);
+  } else {
+    std::cout << "[]";
+  }
+  std::cout << ",\"collider_asset_id\":";
+  if (value.collision) {
+    std::cout << '"' << Hex(value.collision->asset_id.bytes) << '"';
+  } else {
+    std::cout << "null";
+  }
+  std::cout << ",\"visual_ref\":";
+  std::cout << (value.visual_reference
+                    ? "\"" + value.visual_reference->value + "\""
+                    : "null");
+  std::cout << ",\"audio_ref\":";
+  std::cout << (value.audio_reference
+                    ? "\"" + value.audio_reference->value + "\""
+                    : "null");
+  std::cout << '}';
 }
 
 template <typename T>
@@ -93,7 +135,13 @@ void PrintContent(const blackflower::content::VerifiedPack& pack) {
 int main(int argc, char** argv) {
   std::cout << std::setprecision(std::numeric_limits<double>::max_digits10);
   if (argc != 3 && argc != 4) {
-    std::cerr << "usage: content_harness PACK PUBLIC_KEY\n";
+    std::cerr << "usage: content_harness PACK PUBLIC_KEY [ROLE|instances]\n";
+    return 2;
+  }
+  const std::string_view operation = argc == 4 ? argv[3] : "";
+  const auto expected_role = ParseRole(operation);
+  if (argc == 4 && operation != "instances" && !expected_role) {
+    std::cerr << "expected server, agent, client, or instances\n";
     return 2;
   }
   std::array<blackflower::content::PublicKey, 1> keys{};
@@ -103,14 +151,14 @@ int main(int argc, char** argv) {
     std::cerr << "expected an independently provisioned 32-byte public key\n";
     return 1;
   }
-  const auto pack =
-      blackflower::content::LoadFile(std::filesystem::path(argv[1]), keys);
+  const auto pack = blackflower::content::LoadFile(
+      std::filesystem::path(argv[1]), keys, expected_role);
   if (!pack) {
     std::cerr << "content rejected: "
               << blackflower::content::PackErrorMessage(pack.error()) << '\n';
     return 1;
   }
-  if (argc == 4) {
+  if (operation == "instances") {
     return ExerciseScene(*pack) ? 0 : 1;
   }
   PrintContent(*pack);

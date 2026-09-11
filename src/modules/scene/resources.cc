@@ -41,12 +41,7 @@ bool SameSceneEntityDescriptions(const content::VerifiedPack& a,
         [](const auto& scene) -> const auto& { return scene.entities; },
         pack.scene());
   };
-  return std::ranges::equal(
-      descriptions(a), descriptions(b), [](const auto& x, const auto& y) {
-        return x.id == y.id && x.position_m == y.position_m &&
-               x.rotation_xyzw == y.rotation_xyzw && x.scale == y.scale &&
-               x.colliders == y.colliders;
-      });
+  return descriptions(a) == descriptions(b);
 }
 }  // namespace
 
@@ -113,21 +108,24 @@ std::expected<SceneHandle, SceneError> ResourceManager::Load(
 
 std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
     const content::SceneEntityDescription& description) {
+  if (!description.collision) {
+    return std::unexpected(SceneError::kMissingCollider);
+  }
+  const auto& collision = *description.collision;
   for (std::size_t i = 0; i < impl_->colliders.size(); ++i) {
     const auto& slot = impl_->colliders[i];
-    if (slot.asset && slot.asset->id == description.collider_asset_id) {
-      if (slot.asset->boxes != description.colliders) {
+    if (slot.asset && slot.asset->id == collision.asset_id) {
+      if (slot.asset->boxes != collision.boxes) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
       return ColliderHandle(
           {.owner = this, .slot = i, .generation = slot.generation});
     }
   }
-  return Impl::Publish(
-      impl_->colliders,
-      std::make_shared<const ColliderAsset>(ColliderAsset{
-          .id = description.collider_asset_id, .boxes = description.colliders}),
-      this);
+  return Impl::Publish(impl_->colliders,
+                       std::make_shared<const ColliderAsset>(ColliderAsset{
+                           .id = collision.asset_id, .boxes = collision.boxes}),
+                       this);
 }
 
 std::expected<std::shared_ptr<const SceneAsset>, SceneError>

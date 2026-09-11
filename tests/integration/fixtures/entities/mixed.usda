@@ -6,18 +6,18 @@
 )
 def Xform "Entity"
 {
+    custom string blackflower:visual = "visual.crate"
+    custom string blackflower:audio = "audio.crate"
     def Scope "Bounds"
     {
         custom token blackflower:collisionDomain = "SessionStatic"
 
-        def Cube "Slab" (
+        def Cube "Body" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
         )
         {
             double size = 1
-            double3 xformOp:translate = (0, -0.1, 0)
-            double3 xformOp:scale = (20, 0.2, 20)
-            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            bool physics:collisionEnabled = true
         }
     }
 }

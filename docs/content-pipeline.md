@@ -90,17 +90,23 @@ build/debug/blackflower_content_harness \
   build/packs/mvp/mvp.bfclient /path/to/content-public.key
 ```
 
-ServerScene, AgentScene and ClientScene are complete for their respective
-consumers. All three currently contain only entities with their placement
-transforms and optional bounds. Visual, audio, light and spawn resources are not
-implemented in this entity slice. Applications supply their own pack path and
-independent trust set; the loader has no role parameter. The public
+ServerScene contains both supported authored collision domains. AgentScene
+contains `SessionStatic` collision only. Both omit visual and audio references.
+ClientScene is one sparse catalogue containing the union of `SessionStatic`
+collision and logical visual/audio references needed by later Prediction and
+Presentation projections; `AuthoritativeDynamic` collision is physically
+omitted. The same authored entity retains its `SceneEntityId` across every role
+and component projection. Logical references are typed identifiers, not media
+resources; visual, audio, light and spawn data remain unimplemented.
+
+Applications supply their own pack path and independent trust set. The public
 `VerifiedPack` retains the read-only file mapping and exposes a
-`std::variant<ServerScene, AgentScene, ClientScene>`. The authenticated magic
-selects the alternative regardless of filename. Keep backing files unchanged
-until all pack copies are released. Hashing touches the whole payload; decoded
-scene values are allocated separately. SDK resource creation and pack I/O remain
-outside ECS.
+`std::variant<ServerScene, AgentScene, ClientScene>`. Authenticated magic
+selects the alternative regardless of filename. A caller can require an expected
+role; a fully verified pack of another role returns
+`PackError::kUnexpectedRole`. Keep backing files unchanged until all pack copies
+are released. Hashing touches the whole payload; decoded scene values are
+allocated separately. SDK resource creation and pack I/O remain outside ECS.
 
 The [pack v1 contract](../schemas/pack/v1.md) has no platform profile.
 
@@ -110,7 +116,8 @@ The normal native `check` target includes the installed Python package's type
 checks and production-to-consumption integration suite. Tests use disposable
 signing keys, the real C++ harness, and independently encoded shared fixtures.
 Functional coverage checks compatibility, production and independent consumption
-of prepared content, and ownership of loaded data. Follow the
+of prepared content, sparse role projection, common identity, atomic
+publication, and ownership of loaded data. Follow the
 [application test scope](development-process.md#current-application-test-scope).
 
 [#22](https://github.com/sergioffpc/blackflower/issues/22) additionally

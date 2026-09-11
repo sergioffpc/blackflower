@@ -46,16 +46,22 @@ public keys.
 The cooker derives complete ServerScene, AgentScene and ClientScene artifacts
 from one source scene, using `.bfserver`, `.bfagent` and `.bfclient` extensions.
 The server, autonomous participant and human client each select their own file.
-The loader accepts a path and trusted keys without a role selector; each file
-has its own authenticated magic. The loader returns a variant of the concrete
-scene types, and consumers do not need companion packs.
+Each file has its own authenticated magic. The loader returns a variant of the
+concrete scene types, and consumers do not need companion packs. Callers may
+require an expected role after full verification to reject a valid but misrouted
+artifact.
 
-ServerScene and AgentScene currently share collision geometry, without lights or
-visual/audio assets. Only ServerScene contains spawn points. ClientScene
-contains that geometry and the source lights, without spawn points. Visual mesh
-and audio encoding remain future work. Runtime adapters prepare SDK resources
-from these portable definitions. The autonomous participant will use the client
-protocol; its runtime and model-driven control are outside this preparation.
+ServerScene contains sparse static and authoritative-dynamic collision
+descriptions. AgentScene contains static collision only. Both omit visual/audio
+references. ClientScene is one catalogue containing the union of static
+collision and logical visual/audio references needed to derive separate
+Prediction and Presentation projections; it physically omits
+authoritative-dynamic collision. An authored logical entity retains one
+`SceneEntityId` wherever it appears. Logical presentation references do not
+carry media data; visual mesh and audio encoding remain future work. Runtime
+adapters prepare SDK resources from these portable definitions. The autonomous
+participant will use the client protocol; its runtime and model-driven control
+are outside this preparation.
 
 ## Selected cooker stack and model processing
 

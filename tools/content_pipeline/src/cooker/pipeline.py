@@ -22,8 +22,10 @@ class CookStage(enum.IntEnum):
 
 
 def _encode_scenes(data: scene.SceneData) -> dict[str, bytes]:
-    payload = scene.encode(data)
-    return {name: payload for name in ("server", "agent", "client")}
+    return {
+        role.value: scene.encode(scene.project(data, role), role)
+        for role in scene.SceneRole
+    }
 
 
 def cook(

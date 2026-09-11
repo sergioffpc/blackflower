@@ -77,6 +77,8 @@ struct Collider {
 };
 
 enum class SceneError : std::uint8_t {
+  // A description without collision content cannot enter this headless world.
+  kMissingCollider,
   // Missing, evicted, wrong-manager or generation-mismatched resource.
   kStaleResource,
   // Missing, unloaded or wrong-world scene instance.
