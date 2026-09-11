@@ -14,7 +14,7 @@ Team and a defending Blue Team, with up to eight participants per team.
 
 The repository contains a console bootstrap, build/test infrastructure, and an
 [OpenUSD-to-signed-pack pipeline](content-pipeline.md) with a C++ consumer
-harness and headless Flecs scene instantiation. Simulation behavior has not been
+harness and headless Flecs scene loading. Simulation behavior has not been
 implemented.
 
 The
@@ -144,14 +144,14 @@ decision in section 9. Treat unvalidated choices as proposals.
 | [Build configuration](../CMakeLists.txt)                           | Build four executables and content/scene libraries; run analysis, Python checks and integration tests.                                     |
 
 The [runtime scene module](runtime-scenes.md) publishes verified immutable
-SceneAssets and shared collider resources, then instantiates scene entity
-descriptions directly in a minimal Flecs world. SceneInstance retains source
-ownership and membership; LocalTransform and collider references live only in
-ECS. Public synchronous operations compose root placement, update, transfer,
-destroy and unload, with generation-checked entity/resource identities. Collider
-definitions serve Simulation and Prediction; shared spatial definitions never
-imply shared mutable world state. This headless foundation does not implement
-world progression.
+SceneAssets and shared collider resources, then loads one Scene's entity
+descriptions directly into each minimal Flecs world. The World retains source
+ownership and the authored-identity map; LocalTransform and collider references
+live only in ECS. Public synchronous operations load, get, update, destroy and
+unload, with generation-checked entity/resource identities. Collider definitions
+serve Simulation and Prediction; shared spatial definitions never imply shared
+mutable world state. This headless foundation does not implement world
+progression.
 
 The content loader accepts packs independently of host platform. The shared
 content build identity relates the three artifacts; there is no separate
@@ -229,8 +229,8 @@ publication boundaries.
 
 After signature and integrity verification, ResourceManager retains the
 immutable scene entity descriptions and backing storage. SceneWorld prepares
-complete transformed entities before synchronous publication. Transfers preserve
-current placement and resource leases; unload destroys only still-owned members.
+complete transformed entities before synchronous publication and rejects a
+second Scene while one is active. Whole-Scene unload destroys remaining members.
 Explicit collection evicts manager-only resources and advances generations.
 Resource handles are opaque identities: callers compare or resolve them, while
 the manager owns issuance and storage validation. See the
@@ -700,14 +700,14 @@ readiness. They remain unvalidated.
 
 ### Headless scene lifetime
 
-Given the signed collision fixture and two instances of its SceneAsset, root
-placement reproduces analytical box geometry within `1e-5` for metre values and
-quaternion components. Updating one instance preserves the other; transferred
-members survive their former instance's unload; final unload leaves zero managed
-entities. Old entity and resource handles fail after reuse. Invalid placement
-publishes no partial instance. These are local functional requirements and
-evidence under [#61](validation/runtime-scenes.md), not physics, performance or
-multi-world deployment results.
+Given the signed collision fixture, one SceneWorld loads exactly one SceneAsset
+and authored placement reproduces analytical box geometry within `1e-5` for
+metre values and quaternion components. A second load is rejected without
+changing the live Scene; entity updates and destruction remain isolated; unload
+leaves zero managed entities. Old entity and resource handles fail after reuse.
+Invalid entity placement changes are atomic. These are local functional
+requirements and evidence under [#61](validation/runtime-scenes.md), not
+physics, performance or multi-world deployment results.
 
 ## 11. Risks and technical debt
 

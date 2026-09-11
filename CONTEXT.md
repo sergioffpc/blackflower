@@ -56,7 +56,8 @@ representation and colliders, shared by its independently placed instances.
 
 **Scene**: The spatial description of an environment, including placed entities,
 with their optional visual representation and colliders. It is independent of
-exercise objectives and gameplay rules.
+exercise objectives and gameplay rules. Each live Simulation, Prediction, or
+Presentation World contains exactly one Scene; unloaded state is transitional.
 
 **Scenario**: A training exercise definition that includes objectives. It is
 distinct from the spatial description provided by a Scene; its detailed contract
@@ -81,22 +82,18 @@ participant, including static-collision entities without visual or audio assets.
 **ClientScene**: The complete scene content required by a human participant's
 client, including static-collision entities and associated presentation content.
 
-**SceneAsset**: The immutable compiled spatial scene from which independent live
-scene instances are created.
+**SceneAsset**: The immutable compiled spatial scene loaded into a World.
 
 **AssetId**: The identity of compiled content, shared by consumers using the
 same resource definition and distinct from a content build's provenance.
 
 **SceneEntityId**: The authored identity of a scene entity within one scene,
-preserved independently of its author's prim naming and its live instance
-identities. _Avoid_: PrototypeId
+preserved independently of its author's prim naming and its live Entity
+identity. _Avoid_: PrototypeId
 
 **SceneEntityDescription**: The immutable cooked description of one scene
 entity, including its SceneEntityId, placement and available authored
 components. It is not live mutable ECS state. _Avoid_: Prototype, scene recipe
-
-**SceneInstance**: One independently placed and independently unloadable live
-realization of a SceneAsset, owning its current members.
 
 **LocalTransform**: An entity's authoritative placement relative to its parent;
 for an entity without a parent, its placement in the world.

@@ -135,13 +135,13 @@ void PrintContent(const blackflower::content::VerifiedPack& pack) {
 int main(int argc, char** argv) {
   std::cout << std::setprecision(std::numeric_limits<float>::max_digits10);
   if (argc != 3 && argc != 4) {
-    std::cerr << "usage: content_harness PACK PUBLIC_KEY [ROLE|instances]\n";
+    std::cerr << "usage: content_harness PACK PUBLIC_KEY [ROLE|scene]\n";
     return 2;
   }
   const std::string_view operation = argc == 4 ? argv[3] : "";
   const auto expected_role = ParseRole(operation);
-  if (argc == 4 && operation != "instances" && !expected_role) {
-    std::cerr << "expected server, agent, client, or instances\n";
+  if (argc == 4 && operation != "scene" && !expected_role) {
+    std::cerr << "expected server, agent, client, or scene\n";
     return 2;
   }
   std::array<blackflower::content::PublicKey, 1> keys{};
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
               << blackflower::content::PackErrorMessage(pack.error()) << '\n';
     return 1;
   }
-  if (operation == "instances") {
+  if (operation == "scene") {
     return ExerciseScene(*pack) ? 0 : 1;
   }
   PrintContent(*pack);

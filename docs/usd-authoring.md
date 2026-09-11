@@ -60,8 +60,8 @@ support the same order with positive nonuniform scale. Reset stacks, pivots,
 inverse operations, matrices and other transform operations are unsupported. The
 cooker preserves oriented boxes by storing entity placement separately from
 entity-local collider transforms. Both use binary32 metre coordinates and unit
-XYZW quaternions. Runtime instantiation composes the optional instance root,
-placement and local box exactly once; see [Scene v1](../schemas/scene/v1.md).
+XYZW quaternions. Runtime loading composes placement and the local box exactly
+once; see [Scene v1](../schemas/scene/v1.md).
 
 The bounded subset rejects sublayers, payloads, variants, inherits, specializes,
 instancing, relationships, animation, attribute connections, unsupported physics
@@ -71,10 +71,10 @@ before composition; provenance covers sorted logical dependency names and
 content, independently of the absolute checkout location. Authors must not edit
 sources during cooking: capture is per file, not an atomic filesystem snapshot.
 
-Headless runtime instances support independent placement changes, member
-transfer, destruction and full unload through the
-[runtime scene API](runtime-scenes.md). No interaction parameters, ballistics or
-runtime physics SDK execution are implemented here.
+The headless runtime supports entity placement changes, destruction and
+whole-Scene unload through the [runtime scene API](runtime-scenes.md). Each
+World owns one active Scene. No interaction parameters, ballistics or runtime
+physics SDK execution are implemented here.
 
 ## Verification
 

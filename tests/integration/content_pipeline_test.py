@@ -436,7 +436,7 @@ class ContentPipelineTest(unittest.TestCase):
                         )
                         self.assertTrue(content["entities"][0]["colliders"])
 
-    def test_scene_instances_share_collision_and_unload_independently(self):
+    def test_world_owns_one_scene_and_unloads_it(self):
         with tempfile.TemporaryDirectory() as directory:
             work = pathlib.Path(directory)
             private, public = work / "private.pem", work / "public.key"
@@ -451,7 +451,7 @@ class ContentPipelineTest(unittest.TestCase):
                     _harness_command(
                         work / "cooked" / f"entities.bf{role}", public
                     )
-                    + ["instances"],
+                    + ["scene"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -459,9 +459,9 @@ class ContentPipelineTest(unittest.TestCase):
                 self.assertEqual(loaded.returncode, 0, loaded.stderr)
                 result = json.loads(loaded.stdout)
                 self.assertTrue(result["lifecycle_verified"])
-                for actual, expected in zip(result["cap_center"], (6, 5, -6)):
+                for actual, expected in zip(result["cap_center"], (2, 1, 1)):
                     self.assertAlmostEqual(actual, expected, places=5)
-                self.assertEqual(result["body_dimensions"], [4, 4, 4])
+                self.assertEqual(result["body_dimensions"], [2, 2, 2])
 
     def test_independently_encoded_reference_pack(self):
         reference = json.loads(

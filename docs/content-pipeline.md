@@ -164,6 +164,7 @@ The entity contract and runnable examples are in
 [scene entity validation](validation/scene-entities.md).
 
 The headless [runtime scene API](runtime-scenes.md) consumes the same trusted
-packs. The harness's optional `instances` argument runs the #61 fixture's public
-lifecycle checks and emits transformed geometry for the Python integration test.
-Current schema 1 stores local colliders; regenerate earlier world-space packs.
+packs. The harness's optional `scene` argument runs the #61 fixture's public
+single-Scene lifecycle checks and emits transformed geometry for the Python
+integration test. Current schema 1 stores local colliders; regenerate earlier
+world-space packs.

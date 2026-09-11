@@ -6,19 +6,18 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
-#include <string_view>
+#include <optional>
 #include <vector>
 
 #include "content.h"
 
 namespace blackflower::scene {
 
-// Scene-local authored placement identity. Runtime lookups also require an
-// instance, so identical IDs in different instances never alias.
+// Scene-local authored placement identity. SceneWorld is the runtime namespace.
 using SceneEntityId = content::SceneEntityId;
 
-// Shared spatial definition, used independently by each ECS world. Metres,
-// right-handed Y-up, unit XYZW rotation, positive uniform scale.
+// Spatial value used independently by each ECS world. Metres, right-handed
+// Y-up, unit XYZW rotation, positive uniform scale.
 struct LocalTransform {
   std::array<float, 3> position_m{};
   std::array<float, 4> rotation_xyzw{0, 0, 0, 1};
@@ -81,14 +80,12 @@ enum class SceneError : std::uint8_t {
   kMissingCollider,
   // Missing, evicted, wrong-manager or generation-mismatched resource.
   kStaleResource,
-  // Missing, unloaded or wrong-world scene instance.
-  kStaleInstance,
+  // This world already owns its one active scene.
+  kSceneAlreadyLoaded,
+  // This world has no active scene.
+  kNoScene,
   // Destroyed, wrong-world or generation-mismatched entity.
   kStaleEntity,
-  // No live member with the requested authored identity in this instance.
-  kUnknownSceneEntity,
-  // Transfer would duplicate an authored identity in the destination instance.
-  kDuplicateSceneEntity,
   // Nonfinite placement/derived geometry, nonpositive scale, nonunit rotation.
   kInvalidTransform,
   // Identical AssetIds name unequal compiled geometry or descriptions.
@@ -131,16 +128,10 @@ struct Entity {
   bool operator==(const Entity&) const = default;
 };
 
-struct SceneInstance {
-  std::uint64_t generation = 0;
-  bool operator==(const SceneInstance&) const = default;
-};
-
 // Read-only observation copied from live ECS components, not authoritative
 // state.
 struct EntityState {
   SceneEntityId scene_entity_id;
-  SceneInstance instance;
   LocalTransform local;
   WorldTransform world;
   Collider collider;
@@ -148,9 +139,11 @@ struct EntityState {
 
 // Owns a real headless Flecs world. All calls are synchronous at exclusive
 // world synchronization points, never from ECS callbacks or concurrent threads.
-// Instantiation validates every transformed box before publishing any entity.
-// Recoverable errors leave existing state intact. Allocation/SDK aborts are
-// process failures, not recoverable SceneErrors. No external SDKs execute here.
+// A world owns at most one active scene; empty state exists only before Load
+// and after Unload. Load validates every transformed box before publishing any
+// entity. Recoverable errors leave existing state intact. Allocation/SDK aborts
+// are process failures, not recoverable SceneErrors. No external SDKs execute
+// here.
 class SceneWorld {
  public:
   explicit SceneWorld(ResourceManager& resources);
@@ -160,22 +153,18 @@ class SceneWorld {
   SceneWorld(SceneWorld&&) = delete;
   SceneWorld& operator=(SceneWorld&&) = delete;
 
-  std::expected<SceneInstance, SceneError> Instantiate(
-      SceneHandle source, LocalTransform root = {});
-  // Repeated unload returns kStaleInstance. Transferred members survive.
-  std::expected<void, SceneError> Unload(SceneInstance instance);
-  [[nodiscard]] std::expected<Entity, SceneError> Find(
-      SceneInstance instance, std::string_view scene_entity_id) const;
-  [[nodiscard]] std::expected<EntityState, SceneError> Read(
+  std::expected<void, SceneError> Load(SceneHandle source);
+  // Repeated unload returns kNoScene.
+  std::expected<void, SceneError> Unload();
+  [[nodiscard]] std::optional<Entity> GetEntity(
+      const SceneEntityId& scene_entity_id) const;
+  [[nodiscard]] std::expected<EntityState, SceneError> ReadEntityState(
       Entity entity) const;
   // Root entities store authoritative world placement in LocalTransform.
   std::expected<void, SceneError> SetTransform(Entity entity,
                                                LocalTransform transform);
   [[nodiscard]] std::expected<std::vector<content::ColliderBox>, SceneError>
   WorldColliders(Entity entity) const;
-  // Transfer preserves current world placement and the member's resource lease.
-  std::expected<void, SceneError> Transfer(Entity entity,
-                                           SceneInstance destination);
   std::expected<void, SceneError> Destroy(Entity entity);
   [[nodiscard]] std::size_t entity_count() const;
 

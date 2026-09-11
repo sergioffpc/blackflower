@@ -15,8 +15,8 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -25,12 +25,6 @@
 
 namespace blackflower::scene {
 namespace {
-// In-memory ownership metadata; never an external effect or mutable
-// description.
-struct Membership {
-  SceneInstance instance;
-};
-
 struct Identity {
   std::uint64_t generation;
 };
@@ -108,7 +102,7 @@ std::expected<std::vector<content::ColliderBox>, SceneError> TransformBoxes(
   return boxes;
 }
 
-struct InstanceRecord {
+struct SceneRecord {
   std::shared_ptr<const SceneAsset> source;
   std::map<std::string, Entity, std::less<>> members;
 };
@@ -128,7 +122,6 @@ class SceneWorld::Impl {
     // Register before publication. The minimal world never imports timers,
     // networking, logging, REST, statistics or other effectful Flecs addons.
     world.component<SceneEntityId>();
-    world.component<Membership>();
     world.component<Identity>();
     world.component<LocalTransform>();
     world.component<WorldTransform>();
@@ -146,8 +139,7 @@ class SceneWorld::Impl {
   }
 
   std::expected<PreparedEntity, SceneError> Prepare(
-      const content::SceneEntityDescription& description,
-      const LocalTransform& root) {
+      const content::SceneEntityDescription& description) {
     const auto collider = resources.Acquire(description);
     if (!collider) {
       return std::unexpected(collider.error());
@@ -156,10 +148,9 @@ class SceneWorld::Impl {
     if (!lease) {
       return std::unexpected(lease.error());
     }
-    const auto transform =
-        Compose(root, {.position_m = description.position_m,
-                       .rotation_xyzw = description.rotation_xyzw,
-                       .scale = description.scale});
+    const LocalTransform transform{.position_m = description.position_m,
+                                   .rotation_xyzw = description.rotation_xyzw,
+                                   .scale = description.scale};
     const auto geometry = TransformBoxes(transform, **lease);
     const auto generation = NewGeneration();
     if (!geometry || !generation) {
@@ -172,11 +163,10 @@ class SceneWorld::Impl {
                           .generation = *generation};
   }
 
-  Entity Publish(const PreparedEntity& prepared, SceneInstance instance) {
+  Entity Publish(const PreparedEntity& prepared) {
     auto entity = world.entity();
     entity.set(prepared.description->id);
     entity.set(Identity{.generation = prepared.generation});
-    entity.set(Membership{.instance = instance});
     entity.set(prepared.transform);
     entity.set(WorldTransform{.value = prepared.transform});
     entity.set(prepared.collider);
@@ -189,7 +179,7 @@ class SceneWorld::Impl {
   std::unique_ptr<ecs_world_t, decltype(&ecs_fini)> storage{ecs_mini(),
                                                             ecs_fini};
   flecs::world world{storage.get()};
-  std::map<std::uint64_t, InstanceRecord> instances;
+  std::optional<SceneRecord> scene;
 };
 
 SceneWorld::SceneWorld(ResourceManager& resources)
@@ -197,77 +187,66 @@ SceneWorld::SceneWorld(ResourceManager& resources)
 
 SceneWorld::~SceneWorld() = default;
 
-std::expected<SceneInstance, SceneError> SceneWorld::Instantiate(
-    SceneHandle source, LocalTransform root) {
+std::expected<void, SceneError> SceneWorld::Load(SceneHandle source) {
+  if (impl_->scene) {
+    return std::unexpected(SceneError::kSceneAlreadyLoaded);
+  }
   const auto asset = impl_->resources.Resolve(source);
   if (!asset) {
     return std::unexpected(asset.error());
-  }
-  if (!Valid(root)) {
-    return std::unexpected(SceneError::kInvalidTransform);
   }
   const auto& descriptions = std::visit(
       [](const auto& scene) -> const auto& { return scene.entities; },
       (*asset)->pack.scene());
   std::vector<PreparedEntity> prepared;
   for (const auto& description : descriptions) {
-    auto entity = impl_->Prepare(description, root);
+    auto entity = impl_->Prepare(description);
     if (!entity) {
       return std::unexpected(entity.error());
     }
     prepared.push_back(std::move(*entity));
   }
-  const auto generation = NewGeneration();
-  if (!generation) {
-    return std::unexpected(generation.error());
-  }
-  const SceneInstance instance{.generation = *generation};
-  InstanceRecord record{.source = *asset, .members = {}};
+  SceneRecord record{.source = *asset, .members = {}};
   for (const auto& entity : prepared) {
     record.members.emplace(entity.description->id.value,
-                           impl_->Publish(entity, instance));
+                           impl_->Publish(entity));
   }
-  impl_->instances.emplace(instance.generation, std::move(record));
-  return instance;
-}
-
-std::expected<void, SceneError> SceneWorld::Unload(SceneInstance instance) {
-  const auto found = impl_->instances.find(instance.generation);
-  if (found == impl_->instances.end()) {
-    return std::unexpected(SceneError::kStaleInstance);
-  }
-  for (const auto& [scene_entity_id, entity] : found->second.members) {
-    if (impl_->Alive(entity)) {
-      const auto current = impl_->world.entity(entity.id);
-      if (current.get<Membership>().instance == instance) {
-        current.destruct();
-      }
-    }
-  }
-  impl_->instances.erase(found);
+  impl_->scene.emplace(std::move(record));
   return {};
 }
 
-std::expected<Entity, SceneError> SceneWorld::Find(
-    SceneInstance instance, std::string_view scene_entity_id) const {
-  const auto found = impl_->instances.find(instance.generation);
-  if (found == impl_->instances.end()) {
-    return std::unexpected(SceneError::kStaleInstance);
+std::expected<void, SceneError> SceneWorld::Unload() {
+  if (!impl_->scene) {
+    return std::unexpected(SceneError::kNoScene);
   }
-  const auto member = found->second.members.find(scene_entity_id);
-  if (member == found->second.members.end() || !impl_->Alive(member->second)) {
-    return std::unexpected(SceneError::kUnknownSceneEntity);
+  for (const auto& [scene_entity_id, entity] : impl_->scene->members) {
+    if (impl_->Alive(entity)) {
+      impl_->world.entity(entity.id).destruct();
+    }
+  }
+  impl_->scene.reset();
+  return {};
+}
+
+std::optional<Entity> SceneWorld::GetEntity(
+    const SceneEntityId& scene_entity_id) const {
+  if (!impl_->scene) {
+    return std::nullopt;
+  }
+  const auto member = impl_->scene->members.find(scene_entity_id.value);
+  if (member == impl_->scene->members.end() || !impl_->Alive(member->second)) {
+    return std::nullopt;
   }
   return member->second;
 }
 
-std::expected<EntityState, SceneError> SceneWorld::Read(Entity entity) const {
+std::expected<EntityState, SceneError> SceneWorld::ReadEntityState(
+    Entity entity) const {
   if (!impl_->Alive(entity)) {
     return std::unexpected(SceneError::kStaleEntity);
   }
   const auto current = impl_->world.entity(entity.id);
   return EntityState{.scene_entity_id = current.get<SceneEntityId>(),
-                     .instance = current.get<Membership>().instance,
                      .local = current.get<LocalTransform>(),
                      .world = current.get<WorldTransform>(),
                      .collider = current.get<Collider>()};
@@ -299,38 +278,12 @@ SceneWorld::WorldColliders(Entity entity) const {
                         *current.get<ColliderLease>().asset);
 }
 
-std::expected<void, SceneError> SceneWorld::Transfer(
-    Entity entity, SceneInstance destination) {
-  if (!impl_->Alive(entity)) {
-    return std::unexpected(SceneError::kStaleEntity);
-  }
-  const auto found = impl_->instances.find(destination.generation);
-  if (found == impl_->instances.end()) {
-    return std::unexpected(SceneError::kStaleInstance);
-  }
-  const auto current = impl_->world.entity(entity.id);
-  const auto origin = current.get<Membership>().instance;
-  if (origin == destination) {
-    return {};
-  }
-  const auto& scene_entity_id = current.get<SceneEntityId>().value;
-  if (found->second.members.contains(scene_entity_id)) {
-    return std::unexpected(SceneError::kDuplicateSceneEntity);
-  }
-  found->second.members.emplace(scene_entity_id, entity);
-  impl_->instances.at(origin.generation).members.erase(scene_entity_id);
-  current.set(Membership{.instance = destination});
-  return {};
-}
-
 std::expected<void, SceneError> SceneWorld::Destroy(Entity entity) {
-  if (!impl_->Alive(entity)) {
+  if (!impl_->scene || !impl_->Alive(entity)) {
     return std::unexpected(SceneError::kStaleEntity);
   }
   const auto current = impl_->world.entity(entity.id);
-  const auto owner = current.get<Membership>().instance;
-  impl_->instances.at(owner.generation)
-      .members.erase(current.get<SceneEntityId>().value);
+  impl_->scene->members.erase(current.get<SceneEntityId>().value);
   current.destruct();
   return {};
 }

@@ -13,6 +13,9 @@
 namespace {
 namespace runtime = blackflower::scene;
 
+const runtime::SceneEntityId kBoxId{.value = "box-01"};
+const runtime::SceneEntityId kFloorId{.value = "floor-main"};
+
 bool Check(bool condition, const char* description) {
   if (!condition) {
     std::cerr << "scene check failed: " << description << '\n';
@@ -26,13 +29,6 @@ bool Error(const std::expected<T, runtime::SceneError>& result,
   return !result && result.error() == expected;
 }
 
-struct Instances {
-  runtime::SceneInstance first;
-  runtime::SceneInstance second;
-  runtime::Entity first_box;
-  runtime::Entity second_box;
-};
-
 template <std::size_t N>
 bool Near(const std::array<float, N>& actual,
           const std::array<float, N>& expected, float tolerance) {
@@ -44,51 +40,14 @@ bool Near(const std::array<float, N>& actual,
   return true;
 }
 
-bool CheckWorldGeometry(runtime::SceneWorld& world,
-                        const Instances& instances) {
-  const auto first = world.WorldColliders(instances.first_box);
-  const auto second = world.WorldColliders(instances.second_box);
-  if (!first || !second || first->size() != 2 || second->size() != 2) {
-    return false;
-  }
-  return Check(Near((*first)[1].center_m, {2, 1, 1}, 1e-5F) &&
-                   Near((*first)[0].dimensions_m, {2, 2, 2}, 1e-5F) &&
-                   Near((*first)[0].rotation_xyzw,
-                        {0, 0.70710677F, 0, 0.70710677F}, 1e-5F) &&
-                   Near((*second)[0].rotation_xyzw, {0, 1, 0, 0}, 1e-5F),
-               "analytical world geometry and composed orientation");
-}
+struct SceneEntities {
+  runtime::Entity box;
+  runtime::Entity floor;
+};
 
-bool CheckFailedPreparationCache(runtime::SceneWorld& world,
-                                 runtime::ResourceManager& resources,
-                                 runtime::SceneHandle source) {
-  const auto initial = world.Instantiate(source);
-  if (!initial) {
-    return false;
-  }
-  const auto entity = world.Find(*initial, "box-01");
-  if (!entity) {
-    return false;
-  }
-  const auto state = world.Read(*entity);
-  if (!state || !world.Unload(*initial)) {
-    return false;
-  }
-  const auto rejected =
-      world.Instantiate(source, {.scale = std::numeric_limits<float>::max()});
-  return Check(Error(rejected, runtime::SceneError::kInvalidTransform) &&
-                   resources.Resolve(state->collider.resource).has_value() &&
-                   resources.Resolve(source).has_value() &&
-                   world.entity_count() == 0,
-               "failed preparation preserves previously cached resources");
-}
-
-bool CheckGeometry(runtime::SceneWorld& world, const Instances& instances) {
-  const auto first = world.Read(instances.first_box);
-  const auto second = world.Read(instances.second_box);
-  const auto boxes = world.WorldColliders(instances.second_box);
-  if (!Check(first && second && boxes && boxes->size() == 2,
-             "complete live geometry")) {
+bool CheckWorldGeometry(runtime::SceneWorld& world, runtime::Entity box) {
+  const auto boxes = world.WorldColliders(box);
+  if (!boxes || boxes->size() != 2) {
     return false;
   }
   std::cout << "{\"cap_center\":[" << (*boxes)[1].center_m[0] << ','
@@ -96,145 +55,112 @@ bool CheckGeometry(runtime::SceneWorld& world, const Instances& instances) {
             << "],\"body_dimensions\":[" << (*boxes)[0].dimensions_m[0] << ','
             << (*boxes)[0].dimensions_m[1] << ',' << (*boxes)[0].dimensions_m[2]
             << ']';
-  return Check(first->collider.resource == second->collider.resource &&
-                   first->scene_entity_id == second->scene_entity_id &&
-                   first->instance != second->instance &&
-                   first->local.position_m == std::array<float, 3>{2, 1, 3},
-               "shared collider and independent identity namespaces");
+  return Check(Near((*boxes)[1].center_m, {2, 1, 1}, 1e-5F) &&
+                   Near((*boxes)[0].dimensions_m, {2, 2, 2}, 1e-5F) &&
+                   Near((*boxes)[0].rotation_xyzw,
+                        {0, 0.70710677F, 0, 0.70710677F}, 1e-5F),
+               "authored placement produces analytical world geometry");
 }
 
-bool CheckIndependence(runtime::SceneWorld& world, const Instances& instances) {
+bool CheckSingleScene(runtime::SceneWorld& world, runtime::SceneHandle source,
+                      const SceneEntities& entities) {
+  const auto duplicate = world.Load(source);
+  const auto preserved_box = world.GetEntity(kBoxId);
+  const auto preserved_floor = world.GetEntity(kFloorId);
+  return Check(Error(duplicate, runtime::SceneError::kSceneAlreadyLoaded) &&
+                   preserved_box && *preserved_box == entities.box &&
+                   preserved_floor && *preserved_floor == entities.floor &&
+                   world.entity_count() == 2,
+               "one world rejects a second scene without changing its state");
+}
+
+bool CheckMutation(runtime::SceneWorld& world, const SceneEntities& entities) {
+  const auto floor_before = world.ReadEntityState(entities.floor);
   const auto changed =
-      world.SetTransform(instances.first_box, {.position_m = {30, 4, 5}});
-  const auto second = world.Read(instances.second_box);
-  if (!Check(changed && second &&
-                 std::abs(second->world.value.position_m[0] - 10) < 1e-5F,
-             "changing one entity preserves the other")) {
+      world.SetTransform(entities.box, {.position_m = {30, 4, 5}});
+  const auto floor_after = world.ReadEntityState(entities.floor);
+  const auto invalid = world.SetTransform(
+      entities.box, {.scale = std::numeric_limits<float>::infinity()});
+  const auto box_after = world.ReadEntityState(entities.box);
+  return Check(
+      floor_before && changed && floor_after &&
+          floor_after->local.position_m == floor_before->local.position_m &&
+          Error(invalid, runtime::SceneError::kInvalidTransform) && box_after &&
+          box_after->local.position_m == std::array<float, 3>{30, 4, 5},
+      "entity mutation is isolated and invalid updates are atomic");
+}
+
+bool CheckWorldIsolation(runtime::SceneWorld& world,
+                         runtime::ResourceManager& resources,
+                         runtime::SceneHandle source, runtime::Entity box) {
+  runtime::SceneWorld other(resources);
+  const auto loaded = other.Load(source);
+  const auto other_box = other.GetEntity(kBoxId);
+  if (!loaded || !other_box) {
+    Check(false, "each world loads its own scene");
     return false;
   }
-  const auto invalid = world.SetTransform(
-      instances.second_box, {.scale = std::numeric_limits<float>::infinity()});
-  const auto preserved = world.Read(instances.second_box);
-  return Check(Error(invalid, runtime::SceneError::kInvalidTransform) &&
-                   preserved && preserved->local.scale == 4,
-               "invalid update preserves previous live transform");
-}
-
-bool CheckRejectedActivation(runtime::SceneWorld& world,
-                             runtime::SceneHandle source,
-                             const Instances& instances) {
-  const auto invalid =
-      world.Instantiate(source, {.scale = std::numeric_limits<float>::max()});
-  const auto zero = world.Instantiate(source, {.scale = 0});
-  const auto stale = world.Instantiate({});
-  const auto first = world.Read(instances.first_box);
-  const auto second = world.Read(instances.second_box);
-  return Check(Error(invalid, runtime::SceneError::kInvalidTransform) &&
-                   Error(zero, runtime::SceneError::kInvalidTransform) &&
-                   Error(stale, runtime::SceneError::kStaleResource) && first &&
-                   second && world.entity_count() == 4,
-               "failed activation publishes no partial entities");
-}
-
-bool CheckWorldIsolation(runtime::ResourceManager& resources,
-                         const Instances& instances,
-                         runtime::SceneHandle source) {
-  runtime::SceneWorld other(resources);
-  const auto independent = other.Instantiate(source);
-  return Check(independent &&
-                   Error(other.Read(instances.first_box),
-                         runtime::SceneError::kStaleEntity) &&
-                   Error(other.Unload(instances.first),
-                         runtime::SceneError::kStaleInstance) &&
-                   other.Unload(*independent),
-               "runtime handles cannot cross world namespaces");
-}
-
-bool CheckTransfer(runtime::SceneWorld& world, const Instances& instances) {
-  const auto collision = world.Transfer(instances.first_box, instances.second);
-  const auto destroy = world.Destroy(instances.second_box);
-  const auto transfer = world.Transfer(instances.first_box, instances.second);
-  const auto unload = world.Unload(instances.first);
-  const auto survivor = world.Read(instances.first_box);
-  const auto old_lookup = world.Find(instances.first, "box-01");
-  const auto new_lookup = world.Find(instances.second, "box-01");
-  return Check(Error(collision, runtime::SceneError::kDuplicateSceneEntity) &&
-                   destroy && transfer && unload && survivor && new_lookup &&
-                   *new_lookup == instances.first_box &&
-                   survivor->instance == instances.second &&
-                   survivor->local.position_m[0] == 30 &&
-                   Error(old_lookup, runtime::SceneError::kStaleInstance) &&
-                   Error(world.Read(instances.second_box),
-                         runtime::SceneError::kStaleEntity) &&
-                   world.entity_count() == 2,
-               "transferred membership survives its original instance");
-}
-
-bool CheckUnload(runtime::SceneWorld& world,
-                 runtime::ResourceManager& resources,
-                 const Instances& instances, runtime::ColliderHandle collider) {
-  const auto pinned = resources.Resolve(collider);
-  const auto unloaded = world.Unload(instances.second);
-  const auto again = world.Unload(instances.second);
-  resources.CollectUnused();
+  const auto original_state = world.ReadEntityState(box);
+  const auto other_state = other.ReadEntityState(*other_box);
   return Check(
-      pinned && unloaded && Error(again, runtime::SceneError::kStaleInstance) &&
-          Error(world.Read(instances.first_box),
+      loaded && other_box && *other_box != box && original_state &&
+          other_state &&
+          other_state->collider.resource == original_state->collider.resource &&
+          Error(other.ReadEntityState(box),
                 runtime::SceneError::kStaleEntity) &&
-          resources.Resolve(collider).has_value() && world.entity_count() == 0,
-      "full unload preserves an external resource lease");
+          other.Unload(),
+      "worlds isolate entities and share immutable resources");
 }
 
-bool CheckReload(runtime::SceneWorld& world,
-                 runtime::ResourceManager& resources,
-                 const blackflower::content::VerifiedPack& pack,
-                 runtime::ColliderHandle old_collider,
-                 runtime::Entity old_entity) {
+bool CheckDestroy(runtime::SceneWorld& world, runtime::Entity floor) {
+  const auto destroyed = world.Destroy(floor);
+  const auto missing = world.GetEntity(kFloorId);
+  return Check(
+      destroyed && !missing &&
+          Error(world.Destroy(floor), runtime::SceneError::kStaleEntity) &&
+          world.entity_count() == 1,
+      "destroy removes the scene member and rejects its stale handle");
+}
+
+bool CheckUnloadAndReload(runtime::SceneWorld& world,
+                          runtime::ResourceManager& resources,
+                          const blackflower::content::VerifiedPack& pack,
+                          runtime::SceneHandle old_source,
+                          runtime::ColliderHandle old_collider,
+                          runtime::Entity old_entity) {
+  if (!Check(world.Unload().has_value() &&
+                 Error(world.Unload(), runtime::SceneError::kNoScene) &&
+                 !world.GetEntity(kBoxId) &&
+                 Error(world.ReadEntityState(old_entity),
+                       runtime::SceneError::kStaleEntity) &&
+                 world.entity_count() == 0,
+             "unload empties the world and invalidates its entities")) {
+    return false;
+  }
   resources.CollectUnused();
-  if (!Check(Error(resources.Resolve(old_collider),
-                   runtime::SceneError::kStaleResource),
-             "resource eviction")) {
+  if (!Check(Error(resources.Resolve(old_source),
+                   runtime::SceneError::kStaleResource) &&
+                 Error(resources.Resolve(old_collider),
+                       runtime::SceneError::kStaleResource),
+             "unload releases scene and collider resources for collection")) {
     return false;
   }
   const auto source = resources.Load(pack);
-  if (!source) {
+  if (!source || !world.Load(*source)) {
     return false;
   }
-  const auto instance = world.Instantiate(*source);
-  if (!instance) {
+  const auto box = world.GetEntity(kBoxId);
+  if (!box) {
     return false;
   }
-  const auto entity = world.Find(*instance, "box-01");
-  if (!entity) {
-    return false;
-  }
-  const auto state = world.Read(*entity);
-  return Check(
-      state && state->collider.resource != old_collider &&
-          resources.Resolve(state->collider.resource).has_value() &&
-          Error(resources.Resolve(old_collider),
-                runtime::SceneError::kStaleResource) &&
-          Error(world.Read(old_entity), runtime::SceneError::kStaleEntity) &&
-          world.Unload(*instance),
-      "entity and resource generations reject stale handles");
-}
-
-bool CheckLifecycle(runtime::SceneWorld& world,
-                    runtime::ResourceManager& resources,
-                    const blackflower::content::VerifiedPack& pack,
-                    runtime::SceneHandle source, const Instances& instances) {
-  const auto state = world.Read(instances.first_box);
-  return state && CheckWorldGeometry(world, instances) &&
-         CheckGeometry(world, instances) &&
-         CheckIndependence(world, instances) &&
-         CheckRejectedActivation(world, source, instances) &&
-         CheckWorldIsolation(resources, instances, source) &&
-         CheckTransfer(world, instances) &&
-         CheckUnload(world, resources, instances, state->collider.resource) &&
-         Error(resources.Resolve(source),
-               runtime::SceneError::kStaleResource) &&
-         CheckReload(world, resources, pack, state->collider.resource,
-                     instances.first_box);
+  const auto state = world.ReadEntityState(*box);
+  return Check(state && *box != old_entity &&
+                   state->collider.resource != old_collider &&
+                   Error(world.ReadEntityState(old_entity),
+                         runtime::SceneError::kStaleEntity) &&
+                   world.Unload() &&
+                   Error(world.Load({}), runtime::SceneError::kStaleResource),
+               "reload advances entity and resource generations");
 }
 }  // namespace
 
@@ -242,27 +168,23 @@ bool ExerciseScene(const blackflower::content::VerifiedPack& pack) {
   runtime::ResourceManager resources;
   runtime::SceneWorld world(resources);
   const auto source = resources.Load(pack);
-  if (!source || !CheckFailedPreparationCache(world, resources, *source)) {
+  if (!source || !world.Load(*source)) {
     return false;
   }
-  const auto first = world.Instantiate(*source);
-  const auto second = world.Instantiate(
-      *source, {.position_m = {4, 3, -2},
-                .rotation_xyzw = {0, std::sqrt(0.5F), 0, std::sqrt(0.5F)},
-                .scale = 2});
-  if (!first || !second) {
+  const auto box = world.GetEntity(kBoxId);
+  const auto floor = world.GetEntity(kFloorId);
+  if (!box || !floor) {
     return false;
   }
-  const auto first_box = world.Find(*first, "box-01");
-  const auto second_box = world.Find(*second, "box-01");
-  if (!first_box || !second_box) {
-    return false;
-  }
-  const Instances instances{.first = *first,
-                            .second = *second,
-                            .first_box = *first_box,
-                            .second_box = *second_box};
-  if (!CheckLifecycle(world, resources, pack, *source, instances)) {
+  const SceneEntities entities{.box = *box, .floor = *floor};
+  const auto state = world.ReadEntityState(entities.box);
+  if (!state || !CheckWorldGeometry(world, entities.box) ||
+      !CheckSingleScene(world, *source, entities) ||
+      !CheckMutation(world, entities) ||
+      !CheckWorldIsolation(world, resources, *source, entities.box) ||
+      !CheckDestroy(world, entities.floor) ||
+      !CheckUnloadAndReload(world, resources, pack, *source,
+                            state->collider.resource, entities.box)) {
     return false;
   }
   std::cout << ",\"lifecycle_verified\":true}\n";
