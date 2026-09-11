@@ -19,6 +19,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -104,55 +105,52 @@ enum class ResourceType : std::uint8_t {
   kScene = 1
 };
 
-// Borrows little-endian encoded storage. Checked scene reads return typed
-// errors; pack metadata readers check completion through done().
+enum class ReaderError : std::uint8_t {
+  // The requested value or byte range exceeds the unread input.
+  kUnexpectedEnd,
+};
+
+template <typename T>
+concept ReadableScalar =
+    std::same_as<T, std::remove_cv_t<T>> &&
+    ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>) &&
+    (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+
+template <std::size_t Size>
+using UnsignedInteger = std::conditional_t<
+    Size == 1, std::uint8_t,
+    std::conditional_t<
+        Size == 2, std::uint16_t,
+        std::conditional_t<Size == 4, std::uint32_t, std::uint64_t>>>;
+
+// Borrows little-endian encoded storage and reports representation-level
+// failures without assigning them domain meaning.
 class Reader {
  public:
   explicit Reader(std::span<const unsigned char> bytes) : bytes_(bytes) {}
 
-  std::span<const unsigned char> Take(std::size_t size) {
+  std::expected<std::span<const unsigned char>, ReaderError> Take(
+      std::size_t size) {
     if (size > bytes_.size()) {
-      valid_ = false;
-      return {};
+      return std::unexpected(ReaderError::kUnexpectedEnd);
     }
     const auto result = bytes_.first(size);
     bytes_ = bytes_.subspan(size);
     return result;
   }
 
-  std::uint32_t U32() {
-    const auto bytes = Take(4);
-    std::uint32_t result = 0;
-    for (std::size_t i = 0; i < bytes.size(); ++i) {
-      result |= static_cast<std::uint32_t>(bytes[i]) << (8 * i);
+  template <ReadableScalar T>
+  std::expected<T, ReaderError> Read() {
+    const auto bytes = Take(sizeof(T));
+    if (!bytes) {
+      return std::unexpected(bytes.error());
     }
-    return result;
+    return std::bit_cast<T>(
+        DecodeLittleEndian<UnsignedInteger<sizeof(T)>>(*bytes));
   }
 
-  std::uint64_t U64() {
-    const auto low = U32();
-    const auto high = U32();
-    return low | (static_cast<std::uint64_t>(high) << 32);
-  }
-
-  // Decodes one scene scalar; a failed read permanently invalidates the reader.
-  template <typename T>
-    requires(std::same_as<T, std::uint32_t> || std::same_as<T, std::int32_t> ||
-             std::same_as<T, float> || std::same_as<T, double>)
-  std::expected<T, PackError> Read() {
-    if (!valid_ || bytes_.size() < sizeof(T)) {
-      valid_ = false;
-      return std::unexpected(PackError::kInvalidSceneLength);
-    }
-    if constexpr (std::same_as<T, double>) {
-      return std::bit_cast<T>(U64());
-    } else {
-      return std::bit_cast<T>(U32());
-    }
-  }
-
-  template <typename T, std::size_t N>
-  std::expected<std::array<T, N>, PackError> ReadArray() {
+  template <ReadableScalar T, std::size_t N>
+  std::expected<std::array<T, N>, ReaderError> ReadArray() {
     std::array<T, N> values{};
     for (auto& value : values) {
       const auto decoded = Read<T>();
@@ -168,11 +166,19 @@ class Reader {
     return bytes_;
   }
 
-  [[nodiscard]] bool done() const { return valid_ && bytes_.empty(); }
+  [[nodiscard]] bool done() const { return bytes_.empty(); }
 
  private:
+  template <typename T>
+  static T DecodeLittleEndian(std::span<const unsigned char> bytes) {
+    T result = 0;
+    for (std::size_t i = 0; i < bytes.size(); ++i) {
+      result |= static_cast<T>(bytes[i]) << (8 * i);
+    }
+    return result;
+  }
+
   std::span<const unsigned char> bytes_;
-  bool valid_ = true;
 };
 
 // Views borrow the input artifact; ranges have been checked against its size.
@@ -202,14 +208,20 @@ std::expected<PackRole, PackError> DecodeMagic(
 
 // Consumes the header prefix and identifies the scene encoding.
 std::expected<PackRole, PackError> ValidateHeader(Reader& header) {
-  const auto kind = DecodeMagic(header.Take(kServerMagic.size()));
+  const auto magic = header.Take(kServerMagic.size());
+  if (!magic) {
+    return std::unexpected(PackError::kUnsupportedFormat);
+  }
+  const auto kind = DecodeMagic(*magic);
   if (!kind) {
     return std::unexpected(kind.error());
   }
-  if (header.U32() != 1) {
+  const auto version = header.Read<std::uint32_t>();
+  if (!version || *version != 1) {
     return std::unexpected(PackError::kUnsupportedFormat);
   }
-  if (header.U32() != 1) {
+  const auto resource_count = header.Read<std::uint32_t>();
+  if (!resource_count || *resource_count != 1) {
     return std::unexpected(PackError::kUnsupportedResourceCount);
   }
   return *kind;
@@ -224,24 +236,31 @@ std::expected<PackLayout, PackError> DecodeLayout(
   if (!compatible) {
     return std::unexpected(compatible.error());
   }
-  const auto total = header.U64();
-  const auto manifest_size = header.U64();
-  const auto payload_size = header.U64();
+  const auto total = header.Read<std::uint64_t>();
+  const auto manifest_size = header.Read<std::uint64_t>();
+  const auto payload_size = header.Read<std::uint64_t>();
+  if (!total || !manifest_size || !payload_size) {
+    return std::unexpected(PackError::kInvalidLayout);
+  }
   // Check actual storage before subtraction; summing untrusted sizes can wrap.
   const auto body_size = bytes.size() - kHeaderSize - kSignatureSize;
-  if (total != bytes.size() || manifest_size < kManifestFixedSize ||
-      manifest_size > body_size || payload_size != body_size - manifest_size) {
+  if (*total != bytes.size() || *manifest_size < kManifestFixedSize ||
+      *manifest_size > body_size ||
+      *payload_size != body_size - *manifest_size) {
     return std::unexpected(PackError::kInvalidLayout);
   }
   const auto key_id = header.Take(kDigestSize);
   const auto content_build_id = header.Take(kDigestSize);
+  if (!key_id || !content_build_id) {
+    return std::unexpected(PackError::kInvalidLayout);
+  }
   const auto payload_start =
-      kHeaderSize + static_cast<std::size_t>(manifest_size);
+      kHeaderSize + static_cast<std::size_t>(*manifest_size);
   return PackLayout{.role = *compatible,
-                    .manifest = bytes.subspan(kHeaderSize, manifest_size),
-                    .payload = bytes.subspan(payload_start, payload_size),
-                    .key_id = key_id,
-                    .content_build_id = content_build_id,
+                    .manifest = bytes.subspan(kHeaderSize, *manifest_size),
+                    .payload = bytes.subspan(payload_start, *payload_size),
+                    .key_id = *key_id,
+                    .content_build_id = *content_build_id,
                     .signed_bytes = bytes.first(payload_start),
                     .signature = bytes.last(kSignatureSize)};
 }
@@ -319,14 +338,14 @@ bool ValidTransform(std::span<const double> position,
 std::expected<ColliderBox, PackError> DecodeCollider(Reader& reader) {
   const auto kind = reader.Read<std::uint32_t>();
   if (!kind) {
-    return std::unexpected(kind.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   if (*kind != 1) {
     return std::unexpected(PackError::kUnsupportedCollider);
   }
   const auto values = reader.ReadArray<double, 10>();
   if (!values) {
-    return std::unexpected(values.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   const auto& v = *values;
   ColliderBox box{.center_m = {v[0], v[1], v[2]},
@@ -358,38 +377,38 @@ std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
 std::expected<SceneEntityId, PackError> DecodeSceneEntityId(Reader& reader) {
   const auto size = reader.Read<std::uint32_t>();
   if (!size) {
-    return std::unexpected(size.error());
-  }
-  const auto text = reader.Take(*size);
-  if (text.size() != *size) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }
-  if (!ValidIdentity(text)) {
+  const auto text = reader.Take(*size);
+  if (!text) {
+    return std::unexpected(PackError::kInvalidSceneLength);
+  }
+  if (!ValidIdentity(*text)) {
     return std::unexpected(PackError::kInvalidEntity);
   }
-  return SceneEntityId{.value = std::string(text.begin(), text.end())};
+  return SceneEntityId{.value = std::string(text->begin(), text->end())};
 }
 
 std::expected<std::string, PackError> DecodeReference(Reader& reader) {
   const auto size = reader.Read<std::uint32_t>();
   if (!size) {
-    return std::unexpected(size.error());
-  }
-  const auto text = reader.Take(*size);
-  if (text.size() != *size) {
     return std::unexpected(PackError::kInvalidSceneLength);
   }
-  if (!ValidIdentity(text)) {
+  const auto text = reader.Take(*size);
+  if (!text) {
+    return std::unexpected(PackError::kInvalidSceneLength);
+  }
+  if (!ValidIdentity(*text)) {
     return std::unexpected(PackError::kInvalidReference);
   }
-  return std::string(text.begin(), text.end());
+  return std::string(text->begin(), text->end());
 }
 
 std::expected<void, PackError> DecodeCollision(Reader& reader, PackRole role,
                                                SceneEntityDescription& entity) {
   const auto domain = reader.Read<std::uint32_t>();
   if (!domain) {
-    return std::unexpected(domain.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   if (*domain != static_cast<std::uint32_t>(CollisionDomain::kSessionStatic) &&
       *domain !=
@@ -404,7 +423,7 @@ std::expected<void, PackError> DecodeCollision(Reader& reader, PackRole role,
   const auto collider_bytes = reader.remaining();
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
-    return std::unexpected(count.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   if (*count == 0) {
     return std::unexpected(PackError::kInvalidComponents);
@@ -454,7 +473,7 @@ std::expected<void, PackError> DecodeComponents(
     Reader& reader, PackRole role, SceneEntityDescription& entity) {
   const auto components = reader.Read<std::uint32_t>();
   if (!components) {
-    return std::unexpected(components.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   if (!ValidComponents(*components, role)) {
     return std::unexpected(PackError::kInvalidComponents);
@@ -476,7 +495,7 @@ std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
   }
   const auto values = reader.ReadArray<double, 8>();
   if (!values) {
-    return std::unexpected(values.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   const auto& v = *values;
   SceneEntityDescription entity{.id = std::move(*identity),
@@ -503,7 +522,7 @@ std::expected<std::vector<SceneEntityDescription>, PackError> DecodeScene(
   Reader reader(bytes);
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
-    return std::unexpected(count.error());
+    return std::unexpected(PackError::kInvalidSceneLength);
   }
   auto entities = DecodeCollection<SceneEntityDescription>(
       reader, *count, [role](Reader& source) {
@@ -527,14 +546,16 @@ std::expected<std::vector<SceneEntityDescription>, PackError> DecodeScene(
 bool ValidProvenance(std::span<const unsigned char> bytes) {
   Reader reader(bytes);
   // Source and settings hashes are authenticated opaque values.
-  reader.Take(2 * kDigestSize);
+  if (!reader.Take(2 * kDigestSize)) {
+    return false;
+  }
   for (int i = 0; i < 5; ++i) {
-    const auto size = reader.U32();
-    if (size == 0) {
+    const auto size = reader.Read<std::uint32_t>();
+    if (!size || *size == 0) {
       return false;
     }
-    const auto text = reader.Take(size);
-    if (text.size() != size || !std::ranges::all_of(text, [](unsigned char c) {
+    const auto text = reader.Take(*size);
+    if (!text || !std::ranges::all_of(*text, [](unsigned char c) {
           return c >= 32 && c <= 126;
         })) {
       return false;
@@ -546,24 +567,28 @@ bool ValidProvenance(std::span<const unsigned char> bytes) {
 // Pack v1 contains one scene resource occupying the entire payload.
 std::expected<void, PackError> ValidateResourceRecord(
     Reader& manifest, std::size_t payload_size) {
-  const auto resource_id = manifest.U32();
-  const auto resource_type = manifest.U32();
-  const auto schema_version = manifest.U32();
-  const auto reserved = manifest.U32();
-  const auto payload_offset = manifest.U64();
-  const auto resource_size = manifest.U64();
-  switch (resource_type) {
+  const auto resource_id = manifest.Read<std::uint32_t>();
+  const auto resource_type = manifest.Read<std::uint32_t>();
+  const auto schema_version = manifest.Read<std::uint32_t>();
+  const auto reserved = manifest.Read<std::uint32_t>();
+  const auto payload_offset = manifest.Read<std::uint64_t>();
+  const auto resource_size = manifest.Read<std::uint64_t>();
+  if (!resource_id || !resource_type || !schema_version || !reserved ||
+      !payload_offset || !resource_size) {
+    return std::unexpected(PackError::kInvalidResource);
+  }
+  switch (*resource_type) {
     case static_cast<std::uint32_t>(ResourceType::kScene):
-      if (schema_version != kSceneSchemaVersion) {
+      if (*schema_version != kSceneSchemaVersion) {
         return std::unexpected(PackError::kInvalidResource);
       }
       break;
     default:
       return std::unexpected(PackError::kInvalidResource);
   }
-  if (resource_id != kSceneResourceId || reserved != kReservedResourceValue ||
-      payload_offset != kSingleResourceOffset ||
-      resource_size != payload_size) {
+  if (*resource_id != kSceneResourceId || *reserved != kReservedResourceValue ||
+      *payload_offset != kSingleResourceOffset ||
+      *resource_size != payload_size) {
     return std::unexpected(PackError::kInvalidResource);
   }
   return {};
@@ -588,10 +613,14 @@ std::expected<Scene, PackError> MakeScene(
 // categories.
 std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
   Reader manifest(layout.manifest);
-  const auto provenance_size = manifest.U32();
-  if (static_cast<std::uint64_t>(provenance_size) + kManifestFixedSize !=
-          layout.manifest.size() ||
-      !ValidProvenance(manifest.Take(provenance_size))) {
+  const auto provenance_size = manifest.Read<std::uint32_t>();
+  if (!provenance_size ||
+      static_cast<std::uint64_t>(*provenance_size) + kManifestFixedSize !=
+          layout.manifest.size()) {
+    return std::unexpected(PackError::kInvalidProvenance);
+  }
+  const auto provenance = manifest.Take(*provenance_size);
+  if (!provenance || !ValidProvenance(*provenance)) {
     return std::unexpected(PackError::kInvalidProvenance);
   }
   const auto valid_record =
@@ -600,7 +629,8 @@ std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
     return std::unexpected(valid_record.error());
   }
   const auto digest = manifest.Take(kDigestSize);
-  if (!manifest.done() || !std::ranges::equal(Hash(layout.payload), digest)) {
+  if (!digest || !manifest.done() ||
+      !std::ranges::equal(Hash(layout.payload), *digest)) {
     return std::unexpected(PackError::kDigestMismatch);
   }
   auto decoded = DecodeScene(layout.payload, layout.role);
