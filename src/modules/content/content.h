@@ -8,6 +8,7 @@
 #include <expected>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,12 +33,20 @@ enum class PackError : std::uint8_t {
   kInvalidTransform,
   // A collision shape record uses a kind unsupported by this schema.
   kUnsupportedCollider,
+  // A collision component declares a domain unsupported by this schema.
+  kUnsupportedCollisionDomain,
+  // Component presence is empty, inconsistent, or invalid for the pack role.
+  kInvalidComponents,
+  // A logical presentation reference violates its ASCII identity grammar.
+  kInvalidReference,
   // Input bytes are too short to contain the pack header and signature.
   kInvalidLength,
   // The cryptographic backend could not initialize for verification.
   kCryptoInitializationFailed,
   // The pack magic or format version is not supported.
   kUnsupportedFormat,
+  // The authenticated pack role differs from the caller's required role.
+  kUnexpectedRole,
   // The declared resource count is unsupported by the pack format.
   kUnsupportedResourceCount,
   // Declared total, manifest and payload lengths do not partition the input
@@ -89,19 +98,40 @@ struct SceneEntityId {
   auto operator<=>(const SceneEntityId&) const = default;
 };
 
-// Persistent ASCII identity, placement and optional local colliders. Position
-// is metres, rotation is a unit XYZW quaternion, scale is positive and uniform.
+enum class PackRole : std::uint8_t { kServer, kAgent, kClient };
+
+enum class CollisionDomain : std::uint8_t {
+  // Fixed scenario geometry available to every collision consumer.
+  kSessionStatic = 1,
+};
+
+struct VisualReference {
+  std::string value;
+  auto operator<=>(const VisualReference&) const = default;
+};
+
+struct AudioReference {
+  std::string value;
+  auto operator<=>(const AudioReference&) const = default;
+};
+
+// Persistent ASCII identity, placement, and sparse role domains. Position is
+// metres, rotation is a unit XYZW quaternion, and scale is positive and
+// uniform. Collider identity exists exactly when collision_domain is present.
 struct SceneEntityDescription {
   SceneEntityId id;
   std::array<double, 3> position_m{};
   std::array<double, 4> rotation_xyzw{};
   double scale = 1;
+  std::optional<CollisionDomain> collision_domain;
   std::vector<ColliderBox> colliders;
-  AssetId collider_asset_id;
+  std::optional<AssetId> collider_asset_id;
+  std::optional<VisualReference> visual_reference;
+  std::optional<AudioReference> audio_reference;
 };
 
-// Each role currently receives the same entity content. Future role-specific
-// resources can evolve independently under these concrete scene types.
+// Server and Agent contain collision descriptions only. Client contains the
+// union needed to derive static-collision and presentation projections.
 struct ServerScene {
   std::vector<SceneEntityDescription> entities;
 };
@@ -128,14 +158,18 @@ class VerifiedPack {
   // trusted keys independently of the artifact; keys are not retained. After
   // ownership transfer, callers must not mutate the bytes through retained
   // aliases. Performs preparation outside ECS execution; creates no runtime SDK
-  // resources.
+  // resources. When expected_role is present, a fully verified and decoded pack
+  // of another role returns kUnexpectedRole.
   static std::expected<VerifiedPack, PackError> Load(
-      std::vector<unsigned char> bytes,
-      std::span<const PublicKey> trusted_keys);
+      std::vector<unsigned char> bytes, std::span<const PublicKey> trusted_keys,
+      std::optional<PackRole> expected_role = std::nullopt);
 
   [[nodiscard]] const Scene& scene() const { return scene_; }
 
   [[nodiscard]] AssetId asset_id() const { return asset_id_; }
+
+  // Role authenticated by the pack magic.
+  [[nodiscard]] PackRole role() const { return role_; }
 
   // Verified identity of the source, settings and cooked resources.
   [[nodiscard]] const Digest& content_build_id() const {
@@ -146,24 +180,29 @@ class VerifiedPack {
   VerifiedPack() = default;
   static std::expected<VerifiedPack, PackError> LoadStorage(
       std::shared_ptr<const unsigned char> data, std::size_t size,
-      std::span<const PublicKey> trusted_keys);
+      std::span<const PublicKey> trusted_keys,
+      std::optional<PackRole> expected_role);
   friend std::expected<VerifiedPack, PackError> LoadFile(
       const std::filesystem::path& path,
-      std::span<const PublicKey> trusted_keys);
+      std::span<const PublicKey> trusted_keys,
+      std::optional<PackRole> expected_role);
 
   std::shared_ptr<const unsigned char> data_;
   Scene scene_;
   Digest content_build_id_{};
   AssetId asset_id_;
+  PackRole role_ = PackRole::kServer;
 };
 
 // Maps a file read-only and verifies it without copying the complete artifact.
 // The file must remain unchanged while any pack copy owns the mapping. Windows
 // denies writes and deletion; Linux requires the publisher to enforce this.
 // Hash verification touches all payload bytes; decoded scene values use
-// separate allocations. Call outside ECS execution.
+// separate allocations. An expected role is checked only after full content
+// verification. Call outside ECS execution.
 std::expected<VerifiedPack, PackError> LoadFile(
-    const std::filesystem::path& path, std::span<const PublicKey> trusted_keys);
+    const std::filesystem::path& path, std::span<const PublicKey> trusted_keys,
+    std::optional<PackRole> expected_role = std::nullopt);
 
 }  // namespace blackflower::content
 #endif  // BLACKFLOWER_CONTENT_CONTENT_H_

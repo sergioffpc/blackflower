@@ -35,6 +35,16 @@ define surfaces or volumes for interaction with the world and never derive from
 the entity's visual representation. _Avoid_: Bounds as a runtime collision term;
 `Bounds` remains the authoring scope name.
 
+**CollisionDomain**: The participation class attached to a cooked collider
+description. `SessionStatic` identifies fixed scenario collision that may enter
+Simulation and Prediction. Authored dynamic collision remains undefined.
+
+**VisualReference**: A logical identity for an entity's presentation visual. It
+is neither media data nor a graphics SDK handle.
+
+**AudioReference**: A logical identity for an entity's authored presentation
+audio. It is neither encoded audio nor an audio SDK handle.
+
 **Scene entity**: An individually identifiable entity placed in a scene, with an
 optional visual representation and colliders. Its placement does not imply that
 it can never move or be destroyed.

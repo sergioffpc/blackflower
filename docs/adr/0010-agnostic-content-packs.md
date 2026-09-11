@@ -56,3 +56,30 @@ throughout capture.
 Portable role selection, independent trust and atomic pack-set publication
 remain unchanged. Development schemas evolve in place, requiring regeneration of
 older packs rather than a compatibility path.
+
+## Sparse role-scene amendment
+
+On 2026-09-11, the owner approved role-specific entity domains in
+[#76](https://github.com/sergioffpc/blackflower/issues/76), implemented for the
+content boundary by [#78](https://github.com/sergioffpc/blackflower/issues/78).
+The cooker now projects one source catalogue into sparse ServerScene, AgentScene
+and ClientScene payloads before deriving their common `ContentBuildId`.
+
+ServerScene and AgentScene physically contain collider-bearing descriptions and
+omit presentation references. ClientScene contains one union catalogue with the
+`SessionStatic` collision, logical visual and logical audio domains needed by
+later Prediction and Presentation projection. An entity absent from a role has
+no placeholder record; an entity retained by more than one role or client domain
+keeps its authored `SceneEntityId`.
+
+The authenticated magic remains sufficient to decode a pack. The C++ loader also
+accepts an optional expected role and returns a typed error after complete
+authentication, integrity verification and scene decoding when the role is
+different. This narrows the original no-selector decision: content inspection
+needs no caller role, while application startup can reject a valid but misrouted
+artifact at the loading boundary.
+
+Logical visual and audio references prove domain separation without choosing a
+media format or creating SDK resources. Detailed media resources, world
+construction and authored dynamic collision remain separate work. Schema 1
+evolves in place and older development fixtures must be regenerated.

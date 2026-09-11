@@ -1,9 +1,9 @@
 # USD entity authoring
 
-Status: entity authoring from #58 and local collider descriptions with headless
-ECS lifetime from [#61](https://github.com/sergioffpc/blackflower/issues/61) are
-implemented locally. Visual import and textured content remain in #23 and #59
-under the
+Status: entity authoring, local collider descriptions, and sparse role-scene
+projection are implemented through #78. Headless ECS lifetime comes from
+[#61](https://github.com/sergioffpc/blackflower/issues/61). Visual import and
+textured content remain in #23 and #59 under the
 [entity specification](https://github.com/sergioffpc/blackflower/issues/57).
 
 ## Implemented contract
@@ -31,9 +31,21 @@ bounds or several; the floor uses a thin box. Bounds belong directly to their
 entity in the internal content scene. The authored name `Bounds` maps to
 Collider, never to visual culling LocalBounds or WorldBounds.
 
-Visual meshes never determine collision. An optional empty `Visuals` scope is
-accepted now; nonempty visuals and asset attributes are rejected until visual
-import is implemented. There are no Lights or Spawns scopes.
+Definitions may author optional logical presentation references directly on
+`/Entity` as `custom string blackflower:visual` and
+`custom string blackflower:audio`. Values use the same ASCII grammar as
+`SceneEntityId`. These values identify future adapter-owned resources; they are
+not source asset paths and do not add media bytes to the pack. Visual meshes
+never determine collision. An optional empty `Visuals` scope remains accepted;
+nonempty visuals and asset-typed attributes are rejected until visual import is
+implemented. There are no Lights or Spawns scopes.
+
+The cooker projects every supported source scene into three sparse catalogues.
+ServerScene and AgentScene retain only collider-bearing entities and omit all
+presentation references. ClientScene retains the union of collider, visual, and
+audio entities. The current collision subset is `SessionStatic`, so every client
+collider is valid Prediction input. Descriptions without a domain for a role are
+omitted; retained descriptions keep their authored `SceneEntityId`.
 
 Entity placements support translation, rotateXYZ in degrees and positive uniform
 scale, in that order; any of these operations may be omitted. Bound children
@@ -61,11 +73,13 @@ runtime physics SDK execution are implemented here.
 
 The installed CLI cooks the floor and rotated box fixtures into three signed
 packs, which the actual C++ loader consumes after all source files are removed.
-Checks cover reused definitions, stable IDs after a prim rename, optional bounds
-and entities, and byte-identical outputs after relocation. Editing a dependency
-changes the build identity. Analytical box comparisons allow 1e-9 metres for
-position/dimensions and 1e-12 for quaternion components; these are fixture
-tolerances, not global fidelity guarantees.
+A four-entity role fixture covers collision-only, visual-only, audio-only, and
+mixed descriptions. Checks cover sparse role domains, shared identity, reused
+definitions, stable IDs after a prim rename, optional bounds and entities, and
+byte-identical outputs after relocation. Editing a dependency changes the build
+identity. Analytical box comparisons allow 1e-9 metres for position/dimensions
+and 1e-12 for quaternion components; these are fixture tolerances, not global
+fidelity guarantees.
 
 ## Scene example
 
@@ -145,8 +159,10 @@ surface at Y = 0. Runnable fixtures are in
 ## Pending visual contract
 
 Visual representation will serve Presentation; colliders serve Prediction and
-Simulation. Reusable definitions will declare GLB sources under `Visuals` using
-`blackflower:sourceAsset`; this declaration requests cooker import, not native
-USD composition. Supported meshes, materials and texture dependencies remain to
-be selected in #23 and #59. The visual model must align independently with the
-entity's local frame. General domain terms live in [CONTEXT.md](../CONTEXT.md).
+Simulation. The implemented logical `blackflower:visual` reference proves the
+role boundary but does not define model data. Reusable definitions will later
+declare GLB sources under `Visuals` using `blackflower:sourceAsset`; this
+declaration requests cooker import, not native USD composition. Supported
+meshes, materials and texture dependencies remain to be selected in #23 and #59.
+The visual model must align independently with the entity's local frame. General
+domain terms live in [CONTEXT.md](../CONTEXT.md).

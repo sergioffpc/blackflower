@@ -21,9 +21,8 @@ ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
 SETTINGS = (
-    # Preserve this legacy provenance token so a terminology-only migration
-    # leaves every encoded byte and derived content identity unchanged.
-    b"scene-recipe-v1;units=m-f64;colliders=local;scenes=server,agent,client"
+    b"role-scenes-v1;units=m-f64;colliders=local;components=sparse;"
+    b"scenes=server,agent,client"
 )
 
 
@@ -40,13 +39,13 @@ class PackType(enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class VerifiedPack:
-    """An authenticated pack with a validated primitive scene.
+    """An authenticated pack with a validated role scene.
 
     Attributes:
         pack_type: Concrete file type authenticated by its magic.
         provenance: Authenticated source, settings and toolchain provenance.
         content_build_id: Content build digest.
-        payload: Validated scene bytes.
+        payload: Validated role-specific scene bytes.
     """
 
     pack_type: PackType
@@ -77,7 +76,7 @@ def provenance(source_transcript: bytes) -> bytes:
         + hashlib.sha256(SETTINGS).digest()
     )
     for value in (
-        "scene-recipe-v1",
+        "role-scenes-v1",
         platform.python_version(),
         cryptography.__version__,
         openssl.backend.openssl_version_text(),
@@ -137,7 +136,7 @@ def encode_and_sign(
     """Encodes a pack using a caller-owned Ed25519 signer.
 
     Args:
-        payload: Encoded primitive scene.
+        payload: Encoded role-specific scene.
         pack_type: File type whose magic identifies the concrete scene contract.
         provenance_bytes: Canonical provenance record.
         content_build_id: Content build digest.
@@ -208,7 +207,7 @@ def verify(data: bytes, trusted_keys: Sequence[bytes]) -> VerifiedPack:
     provenance_bytes, payload = _decode_resource(
         data, manifest_size, payload_size
     )
-    scene.decode(payload)
+    scene.decode(payload, scene.SceneRole[pack_type.name])
     return VerifiedPack(
         pack_type,
         provenance_bytes,

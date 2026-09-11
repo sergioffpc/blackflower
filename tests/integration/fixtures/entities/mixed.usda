@@ -1,0 +1,21 @@
+#usda 1.0
+(
+    defaultPrim = "Entity"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "Entity"
+{
+    custom string blackflower:visual = "visual.crate"
+    custom string blackflower:audio = "audio.crate"
+    def Scope "Bounds"
+    {
+        def Cube "Body" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+            bool physics:collisionEnabled = true
+        }
+    }
+}

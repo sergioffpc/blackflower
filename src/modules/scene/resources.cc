@@ -45,7 +45,10 @@ bool SameSceneEntityDescriptions(const content::VerifiedPack& a,
       descriptions(a), descriptions(b), [](const auto& x, const auto& y) {
         return x.id == y.id && x.position_m == y.position_m &&
                x.rotation_xyzw == y.rotation_xyzw && x.scale == y.scale &&
-               x.colliders == y.colliders;
+               x.collision_domain == y.collision_domain &&
+               x.colliders == y.colliders &&
+               x.visual_reference == y.visual_reference &&
+               x.audio_reference == y.audio_reference;
       });
 }
 }  // namespace
@@ -113,9 +116,12 @@ std::expected<SceneHandle, SceneError> ResourceManager::Load(
 
 std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
     const content::SceneEntityDescription& description) {
+  if (!description.collider_asset_id || description.colliders.empty()) {
+    return std::unexpected(SceneError::kMissingCollider);
+  }
   for (std::size_t i = 0; i < impl_->colliders.size(); ++i) {
     const auto& slot = impl_->colliders[i];
-    if (slot.asset && slot.asset->id == description.collider_asset_id) {
+    if (slot.asset && slot.asset->id == *description.collider_asset_id) {
       if (slot.asset->boxes != description.colliders) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
@@ -123,11 +129,11 @@ std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
           {.owner = this, .slot = i, .generation = slot.generation});
     }
   }
-  return Impl::Publish(
-      impl_->colliders,
-      std::make_shared<const ColliderAsset>(ColliderAsset{
-          .id = description.collider_asset_id, .boxes = description.colliders}),
-      this);
+  return Impl::Publish(impl_->colliders,
+                       std::make_shared<const ColliderAsset>(
+                           ColliderAsset{.id = *description.collider_asset_id,
+                                         .boxes = description.colliders}),
+                       this);
 }
 
 std::expected<std::shared_ptr<const SceneAsset>, SceneError>

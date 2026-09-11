@@ -26,8 +26,9 @@ Normal workflow coverage checks:
     after the complete source directory is removed.
 -   Renaming a placement preserves its ID; another placement reuses the same
     definition with a distinct ID and its own bounds.
--   Bounds and Entities scopes may be omitted. Internal scenes contain only
-    entities.
+-   Bounds and Entities scopes may be omitted. At this historical boundary,
+    internal scenes retained descriptions with empty bounds; #78 later
+    supersedes those placeholders with sparse role projection.
 -   Copying the input tree to another absolute directory yields identical packs
     with the same signing key; editing a definition changes build identity.
 -   Independently encoded signed fixtures load through Python and C++, and

@@ -110,7 +110,10 @@ def _read_entity(
             "position_m": _vector(matrix.ExtractTranslation()),
             "rotation_xyzw": _quaternion(transform.GetRotation().GetQuat()),
             "scale": _vector(transform.GetScale())[0],
+            "collision_domain": None,
             "colliders": [],
+            "visual_ref": _logical_reference(prim, "blackflower:visual"),
+            "audio_ref": _logical_reference(prim, "blackflower:audio"),
         }
     )
     allowed.add(prim.GetPath())
@@ -123,6 +126,22 @@ def _read_entity(
     ):
         allowed.add(collider.GetPath())
         data["entities"][-1]["colliders"].append(_box(collider))
+    if data["entities"][-1]["colliders"]:
+        data["entities"][-1][
+            "collision_domain"
+        ] = scene.CollisionDomain.SESSION_STATIC
+
+
+def _logical_reference(prim: Usd.Prim, name: str) -> str | None:
+    attribute = prim.GetAttribute(name)
+    if not attribute:
+        return None
+    value = attribute.Get()
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]*", value
+    ):
+        raise ValueError(f"{name} must be a logical asset reference")
+    return value
 
 
 def _box(prim: Usd.Prim) -> scene.ColliderBoxData:

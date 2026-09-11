@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,7 +32,6 @@ constexpr std::array<unsigned char, 8> kAgentMagic{'B', 'F', 'A', 'G',
                                                    'N', 'T', '1', 0};
 constexpr std::array<unsigned char, 8> kClientMagic{'B', 'F', 'C', 'L',
                                                     'N', 'T', '1', 0};
-enum class SceneKind : std::uint8_t { kServer, kAgent, kClient };
 
 constexpr std::size_t kDigestSize = crypto_hash_sha256_BYTES;
 constexpr std::size_t kSignatureSize = crypto_sign_BYTES;
@@ -51,6 +51,11 @@ constexpr std::uint32_t kSceneResourceId = 1;
 constexpr std::uint32_t kSceneSchemaVersion = 1;
 constexpr std::uint32_t kReservedResourceValue = 0;
 constexpr std::uint64_t kSingleResourceOffset = 0;
+constexpr std::uint32_t kCollisionComponent = 1;
+constexpr std::uint32_t kVisualComponent = 2;
+constexpr std::uint32_t kAudioComponent = 4;
+constexpr std::uint32_t kAllComponents =
+    kCollisionComponent | kVisualComponent | kAudioComponent;
 
 enum class ResourceType : std::uint8_t {
   // Entities with independently authored bounds.
@@ -130,7 +135,7 @@ class Reader {
 
 // Views borrow the input artifact; ranges have been checked against its size.
 struct PackLayout {
-  SceneKind scene_kind;
+  PackRole role;
   std::span<const unsigned char> manifest;
   std::span<const unsigned char> payload;
   std::span<const unsigned char> key_id;
@@ -139,22 +144,22 @@ struct PackLayout {
   std::span<const unsigned char> signature;
 };
 
-std::expected<SceneKind, PackError> DecodeMagic(
+std::expected<PackRole, PackError> DecodeMagic(
     std::span<const unsigned char> magic) {
   if (std::ranges::equal(magic, kServerMagic)) {
-    return SceneKind::kServer;
+    return PackRole::kServer;
   }
   if (std::ranges::equal(magic, kAgentMagic)) {
-    return SceneKind::kAgent;
+    return PackRole::kAgent;
   }
   if (std::ranges::equal(magic, kClientMagic)) {
-    return SceneKind::kClient;
+    return PackRole::kClient;
   }
   return std::unexpected(PackError::kUnsupportedFormat);
 }
 
 // Consumes the header prefix and identifies the scene encoding.
-std::expected<SceneKind, PackError> ValidateHeader(Reader& header) {
+std::expected<PackRole, PackError> ValidateHeader(Reader& header) {
   const auto kind = DecodeMagic(header.Take(kServerMagic.size()));
   if (!kind) {
     return std::unexpected(kind.error());
@@ -190,7 +195,7 @@ std::expected<PackLayout, PackError> DecodeLayout(
   const auto content_build_id = header.Take(kDigestSize);
   const auto payload_start =
       kHeaderSize + static_cast<std::size_t>(manifest_size);
-  return PackLayout{.scene_kind = *compatible,
+  return PackLayout{.role = *compatible,
                     .manifest = bytes.subspan(kHeaderSize, manifest_size),
                     .payload = bytes.subspan(payload_start, payload_size),
                     .key_id = key_id,
@@ -323,8 +328,97 @@ std::expected<SceneEntityId, PackError> DecodeSceneEntityId(Reader& reader) {
   return SceneEntityId{.value = std::string(text.begin(), text.end())};
 }
 
+std::expected<std::string, PackError> DecodeReference(Reader& reader) {
+  const auto size = reader.Read<std::uint32_t>();
+  if (!size) {
+    return std::unexpected(size.error());
+  }
+  const auto text = reader.Take(*size);
+  if (text.size() != *size) {
+    return std::unexpected(PackError::kInvalidSceneLength);
+  }
+  if (!ValidIdentity(text)) {
+    return std::unexpected(PackError::kInvalidReference);
+  }
+  return std::string(text.begin(), text.end());
+}
+
+std::expected<void, PackError> DecodeCollision(Reader& reader,
+                                               SceneEntityDescription& entity) {
+  const auto domain = reader.Read<std::uint32_t>();
+  if (!domain) {
+    return std::unexpected(domain.error());
+  }
+  if (*domain != static_cast<std::uint32_t>(CollisionDomain::kSessionStatic)) {
+    return std::unexpected(PackError::kUnsupportedCollisionDomain);
+  }
+  const auto collider_bytes = reader.remaining();
+  const auto count = reader.Read<std::uint32_t>();
+  if (!count) {
+    return std::unexpected(count.error());
+  }
+  if (*count == 0) {
+    return std::unexpected(PackError::kInvalidComponents);
+  }
+  auto colliders =
+      DecodeCollection<ColliderBox>(reader, *count, DecodeCollider);
+  if (!colliders) {
+    return std::unexpected(colliders.error());
+  }
+  entity.collision_domain = CollisionDomain::kSessionStatic;
+  entity.colliders = std::move(*colliders);
+  entity.collider_asset_id = AssetIdentity(
+      "Blackflower.Collider.v1",
+      collider_bytes.first(collider_bytes.size() - reader.remaining().size()));
+  return {};
+}
+
+std::expected<void, PackError> DecodePresentation(
+    Reader& reader, std::uint32_t components, SceneEntityDescription& entity) {
+  if ((components & kVisualComponent) != 0) {
+    auto reference = DecodeReference(reader);
+    if (!reference) {
+      return std::unexpected(reference.error());
+    }
+    entity.visual_reference = VisualReference{.value = std::move(*reference)};
+  }
+  if ((components & kAudioComponent) != 0) {
+    auto reference = DecodeReference(reader);
+    if (!reference) {
+      return std::unexpected(reference.error());
+    }
+    entity.audio_reference = AudioReference{.value = std::move(*reference)};
+  }
+  return {};
+}
+
+bool ValidComponents(std::uint32_t components, PackRole role) {
+  if (components == 0 || (components & ~kAllComponents) != 0) {
+    return false;
+  }
+  return role == PackRole::kClient || components == kCollisionComponent;
+}
+
+std::expected<void, PackError> DecodeComponents(
+    Reader& reader, PackRole role, SceneEntityDescription& entity) {
+  const auto components = reader.Read<std::uint32_t>();
+  if (!components) {
+    return std::unexpected(components.error());
+  }
+  if (!ValidComponents(*components, role)) {
+    return std::unexpected(PackError::kInvalidComponents);
+  }
+  if ((*components & kCollisionComponent) != 0) {
+    const auto collision = DecodeCollision(reader, entity);
+    if (!collision) {
+      return std::unexpected(collision.error());
+    }
+  }
+  return DecodePresentation(reader, *components, entity);
+}
+
 std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
-    Reader& reader) {
+    Reader& reader, PackRole role) {
   auto identity = DecodeSceneEntityId(reader);
   if (!identity) {
     return std::unexpected(identity.error());
@@ -338,38 +432,34 @@ std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
                                 .position_m = {v[0], v[1], v[2]},
                                 .rotation_xyzw = {v[3], v[4], v[5], v[6]},
                                 .scale = v[7],
+                                .collision_domain = std::nullopt,
                                 .colliders = {},
-                                .collider_asset_id = {}};
+                                .collider_asset_id = std::nullopt,
+                                .visual_reference = std::nullopt,
+                                .audio_reference = std::nullopt};
   if (!ValidTransform(entity.position_m, entity.rotation_xyzw,
                       std::span(&entity.scale, 1))) {
     return std::unexpected(PackError::kInvalidTransform);
   }
-  const auto collider_bytes = reader.remaining();
-  const auto count = reader.Read<std::uint32_t>();
-  if (!count) {
-    return std::unexpected(count.error());
+  const auto components = DecodeComponents(reader, role, entity);
+  if (!components) {
+    return std::unexpected(components.error());
   }
-  auto bounds = DecodeCollection<ColliderBox>(reader, *count, DecodeCollider);
-  if (!bounds) {
-    return std::unexpected(bounds.error());
-  }
-  entity.colliders = std::move(*bounds);
-  entity.collider_asset_id = AssetIdentity(
-      "Blackflower.Collider.v1",
-      collider_bytes.first(collider_bytes.size() - reader.remaining().size()));
   return entity;
 }
 
 // Decode complete entities before exposing scene values.
 std::expected<std::vector<SceneEntityDescription>, PackError> DecodeScene(
-    std::span<const unsigned char> bytes) {
+    std::span<const unsigned char> bytes, PackRole role) {
   Reader reader(bytes);
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
     return std::unexpected(count.error());
   }
   auto entities = DecodeCollection<SceneEntityDescription>(
-      reader, *count, DecodeSceneEntityDescription);
+      reader, *count, [role](Reader& source) {
+        return DecodeSceneEntityDescription(source, role);
+      });
   if (!entities) {
     return std::unexpected(entities.error());
   }
@@ -432,13 +522,13 @@ std::expected<void, PackError> ValidateResourceRecord(
 
 // File magic selects the concrete role scene.
 std::expected<Scene, PackError> MakeScene(
-    std::vector<SceneEntityDescription> entities, SceneKind kind) {
-  switch (kind) {
-    case SceneKind::kServer:
+    std::vector<SceneEntityDescription> entities, PackRole role) {
+  switch (role) {
+    case PackRole::kServer:
       return ServerScene{.entities = std::move(entities)};
-    case SceneKind::kAgent:
+    case PackRole::kAgent:
       return AgentScene{.entities = std::move(entities)};
-    case SceneKind::kClient:
+    case PackRole::kClient:
       return ClientScene{.entities = std::move(entities)};
   }
   return std::unexpected(PackError::kUnsupportedFormat);
@@ -464,18 +554,19 @@ std::expected<Scene, PackError> DecodeResource(const PackLayout& layout) {
   if (!manifest.done() || !std::ranges::equal(Hash(layout.payload), digest)) {
     return std::unexpected(PackError::kDigestMismatch);
   }
-  auto decoded = DecodeScene(layout.payload);
+  auto decoded = DecodeScene(layout.payload, layout.role);
   if (!decoded) {
     return std::unexpected(decoded.error());
   }
-  return MakeScene(std::move(*decoded), layout.scene_kind);
+  return MakeScene(std::move(*decoded), layout.role);
 }
 
 }  // namespace
 
 std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
     std::shared_ptr<const unsigned char> data, std::size_t size,
-    std::span<const PublicKey> trusted_keys) {
+    std::span<const PublicKey> trusted_keys,
+    std::optional<PackRole> expected_role) {
   const std::span<const unsigned char> bytes(data.get(), size);
   if (bytes.size() < kHeaderSize + kSignatureSize) {
     return std::unexpected(PackError::kInvalidLength);
@@ -495,37 +586,43 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   if (!scene) {
     return std::unexpected(scene.error());
   }
+  if (expected_role && *expected_role != layout->role) {
+    return std::unexpected(PackError::kUnexpectedRole);
+  }
   VerifiedPack result;
   result.scene_ = std::move(*scene);
   result.asset_id_ = AssetIdentity("Blackflower.Scene.v1", layout->payload);
+  result.role_ = layout->role;
   std::ranges::copy(layout->content_build_id, result.content_build_id_.begin());
   result.data_ = std::move(data);
   return result;
 }
 
 std::expected<VerifiedPack, PackError> VerifiedPack::Load(
-    std::vector<unsigned char> bytes, std::span<const PublicKey> trusted_keys) {
+    std::vector<unsigned char> bytes, std::span<const PublicKey> trusted_keys,
+    std::optional<PackRole> expected_role) {
   auto storage =
       std::make_shared<const std::vector<unsigned char>>(std::move(bytes));
   const auto size = storage->size();
   const auto* data = storage->data();
   return LoadStorage(
       std::shared_ptr<const unsigned char>(std::move(storage), data), size,
-      trusted_keys);
+      trusted_keys, expected_role);
 }
 
 std::expected<VerifiedPack, PackError> LoadFile(
-    const std::filesystem::path& path,
-    std::span<const PublicKey> trusted_keys) {
+    const std::filesystem::path& path, std::span<const PublicKey> trusted_keys,
+    std::optional<PackRole> expected_role) {
   auto mapped = internal::MapFile(path);
   if (!mapped) {
     return std::unexpected(mapped.error());
   }
   return VerifiedPack::LoadStorage(std::move(mapped->data), mapped->size,
-                                   trusted_keys);
+                                   trusted_keys, expected_role);
 }
 
-std::string_view PackErrorMessage(PackError error) {
+namespace {
+std::string_view SceneErrorMessage(PackError error) {
   switch (error) {
     case PackError::kInvalidEntity:
       return "invalid entity identity";
@@ -535,12 +632,27 @@ std::string_view PackErrorMessage(PackError error) {
       return "invalid scene length";
     case PackError::kUnsupportedCollider:
       return "unsupported collider kind";
+    case PackError::kUnsupportedCollisionDomain:
+      return "unsupported collision domain";
+    case PackError::kInvalidComponents:
+      return "invalid scene components";
+    case PackError::kInvalidReference:
+      return "invalid logical reference";
+    default:
+      return {};
+  }
+}
+
+std::string_view StorageErrorMessage(PackError error) {
+  switch (error) {
     case PackError::kInvalidLength:
       return "invalid pack length";
     case PackError::kCryptoInitializationFailed:
       return "cryptographic initialization failed";
     case PackError::kUnsupportedFormat:
       return "unsupported pack format";
+    case PackError::kUnexpectedRole:
+      return "unexpected pack role";
     case PackError::kUnsupportedResourceCount:
       return "unsupported resource count";
     case PackError::kInvalidLayout:
@@ -559,8 +671,15 @@ std::string_view PackErrorMessage(PackError error) {
       return "pack mapping failed";
     case PackError::kMappingAllocationFailed:
       return "mapping allocation failed";
+    default:
+      return "unknown pack error";
   }
-  return "unknown pack error";
+}
+}  // namespace
+
+std::string_view PackErrorMessage(PackError error) {
+  const auto scene_message = SceneErrorMessage(error);
+  return scene_message.empty() ? StorageErrorMessage(error) : scene_message;
 }
 
 }  // namespace blackflower::content

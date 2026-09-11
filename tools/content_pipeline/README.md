@@ -62,10 +62,11 @@ build/packs/mvp/
 └── mvp.bfclient
 ```
 
-All three packs contain only entities with optional bounds and share a content
-build identity. Success prints JSON on stdout. An interactive terminal also
-shows progress on stderr; redirected stderr stays silent on success. Failures
-return a nonzero exit status with a diagnostic.
+All three packs contain sparse entity descriptions and share a content build
+identity. Server and Agent retain collision only; Client retains static
+collision and logical presentation references. Success prints JSON on stdout. An
+interactive terminal also shows progress on stderr; redirected stderr stays
+silent on success. Failures return a nonzero exit status with a diagnostic.
 
 ## Prepare local source content
 
@@ -77,14 +78,16 @@ the reference fixture and follow the
 coordinates, metre units, a `/Scene` default prim with schema 1, and an optional
 `Entities` scope. Each placement references an `/Entity` definition and supplies
 a unique string `blackflower:id`. Definitions may contain optional `Bounds` with
-explicit Cube collision geometry; absent entities or bounds are allowed.
+explicit Cube collision geometry and optional string `blackflower:visual` or
+`blackflower:audio` logical references. Absent entities or bounds are allowed.
 
 The cooker supports translated, rotated and uniformly scaled entity placements
-with oriented box bounds. GLB/glTF import, visual meshes, materials, textures,
-audio, lights, spawns and shader compilation are not implemented in this slice.
-A USDA containing only a `sourceAsset` attribute pointing to a GLB is not a
-cookable scene. See [USD authoring](../../docs/usd-authoring.md) for the
-complete bounded reference contract and examples.
+with oriented box bounds. Logical presentation references contain no media.
+GLB/glTF import, visual meshes, materials, textures, encoded audio, lights,
+spawns and shader compilation are not implemented in this slice. A USDA
+containing only a `sourceAsset` attribute pointing to a GLB is not a cookable
+scene. See [USD authoring](../../docs/usd-authoring.md) for the complete bounded
+reference contract and examples.
 
 ## Verify with the C++ consumer
 
