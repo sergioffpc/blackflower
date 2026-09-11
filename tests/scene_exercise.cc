@@ -97,7 +97,7 @@ bool CheckGeometry(runtime::SceneWorld& world, const Instances& instances) {
             << (*boxes)[0].dimensions_m[1] << ',' << (*boxes)[0].dimensions_m[2]
             << ']';
   return Check(first->collider.resource == second->collider.resource &&
-                   first->prototype == second->prototype &&
+                   first->scene_entity_id == second->scene_entity_id &&
                    first->instance != second->instance &&
                    first->local.position_m == std::array<double, 3>{2, 1, 3},
                "shared collider and independent identity namespaces");
@@ -157,7 +157,7 @@ bool CheckTransfer(runtime::SceneWorld& world, const Instances& instances) {
   const auto survivor = world.Read(instances.first_box);
   const auto old_lookup = world.Find(instances.first, "box-01");
   const auto new_lookup = world.Find(instances.second, "box-01");
-  return Check(Error(collision, runtime::SceneError::kDuplicatePrototype) &&
+  return Check(Error(collision, runtime::SceneError::kDuplicateSceneEntity) &&
                    destroy && transfer && unload && survivor && new_lookup &&
                    *new_lookup == instances.first_box &&
                    survivor->instance == instances.second &&

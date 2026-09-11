@@ -1,7 +1,7 @@
 # USD entity authoring
 
-Status: entity authoring from #58 and local collider recipes with headless ECS
-lifetime from [#61](https://github.com/sergioffpc/blackflower/issues/61) are
+Status: entity authoring from #58 and local collider descriptions with headless
+ECS lifetime from [#61](https://github.com/sergioffpc/blackflower/issues/61) are
 implemented locally. Visual import and textured content remain in #23 and #59
 under the
 [entity specification](https://github.com/sergioffpc/blackflower/issues/57).
@@ -20,9 +20,9 @@ explicit units and up axis. References may select `/Entity` explicitly or use
 the layer default prim. Definitions cannot reference further layers.
 
 Each placement authors a unique, nonempty, case-sensitive ASCII string
-`blackflower:id` matching `[A-Za-z0-9][A-Za-z0-9_.:-]*`. Definitions cannot
-supply IDs. Renaming a placement preserves its ID; copying one requires another
-ID. The cooker sorts entities by ID.
+`blackflower:id` matching `[A-Za-z0-9][A-Za-z0-9_.:-]*`. This becomes its
+`SceneEntityId`. Definitions cannot supply IDs. Renaming a placement preserves
+its ID; copying one requires another ID. The cooker sorts entities by ID.
 
 Definitions may contain an optional `Bounds` scope with independently authored
 Cube prims using `PhysicsCollisionAPI`. The collision-enabled value must be

@@ -57,7 +57,8 @@ void PrintCollider(const blackflower::content::ColliderBox& value) {
   std::cout << '}';
 }
 
-void PrintEntity(const blackflower::content::Prototype& value) {
+void PrintSceneEntityDescription(
+    const blackflower::content::SceneEntityDescription& value) {
   // Validated IDs contain no characters requiring JSON escaping.
   std::cout << "{\"id\":\"" << value.id.value << "\",\"position_m\":";
   PrintArray(value.position_m);
@@ -76,7 +77,7 @@ void PrintScene(const T& value) {
       : std::same_as<T, blackflower::content::AgentScene> ? "agent"
                                                           : "client";
   std::cout << ",\"scene_type\":\"" << kName << "\",\"entities\":";
-  PrintCollection(value.entities, PrintEntity);
+  PrintCollection(value.entities, PrintSceneEntityDescription);
 }
 
 // Emits prepared values consumed by the integration driver.

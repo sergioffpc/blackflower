@@ -139,31 +139,33 @@ decision in section 9. Treat unvalidated choices as proposals.
 | [GoogleTest harness](../tests/build_test.cc)                       | Exercise test integration and the C++23 build contract.                                                                                          |
 | [Google Benchmark harness](../benchmarks/framework_benchmark.cc)   | Exercise benchmark registration and execution.                                                                                                   |
 | [Offline cooker](../tools/content_pipeline/src/cooker/pipeline.py) | Snapshot bounded OpenUSD references, encode entities and owned bounds, sign and verify all three packs, then publish their directory atomically. |
-| [Content module](../src/modules/content/content.h)                 | Own pack bytes and authenticate their manifest and payload before returning validated scene values.                                              |
+| [Content module](../src/modules/content/content.h)                 | Own pack bytes, verify signature and integrity, and return validated scene values.                                                               |
 | [Content harness](../tests/content_harness.cc)                     | Consume a pack using independent public-key trust; expose IDs and dimensions for cross-language integration checks.                              |
 | [Build configuration](../CMakeLists.txt)                           | Build four executables and content/scene libraries; run analysis, Python checks and integration tests.                                           |
 
-The [runtime scene module](runtime-scenes.md) publishes authenticated immutable
-SceneAssets and shared collider resources, then instantiates recipes directly in
-a minimal Flecs world. SceneInstance retains source ownership and membership;
-LocalTransform and collider references live only in ECS. Public synchronous
-operations compose root placement, update, transfer, destroy and unload, with
-generation-checked entity/resource identities. Collider definitions serve
-Simulation and Prediction; shared spatial definitions never imply shared mutable
-world state. This headless foundation does not implement world progression.
+The [runtime scene module](runtime-scenes.md) publishes verified immutable
+SceneAssets and shared collider resources, then instantiates scene entity
+descriptions directly in a minimal Flecs world. SceneInstance retains source
+ownership and membership; LocalTransform and collider references live only in
+ECS. Public synchronous operations compose root placement, update, transfer,
+destroy and unload, with generation-checked entity/resource identities. Collider
+definitions serve Simulation and Prediction; shared spatial definitions never
+imply shared mutable world state. This headless foundation does not implement
+world progression.
 
 The content loader accepts packs independently of consumer purpose or host
 platform. The shared content build identity relates the three artifacts; there
-is no separate artifact identifier. The authenticated file magic selects the
+is no separate artifact identifier. The verified file magic selects the
 ServerScene, AgentScene or ClientScene alternative of the returned variant.
 Resource schemas define representation compatibility. It separates layout
-decoding, authentication and resource validation internally while retaining one
-public loading contract. A scene contains immutable prototypes with authored
-string identity, placement and optional local colliders, independent of visual
-assets. Decoding checks identity order, finite transforms, positive dimensions,
-unit rotations and complete byte records before exposing content. Geometry and
-gameplay suitability belong to consumers. An absent `Entities` or entity
-`Bounds` scope produces the corresponding empty collection.
+decoding, signature verification, integrity verification and resource validation
+internally while retaining one public loading contract. A scene contains
+immutable `SceneEntityDescription` records with authored `SceneEntityId`,
+placement and optional local colliders, independent of visual assets. Decoding
+checks identity order, finite transforms, positive dimensions, unit rotations
+and complete byte records before exposing content. Geometry and gameplay
+suitability belong to consumers. An absent `Entities` or entity `Bounds` scope
+produces the corresponding empty collection.
 
 The [USD authoring contract](usd-authoring.md) implements referenced entities
 under a Scene root, with explicit Cube bounds and preserved oriented boxes.
@@ -216,20 +218,22 @@ use exclusive creation and owner-only permissions; see the
 
 The cooker snapshots the source and directly referenced entity layers, composes
 the private snapshot, validates the bounded contract and encodes local collider
-recipes, derives the common build identity, and writes server, agent and client
-packs in private staging. It reopens and verifies all completed files before
-publishing their directory. The C++ content harness maps one file read-only,
-verifies trusted-key authentication and scene encoding, then reports complete
-scene values. Invalid input returns an error without partial content. See
-[pack v1](../schemas/pack/v1.md) for the trust and publication boundaries.
+descriptions, derives the common build identity, and writes server, agent and
+client packs in private staging. It reopens and verifies all completed files
+before publishing their directory. The C++ content harness maps one file
+read-only, verifies the trusted-key signature, integrity and scene encoding,
+then reports complete scene values. Invalid input returns an error without
+partial content. See [pack v1](../schemas/pack/v1.md) for the trust and
+publication boundaries.
 
-After authentication, ResourceManager retains the immutable recipe and backing
-storage. SceneWorld prepares complete transformed entities before synchronous
-publication. Transfers preserve current placement and resource leases; unload
-destroys only still-owned members. Explicit collection evicts manager-only
-resources and advances generations. Resource handles are opaque identities:
-callers compare or resolve them, while the manager owns issuance and storage
-validation. See the [runtime lifetime contract](runtime-scenes.md) and
+After signature and integrity verification, ResourceManager retains the
+immutable scene entity descriptions and backing storage. SceneWorld prepares
+complete transformed entities before synchronous publication. Transfers preserve
+current placement and resource leases; unload destroys only still-owned members.
+Explicit collection evicts manager-only resources and advances generations.
+Resource handles are opaque identities: callers compare or resolve them, while
+the manager owns issuance and storage validation. See the
+[runtime lifetime contract](runtime-scenes.md) and
 [local evidence](validation/runtime-scenes.md).
 
 The [invalid-pack matrix](validation/invalid-packs.md) exercises this boundary
@@ -545,10 +549,10 @@ Scenes contain only entities with string placement identities and owned
 `Bounds`. One relative definition reference per placement enables reuse.
 Binary64 placement and oriented boxes preserve rotations without inferring
 collision from visuals. #61 migrates those boxes from world-space Bounds to
-local Collider recipes;
-[ADR-0014](adr/0014-instantiate-local-scene-recipes-in-ecs.md) records shared
-resources, ECS authority and lifetime trade-offs. Exact dependency snapshots
-determine relocatable provenance. The
+local Collider descriptions;
+[ADR-0014](adr/0014-instantiate-local-scene-entity-descriptions-in-ecs.md)
+records shared resources, ECS authority and lifetime trade-offs. Exact
+dependency snapshots determine relocatable provenance. The
 [ADR-0010 amendment](adr/0010-agnostic-content-packs.md#entity-contract-amendment)
 supersedes the earlier collection and coordinate decisions. GLB visuals remain a
 subsequent slice.
@@ -673,7 +677,7 @@ readiness. They remain unvalidated.
 
 ### Headless scene lifetime
 
-Given the signed collision fixture and two instances of its recipe, root
+Given the signed collision fixture and two instances of its SceneAsset, root
 placement reproduces analytical box geometry within 1e-9 metres and 1e-12
 quaternion component tolerance. Updating one instance preserves the other;
 transferred members survive their former instance's unload; final unload leaves
@@ -748,11 +752,12 @@ LAN machine.
 
 The runtime scene foundation is synchronous and headless. Parent, visuals,
 concurrent publication, streaming, world progression and cross-world identities
-remain later #57 slices. Resource scans and simple recipe lists have no measured
-large-scene budget. #61 builds on the local unpublished #58 commit; publishing
-and integrating that dependency is still required before delivered-runtime or CI
-claims. See [runtime scene evidence](validation/runtime-scenes.md) for the next
-validation boundaries.
+remain later #57 slices. Resource scans and simple description lists have no
+measured large-scene budget. #61 builds on the local unpublished #58 commit;
+publishing and integrating that dependency is still required before
+delivered-runtime or CI claims. See
+[runtime scene evidence](validation/runtime-scenes.md) for the next validation
+boundaries.
 
 ## 12. Glossary
 

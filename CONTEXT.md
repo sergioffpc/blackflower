@@ -70,15 +70,19 @@ assets.
 **ClientScene**: The complete scene content required by a human participant's
 client, including entities, their colliders and associated presentation content.
 
-**SceneAsset**: The immutable compiled spatial recipe from which independent
-live scene instances are created.
+**SceneAsset**: The immutable compiled spatial scene from which independent live
+scene instances are created.
 
 **AssetId**: The identity of compiled content, shared by consumers using the
 same resource definition and distinct from a content build's provenance.
 
-**PrototypeId**: The authored identity of a placement within one scene,
+**SceneEntityId**: The authored identity of a scene entity within one scene,
 preserved independently of its author's prim naming and its live instance
-identities.
+identities. _Avoid_: PrototypeId
+
+**SceneEntityDescription**: The immutable cooked description of one scene
+entity, including its SceneEntityId, placement and available authored
+components. It is not live mutable ECS state. _Avoid_: Prototype, scene recipe
 
 **SceneInstance**: One independently placed and independently unloadable live
 realization of a SceneAsset, owning its current members.

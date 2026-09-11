@@ -17,6 +17,7 @@ from pxr import Sdf
 from pxr import Usd
 
 from cooker import pack
+from cooker import scene
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HARNESS = pathlib.Path(
@@ -45,6 +46,31 @@ def _harness_command(
 
 
 class ContentPipelineTest(unittest.TestCase):
+
+    def test_scene_entity_description_preserves_v1_encoding(self):
+        reference = json.loads(
+            (ROOT / "tests/fixtures/packs/reference.json").read_text()
+        )
+        description: scene.SceneEntityDescription = {
+            "id": "reference",
+            "position_m": [7, 0, 0],
+            "rotation_xyzw": [0, 0, 0, 1],
+            "scale": 1,
+            "colliders": [
+                {
+                    "center_m": [-3, 1, 0],
+                    "dimensions_m": [2, 2, 2],
+                    "rotation_xyzw": [0, 0, 0, 1],
+                },
+                {
+                    "center_m": [1, 5, 2],
+                    "dimensions_m": [1, 1, 1],
+                    "rotation_xyzw": [0, 0, 0, 1],
+                },
+            ],
+        }
+        encoded = scene.encode({"entities": [description]})
+        self.assertEqual(encoded.hex(), reference["scenes"]["server"])
 
     def test_entity_dependencies_are_relocatable_and_reproducible(self):
         with tempfile.TemporaryDirectory() as directory:

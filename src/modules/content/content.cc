@@ -206,7 +206,7 @@ Digest Hash(std::span<const unsigned char> bytes) {
   return digest;
 }
 
-// Domain-separated identities use authenticated canonical recipe bytes.
+// Domain-separated identities use verified canonical description bytes.
 AssetId AssetIdentity(std::string_view domain,
                       std::span<const unsigned char> bytes) {
   crypto_hash_sha256_state state{};
@@ -308,7 +308,7 @@ std::expected<std::vector<T>, PackError> DecodeCollection(Reader& reader,
   return values;
 }
 
-std::expected<PrototypeId, PackError> DecodePrototypeId(Reader& reader) {
+std::expected<SceneEntityId, PackError> DecodeSceneEntityId(Reader& reader) {
   const auto size = reader.Read<std::uint32_t>();
   if (!size) {
     return std::unexpected(size.error());
@@ -320,11 +320,12 @@ std::expected<PrototypeId, PackError> DecodePrototypeId(Reader& reader) {
   if (!ValidIdentity(text)) {
     return std::unexpected(PackError::kInvalidEntity);
   }
-  return PrototypeId{.value = std::string(text.begin(), text.end())};
+  return SceneEntityId{.value = std::string(text.begin(), text.end())};
 }
 
-std::expected<Prototype, PackError> DecodeEntity(Reader& reader) {
-  auto identity = DecodePrototypeId(reader);
+std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
+    Reader& reader) {
+  auto identity = DecodeSceneEntityId(reader);
   if (!identity) {
     return std::unexpected(identity.error());
   }
@@ -333,12 +334,12 @@ std::expected<Prototype, PackError> DecodeEntity(Reader& reader) {
     return std::unexpected(values.error());
   }
   const auto& v = *values;
-  Prototype entity{.id = std::move(*identity),
-                   .position_m = {v[0], v[1], v[2]},
-                   .rotation_xyzw = {v[3], v[4], v[5], v[6]},
-                   .scale = v[7],
-                   .colliders = {},
-                   .collider_asset_id = {}};
+  SceneEntityDescription entity{.id = std::move(*identity),
+                                .position_m = {v[0], v[1], v[2]},
+                                .rotation_xyzw = {v[3], v[4], v[5], v[6]},
+                                .scale = v[7],
+                                .colliders = {},
+                                .collider_asset_id = {}};
   if (!ValidTransform(entity.position_m, entity.rotation_xyzw,
                       std::span(&entity.scale, 1))) {
     return std::unexpected(PackError::kInvalidTransform);
@@ -360,14 +361,15 @@ std::expected<Prototype, PackError> DecodeEntity(Reader& reader) {
 }
 
 // Decode complete entities before exposing scene values.
-std::expected<std::vector<Prototype>, PackError> DecodeScene(
+std::expected<std::vector<SceneEntityDescription>, PackError> DecodeScene(
     std::span<const unsigned char> bytes) {
   Reader reader(bytes);
   const auto count = reader.Read<std::uint32_t>();
   if (!count) {
     return std::unexpected(count.error());
   }
-  auto entities = DecodeCollection<Prototype>(reader, *count, DecodeEntity);
+  auto entities = DecodeCollection<SceneEntityDescription>(
+      reader, *count, DecodeSceneEntityDescription);
   if (!entities) {
     return std::unexpected(entities.error());
   }
@@ -429,8 +431,8 @@ std::expected<void, PackError> ValidateResourceRecord(
 }
 
 // File magic selects the concrete role scene.
-std::expected<Scene, PackError> MakeScene(std::vector<Prototype> entities,
-                                          SceneKind kind) {
+std::expected<Scene, PackError> MakeScene(
+    std::vector<SceneEntityDescription> entities, SceneKind kind) {
   switch (kind) {
     case SceneKind::kServer:
       return ServerScene{.entities = std::move(entities)};
