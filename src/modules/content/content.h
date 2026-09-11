@@ -135,6 +135,7 @@ struct SceneEntityDescription {
   std::optional<CollisionDescription> collision;
   std::optional<VisualReference> visual_reference;
   std::optional<AudioReference> audio_reference;
+  bool operator==(const SceneEntityDescription&) const = default;
 };
 
 // Server and Agent contain collision descriptions only. Client contains the

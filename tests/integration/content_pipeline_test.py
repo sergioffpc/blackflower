@@ -1,5 +1,6 @@
 """Production-to-consumption checks through the CLI and runtime harness."""
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
@@ -27,6 +28,21 @@ HARNESS = pathlib.Path(
         ROOT / "build/debug/blackflower_content_harness",
     )
 )
+
+
+def _signer_failing_on_third_pack(
+    key: ed25519.Ed25519PrivateKey,
+) -> Callable[[bytes], bytes]:
+    calls = 0
+
+    def sign(data: bytes) -> bytes:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("signing failed")
+        return key.sign(data)
+
+    return sign
 
 
 def _harness_command(
@@ -177,21 +193,13 @@ class ContentPipelineTest(unittest.TestCase):
             work = pathlib.Path(directory)
             output = work / "cooked"
             key = ed25519.Ed25519PrivateKey.generate()
-            calls = 0
-
-            def fail_on_third_pack(data: bytes) -> bytes:
-                nonlocal calls
-                calls += 1
-                if calls == 3:
-                    raise RuntimeError("signing failed")
-                return key.sign(data)
 
             with self.assertRaisesRegex(RuntimeError, "signing failed"):
                 pipeline.cook(
                     ROOT / "tests/integration/fixtures/scenes/roles.usda",
                     output,
                     key.public_key().public_bytes_raw(),
-                    fail_on_third_pack,
+                    _signer_failing_on_third_pack(key),
                 )
             self.assertFalse(output.exists())
             self.assertFalse(output.with_name("cooked.lock").exists())
@@ -210,17 +218,13 @@ class ContentPipelineTest(unittest.TestCase):
                 path.name: path.read_bytes()
                 for path in previous_output.iterdir()
             }
-            calls = 0
-
-            def fail_on_third_pack(data: bytes) -> bytes:
-                nonlocal calls
-                calls += 1
-                if calls == 3:
-                    raise RuntimeError("signing failed")
-                return key.sign(data)
-
             with self.assertRaisesRegex(RuntimeError, "signing failed"):
-                pipeline.cook(source, failed_output, public, fail_on_third_pack)
+                pipeline.cook(
+                    source,
+                    failed_output,
+                    public,
+                    _signer_failing_on_third_pack(key),
+                )
 
             self.assertEqual(
                 {
@@ -243,19 +247,21 @@ class ContentPipelineTest(unittest.TestCase):
             "position_m": [7, 0, 0],
             "rotation_xyzw": [0, 0, 0, 1],
             "scale": 1,
-            "collision_domain": scene.CollisionDomain.SESSION_STATIC,
-            "colliders": [
-                {
-                    "center_m": [-3, 1, 0],
-                    "dimensions_m": [2, 2, 2],
-                    "rotation_xyzw": [0, 0, 0, 1],
-                },
-                {
-                    "center_m": [1, 5, 2],
-                    "dimensions_m": [1, 1, 1],
-                    "rotation_xyzw": [0, 0, 0, 1],
-                },
-            ],
+            "collision": {
+                "domain": scene.CollisionDomain.SESSION_STATIC,
+                "colliders": [
+                    {
+                        "center_m": [-3, 1, 0],
+                        "dimensions_m": [2, 2, 2],
+                        "rotation_xyzw": [0, 0, 0, 1],
+                    },
+                    {
+                        "center_m": [1, 5, 2],
+                        "dimensions_m": [1, 1, 1],
+                        "rotation_xyzw": [0, 0, 0, 1],
+                    },
+                ],
+            },
             "visual_ref": None,
             "audio_ref": None,
         }

@@ -38,6 +38,13 @@ class ColliderBoxData(TypedDict):
     rotation_xyzw: list[float]
 
 
+class CollisionDescriptionData(TypedDict):
+    """One complete collision domain and its nonempty local box collection."""
+
+    domain: CollisionDomain
+    colliders: list[ColliderBoxData]
+
+
 class SceneEntityDescription(TypedDict):
     """Persistent identity, placement, and optional role domains.
 
@@ -46,8 +53,7 @@ class SceneEntityDescription(TypedDict):
         position_m: Position in metres.
         rotation_xyzw: Unit quaternion in XYZW order.
         scale: Positive uniform placement scale.
-        collision_domain: Collision authority, when colliders are present.
-        colliders: Independently authored entity-local collision boxes.
+        collision: Collision authority and entity-local boxes, when present.
         visual_ref: Logical visual asset reference for presentation.
         audio_ref: Logical audio asset reference for presentation.
     """
@@ -56,8 +62,7 @@ class SceneEntityDescription(TypedDict):
     position_m: list[float]
     rotation_xyzw: list[float]
     scale: float
-    collision_domain: CollisionDomain | None
-    colliders: list[ColliderBoxData]
+    collision: CollisionDescriptionData | None
     visual_ref: str | None
     audio_ref: str | None
 
@@ -83,11 +88,11 @@ def project(data: SceneData, role: SceneRole) -> SceneData:
         projected = entity.copy()
         if (
             role != SceneRole.SERVER
-            and projected["collision_domain"]
+            and projected["collision"] is not None
+            and projected["collision"]["domain"]
             == CollisionDomain.AUTHORITATIVE_DYNAMIC
         ):
-            projected["collision_domain"] = None
-            projected["colliders"] = []
+            projected["collision"] = None
         if role != SceneRole.CLIENT:
             projected["visual_ref"] = None
             projected["audio_ref"] = None
@@ -132,15 +137,15 @@ def _encode_entity(entity: SceneEntityDescription, role: SceneRole) -> bytes:
             mask,
         )
     )
-    if entity["collision_domain"] is not None:
+    if entity["collision"] is not None:
         result.extend(
             struct.pack(
                 "<2I",
-                entity["collision_domain"],
-                len(entity["colliders"]),
+                entity["collision"]["domain"],
+                len(entity["collision"]["colliders"]),
             )
         )
-        for collider in entity["colliders"]:
+        for collider in entity["collision"]["colliders"]:
             result.extend(_encode_collider(collider))
     for reference in (entity["visual_ref"], entity["audio_ref"]):
         if reference is not None:
@@ -208,8 +213,7 @@ def _decode_scene_entity_description(
         "position_m": position,
         "rotation_xyzw": rotation,
         "scale": values[7],
-        "collision_domain": None,
-        "colliders": [],
+        "collision": None,
         "visual_ref": None,
         "audio_ref": None,
     }
@@ -231,13 +235,18 @@ def _decode_collision(
         raise ValueError("invalid collision length")
     domain, count = struct.unpack_from("<2I", payload, offset)
     try:
-        entity["collision_domain"] = CollisionDomain(domain)
+        collision_domain = CollisionDomain(domain)
     except ValueError as error:
         raise ValueError("unsupported collision domain") from error
     offset += 8
+    colliders = []
     for _ in range(count):
         collider, offset = _decode_collider(payload, offset)
-        entity["colliders"].append(collider)
+        colliders.append(collider)
+    entity["collision"] = {
+        "domain": collision_domain,
+        "colliders": colliders,
+    }
     return entity, offset
 
 
@@ -285,7 +294,7 @@ def _validate_transform(
 
 def _component_mask(entity: SceneEntityDescription) -> int:
     mask = 0
-    if entity["collision_domain"] is not None:
+    if entity["collision"] is not None:
         mask |= COLLISION_COMPONENT
     if entity["visual_ref"] is not None:
         mask |= VISUAL_COMPONENT
@@ -301,13 +310,13 @@ def _validate_components(
         raise ValueError("invalid scene component mask")
     if role != SceneRole.CLIENT and mask != COLLISION_COMPONENT:
         raise ValueError("presentation component in headless scene")
-    has_collision = entity["collision_domain"] is not None
-    if has_collision != bool(entity["colliders"]):
+    collision = entity["collision"]
+    if collision is not None and not collision["colliders"]:
         raise ValueError("collision domain requires colliders")
     if (
-        has_collision
+        collision is not None
         and role != SceneRole.SERVER
-        and entity["collision_domain"] == CollisionDomain.AUTHORITATIVE_DYNAMIC
+        and collision["domain"] == CollisionDomain.AUTHORITATIVE_DYNAMIC
     ):
         raise ValueError("dynamic collision in prediction scene")
     for reference in (entity["visual_ref"], entity["audio_ref"]):

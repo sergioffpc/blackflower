@@ -109,8 +109,7 @@ def _read_entity(
             "position_m": _vector(matrix.ExtractTranslation()),
             "rotation_xyzw": _quaternion(transform.GetRotation().GetQuat()),
             "scale": _vector(transform.GetScale())[0],
-            "collision_domain": None,
-            "colliders": [],
+            "collision": None,
             "visual_ref": _logical_reference(prim, "blackflower:visual"),
             "audio_ref": _logical_reference(prim, "blackflower:audio"),
         }
@@ -120,13 +119,17 @@ def _read_entity(
     allowed.update(p.GetPath() for p in (colliders, visuals) if p)
     if _children(visuals):
         raise ValueError("visual source import is not supported yet")
+    boxes = []
     for collider in sorted(
         _children(colliders), key=lambda p: str(p.GetName())
     ):
         allowed.add(collider.GetPath())
-        data["entities"][-1]["colliders"].append(_box(collider))
-    if data["entities"][-1]["colliders"]:
-        data["entities"][-1]["collision_domain"] = _collision_domain(colliders)
+        boxes.append(_box(collider))
+    if boxes:
+        data["entities"][-1]["collision"] = {
+            "domain": _collision_domain(colliders),
+            "colliders": boxes,
+        }
 
 
 def _collision_domain(bounds: Usd.Prim) -> scene.CollisionDomain:

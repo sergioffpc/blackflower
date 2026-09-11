@@ -41,14 +41,7 @@ bool SameSceneEntityDescriptions(const content::VerifiedPack& a,
         [](const auto& scene) -> const auto& { return scene.entities; },
         pack.scene());
   };
-  return std::ranges::equal(
-      descriptions(a), descriptions(b), [](const auto& x, const auto& y) {
-        return x.id == y.id && x.position_m == y.position_m &&
-               x.rotation_xyzw == y.rotation_xyzw && x.scale == y.scale &&
-               x.collision == y.collision &&
-               x.visual_reference == y.visual_reference &&
-               x.audio_reference == y.audio_reference;
-      });
+  return descriptions(a) == descriptions(b);
 }
 }  // namespace
 
