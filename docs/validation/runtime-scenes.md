@@ -19,8 +19,8 @@ use only public runtime operations, not private containers or mocks.
 The test first failed because the runtime harness did not accept the instance
 exercise. After implementation it passed for server, agent and client packs. The
 coordinate migration first failed on the old world-space cap centre, then passed
-after the cooker emitted local collision. The source/settings transcript now
-distinguishes this recipe revision; fixture schema versions remain 1.
+after the cooker emitted local collision. The source/settings transcript retains
+its legacy revision token; fixture schema versions remain 1.
 
 | Observation                                      | Expected outcome                                                             |
 | ------------------------------------------------ | ---------------------------------------------------------------------------- |
@@ -88,8 +88,8 @@ Independent Standards and Spec sub-agents reviewed the staged diff from
 collection on preparation failure could invalidate previously published handles.
 A public-boundary regression failed on that behavior; removing the global
 collection preserved earlier handles while releasing temporary leases. The test
-now fails after preparing a valid first prototype and overflowing a later one,
-so it also checks that no prefix of a failed instance is published.
+now fails after preparing a valid first scene entity and overflowing a later
+one, so it also checks that no prefix of a failed instance is published.
 
 Spec found missing world-quaternion comparisons. The fixture now directly checks
 the original world rotation against `(0, sqrt(0.5), 0, sqrt(0.5))` and the

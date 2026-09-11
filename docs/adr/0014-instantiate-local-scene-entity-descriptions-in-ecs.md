@@ -1,15 +1,15 @@
-# Instantiate local scene recipes directly in ECS
+# Instantiate local scene entity descriptions directly in ECS
 
 Status: accepted for #61 under the owner-approved #57 specification. Local
 implementation and evidence do not imply that the prerequisite #58 branch has
 been published or integrated.
 
-USD is the offline authoring representation; authenticated SceneAssets are
-immutable recipes; Flecs owns live mutable entity state. SceneInstance stores
-source ownership and membership only. ResourceManager deduplicates compiled
-collider definitions by AssetId, and entity-owned leases preserve resources
-through transfer and unload. This avoids a second mutable scene graph and heavy
-geometry copies per live instance.
+USD is the offline authoring representation; verified SceneAssets contain
+immutable scene entity descriptions; Flecs owns live mutable entity state.
+SceneInstance stores source ownership and membership only. ResourceManager
+deduplicates compiled collider definitions by AssetId, and entity-owned leases
+preserve resources through transfer and unload. This avoids a second mutable
+scene graph and heavy geometry copies per live instance.
 
 The existing authoring name `Bounds` continues to mean collision and maps to
 Collider, while LocalBounds and WorldBounds are reserved for visual culling.
@@ -17,11 +17,12 @@ Schema 1 changes in place from world-space boxes to local boxes plus placement.
 This supersedes the world-space part of the
 [ADR-0010 entity amendment](0010-agnostic-content-packs.md#entity-contract-amendment).
 Pre-baking world boxes would prevent shared definitions and risk applying
-placement twice; local recipes preserve orientation while supporting independent
-root placement. Development fixtures are regenerated, without a legacy decoder.
+placement twice; local collider descriptions preserve orientation while
+supporting independent root placement. Development fixtures are regenerated,
+without a legacy decoder.
 
 The [schema](../../schemas/scene/v1.md) defines domain-separated content hashes,
-PrototypeId namespaces and coordinates. The
+SceneEntityId namespaces and coordinates. The
 [runtime contract](../runtime-scenes.md) defines typed generations, leases,
 transfer, failure and exhaustion. Synchronous exclusive publication is
 sufficient for this headless slice; asynchronous staging and multi-world

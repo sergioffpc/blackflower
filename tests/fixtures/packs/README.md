@@ -16,9 +16,9 @@ The source/settings digests and provenance identify reference data rather than
 an actual source cook. Python and C++ consume the same fixtures using separate
 cryptographic implementations.
 
-The #61 fixtures use local collider records and a prototype translated by seven
-metres on X. The fixed local centres remain -3 and 1 metres on X; their world
-centres would be 4 and 8 metres. The payload bytes, SceneAsset/ColliderAsset
-IDs, new disposable public key and signatures were regenerated together,
-retaining schema version 1. Asset IDs follow the exact domain-separated schema
-transcript.
+The #61 fixtures use local collider records and a scene entity translated by
+seven metres on X. The fixed local centres remain -3 and 1 metres on X; their
+world centres would be 4 and 8 metres. The payload bytes,
+SceneAsset/ColliderAsset IDs, new disposable public key and signatures were
+regenerated together, retaining schema version 1. Asset IDs follow the exact
+domain-separated schema transcript.

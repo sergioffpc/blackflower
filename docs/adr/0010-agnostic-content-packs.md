@@ -40,9 +40,10 @@ The [Scene v1 contract](../../schemas/scene/v1.md) now stores binary64 metre
 coordinates and unit XYZW quaternions. This replaces integer millimetres to
 preserve rotated boxes and composed transforms without the previous quantization
 step. In #58, bounds were stored in world space inside their owning entity.
-[ADR-0014](0014-instantiate-local-scene-recipes-in-ecs.md) supersedes that
-coordinate choice with local Collider recipes and exactly-once placement in #61.
-Consumers no longer receive global spawn or light collections.
+[ADR-0014](0014-instantiate-local-scene-entity-descriptions-in-ecs.md)
+supersedes that coordinate choice with local Collider descriptions and
+exactly-once placement in #61. Consumers no longer receive global spawn or light
+collections.
 
 The bounded [authoring contract](../usd-authoring.md) permits one relative
 external entity definition per placement. It supersedes ADR-0007's single-file

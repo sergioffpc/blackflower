@@ -15,7 +15,7 @@ namespace blackflower::scene {
 
 // Scene-local authored placement identity. Runtime lookups also require an
 // instance, so identical IDs in different instances never alias.
-using PrototypeId = content::PrototypeId;
+using SceneEntityId = content::SceneEntityId;
 
 // Shared spatial definition, used independently by each ECS world. Metres,
 // right-handed Y-up, unit XYZW rotation, positive uniform scale.
@@ -36,8 +36,8 @@ struct ColliderAsset {
   std::vector<content::ColliderBox> boxes;
 };
 
-// Immutable recipe and authenticated backing storage. ResourceManager publishes
-// only const access. No live entity state is stored here.
+// Immutable descriptions and authenticated backing storage. ResourceManager
+// publishes only const access. No live entity state is stored here.
 struct SceneAsset {
   content::VerifiedPack pack;
 };
@@ -84,12 +84,12 @@ enum class SceneError : std::uint8_t {
   // Destroyed, wrong-world or generation-mismatched entity.
   kStaleEntity,
   // No live member with the requested authored identity in this instance.
-  kUnknownPrototype,
+  kUnknownSceneEntity,
   // Transfer would duplicate an authored identity in the destination instance.
-  kDuplicatePrototype,
+  kDuplicateSceneEntity,
   // Nonfinite placement/derived geometry, nonpositive scale, nonunit rotation.
   kInvalidTransform,
-  // Identical AssetIds name unequal compiled geometry/recipes.
+  // Identical AssetIds name unequal compiled geometry or descriptions.
   kIdentityCollision,
   // Monotonic runtime identity space is exhausted; no identity is wrapped.
   kIdentityExhausted,
@@ -117,7 +117,7 @@ class ResourceManager {
  private:
   friend class SceneWorld;
   std::expected<ColliderHandle, SceneError> Acquire(
-      const content::Prototype& recipe);
+      const content::SceneEntityDescription& description);
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
@@ -137,7 +137,7 @@ struct SceneInstance {
 // Read-only observation copied from live ECS components, not authoritative
 // state.
 struct EntityState {
-  PrototypeId prototype;
+  SceneEntityId scene_entity_id;
   SceneInstance instance;
   LocalTransform local;
   WorldTransform world;
@@ -163,7 +163,7 @@ class SceneWorld {
   // Repeated unload returns kStaleInstance. Transferred members survive.
   std::expected<void, SceneError> Unload(SceneInstance instance);
   [[nodiscard]] std::expected<Entity, SceneError> Find(
-      SceneInstance instance, std::string_view prototype) const;
+      SceneInstance instance, std::string_view scene_entity_id) const;
   [[nodiscard]] std::expected<EntityState, SceneError> Read(
       Entity entity) const;
   // Root entities store authoritative world placement in LocalTransform.

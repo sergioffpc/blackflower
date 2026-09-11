@@ -21,6 +21,8 @@ ENTRY = struct.Struct("<4I2Q32s")
 PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
 SETTINGS = (
+    # Preserve this legacy provenance token so a terminology-only migration
+    # leaves every encoded byte and derived content identity unchanged.
     b"scene-recipe-v1;units=m-f64;colliders=local;scenes=server,agent,client"
 )
 
@@ -28,7 +30,7 @@ SETTINGS = (
 class PackType(enum.Enum):
     """File magic selecting the concrete scene contract."""
 
-    # Authoritative collision scene recipes.
+    # Authoritative collision scene descriptions.
     SERVER = b"BFSERV1\0"
     # Autonomous participant collision geometry.
     AGENT = b"BFAGNT1\0"

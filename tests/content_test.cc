@@ -34,9 +34,11 @@ TEST(Content, KeepsSceneAfterCallerStorageChanges) {
   keys[0].fill(0);
   const auto* scene = std::get_if<ServerScene>(&loaded->scene());
   ASSERT_NE(scene, nullptr);
-  EXPECT_EQ(scene->entities[0].position_m[0], 7.0);
-  EXPECT_EQ(scene->entities[0].colliders[0].dimensions_m[0], 2.0);
-  EXPECT_EQ(scene->entities[0].colliders[0].center_m[0], -3.0);
+  EXPECT_EQ(scene->entities[0].id, (SceneEntityId{.value = "reference"}));
+  const SceneEntityDescription& entity = scene->entities[0];
+  EXPECT_EQ(entity.position_m[0], 7.0);
+  EXPECT_EQ(entity.colliders[0].dimensions_m[0], 2.0);
+  EXPECT_EQ(entity.colliders[0].center_m[0], -3.0);
 }
 
 TEST(Content, KeepsSceneAcrossMappedPackCopiesAndMoves) {

@@ -14,8 +14,16 @@ class ColliderBoxData(TypedDict):
     rotation_xyzw: list[float]
 
 
-class EntityData(TypedDict):
-    """Persistent identity, scene placement, and owned collision colliders."""
+class SceneEntityDescription(TypedDict):
+    """Persistent identity, scene placement, and owned collision colliders.
+
+    Attributes:
+        id: Scene-local authored identity.
+        position_m: Position in metres.
+        rotation_xyzw: Unit quaternion in XYZW order.
+        scale: Positive uniform placement scale.
+        colliders: Independently authored entity-local collision boxes.
+    """
 
     id: str
     position_m: list[float]
@@ -27,7 +35,7 @@ class EntityData(TypedDict):
 class SceneData(TypedDict):
     """A scene consists only of entities."""
 
-    entities: list[EntityData]
+    entities: list[SceneEntityDescription]
 
 
 def encode(data: SceneData) -> bytes:
@@ -90,7 +98,7 @@ def decode(payload: bytes) -> SceneData:
     data: SceneData = {"entities": []}
     offset = 4
     for _ in range(count):
-        entity, offset = _decode_entity(payload, offset)
+        entity, offset = _decode_scene_entity_description(payload, offset)
         if data["entities"] and entity["id"] <= data["entities"][-1]["id"]:
             raise ValueError("entity IDs must be unique and sorted")
         data["entities"].append(entity)
@@ -99,7 +107,9 @@ def decode(payload: bytes) -> SceneData:
     return data
 
 
-def _decode_entity(payload: bytes, offset: int) -> tuple[EntityData, int]:
+def _decode_scene_entity_description(
+    payload: bytes, offset: int
+) -> tuple[SceneEntityDescription, int]:
     if offset + 4 > len(payload):
         raise ValueError("invalid entity length")
     size = struct.unpack_from("<I", payload, offset)[0]
@@ -112,7 +122,7 @@ def _decode_entity(payload: bytes, offset: int) -> tuple[EntityData, int]:
     values = struct.unpack_from("<8dI", payload, end)
     position, rotation = list(values[:3]), list(values[3:7])
     _validate_transform(position, rotation, [values[7]])
-    entity: EntityData = {
+    entity: SceneEntityDescription = {
         "id": identity,
         "position_m": position,
         "rotation_xyzw": rotation,

@@ -34,15 +34,15 @@ void EvictUnused(std::vector<Slot<Asset>>& slots) {
 
 // Exact value comparison catches digest collisions without treating differences
 // in authenticated provenance as differences in compiled scene identity.
-bool SameRecipes(const content::VerifiedPack& a,
-                 const content::VerifiedPack& b) {
-  const auto recipes = [](const auto& pack) -> const auto& {
+bool SameSceneEntityDescriptions(const content::VerifiedPack& a,
+                                 const content::VerifiedPack& b) {
+  const auto descriptions = [](const auto& pack) -> const auto& {
     return std::visit(
         [](const auto& scene) -> const auto& { return scene.entities; },
         pack.scene());
   };
   return std::ranges::equal(
-      recipes(a), recipes(b), [](const auto& x, const auto& y) {
+      descriptions(a), descriptions(b), [](const auto& x, const auto& y) {
         return x.id == y.id && x.position_m == y.position_m &&
                x.rotation_xyzw == y.rotation_xyzw && x.scale == y.scale &&
                x.colliders == y.colliders;
@@ -98,7 +98,7 @@ std::expected<SceneHandle, SceneError> ResourceManager::Load(
   for (std::size_t i = 0; i < impl_->scenes.size(); ++i) {
     const auto& slot = impl_->scenes[i];
     if (slot.asset && slot.asset->pack.asset_id() == pack.asset_id()) {
-      if (!SameRecipes(slot.asset->pack, pack)) {
+      if (!SameSceneEntityDescriptions(slot.asset->pack, pack)) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
       return SceneHandle(
@@ -112,11 +112,11 @@ std::expected<SceneHandle, SceneError> ResourceManager::Load(
 }
 
 std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
-    const content::Prototype& recipe) {
+    const content::SceneEntityDescription& description) {
   for (std::size_t i = 0; i < impl_->colliders.size(); ++i) {
     const auto& slot = impl_->colliders[i];
-    if (slot.asset && slot.asset->id == recipe.collider_asset_id) {
-      if (slot.asset->boxes != recipe.colliders) {
+    if (slot.asset && slot.asset->id == description.collider_asset_id) {
+      if (slot.asset->boxes != description.colliders) {
         return std::unexpected(SceneError::kIdentityCollision);
       }
       return ColliderHandle(
@@ -126,7 +126,7 @@ std::expected<ColliderHandle, SceneError> ResourceManager::Acquire(
   return Impl::Publish(
       impl_->colliders,
       std::make_shared<const ColliderAsset>(ColliderAsset{
-          .id = recipe.collider_asset_id, .boxes = recipe.colliders}),
+          .id = description.collider_asset_id, .boxes = description.colliders}),
       this);
 }
 

@@ -16,8 +16,8 @@
 
 namespace blackflower::content {
 
-// Pack authentication and scene preparation. Format contracts are maintained in
-// schemas/pack/v1.md and schemas/scene/v1.md.
+// Pack signature/integrity verification and scene preparation. Format contracts
+// are maintained in schemas/pack/v1.md and schemas/scene/v1.md.
 
 // SHA-256 identity and raw Ed25519 verification key, respectively.
 using Digest = std::array<unsigned char, 32>;
@@ -84,15 +84,15 @@ struct AssetId {
 };
 
 // Scene-local authored identity, independent of USD prim paths and runtime IDs.
-struct PrototypeId {
+struct SceneEntityId {
   std::string value;
-  auto operator<=>(const PrototypeId&) const = default;
+  auto operator<=>(const SceneEntityId&) const = default;
 };
 
 // Persistent ASCII identity, placement and optional local colliders. Position
 // is metres, rotation is a unit XYZW quaternion, scale is positive and uniform.
-struct Prototype {
-  PrototypeId id;
+struct SceneEntityDescription {
+  SceneEntityId id;
   std::array<double, 3> position_m{};
   std::array<double, 4> rotation_xyzw{};
   double scale = 1;
@@ -103,32 +103,32 @@ struct Prototype {
 // Each role currently receives the same entity content. Future role-specific
 // resources can evolve independently under these concrete scene types.
 struct ServerScene {
-  std::vector<Prototype> entities;
+  std::vector<SceneEntityDescription> entities;
 };
 
 struct AgentScene {
-  std::vector<Prototype> entities;
+  std::vector<SceneEntityDescription> entities;
 };
 
 struct ClientScene {
-  std::vector<Prototype> entities;
+  std::vector<SceneEntityDescription> entities;
 };
 
 // The authenticated file magic selects the alternative; collections may be
 // empty.
 using Scene = std::variant<ServerScene, AgentScene, ClientScene>;
 
-// Owns authenticated bytes and the structurally validated scene decoded from
+// Owns verified bytes and the structurally validated scene decoded from
 // them. Accessor references borrow this object's storage; do not
 // retain them across destruction, assignment, or moving the pack.
 class VerifiedPack {
  public:
-  // Authenticates a complete artifact and checks scene encoding, without
-  // evaluating geometry or gameplay rules. The application supplies the
-  // trusted keys independently of the artifact; keys are not
-  // retained. After ownership transfer, callers must not mutate the bytes
-  // through retained aliases. Performs preparation outside ECS execution;
-  // creates no runtime SDK resources.
+  // Verifies a complete artifact's signature, integrity and scene encoding,
+  // without evaluating geometry or gameplay rules. The application supplies
+  // trusted keys independently of the artifact; keys are not retained. After
+  // ownership transfer, callers must not mutate the bytes through retained
+  // aliases. Performs preparation outside ECS execution; creates no runtime SDK
+  // resources.
   static std::expected<VerifiedPack, PackError> Load(
       std::vector<unsigned char> bytes,
       std::span<const PublicKey> trusted_keys);
@@ -137,7 +137,7 @@ class VerifiedPack {
 
   [[nodiscard]] AssetId asset_id() const { return asset_id_; }
 
-  // Authenticated identity of the source, settings and cooked resources.
+  // Verified identity of the source, settings and cooked resources.
   [[nodiscard]] const Digest& content_build_id() const {
     return content_build_id_;
   }
