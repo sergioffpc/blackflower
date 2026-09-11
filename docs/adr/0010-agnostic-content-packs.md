@@ -65,11 +65,13 @@ content boundary by [#78](https://github.com/sergioffpc/blackflower/issues/78).
 The cooker now projects one source catalogue into sparse ServerScene, AgentScene
 and ClientScene payloads before deriving their common `ContentBuildId`.
 
-ServerScene and AgentScene physically contain collider-bearing descriptions and
-omit presentation references. ClientScene contains one union catalogue with the
-`SessionStatic` collision, logical visual and logical audio domains needed by
-later Prediction and Presentation projection. An entity absent from a role has
-no placeholder record; an entity retained by more than one role or client domain
+ServerScene physically contains `SessionStatic` and `AuthoritativeDynamic`
+collider-bearing descriptions. AgentScene contains `SessionStatic` collision
+only. Both omit presentation references. ClientScene contains one union
+catalogue with the `SessionStatic` collision, logical visual and logical audio
+domains needed by later Prediction and Presentation projection; it physically
+omits `AuthoritativeDynamic` collider data. An entity absent from a role has no
+placeholder record; an entity retained by more than one role or client domain
 keeps its authored `SceneEntityId`.
 
 The authenticated magic remains sufficient to decode a pack. The C++ loader also
@@ -79,7 +81,21 @@ different. This narrows the original no-selector decision: content inspection
 needs no caller role, while application startup can reject a valid but misrouted
 artifact at the loading boundary.
 
+### Alternatives considered
+
+Retaining three copies of one generic payload would leave role separation to
+caller convention. Serializing independent Prediction and Presentation client
+catalogues would duplicate one authored identity namespace. Treating filenames
+as role authority would bypass authenticated role selection. Requiring a caller
+role for every inspection would prevent generic verified-content tooling. These
+alternatives were rejected in favor of authenticated variants, one sparse client
+union, and an optional expected-role check.
+
+### Consequences
+
 Logical visual and audio references prove domain separation without choosing a
-media format or creating SDK resources. Detailed media resources, world
-construction and authored dynamic collision remain separate work. Schema 1
+media format or creating SDK resources. Classification of authored collision is
+now required; `AuthoritativeDynamic` geometry is available to ServerScene but
+filtered from AgentScene and ClientScene. Dynamic behavior and lifecycle,
+detailed media resources, and world construction remain separate work. Schema 1
 evolves in place and older development fixtures must be regenerated.

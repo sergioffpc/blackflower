@@ -33,5 +33,11 @@ def Xform "Scene"
         {
             custom string blackflower:id = "mixed"
         }
+        def Xform "Dynamic" (
+            prepend references = @../entities/dynamic.usda@
+        )
+        {
+            custom string blackflower:id = "dynamic"
+        }
     }
 }

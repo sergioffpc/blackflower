@@ -8,6 +8,8 @@ def Xform "Entity"
 {
     def Scope "Bounds"
     {
+        custom token blackflower:collisionDomain = "SessionStatic"
+
         def Cube "Slab" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
         )

@@ -6,9 +6,10 @@
 )
 def Xform "Entity"
 {
+    custom string blackflower:visual = "visual.mover"
     def Scope "Bounds"
     {
-        custom token blackflower:collisionDomain = "SessionStatic"
+        custom token blackflower:collisionDomain = "AuthoritativeDynamic"
 
         def Cube "Body" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
@@ -16,14 +17,6 @@ def Xform "Entity"
         {
             double size = 1
             bool physics:collisionEnabled = true
-        }
-        def Cube "Cap" (
-            prepend apiSchemas = ["PhysicsCollisionAPI"]
-        )
-        {
-            double size = 0.5
-            double3 xformOp:translate = (1, 0, 0)
-            uniform token[] xformOpOrder = ["xformOp:translate"]
         }
     }
 }

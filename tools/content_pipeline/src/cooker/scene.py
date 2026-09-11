@@ -1,4 +1,4 @@
-"""Encoding of scene entities and their independently authored colliders."""
+"""Encoding and role projection of sparse scene-entity descriptions."""
 
 import enum
 import math
@@ -19,12 +19,15 @@ class CollisionDomain(enum.IntEnum):
     """Collision participation supported by the current scene schema."""
 
     SESSION_STATIC = 1
+    AUTHORITATIVE_DYNAMIC = 2
 
 
 COLLISION_COMPONENT = 1
 VISUAL_COMPONENT = 2
 AUDIO_COMPONENT = 4
 ALL_COMPONENTS = COLLISION_COMPONENT | VISUAL_COMPONENT | AUDIO_COMPONENT
+# Shared ASCII grammar for authored identities and logical references.
+IDENTITY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*")
 
 
 class ColliderBoxData(TypedDict):
@@ -66,10 +69,25 @@ class SceneData(TypedDict):
 
 
 def project(data: SceneData, role: SceneRole) -> SceneData:
-    """Projects source descriptions into one sparse consumer scene."""
+    """Projects source descriptions into one sparse consumer scene.
+
+    Args:
+        data: Complete authored scene catalogue.
+        role: Consumer role selecting retained component domains.
+
+    Returns:
+        A new sparse catalogue retaining authored identities and transforms.
+    """
     entities = []
     for entity in data["entities"]:
         projected = entity.copy()
+        if (
+            role != SceneRole.SERVER
+            and projected["collision_domain"]
+            == CollisionDomain.AUTHORITATIVE_DYNAMIC
+        ):
+            projected["collision_domain"] = None
+            projected["colliders"] = []
         if role != SceneRole.CLIENT:
             projected["visual_ref"] = None
             projected["audio_ref"] = None
@@ -179,7 +197,7 @@ def _decode_scene_entity_description(
     if end + 68 > len(payload):
         raise ValueError("invalid entity length")
     identity = payload[start:end].decode("ascii")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", identity):
+    if not IDENTITY_PATTERN.fullmatch(identity):
         raise ValueError("invalid entity identity")
     values = struct.unpack_from("<8dI", payload, end)
     position, rotation = list(values[:3]), list(values[3:7])
@@ -286,10 +304,16 @@ def _validate_components(
     has_collision = entity["collision_domain"] is not None
     if has_collision != bool(entity["colliders"]):
         raise ValueError("collision domain requires colliders")
+    if (
+        has_collision
+        and role != SceneRole.SERVER
+        and entity["collision_domain"] == CollisionDomain.AUTHORITATIVE_DYNAMIC
+    ):
+        raise ValueError("dynamic collision in prediction scene")
     for reference in (entity["visual_ref"], entity["audio_ref"]):
         if reference is not None and not _valid_reference(reference):
             raise ValueError("invalid logical reference")
 
 
 def _valid_reference(reference: str) -> bool:
-    return re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", reference) is not None
+    return IDENTITY_PATTERN.fullmatch(reference) is not None

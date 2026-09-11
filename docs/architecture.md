@@ -160,12 +160,13 @@ ClientScene alternative. Callers may require an expected role after complete
 verification. Resource schemas define representation compatibility. A scene
 contains immutable `SceneEntityDescription` records with authored
 `SceneEntityId`, placement, and sparse collision, visual or audio domains.
-ServerScene and AgentScene contain collision only; ClientScene contains the
-union needed for later Prediction and Presentation projection. Decoding checks
-role restrictions, identity order, transforms, component presence, logical
-references and complete byte records before exposing content. Descriptions with
-no domain for a role are omitted rather than materialized as placeholders.
-Geometry and gameplay suitability belong to consumers.
+ServerScene contains static and authoritative-dynamic collision, AgentScene
+contains static collision only, and ClientScene contains the static-collision
+and presentation union needed for later Prediction and Presentation projection.
+Decoding checks role restrictions, identity order, transforms, component
+presence, logical references and complete byte records before exposing content.
+Descriptions with no domain for a role are omitted rather than materialized as
+placeholders. Geometry and gameplay suitability belong to consumers.
 
 The [USD authoring contract](usd-authoring.md) implements referenced entities
 under a Scene root, with explicit Cube bounds and preserved oriented boxes.
@@ -245,10 +246,13 @@ world startup and SDK resource publication remain future behavior.
 
 The pipeline projects the captured source catalogue into ServerScene, AgentScene
 and ClientScene before calculating one `ContentBuildId` over their final
-payloads. It signs and re-verifies every role, then atomically renames the
-staged directory; a failure preparing any artifact exposes no partial set. The
-pipeline reports cooking stages through an optional observer. The CLI owns the
-terminal progress display on stderr and retains JSON results on stdout;
+payloads. Server retains static and authoritative-dynamic collision; Agent and
+Client physically omit authoritative-dynamic collision because Prediction is
+static-only. It signs and re-verifies every role, then atomically renames the
+staged directory; a failure preparing any artifact exposes no partial set, and
+the new-directory contract refuses to replace an existing complete generation.
+The pipeline reports cooking stages through an optional observer. The CLI owns
+the terminal progress display on stderr and retains JSON results on stdout;
 redirected stderr stays silent on success. Progress reaches completion only
 after publication succeeds. See the
 [cooker output contract](content-pipeline.md#cooking-and-verification).
@@ -376,16 +380,17 @@ independent computers.
 
 ServerScene, AgentScene and ClientScene are complete for their respective
 consumers. The server selects `.bfserver`, autonomous participants select
-`.bfagent`, and human clients select `.bfclient`. Server and Agent packs contain
-collision-only descriptions; Client contains the static-collision and logical
-presentation union. The autonomous participant runtime and model-driven control
-remain outside the content preparation scope. The loader receives a path,
-trusted keys and an optional expected role. Each runtime receives an
-independently provisioned trusted public key for verification. Private
-content-signing keys stay in the packaging environment. No MVP deployment has
-been validated. Record actual OS builds, drivers, build configuration,
-display/audio settings, and network conditions with the first delivery evidence,
-and link operational instructions when introduced.
+`.bfagent`, and human clients select `.bfclient`. Server contains static and
+authoritative-dynamic collision, Agent contains static collision only, and
+Client contains the static-collision and logical presentation union. The
+autonomous participant runtime and model-driven control remain outside the
+content preparation scope. The loader receives a path, trusted keys and an
+optional expected role. Each runtime receives an independently provisioned
+trusted public key for verification. Private content-signing keys stay in the
+packaging environment. No MVP deployment has been validated. Record actual OS
+builds, drivers, build configuration, display/audio settings, and network
+conditions with the first delivery evidence, and link operational instructions
+when introduced.
 
 The [C4 deployment view](c4.md#deployment-reference-acceptance-environment)
 shows one server instance and four client instances. The proposed server uses
@@ -619,13 +624,16 @@ at the cooker-to-runtime boundary:
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | CONTENT-Q01 | Cook an OpenUSD scene with dimensions and collection counts different from the reference; load each resulting file alone under an unrelated extension with independently provisioned trust. | All artifacts preserve entity identity, placement and owned bounds without scenario-specific quantities; the returned scene variant matches the authenticated magic and the build identity matches the cooker output. |
 
-CONTENT-Q04: cook a source catalogue containing collision-only, visual-only,
-audio-only and mixed entities. Exactly three signed role files share one nonzero
-`ContentBuildId`; ServerScene and AgentScene contain collision only, while
-ClientScene contains the static-collision and presentation union. Matching
-descriptions retain `SceneEntityId`. Reject an authenticated wrong role with a
-typed error, and expose no output directory when preparation of any pack fails.
-See [role-scene evidence](validation/role-scenes.md).
+CONTENT-Q04 (high priority; source: #78; affected parts: offline cooker and C++
+content loader): cook a source catalogue containing collision-only, visual-only,
+audio-only, mixed, and authoritative-dynamic entities. Exactly three signed role
+files share one nonzero `ContentBuildId`; ServerScene contains both collision
+domains, AgentScene contains static collision only, and ClientScene contains the
+static-collision and presentation union. Matching descriptions retain
+`SceneEntityId`. Reject an authenticated wrong role with a typed error. A pack
+preparation failure exposes no new generation and leaves the previous complete
+generation byte-for-byte unchanged. See
+[role-scene evidence](validation/role-scenes.md).
 
 CONTENT-Q03: cook reused floor/box entity definitions, including a translated,
 90-degree rotated and uniformly scaled box, then remove source files and load

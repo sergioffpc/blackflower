@@ -79,17 +79,27 @@ class ContentPipelineTest(unittest.TestCase):
         for role, content in contents.items():
             self.assertEqual(content["scene_type"], role)
             self.assertEqual(content["content_build_id"], identity)
-        collision_ids = ["collision-only", "mixed"]
+        self._check_headless_role_scenes(contents)
+        self._check_client_role_scene(contents["client"]["entities"])
+
+    def _check_headless_role_scenes(
+        self, contents: dict[str, dict[str, Any]]
+    ) -> None:
+        static_collision_ids = ["collision-only", "mixed"]
         for role in ("server", "agent"):
             entities = contents[role]["entities"]
+            expected_ids = (
+                ["collision-only", "dynamic", "mixed"]
+                if role == "server"
+                else static_collision_ids
+            )
             self.assertEqual(
-                [entity["id"] for entity in entities], collision_ids
+                [entity["id"] for entity in entities], expected_ids
             )
             self.assertTrue(all(entity["colliders"] for entity in entities))
             self.assertTrue(
                 all(
-                    entity["collision_domain"] == "session_static"
-                    and entity["collider_asset_id"] is not None
+                    entity["collider_asset_id"] is not None
                     for entity in entities
                 )
             )
@@ -99,21 +109,43 @@ class ContentPipelineTest(unittest.TestCase):
                     for entity in entities
                 )
             )
-        client = contents["client"]["entities"]
+        server_by_id = {
+            entity["id"]: entity for entity in contents["server"]["entities"]
+        }
+        self.assertEqual(
+            server_by_id["dynamic"]["collision_domain"],
+            "authoritative_dynamic",
+        )
+        self.assertTrue(
+            all(
+                server_by_id[identity]["collision_domain"] == "session_static"
+                for identity in static_collision_ids
+            )
+        )
+
+    def _check_client_role_scene(self, client: list[dict[str, Any]]) -> None:
         self.assertEqual(
             [entity["id"] for entity in client],
-            ["audio-only", "collision-only", "mixed", "visual-only"],
+            [
+                "audio-only",
+                "collision-only",
+                "dynamic",
+                "mixed",
+                "visual-only",
+            ],
         )
         by_id = {entity["id"]: entity for entity in client}
         self.assertEqual(by_id["audio-only"]["audio_ref"], "audio.ambient")
         self.assertEqual(by_id["visual-only"]["visual_ref"], "visual.target")
         self.assertEqual(by_id["mixed"]["visual_ref"], "visual.crate")
         self.assertEqual(by_id["mixed"]["audio_ref"], "audio.crate")
+        self.assertEqual(by_id["dynamic"]["visual_ref"], "visual.mover")
+        self.assertIsNone(by_id["dynamic"]["collider_asset_id"])
         self.assertIsNone(by_id["audio-only"]["collider_asset_id"])
         self.assertIsNone(by_id["visual-only"]["collider_asset_id"])
         self.assertEqual(
             [entity["id"] for entity in client if entity["colliders"]],
-            collision_ids,
+            ["collision-only", "mixed"],
         )
 
     def test_loader_rejects_an_authenticated_unexpected_role(self):
@@ -164,6 +196,43 @@ class ContentPipelineTest(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertFalse(output.with_name("cooked.lock").exists())
             self.assertEqual(list(work.iterdir()), [])
+
+    def test_failed_generation_preserves_previous_complete_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+            previous_output = work / "published"
+            failed_output = work / "replacement"
+            key = ed25519.Ed25519PrivateKey.generate()
+            public = key.public_key().public_bytes_raw()
+            source = ROOT / "tests/integration/fixtures/scenes/roles.usda"
+            pipeline.cook(source, previous_output, public, key.sign)
+            previous = {
+                path.name: path.read_bytes()
+                for path in previous_output.iterdir()
+            }
+            calls = 0
+
+            def fail_on_third_pack(data: bytes) -> bytes:
+                nonlocal calls
+                calls += 1
+                if calls == 3:
+                    raise RuntimeError("signing failed")
+                return key.sign(data)
+
+            with self.assertRaisesRegex(RuntimeError, "signing failed"):
+                pipeline.cook(source, failed_output, public, fail_on_third_pack)
+
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in previous_output.iterdir()
+                },
+                previous,
+            )
+            self.assertFalse(failed_output.exists())
+            self.assertFalse(
+                failed_output.with_name("replacement.lock").exists()
+            )
 
     def test_scene_entity_description_matches_reference_encoding(self):
         reference = json.loads(

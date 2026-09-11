@@ -90,12 +90,14 @@ build/debug/blackflower_content_harness \
   build/packs/mvp/mvp.bfclient /path/to/content-public.key
 ```
 
-ServerScene and AgentScene contain only collider-bearing entity descriptions.
-ClientScene is one sparse catalogue containing the union of static collision and
-logical visual/audio references needed by later Prediction and Presentation
-projections. The same authored entity retains its `SceneEntityId` across every
-role and component projection. Logical references are typed identifiers, not
-media resources; visual, audio, light and spawn data remain unimplemented.
+ServerScene contains both supported authored collision domains. AgentScene
+contains `SessionStatic` collision only. Both omit visual and audio references.
+ClientScene is one sparse catalogue containing the union of `SessionStatic`
+collision and logical visual/audio references needed by later Prediction and
+Presentation projections; `AuthoritativeDynamic` collision is physically
+omitted. The same authored entity retains its `SceneEntityId` across every role
+and component projection. Logical references are typed identifiers, not media
+resources; visual, audio, light and spawn data remain unimplemented.
 
 Applications supply their own pack path and independent trust set. The public
 `VerifiedPack` retains the read-only file mapping and exposes a

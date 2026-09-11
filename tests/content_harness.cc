@@ -81,12 +81,23 @@ void PrintSceneEntityDescription(
   std::cout << ",\"rotation_xyzw\":";
   PrintArray(value.rotation_xyzw);
   std::cout << ",\"scale\":" << value.scale << ",\"collision_domain\":";
-  std::cout << (value.collision_domain ? "\"session_static\"" : "null");
+  if (!value.collision) {
+    std::cout << "null";
+  } else if (value.collision->domain ==
+             blackflower::content::CollisionDomain::kSessionStatic) {
+    std::cout << "\"session_static\"";
+  } else {
+    std::cout << "\"authoritative_dynamic\"";
+  }
   std::cout << ",\"colliders\":";
-  PrintCollection(value.colliders, PrintCollider);
+  if (value.collision) {
+    PrintCollection(value.collision->boxes, PrintCollider);
+  } else {
+    std::cout << "[]";
+  }
   std::cout << ",\"collider_asset_id\":";
-  if (value.collider_asset_id) {
-    std::cout << '"' << Hex(value.collider_asset_id->bytes) << '"';
+  if (value.collision) {
+    std::cout << '"' << Hex(value.collision->asset_id.bytes) << '"';
   } else {
     std::cout << "null";
   }

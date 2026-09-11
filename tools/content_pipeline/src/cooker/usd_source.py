@@ -1,8 +1,7 @@
-"""Read referenced scene entities with independently authored collision."""
+"""Read sparse role domains from referenced OpenUSD entity definitions."""
 
 import math
 import pathlib
-import re
 import tempfile
 from typing import Any
 from typing import cast
@@ -87,8 +86,8 @@ def _scope(parent: Usd.Prim, name: str) -> Usd.Prim:
 
 def _identity(prim: Usd.Prim) -> str:
     identity = _attribute(prim, "blackflower:id")
-    if not isinstance(identity, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_.:-]*", identity
+    if not isinstance(identity, str) or not scene.IDENTITY_PATTERN.fullmatch(
+        identity
     ):
         raise ValueError("entity ID must match [A-Za-z0-9][A-Za-z0-9_.:-]*")
     return identity
@@ -127,9 +126,21 @@ def _read_entity(
         allowed.add(collider.GetPath())
         data["entities"][-1]["colliders"].append(_box(collider))
     if data["entities"][-1]["colliders"]:
-        data["entities"][-1][
-            "collision_domain"
-        ] = scene.CollisionDomain.SESSION_STATIC
+        data["entities"][-1]["collision_domain"] = _collision_domain(colliders)
+
+
+def _collision_domain(bounds: Usd.Prim) -> scene.CollisionDomain:
+    value = _attribute(bounds, "blackflower:collisionDomain")
+    domains = {
+        "SessionStatic": scene.CollisionDomain.SESSION_STATIC,
+        "AuthoritativeDynamic": scene.CollisionDomain.AUTHORITATIVE_DYNAMIC,
+    }
+    if value not in domains:
+        raise ValueError(
+            "blackflower:collisionDomain must be SessionStatic or "
+            "AuthoritativeDynamic"
+        )
+    return domains[value]
 
 
 def _logical_reference(prim: Usd.Prim, name: str) -> str | None:
@@ -137,8 +148,8 @@ def _logical_reference(prim: Usd.Prim, name: str) -> str | None:
     if not attribute:
         return None
     value = attribute.Get()
-    if not isinstance(value, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_.:-]*", value
+    if not isinstance(value, str) or not scene.IDENTITY_PATTERN.fullmatch(
+        value
     ):
         raise ValueError(f"{name} must be a logical asset reference")
     return value

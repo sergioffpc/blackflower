@@ -37,7 +37,9 @@ the entity's visual representation. _Avoid_: Bounds as a runtime collision term;
 
 **CollisionDomain**: The participation class attached to a cooked collider
 description. `SessionStatic` identifies fixed scenario collision that may enter
-Simulation and Prediction. Authored dynamic collision remains undefined.
+Simulation and Prediction. `AuthoritativeDynamic` identifies authored collision
+that enters only the authoritative Simulation scene; its movement and lifecycle
+remain undefined.
 
 **VisualReference**: A logical identity for an entity's presentation visual. It
 is neither media data nor a graphics SDK handle.
@@ -74,11 +76,10 @@ covering its source, production settings and resources across consumer scenes.
 server, including entities and their colliders.
 
 **AgentScene**: The complete scene content required by an autonomous
-participant, including entities and their colliders without visual or audio
-assets.
+participant, including static-collision entities without visual or audio assets.
 
 **ClientScene**: The complete scene content required by a human participant's
-client, including entities, their colliders and associated presentation content.
+client, including static-collision entities and associated presentation content.
 
 **SceneAsset**: The immutable compiled spatial scene from which independent live
 scene instances are created.

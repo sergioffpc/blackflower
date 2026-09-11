@@ -51,10 +51,12 @@ concrete scene types, and consumers do not need companion packs. Callers may
 require an expected role after full verification to reject a valid but misrouted
 artifact.
 
-ServerScene and AgentScene contain sparse collision descriptions without
-visual/audio references. ClientScene is one catalogue containing the union of
-static collision and logical visual/audio references needed to derive separate
-Prediction and Presentation projections. An authored logical entity retains one
+ServerScene contains sparse static and authoritative-dynamic collision
+descriptions. AgentScene contains static collision only. Both omit visual/audio
+references. ClientScene is one catalogue containing the union of static
+collision and logical visual/audio references needed to derive separate
+Prediction and Presentation projections; it physically omits
+authoritative-dynamic collision. An authored logical entity retains one
 `SceneEntityId` wherever it appears. Logical presentation references do not
 carry media data; visual mesh and audio encoding remain future work. Runtime
 adapters prepare SDK resources from these portable definitions. The autonomous

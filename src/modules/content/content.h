@@ -2,7 +2,6 @@
 #define BLACKFLOWER_CONTENT_CONTENT_H_
 
 #include <array>
-#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -70,7 +69,6 @@ enum class PackError : std::uint8_t {
   // Allocation failed inside the mapping adapter; other allocation failures
   // outside that exception boundary remain unrecoverable.
   kMappingAllocationFailed,
-
 };
 
 // Returns static diagnostic text. Callers classify failures by the enum value;
@@ -103,6 +101,8 @@ enum class PackRole : std::uint8_t { kServer, kAgent, kClient };
 enum class CollisionDomain : std::uint8_t {
   // Fixed scenario geometry available to every collision consumer.
   kSessionStatic = 1,
+  // Authored collision available only to authoritative simulation.
+  kAuthoritativeDynamic = 2,
 };
 
 struct VisualReference {
@@ -115,17 +115,24 @@ struct AudioReference {
   auto operator<=>(const AudioReference&) const = default;
 };
 
+// One complete optional collision component; its fields cannot vary in
+// presence independently.
+struct CollisionDescription {
+  CollisionDomain domain;
+  std::vector<ColliderBox> boxes;
+  AssetId asset_id;
+  bool operator==(const CollisionDescription&) const = default;
+};
+
 // Persistent ASCII identity, placement, and sparse role domains. Position is
 // metres, rotation is a unit XYZW quaternion, and scale is positive and
-// uniform. Collider identity exists exactly when collision_domain is present.
+// uniform.
 struct SceneEntityDescription {
   SceneEntityId id;
   std::array<double, 3> position_m{};
   std::array<double, 4> rotation_xyzw{};
   double scale = 1;
-  std::optional<CollisionDomain> collision_domain;
-  std::vector<ColliderBox> colliders;
-  std::optional<AssetId> collider_asset_id;
+  std::optional<CollisionDescription> collision;
   std::optional<VisualReference> visual_reference;
   std::optional<AudioReference> audio_reference;
 };
@@ -168,9 +175,6 @@ class VerifiedPack {
 
   [[nodiscard]] AssetId asset_id() const { return asset_id_; }
 
-  // Role authenticated by the pack magic.
-  [[nodiscard]] PackRole role() const { return role_; }
-
   // Verified identity of the source, settings and cooked resources.
   [[nodiscard]] const Digest& content_build_id() const {
     return content_build_id_;
@@ -191,7 +195,6 @@ class VerifiedPack {
   Scene scene_;
   Digest content_build_id_{};
   AssetId asset_id_;
-  PackRole role_ = PackRole::kServer;
 };
 
 // Maps a file read-only and verifies it without copying the complete artifact.

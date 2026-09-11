@@ -63,10 +63,11 @@ build/packs/mvp/
 ```
 
 All three packs contain sparse entity descriptions and share a content build
-identity. Server and Agent retain collision only; Client retains static
-collision and logical presentation references. Success prints JSON on stdout. An
-interactive terminal also shows progress on stderr; redirected stderr stays
-silent on success. Failures return a nonzero exit status with a diagnostic.
+identity. Server retains static and authoritative-dynamic collision; Agent
+retains static collision only; Client retains static collision and logical
+presentation references. Success prints JSON on stdout. An interactive terminal
+also shows progress on stderr; redirected stderr stays silent on success.
+Failures return a nonzero exit status with a diagnostic.
 
 ## Prepare local source content
 
@@ -78,8 +79,10 @@ the reference fixture and follow the
 coordinates, metre units, a `/Scene` default prim with schema 1, and an optional
 `Entities` scope. Each placement references an `/Entity` definition and supplies
 a unique string `blackflower:id`. Definitions may contain optional `Bounds` with
-explicit Cube collision geometry and optional string `blackflower:visual` or
-`blackflower:audio` logical references. Absent entities or bounds are allowed.
+explicit Cube collision geometry and a `blackflower:collisionDomain` token whose
+value is `SessionStatic` or `AuthoritativeDynamic`, plus optional string
+`blackflower:visual` or `blackflower:audio` logical references. Absent entities
+or bounds are allowed.
 
 The cooker supports translated, rotated and uniformly scaled entity placements
 with oriented box bounds. Logical presentation references contain no media.

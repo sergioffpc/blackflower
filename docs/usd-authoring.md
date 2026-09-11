@@ -31,6 +31,12 @@ bounds or several; the floor uses a thin box. Bounds belong directly to their
 entity in the internal content scene. The authored name `Bounds` maps to
 Collider, never to visual culling LocalBounds or WorldBounds.
 
+A nonempty `Bounds` scope authors exactly one
+`custom token blackflower:collisionDomain`, either `SessionStatic` for fixed
+scenario geometry or `AuthoritativeDynamic` for collision that belongs only to
+the authoritative Simulation scene. Dynamic behavior and lifecycle are not
+encoded by this contract.
+
 Definitions may author optional logical presentation references directly on
 `/Entity` as `custom string blackflower:visual` and
 `custom string blackflower:audio`. Values use the same ASCII grammar as
@@ -41,11 +47,12 @@ nonempty visuals and asset-typed attributes are rejected until visual import is
 implemented. There are no Lights or Spawns scopes.
 
 The cooker projects every supported source scene into three sparse catalogues.
-ServerScene and AgentScene retain only collider-bearing entities and omit all
-presentation references. ClientScene retains the union of collider, visual, and
-audio entities. The current collision subset is `SessionStatic`, so every client
-collider is valid Prediction input. Descriptions without a domain for a role are
-omitted; retained descriptions keep their authored `SceneEntityId`.
+ServerScene retains both collision domains and omits presentation references.
+AgentScene retains `SessionStatic` collision only and omits presentation
+references. ClientScene retains the union of `SessionStatic` collision, visual,
+and audio entities; `AuthoritativeDynamic` collider data is physically omitted.
+Descriptions without a domain for a role are omitted; retained descriptions keep
+their authored `SceneEntityId`.
 
 Entity placements support translation, rotateXYZ in degrees and positive uniform
 scale, in that order; any of these operations may be omitted. Bound children
@@ -73,13 +80,14 @@ runtime physics SDK execution are implemented here.
 
 The installed CLI cooks the floor and rotated box fixtures into three signed
 packs, which the actual C++ loader consumes after all source files are removed.
-A four-entity role fixture covers collision-only, visual-only, audio-only, and
-mixed descriptions. Checks cover sparse role domains, shared identity, reused
-definitions, stable IDs after a prim rename, optional bounds and entities, and
-byte-identical outputs after relocation. Editing a dependency changes the build
-identity. Analytical box comparisons allow 1e-9 metres for position/dimensions
-and 1e-12 for quaternion components; these are fixture tolerances, not global
-fidelity guarantees.
+A five-entity role fixture covers collision-only, visual-only, audio-only,
+mixed, and authoritative-dynamic descriptions. Checks cover sparse role domains,
+dynamic collision filtering, shared identity, reused definitions, stable IDs
+after a prim rename, optional bounds and entities, and byte-identical outputs
+after relocation. Editing a dependency changes the build identity. Analytical
+box comparisons allow 1e-9 metres for position/dimensions and 1e-12 for
+quaternion components; these are fixture tolerances, not global fidelity
+guarantees.
 
 ## Scene example
 
@@ -140,6 +148,8 @@ def Xform "Entity"
 {
     def Scope "Bounds"
     {
+        custom token blackflower:collisionDomain = "SessionStatic"
+
         def Cube "Body" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
         )

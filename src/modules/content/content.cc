@@ -57,8 +57,50 @@ constexpr std::uint32_t kAudioComponent = 4;
 constexpr std::uint32_t kAllComponents =
     kCollisionComponent | kVisualComponent | kAudioComponent;
 
+struct PackErrorDescription {
+  PackError error;
+  std::string_view message;
+};
+
+constexpr std::array<PackErrorDescription, 20> kPackErrorDescriptions{{
+    {.error = PackError::kInvalidEntity, .message = "invalid entity identity"},
+    {.error = PackError::kInvalidTransform,
+     .message = "invalid scene transform"},
+    {.error = PackError::kInvalidSceneLength,
+     .message = "invalid scene length"},
+    {.error = PackError::kUnsupportedCollider,
+     .message = "unsupported collider kind"},
+    {.error = PackError::kUnsupportedCollisionDomain,
+     .message = "unsupported collision domain"},
+    {.error = PackError::kInvalidComponents,
+     .message = "invalid scene components"},
+    {.error = PackError::kInvalidReference,
+     .message = "invalid logical reference"},
+    {.error = PackError::kInvalidLength, .message = "invalid pack length"},
+    {.error = PackError::kCryptoInitializationFailed,
+     .message = "cryptographic initialization failed"},
+    {.error = PackError::kUnsupportedFormat,
+     .message = "unsupported pack format"},
+    {.error = PackError::kUnexpectedRole, .message = "unexpected pack role"},
+    {.error = PackError::kUnsupportedResourceCount,
+     .message = "unsupported resource count"},
+    {.error = PackError::kInvalidLayout, .message = "invalid pack layout"},
+    {.error = PackError::kUnknownSigningKey, .message = "unknown signing key"},
+    {.error = PackError::kInvalidSignature,
+     .message = "invalid pack signature"},
+    {.error = PackError::kInvalidProvenance,
+     .message = "invalid provenance layout"},
+    {.error = PackError::kInvalidResource,
+     .message = "invalid resource identity, schema or range"},
+    {.error = PackError::kDigestMismatch,
+     .message = "resource digest mismatch"},
+    {.error = PackError::kCannotMapFile, .message = "pack mapping failed"},
+    {.error = PackError::kMappingAllocationFailed,
+     .message = "mapping allocation failed"},
+}};
+
 enum class ResourceType : std::uint8_t {
-  // Entities with independently authored bounds.
+  // Role-specific sparse scene-entity descriptions.
   kScene = 1
 };
 
@@ -343,14 +385,21 @@ std::expected<std::string, PackError> DecodeReference(Reader& reader) {
   return std::string(text.begin(), text.end());
 }
 
-std::expected<void, PackError> DecodeCollision(Reader& reader,
+std::expected<void, PackError> DecodeCollision(Reader& reader, PackRole role,
                                                SceneEntityDescription& entity) {
   const auto domain = reader.Read<std::uint32_t>();
   if (!domain) {
     return std::unexpected(domain.error());
   }
-  if (*domain != static_cast<std::uint32_t>(CollisionDomain::kSessionStatic)) {
+  if (*domain != static_cast<std::uint32_t>(CollisionDomain::kSessionStatic) &&
+      *domain !=
+          static_cast<std::uint32_t>(CollisionDomain::kAuthoritativeDynamic)) {
     return std::unexpected(PackError::kUnsupportedCollisionDomain);
+  }
+  const auto collision_domain = static_cast<CollisionDomain>(*domain);
+  if (role != PackRole::kServer &&
+      collision_domain == CollisionDomain::kAuthoritativeDynamic) {
+    return std::unexpected(PackError::kInvalidComponents);
   }
   const auto collider_bytes = reader.remaining();
   const auto count = reader.Read<std::uint32_t>();
@@ -365,11 +414,13 @@ std::expected<void, PackError> DecodeCollision(Reader& reader,
   if (!colliders) {
     return std::unexpected(colliders.error());
   }
-  entity.collision_domain = CollisionDomain::kSessionStatic;
-  entity.colliders = std::move(*colliders);
-  entity.collider_asset_id = AssetIdentity(
-      "Blackflower.Collider.v1",
-      collider_bytes.first(collider_bytes.size() - reader.remaining().size()));
+  entity.collision = CollisionDescription{
+      .domain = collision_domain,
+      .boxes = std::move(*colliders),
+      .asset_id =
+          AssetIdentity("Blackflower.Collider.v1",
+                        collider_bytes.first(collider_bytes.size() -
+                                             reader.remaining().size()))};
   return {};
 }
 
@@ -409,7 +460,7 @@ std::expected<void, PackError> DecodeComponents(
     return std::unexpected(PackError::kInvalidComponents);
   }
   if ((*components & kCollisionComponent) != 0) {
-    const auto collision = DecodeCollision(reader, entity);
+    const auto collision = DecodeCollision(reader, role, entity);
     if (!collision) {
       return std::unexpected(collision.error());
     }
@@ -432,9 +483,7 @@ std::expected<SceneEntityDescription, PackError> DecodeSceneEntityDescription(
                                 .position_m = {v[0], v[1], v[2]},
                                 .rotation_xyzw = {v[3], v[4], v[5], v[6]},
                                 .scale = v[7],
-                                .collision_domain = std::nullopt,
-                                .colliders = {},
-                                .collider_asset_id = std::nullopt,
+                                .collision = std::nullopt,
                                 .visual_reference = std::nullopt,
                                 .audio_reference = std::nullopt};
   if (!ValidTransform(entity.position_m, entity.rotation_xyzw,
@@ -592,7 +641,6 @@ std::expected<VerifiedPack, PackError> VerifiedPack::LoadStorage(
   VerifiedPack result;
   result.scene_ = std::move(*scene);
   result.asset_id_ = AssetIdentity("Blackflower.Scene.v1", layout->payload);
-  result.role_ = layout->role;
   std::ranges::copy(layout->content_build_id, result.content_build_id_.begin());
   result.data_ = std::move(data);
   return result;
@@ -621,65 +669,13 @@ std::expected<VerifiedPack, PackError> LoadFile(
                                    trusted_keys, expected_role);
 }
 
-namespace {
-std::string_view SceneErrorMessage(PackError error) {
-  switch (error) {
-    case PackError::kInvalidEntity:
-      return "invalid entity identity";
-    case PackError::kInvalidTransform:
-      return "invalid scene transform";
-    case PackError::kInvalidSceneLength:
-      return "invalid scene length";
-    case PackError::kUnsupportedCollider:
-      return "unsupported collider kind";
-    case PackError::kUnsupportedCollisionDomain:
-      return "unsupported collision domain";
-    case PackError::kInvalidComponents:
-      return "invalid scene components";
-    case PackError::kInvalidReference:
-      return "invalid logical reference";
-    default:
-      return {};
-  }
-}
-
-std::string_view StorageErrorMessage(PackError error) {
-  switch (error) {
-    case PackError::kInvalidLength:
-      return "invalid pack length";
-    case PackError::kCryptoInitializationFailed:
-      return "cryptographic initialization failed";
-    case PackError::kUnsupportedFormat:
-      return "unsupported pack format";
-    case PackError::kUnexpectedRole:
-      return "unexpected pack role";
-    case PackError::kUnsupportedResourceCount:
-      return "unsupported resource count";
-    case PackError::kInvalidLayout:
-      return "invalid pack layout";
-    case PackError::kUnknownSigningKey:
-      return "unknown signing key";
-    case PackError::kInvalidSignature:
-      return "invalid pack signature";
-    case PackError::kInvalidProvenance:
-      return "invalid provenance layout";
-    case PackError::kInvalidResource:
-      return "invalid resource identity, schema or range";
-    case PackError::kDigestMismatch:
-      return "resource digest mismatch";
-    case PackError::kCannotMapFile:
-      return "pack mapping failed";
-    case PackError::kMappingAllocationFailed:
-      return "mapping allocation failed";
-    default:
-      return "unknown pack error";
-  }
-}
-}  // namespace
-
 std::string_view PackErrorMessage(PackError error) {
-  const auto scene_message = SceneErrorMessage(error);
-  return scene_message.empty() ? StorageErrorMessage(error) : scene_message;
+  for (const auto& description : kPackErrorDescriptions) {
+    if (description.error == error) {
+      return description.message;
+    }
+  }
+  return "unknown pack error";
 }
 
 }  // namespace blackflower::content

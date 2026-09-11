@@ -22,6 +22,7 @@ PACK_DOMAIN = b"Blackflower.Pack.v1\0"
 BUILD_DOMAIN = b"Blackflower.ScenarioBuild.v1\0"
 SETTINGS = (
     b"role-scenes-v1;units=m-f64;colliders=local;components=sparse;"
+    b"domains=session-static,authoritative-dynamic;"
     b"scenes=server,agent,client"
 )
 

@@ -10,6 +10,8 @@ def Xform "Entity"
     custom string blackflower:audio = "audio.crate"
     def Scope "Bounds"
     {
+        custom token blackflower:collisionDomain = "SessionStatic"
+
         def Cube "Body" (
             prepend apiSchemas = ["PhysicsCollisionAPI"]
         )
